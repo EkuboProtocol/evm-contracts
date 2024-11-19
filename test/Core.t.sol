@@ -11,12 +11,5 @@ contract CounterTest is Test {
         core = new Core();
     }
 
-    function test_deployed() public {
-
-    }
-//
-//    function testFuzz_SetNumber(uint256 x) public {
-//        core.setNumber(x);
-//        assertEq(core.number(), x);
-//    }
+    function test_deployed() public {}
 }

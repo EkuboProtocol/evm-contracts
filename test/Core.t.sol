@@ -8,7 +8,7 @@ contract CounterTest is Test {
     Core public core;
 
     function setUp() public {
-        core = new Core();
+        core = new Core(address(0x0));
     }
 
     function test_deployed() public {}

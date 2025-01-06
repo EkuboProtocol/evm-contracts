@@ -1,3 +1,6 @@
+.vscode
+.codegpt
+
 # Compiler files
 cache/
 out/
@@ -12,3 +15,5 @@ docs/
 
 # Dotenv file
 .env
+
+.codegpt

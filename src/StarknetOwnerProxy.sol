@@ -37,11 +37,12 @@ contract StarknetOwnerProxy {
         payload[2] = data.length;
 
         for (uint256 i = 0; i < chunkCount; i++) {
-            uint256 word;
             assembly ("memory-safe") {
-                word := shr(8, calldataload(add(data.offset, mul(i, 31))))
+                mstore(
+                    add(payload, mul(add(i, 4), 32)),
+                    shr(8, calldataload(add(data.offset, mul(i, 31))))
+                )
             }
-            payload[3 + i] = word;
         }
 
         return payload;

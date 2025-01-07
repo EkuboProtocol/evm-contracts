@@ -31,7 +31,7 @@ contract StarknetOwnerProxyTest is Test {
         );
     }
 
-    function test_get_payload_one_whole_word() public view {
+    function test_get_payload_31_bytes() public view {
         uint256[] memory expected = new uint256[](4);
         expected[0] = 0xdeadbeef;
         expected[1] = 123;
@@ -49,7 +49,8 @@ contract StarknetOwnerProxyTest is Test {
             expected
         );
     }
-    function test_get_payload_one_whole_word_and_one_byte() public view {
+
+    function test_get_payload_32_bytes() public view {
         uint256[] memory expected = new uint256[](5);
         expected[0] = 0xdeadbeef;
         expected[1] = 123;
@@ -66,6 +67,51 @@ contract StarknetOwnerProxyTest is Test {
                 address(0xdeadbeef),
                 123,
                 hex"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            ),
+            expected
+        );
+    }
+
+    function test_get_payload_62_bytes() public view {
+        uint256[] memory expected = new uint256[](5);
+        expected[0] = 0xdeadbeef;
+        expected[1] = 123;
+        expected[2] = 62;
+        expected[
+            3
+        ] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
+        expected[
+            4
+        ] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
+
+        assertEq(
+            proxy.getPayload(
+                address(0xdeadbeef),
+                123,
+                hex"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd"
+            ),
+            expected
+        );
+    }
+
+    function test_get_payload_64_bytes() public view {
+        uint256[] memory expected = new uint256[](6);
+        expected[0] = 0xdeadbeef;
+        expected[1] = 123;
+        expected[2] = 64;
+        expected[
+            3
+        ] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
+        expected[
+            4
+        ] = 0xef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab;
+        expected[5] = 0xcdef << 232;
+
+        assertEq(
+            proxy.getPayload(
+                address(0xdeadbeef),
+                123,
+                hex"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
             ),
             expected
         );

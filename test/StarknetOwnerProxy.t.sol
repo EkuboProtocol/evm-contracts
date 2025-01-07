@@ -25,10 +25,7 @@ contract StarknetOwnerProxyTest is Test {
         expected[1] = 123;
         expected[2] = 3;
         expected[3] = 0xabcdef << 224;
-        assertEq(
-            proxy.getPayload(address(0xdeadbeef), 123, hex"abcdef"),
-            expected
-        );
+        assertEq(proxy.getPayload(address(0xdeadbeef), 123, hex"abcdef"), expected);
     }
 
     function test_get_payload_31_bytes() public view {
@@ -36,15 +33,11 @@ contract StarknetOwnerProxyTest is Test {
         expected[0] = 0xdeadbeef;
         expected[1] = 123;
         expected[2] = 31;
-        expected[
-            3
-        ] = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
+        expected[3] = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
 
         assertEq(
             proxy.getPayload(
-                address(0xdeadbeef),
-                123,
-                hex"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                address(0xdeadbeef), 123, hex"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
             ),
             expected
         );
@@ -55,18 +48,12 @@ contract StarknetOwnerProxyTest is Test {
         expected[0] = 0xdeadbeef;
         expected[1] = 123;
         expected[2] = 32;
-        expected[
-            3
-        ] = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
-        expected[
-            4
-        ] = 0xff000000000000000000000000000000000000000000000000000000000000;
+        expected[3] = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
+        expected[4] = 0xff000000000000000000000000000000000000000000000000000000000000;
 
         assertEq(
             proxy.getPayload(
-                address(0xdeadbeef),
-                123,
-                hex"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                address(0xdeadbeef), 123, hex"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
             ),
             expected
         );
@@ -77,12 +64,8 @@ contract StarknetOwnerProxyTest is Test {
         expected[0] = 0xdeadbeef;
         expected[1] = 123;
         expected[2] = 62;
-        expected[
-            3
-        ] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
-        expected[
-            4
-        ] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
+        expected[3] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
+        expected[4] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
 
         assertEq(
             proxy.getPayload(
@@ -99,12 +82,8 @@ contract StarknetOwnerProxyTest is Test {
         expected[0] = 0xdeadbeef;
         expected[1] = 123;
         expected[2] = 64;
-        expected[
-            3
-        ] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
-        expected[
-            4
-        ] = 0xef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab;
+        expected[3] = 0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd;
+        expected[4] = 0xef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab;
         expected[5] = 0xcdef << 232;
 
         assertEq(

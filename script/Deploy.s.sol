@@ -36,7 +36,7 @@ contract CounterScript is Script {
             revert UnrecognizedChainId(block.chainid);
         }
 
-        core = new Core(address(proxy));
+        core = new Core(owner);
 
         vm.stopBroadcast();
     }

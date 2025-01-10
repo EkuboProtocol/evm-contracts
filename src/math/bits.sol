@@ -3,7 +3,15 @@ pragma solidity =0.8.28;
 
 error MsbNonZero();
 
-function msb(uint128 x) pure returns (uint8) {
+function msb(uint256 x) pure returns (uint8) {
+    if (x > type(uint128).max) {
+        return 128 + msb128(uint128(x >> 128));
+    } else {
+        return msb128(uint128(x));
+    }
+}
+
+function msb128(uint128 x) pure returns (uint8) {
     if (x == 0) revert MsbNonZero();
 
     uint8 res = 0;

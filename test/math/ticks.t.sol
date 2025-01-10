@@ -47,8 +47,12 @@ contract TicksTest is Test {
         assertLt(tickToSqrtRatio(tick), tickToSqrtRatio(tick + 1));
     }
 
-    function test_log2() public pure {
+    function test_log2_one() public pure {
         assertEq(log2(1 << 128), 0);
+    }
+
+    function test_log2_just_below_one() public pure {
+        assertEq(log2((1 << 128) - 1), 0);
     }
 
     function test_log2_100() public pure {
@@ -57,6 +61,14 @@ contract TicksTest is Test {
 
     function test_log2_0_01() public pure {
         assertEq(log2((uint256(1) << 128) / 100), -122557512190795972608);
+    }
+
+    function test_log2_min_sqrt_ratio() public pure {
+        assertEq(log2(MIN_SQRT_RATIO), -1180591611921318281216);
+    }
+
+    function test_log2_max_sqrt_ratio() public pure {
+        assertEq(log2(MAX_SQRT_RATIO), 1180591611921318281216);
     }
 
     function test_tickToSqrtRatio_inverse_sqrtRatioToTick(int32 tick) public pure {
@@ -106,7 +118,7 @@ contract TicksTest is Test {
     }
 
     function test_sqrtRatioToTick_within_bounds(uint256 sqrtRatio) public pure {
-        sqrtRatio = bound(sqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+        sqrtRatio = bound(sqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO - 1);
         int32 tick = sqrtRatioToTick(sqrtRatio);
         assertGe(sqrtRatio, tickToSqrtRatio(tick));
         assertLt(sqrtRatio, tickToSqrtRatio(tick + 1));

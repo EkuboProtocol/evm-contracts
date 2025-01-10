@@ -158,13 +158,10 @@ function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
         int32 tickHigh;
 
         if (logBaseTickSizeX128 < 0) {
-            tickLow = int32(
-                (logBaseTickSizeX128 - 0xffffffffffffffffffffffffffffffff - 112469616488610087266845472033458199637)
-                    >> 128
-            );
-            tickHigh = int32((logBaseTickSizeX128 - 0xffffffffffffffffffffffffffffffff) >> 128);
+            tickLow = int32((logBaseTickSizeX128 - 112469616488610087266845472033458199637) >> 128);
+            tickHigh = int32((logBaseTickSizeX128) >> 128);
         } else {
-            tickLow = int32((logBaseTickSizeX128) >> 128);
+            tickLow = int32((logBaseTickSizeX128 - 1) >> 128);
             tickHigh = int32((logBaseTickSizeX128 + 112469616488610087266845472033458199637) >> 128);
         }
 

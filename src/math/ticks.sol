@@ -148,20 +148,18 @@ function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
             revert InvalidSqrtRatio(sqrtRatio);
         }
 
-        int256 logBase2X64 = log2(sqrtRatio);
-
         // 25572630076711825471857579 == 2**64/(log base 2 of sqrt tick size)
         // https://www.wolframalpha.com/input?i=floor%28%281%2F+log+base+2+of+%28sqrt%281.000001%29%29%29*2**64%29
-        int256 logBaseTickSizeX128 = int256(logBase2X64) * 25572630076711825471857579;
+        int256 logBaseTickSizeX128 = int256(log2(sqrtRatio)) * 25572630076711825471857579;
 
         int32 tickLow;
         int32 tickHigh;
 
-        if (logBaseTickSizeX128 < 0) {
+        if ((sqrtRatio >> 128) == 0) {
             tickLow = int32((logBaseTickSizeX128 - 112469616488610087266845472033458199637) >> 128);
             tickHigh = int32((logBaseTickSizeX128) >> 128);
         } else {
-            tickLow = int32((logBaseTickSizeX128 - 1) >> 128);
+            tickLow = int32((logBaseTickSizeX128) >> 128);
             tickHigh = int32((logBaseTickSizeX128 + 112469616488610087266845472033458199637) >> 128);
         }
 

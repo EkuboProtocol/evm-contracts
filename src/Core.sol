@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-contract Core {
-    error DelegateCallOnly();
+import {CoreStorageLayout} from "./CoreStorageLayout.sol";
 
-    address public owner;
-
+contract Core is CoreStorageLayout {
     constructor(address _owner) {
         owner = _owner;
     }

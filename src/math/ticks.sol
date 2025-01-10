@@ -8,12 +8,12 @@ int32 constant MAX_TICK = 88722883;
 uint32 constant MAX_TICK_MAGNITUDE = uint32(MAX_TICK);
 uint32 constant MAX_TICK_SPACING = 354892;
 
-error TickMagnitude();
+error InvalidTick(int32 tick);
 
 function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
     unchecked {
         uint32 t = tick < 0 ? uint32(-tick) : uint32(tick);
-        if (t > MAX_TICK_MAGNITUDE) revert TickMagnitude();
+        if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
         if ((t & 0x1) != 0) {
             ratio = 0xfffff79c8499329c7cbb2510d893283b;
@@ -140,32 +140,40 @@ function log2(uint256 x) pure returns (int128) {
 uint256 constant MIN_SQRT_RATIO = 18446748437148339061;
 uint256 constant MAX_SQRT_RATIO = 6277100250585753475930931601400621808602321654880405518632;
 
-error InvalidSqrtRatio();
+error InvalidSqrtRatio(uint256 sqrtRatio);
 
 function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
     unchecked {
         if (sqrtRatio >= MAX_SQRT_RATIO || sqrtRatio < MIN_SQRT_RATIO) {
-            revert InvalidSqrtRatio();
+            revert InvalidSqrtRatio(sqrtRatio);
         }
 
-        int128 log = log2(sqrtRatio);
+        int256 logBase2X64 = log2(sqrtRatio);
 
-        // == 2**64/(log base 2 of tick size)
+        // 25572630076711825471857579 == 2**64/(log base 2 of sqrt tick size)
         // https://www.wolframalpha.com/input?i=floor%28%281%2F+log+base+2+of+%28sqrt%281.000001%29%29%29*2**64%29
-        int256 tickMagX128 = int256(log) * 25572630076711825471857579;
+        int256 logBaseTickSizeX128 = int256(logBase2X64) * 25572630076711825471857579;
 
-        // incorporate an “error” margin
-        int32 tickLow = int32(tickMagX128 >> 128);
-        // computed maximum error of the log calculation
-        int32 tickHigh = int32((tickMagX128 + 112469616488610087266845472033458199637) >> 128);
+        int32 tickLow;
+        int32 tickHigh;
 
-        // if they’re the same, done
+        if (logBaseTickSizeX128 < 0) {
+            tickLow = int32(
+                (logBaseTickSizeX128 - 0xffffffffffffffffffffffffffffffff - 112469616488610087266845472033458199637)
+                    >> 128
+            );
+            tickHigh = int32((logBaseTickSizeX128 - 0xffffffffffffffffffffffffffffffff) >> 128);
+        } else {
+            tickLow = int32((logBaseTickSizeX128) >> 128);
+            tickHigh = int32((logBaseTickSizeX128 + 112469616488610087266845472033458199637) >> 128);
+        }
+
         if (tickLow == tickHigh) {
             return tickLow;
         }
 
-        uint256 sqrtRatioHigh = tickToSqrtRatio(tickHigh);
-        if (sqrtRatio >= sqrtRatioHigh) return tickHigh;
+        if (tickToSqrtRatio(tickHigh) <= sqrtRatio) return tickHigh;
+
         return tickLow;
     }
 }

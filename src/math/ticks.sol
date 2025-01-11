@@ -127,157 +127,137 @@ function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
         x = x >> (msbHigh + 1);
         uint256 log2_unsigned = msbHigh * 0x10000000000000000;
 
-        // 63
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x8000000000000000;
-            x >>= 1;
-        }
+        assembly ("memory-safe") {
+            // 63
+            x := shr(127, mul(x, x))
+            let is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x8000000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 62
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x4000000000000000;
-            x >>= 1;
-        }
+            // 62
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x4000000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 61
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x2000000000000000;
-            x >>= 1;
-        }
+            // 61
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x2000000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 60
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x1000000000000000;
-            x >>= 1;
-        }
+            // 60
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x1000000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 59
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x800000000000000;
-            x >>= 1;
-        }
+            // 59
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x800000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 58
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x400000000000000;
-            x >>= 1;
-        }
+            // 58
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x400000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 57
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x200000000000000;
-            x >>= 1;
-        }
+            // 57
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x200000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 56
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x100000000000000;
-            x >>= 1;
-        }
+            // 56
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x100000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 55
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x80000000000000;
-            x >>= 1;
-        }
+            // 55
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x80000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 54
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x40000000000000;
-            x >>= 1;
-        }
+            // 54
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x40000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 53
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x20000000000000;
-            x >>= 1;
-        }
+            // 53
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x20000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 52
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x10000000000000;
-            x >>= 1;
-        }
+            // 52
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x10000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 51
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x8000000000000;
-            x >>= 1;
-        }
+            // 51
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x8000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 50
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x4000000000000;
-            x >>= 1;
-        }
+            // 50
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x4000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 49
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x2000000000000;
-            x >>= 1;
-        }
+            // 49
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x2000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 48
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x1000000000000;
-            x >>= 1;
-        }
+            // 48
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x1000000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 47
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x800000000000;
-            x >>= 1;
-        }
+            // 47
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x800000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 46
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x400000000000;
-            x >>= 1;
-        }
+            // 46
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x400000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 45
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x200000000000;
-            x >>= 1;
-        }
+            // 45
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x200000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 44
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x100000000000;
-            x >>= 1;
-        }
+            // 44
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x100000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 43
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x80000000000;
-            x >>= 1;
-        }
+            // 43
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x80000000000))
+            x := shr(is_high_nonzero, x)
 
-        // 42
-        x = (x * x) >> 127;
-        if ((x >> 128) != 0) {
-            log2_unsigned += 0x40000000000;
+            // 42
+            x := shr(127, mul(x, x))
+            is_high_nonzero := eq(iszero(shr(128, x)), 0)
+            log2_unsigned := add(log2_unsigned, mul(is_high_nonzero, 0x40000000000))
         }
 
         // 25572630076711825471857579 == 2**64/(log base 2 of sqrt tick size)

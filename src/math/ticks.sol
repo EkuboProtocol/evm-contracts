@@ -15,10 +15,10 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
         uint32 t = tick < 0 ? uint32(-tick) : uint32(tick);
         if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
-        ratio = 0x100000000000000000000000000000000;
-
         if ((t & 0x1) != 0) {
             ratio = 0xfffff79c8499329c7cbb2510d893283b;
+        } else {
+            ratio = 0x100000000000000000000000000000000;
         }
 
         if ((t & 0x2) != 0) {

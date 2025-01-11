@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {msb128} from "./bits.sol";
+import {msb} from "./bits.sol";
 
 int32 constant MIN_TICK = -88722883;
 int32 constant MAX_TICK = 88722883;
@@ -15,10 +15,10 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
         uint32 t = tick < 0 ? uint32(-tick) : uint32(tick);
         if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
+        ratio = 0x100000000000000000000000000000000;
+
         if ((t & 0x1) != 0) {
             ratio = 0xfffff79c8499329c7cbb2510d893283b;
-        } else {
-            ratio = 0x100000000000000000000000000000000;
         }
 
         if ((t & 0x2) != 0) {
@@ -123,7 +123,7 @@ function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
 
         uint256 x = negative ? (type(uint256).max / sqrtRatio) : sqrtRatio;
 
-        uint128 msbHigh = msb128(uint128(x >> 128));
+        uint128 msbHigh = msb(x >> 128);
         x = x >> (msbHigh + 1);
         uint256 log2_unsigned = msbHigh * 0x10000000000000000;
 

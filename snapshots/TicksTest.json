@@ -1,10 +1,10 @@
 {
-  "sqrtRatioToTick(1 << 128)": "132",
-  "sqrtRatioToTick(MAX_SQRT_RATIO)": "1969",
-  "sqrtRatioToTick(MIN_SQRT_RATIO)": "1938",
-  "tickToSqrtRatio(-0x3ffffff)": "633",
-  "tickToSqrtRatio(0)": "25",
-  "tickToSqrtRatio(0x3ffffff)": "633",
-  "tickToSqrtRatio(MAX_TICK)": "633",
-  "tickToSqrtRatio(MIN_TICK)": "633"
+  "sqrtRatioToTick(1 << 128)": "578",
+  "sqrtRatioToTick(MAX_SQRT_RATIO)": "2428",
+  "sqrtRatioToTick(MIN_SQRT_RATIO)": "2392",
+  "tickToSqrtRatio(-0x3ffffff)": "1090",
+  "tickToSqrtRatio(0)": "458",
+  "tickToSqrtRatio(0x3ffffff)": "1080",
+  "tickToSqrtRatio(MAX_TICK)": "1081",
+  "tickToSqrtRatio(MIN_TICK)": "1081"
 }

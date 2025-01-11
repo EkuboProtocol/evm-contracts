@@ -1,0 +1,5 @@
+{
+  "msb(1)": "459",
+  "msb(type(uint128).max)": "1069",
+  "msb(type(uint256).max)": "1078"
+}

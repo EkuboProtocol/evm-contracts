@@ -10,6 +10,20 @@ contract BitsTest is Test {
         msb(0);
     }
 
+    function test_msb_gas() public {
+        vm.startSnapshotGas("msb(1)");
+        assertEq(msb(1), 0);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("msb(type(uint128).max)");
+        assertEq(msb(type(uint128).max), 127);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("msb(type(uint256).max)");
+        assertEq(msb(type(uint256).max), 255);
+        vm.stopSnapshotGas();
+    }
+
     function test_msb_cases() public pure {
         assertEq(msb(1), 0);
         assertEq(msb(2), 1);

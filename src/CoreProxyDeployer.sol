@@ -8,7 +8,7 @@ contract CoreProxyDeployer {
     Core public core;
 
     constructor(address implementation, address owner) {
-        core = Core(LibClone.deployERC1967(implementation));
+        core = Core(LibClone.deployDeterministicERC1967(implementation, bytes32(0x0)));
         core.initialize(owner);
     }
 }

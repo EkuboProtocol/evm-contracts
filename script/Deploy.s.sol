@@ -18,8 +18,8 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        core = new Core();
-        deployer = new CoreProxyDeployer(address(core), owner);
+        core = new Core{salt: bytes32(0x0)}();
+        deployer = new CoreProxyDeployer{salt: bytes32(0x0)}(address(core), owner);
 
         vm.stopBroadcast();
     }

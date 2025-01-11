@@ -40,3 +40,15 @@ function msb(uint256 x) pure returns (uint8 res) {
         res := add(s, res)
     }
 }
+
+error LsbNonZero();
+
+function lsb(uint256 x) pure returns (uint8 res) {
+    if (x == 0) revert LsbNonZero();
+
+    assembly ("memory-safe") {
+        x := and(x, sub(0, x))
+    }
+
+    return msb(x);
+}

@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {
-    log2,
     sqrtRatioToTick,
     tickToSqrtRatio,
     MIN_TICK,
@@ -61,30 +60,6 @@ contract TicksTest is Test {
         assertLt(tickToSqrtRatio(tick), tickToSqrtRatio(tick + 1));
     }
 
-    function test_log2_one() public pure {
-        assertEq(log2(1 << 128), 0);
-    }
-
-    function test_log2_just_below_one() public pure {
-        assertEq(log2((1 << 128) - 1), 0);
-    }
-
-    function test_log2_100() public pure {
-        assertEq(log2(100 * (1 << 128)), 122557512190795972608);
-    }
-
-    function test_log2_0_01() public pure {
-        assertEq(log2((uint256(1) << 128) / 100), -122557512190795972608);
-    }
-
-    function test_log2_min_sqrt_ratio() public pure {
-        assertEq(log2(MIN_SQRT_RATIO), -1180591611921318281216);
-    }
-
-    function test_log2_max_sqrt_ratio() public pure {
-        assertEq(log2(MAX_SQRT_RATIO), 1180591611921318281216);
-    }
-
     function test_tickToSqrtRatio_inverse_sqrtRatioToTick(int32 tick) public pure {
         tick = boundTick(tick);
         uint256 sqrtRatio = tickToSqrtRatio(tick);
@@ -94,7 +69,6 @@ contract TicksTest is Test {
 
     function test_tickToSqrtRatio_example() public pure {
         assertEq(tickToSqrtRatio(-18129342), 39364507096818414277565165704570072);
-        assertEq(log2(39364507096818414277565165704570072), -241238203556658413568);
     }
 
     function test_sqrtRatioToTick_invalid_sqrtRatio_min() public {

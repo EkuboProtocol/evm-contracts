@@ -108,35 +108,6 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
     }
 }
 
-// Returns the approximate 64.64 log2(x) value of x assuming x is a 128.128 fixed point number
-function log2(uint256 x) pure returns (int128) {
-    unchecked {
-        bool negative;
-
-        // x is less than 1x128, so we know the result is negative and compute the value of log2(1/x)
-        if ((x >> 128) == 0) {
-            x = (type(uint256).max / x);
-            negative = true;
-        }
-
-        uint128 msbHigh = msb128(uint128(x >> 128));
-        x = x >> (msbHigh + 1);
-        uint128 result = msbHigh * 0x10000000000000000;
-
-        // repeated halving steps => 63..42
-        for (uint8 power = 63;; power--) {
-            x = (x * x) >> 127;
-            if ((x >> 128) != 0) {
-                result += (uint128(1) << power);
-                x >>= 1;
-            }
-            if (x == 0 || power == 42) break;
-        }
-
-        return negative ? -int128(result) : int128(result);
-    }
-}
-
 uint256 constant MIN_SQRT_RATIO = 18446748437148339061;
 uint256 constant MAX_SQRT_RATIO = 6277100250585753475930931601400621808602321654880405518632;
 
@@ -148,14 +119,177 @@ function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
             revert InvalidSqrtRatio(sqrtRatio);
         }
 
+        bool negative = (sqrtRatio >> 128) == 0;
+
+        uint256 x = negative ? (type(uint256).max / sqrtRatio) : sqrtRatio;
+
+        uint128 msbHigh = msb128(uint128(x >> 128));
+        x = x >> (msbHigh + 1);
+        uint128 log2_unsigned = msbHigh * 0x10000000000000000;
+
+        // 63
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x8000000000000000;
+            x >>= 1;
+        }
+
+        // 62
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x4000000000000000;
+            x >>= 1;
+        }
+
+        // 61
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x2000000000000000;
+            x >>= 1;
+        }
+
+        // 60
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x1000000000000000;
+            x >>= 1;
+        }
+
+        // 59
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x800000000000000;
+            x >>= 1;
+        }
+
+        // 58
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x400000000000000;
+            x >>= 1;
+        }
+
+        // 57
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x200000000000000;
+            x >>= 1;
+        }
+
+        // 56
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x100000000000000;
+            x >>= 1;
+        }
+
+        // 55
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x80000000000000;
+            x >>= 1;
+        }
+
+        // 54
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x40000000000000;
+            x >>= 1;
+        }
+
+        // 53
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x20000000000000;
+            x >>= 1;
+        }
+
+        // 52
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x10000000000000;
+            x >>= 1;
+        }
+
+        // 51
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x8000000000000;
+            x >>= 1;
+        }
+
+        // 50
+        x = (x * x) >> 127;
+
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x4000000000000;
+            x >>= 1;
+        }
+
+        // 49
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x2000000000000;
+            x >>= 1;
+        }
+
+        // 48
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x1000000000000;
+            x >>= 1;
+        }
+
+        // 47
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x800000000000;
+            x >>= 1;
+        }
+
+        // 46
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x400000000000;
+            x >>= 1;
+        }
+
+        // 45
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x200000000000;
+            x >>= 1;
+        }
+
+        // 44
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x100000000000;
+            x >>= 1;
+        }
+
+        // 43
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x80000000000;
+            x >>= 1;
+        }
+
+        // 42
+        x = (x * x) >> 127;
+        if ((x >> 128) != 0) {
+            log2_unsigned += 0x40000000000;
+        }
+
         // 25572630076711825471857579 == 2**64/(log base 2 of sqrt tick size)
         // https://www.wolframalpha.com/input?i=floor%28%281%2F+log+base+2+of+%28sqrt%281.000001%29%29%29*2**64%29
-        int256 logBaseTickSizeX128 = int256(log2(sqrtRatio)) * 25572630076711825471857579;
+        int256 logBaseTickSizeX128 =
+            int256(negative ? -int128(log2_unsigned) : int128(log2_unsigned)) * 25572630076711825471857579;
 
         int32 tickLow;
         int32 tickHigh;
 
-        if ((sqrtRatio >> 128) == 0) {
+        if (negative) {
             tickLow = int32((logBaseTickSizeX128 - 112469616488610087266845472033458199637) >> 128);
             tickHigh = int32((logBaseTickSizeX128) >> 128);
         } else {

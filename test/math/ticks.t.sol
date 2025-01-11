@@ -23,6 +23,20 @@ contract TicksTest is Test {
         assertEq(tickToSqrtRatio(0), 1 << 128);
     }
 
+    function test_tickToSqrtRatio_gas() public {
+        vm.startSnapshotGas("tickToSqrtRatio(0)");
+        tickToSqrtRatio(0);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("tickToSqrtRatio(MIN_TICK)");
+        tickToSqrtRatio(MIN_TICK);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("tickToSqrtRatio(MAX_TICK)");
+        tickToSqrtRatio(MAX_TICK);
+        vm.stopSnapshotGas();
+    }
+
     function test_tickToSqrtRatio_max() public pure {
         assertEq(tickToSqrtRatio(MAX_TICK), MAX_SQRT_RATIO);
     }
@@ -122,5 +136,19 @@ contract TicksTest is Test {
         int32 tick = sqrtRatioToTick(sqrtRatio);
         assertGe(sqrtRatio, tickToSqrtRatio(tick));
         assertLt(sqrtRatio, tickToSqrtRatio(tick + 1));
+    }
+
+    function test_sqrtRatioToTick_gas() public {
+        vm.startSnapshotGas("sqrtRatioToTick(1 << 128)");
+        sqrtRatioToTick(1 << 128);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("sqrtRatioToTick(MIN_SQRT_RATIO)");
+        sqrtRatioToTick(MIN_SQRT_RATIO);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("sqrtRatioToTick(MAX_SQRT_RATIO)");
+        sqrtRatioToTick(MAX_SQRT_RATIO - 1);
+        vm.stopSnapshotGas();
     }
 }

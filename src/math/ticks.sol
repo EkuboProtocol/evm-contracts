@@ -12,21 +12,45 @@ error InvalidTick(int32 tick);
 
 function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
     unchecked {
-        uint32 t = tick < 0 ? uint32(-tick) : uint32(tick);
+        bool negative = tick < 0;
+
+        uint32 t = negative ? uint32(-tick) : uint32(tick);
+
         if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
-        if ((t & 0x1) != 0) {
-            ratio = 0xfffff79c8499329c7cbb2510d893283b;
-        } else {
-            ratio = 0x100000000000000000000000000000000;
+        assembly ("memory-safe") {
+            // t & 0x1 != 0
+            let is_bit_set := eq(and(t, 0x1), 0x1)
+
+            ratio :=
+                add(
+                    mul(is_bit_set, 0xfffff79c8499329c7cbb2510d893283b),
+                    mul(iszero(is_bit_set), 0x100000000000000000000000000000000)
+                )
+
+            // t & 0x2 != 0
+            is_bit_set := eq(and(t, 0x2), 0x2)
+            ratio :=
+                shr(
+                    mul(is_bit_set, 128),
+                    mul(ratio, add(mul(is_bit_set, 0xffffef390978c398134b4ff3764fe410), mul(iszero(is_bit_set), 1)))
+                )
+
+            // t & 0x4 != 0
+            is_bit_set := eq(and(t, 0x4), 0x4)
+            ratio :=
+                shr(
+                    mul(is_bit_set, 128),
+                    mul(ratio, add(mul(is_bit_set, 0xffffde72140b00a354bd3dc828e976c9), mul(iszero(is_bit_set), 1)))
+                )
         }
 
-        if ((t & 0x2) != 0) {
-            ratio = (ratio * 0xffffef390978c398134b4ff3764fe410) >> 128;
-        }
-        if ((t & 0x4) != 0) {
-            ratio = (ratio * 0xffffde72140b00a354bd3dc828e976c9) >> 128;
-        }
+        // if ((t & 0x2) != 0) {
+        //     ratio = (ratio * 0xffffef390978c398134b4ff3764fe410) >> 128;
+        // }
+        // if ((t & 0x4) != 0) {
+        //     ratio = (ratio * 0xffffde72140b00a354bd3dc828e976c9) >> 128;
+        // }
         if ((t & 0x8) != 0) {
             ratio = (ratio * 0xffffbce42c7be6c998ad6318193c0b18) >> 128;
         }

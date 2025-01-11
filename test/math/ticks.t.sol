@@ -34,6 +34,14 @@ contract TicksTest is Test {
         vm.startSnapshotGas("tickToSqrtRatio(MAX_TICK)");
         tickToSqrtRatio(MAX_TICK);
         vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("tickToSqrtRatio(-0x3ffffff)");
+        tickToSqrtRatio(-0x3ffffff);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("tickToSqrtRatio(0x3ffffff)");
+        tickToSqrtRatio(0x3ffffff);
+        vm.stopSnapshotGas();
     }
 
     function test_tickToSqrtRatio_max() public pure {

@@ -81,9 +81,23 @@ contract BitsTest is Test {
         assertEq(msb(1 << y), y);
     }
 
+    function test_lsb_boundaries(uint8 y) public pure {
+        assertEq(lsb(1 << y), y);
+    }
+
+    function test_lsb_boundaries_plus_one(uint8 y) public pure {
+        vm.assume(y != 0);
+        assertEq(lsb((1 << y) + 1), 0);
+    }
+
     function test_msb_boundaries_plus_one(uint8 y) public pure {
         vm.assume(y != 0);
         assertEq(msb((1 << y) + 1), y);
+    }
+
+    function test_lsb_boundaries_minus_one(uint8 y) public pure {
+        vm.assume(y != 0);
+        assertEq(lsb((1 << y) - 1), 0);
     }
 
     function test_msb_boundaries_minus_one(uint8 y) public pure {

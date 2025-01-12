@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {Ownable} from "solady/auth/Ownable.sol";
 import {UUPSUpgradeable} from "solady/utils/UUPSUpgradeable.sol";
 
-contract OwnedUpgradeable is Ownable, UUPSUpgradeable {
+abstract contract OwnedUpgradeable is Ownable, UUPSUpgradeable {
     // Only called once at deploy time
     function initialize(address owner) external {
         _initializeOwner(owner);

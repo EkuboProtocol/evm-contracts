@@ -13,7 +13,7 @@ import {
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/math/ticks.sol";
 
 contract DeltaTest is Test {
-    function test_amount0Delta() public pure {
+    function test_amount0Delta_examples() public pure {
         assertEq(amount0Delta(1 << 128, MIN_SQRT_RATIO, 1, false), 18446739710271796308);
         assertEq(amount0Delta(MIN_SQRT_RATIO, 1 << 128, 1, false), 18446739710271796308);
         assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
@@ -29,7 +29,7 @@ contract DeltaTest is Test {
         assertEq(amount0Delta(339942424496442021441932674757011200255, 1 << 128, 1000000, true), 1001);
     }
 
-    function test_amount1Delta() public pure {
+    function test_amount1Delta_examples() public pure {
         assertEq(amount1Delta(1 << 128, MAX_SQRT_RATIO, 1, false), 18446739710271796308);
         assertEq(amount1Delta(MAX_SQRT_RATIO, 1 << 128, 1, false), 18446739710271796308);
         assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
@@ -41,5 +41,6 @@ contract DeltaTest is Test {
             amount1Delta(1 << 128, 309347606291762239512158734028880192232, 1000000000000000000, true),
             90909090909090910
         );
+        assertEq(amount1Delta(1 << 128, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 0xfffffc080ed7b4536f352cf617ac4df5);
     }
 }

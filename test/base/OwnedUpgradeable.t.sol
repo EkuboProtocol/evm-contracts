@@ -8,7 +8,8 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {OwnedUpgradeable} from "../../src/base/OwnedUpgradeable.sol";
 
 contract OwnedUpgradeableTestContract is OwnedUpgradeable {
-    function setX() external {}
+    function onlyProxyFunc() external onlyProxy {}
+    function func() external {}
 }
 
 contract OwnedUpgradeableTest is Test {
@@ -47,21 +48,21 @@ contract OwnedUpgradeableTest is Test {
 
     function test_gas_setX_via_proxy() public {
         vm.startSnapshotGas("proxy");
-        owned.setX();
+        owned.onlyProxyFunc();
         vm.stopSnapshotGas();
 
         vm.startSnapshotGas("proxy repeat");
-        owned.setX();
+        owned.onlyProxyFunc();
         vm.stopSnapshotGas();
     }
 
     function test_gas_setX_direct() public {
         vm.startSnapshotGas("direct");
-        OwnedUpgradeableTestContract(implementation).setX();
+        OwnedUpgradeableTestContract(implementation).func();
         vm.stopSnapshotGas();
 
         vm.startSnapshotGas("direct repeat");
-        OwnedUpgradeableTestContract(implementation).setX();
+        OwnedUpgradeableTestContract(implementation).func();
         vm.stopSnapshotGas();
     }
 }

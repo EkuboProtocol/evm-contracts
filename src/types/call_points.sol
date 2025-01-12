@@ -12,6 +12,17 @@ struct CallPoints {
     bool after_collect_fees;
 }
 
+using {eq} for CallPoints global;
+
+function eq(CallPoints memory a, CallPoints memory b) pure returns (bool) {
+    return (
+        a.before_initialize_pool == b.before_initialize_pool && a.after_initialize_pool == b.after_initialize_pool
+            && a.before_swap == b.before_swap && a.after_swap == b.after_swap
+            && a.before_update_position == b.before_update_position && a.after_update_position == b.after_update_position
+            && a.before_collect_fees == b.before_collect_fees && a.after_collect_fees == b.after_collect_fees
+    );
+}
+
 function byteToCallPoints(uint8 b) pure returns (CallPoints memory result) {
     // note the order of bytes does not match the struct order of elements because we are matching the cairo implementation
     // which for legacy reasons has the fields in this order

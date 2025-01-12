@@ -7,15 +7,17 @@ import {Ownable} from "solady/auth/Ownable.sol";
 
 import {OwnedUpgradeable} from "../../src/base/OwnedUpgradeable.sol";
 
-contract OwnedUpgradeableTestContract is OwnedUpgradeable {}
+contract OwnedUpgradeableTestContract is OwnedUpgradeable {
+    function setX() external {}
+}
 
 contract OwnedUpgradeableTest is Test {
     address public implementation;
-    OwnedUpgradeable public owned;
+    OwnedUpgradeableTestContract public owned;
 
     function setUp() public {
         implementation = address(new OwnedUpgradeableTestContract());
-        owned = OwnedUpgradeable(LibClone.deployERC1967(implementation));
+        owned = OwnedUpgradeableTestContract(LibClone.deployERC1967(implementation));
     }
 
     function test_deployed_state() public {
@@ -41,5 +43,25 @@ contract OwnedUpgradeableTest is Test {
         changePrank(address(123));
         owned.upgradeToAndCall(newImplementation, hex"");
         assertEq(owned.getImplementation(), newImplementation);
+    }
+
+    function test_gas_setX_via_proxy() public {
+        vm.startSnapshotGas("proxy");
+        owned.setX();
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("proxy repeat");
+        owned.setX();
+        vm.stopSnapshotGas();
+    }
+
+    function test_gas_setX_direct() public {
+        vm.startSnapshotGas("direct");
+        OwnedUpgradeableTestContract(implementation).setX();
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("direct repeat");
+        OwnedUpgradeableTestContract(implementation).setX();
+        vm.stopSnapshotGas();
     }
 }

@@ -5,6 +5,8 @@ import {OwnedUpgradeable} from "./base/OwnedUpgradeable.sol";
 import {CallPoints, byteToCallPoints} from "./types/call_points.sol";
 
 contract Core is OwnedUpgradeable {
+    error FailedRegisterInvalidCallPoints();
+
     mapping(address => bool) public isExtensionRegistered;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
@@ -14,7 +16,7 @@ contract Core is OwnedUpgradeable {
             b := and(shr(160, caller()), 0xff)
         }
         CallPoints memory computed = byteToCallPoints(b);
-        if (!computed.eq(expectedCallPoints)) {}
+        if (!computed.eq(expectedCallPoints)) revert FailedRegisterInvalidCallPoints();
         isExtensionRegistered[msg.sender] = true;
     }
 

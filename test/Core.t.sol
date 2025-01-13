@@ -29,7 +29,7 @@ contract CoreTest is Test {
     }
 
     function test_registerExtension(uint8 b) public {
-        vm.assume(b != 0);
+        b = uint8(bound(b, 1, type(uint8).max));
 
         address impl = address(new MockExtension());
         address actual = address((uint160(b) << 152) + 0xdeadbeef);
@@ -55,7 +55,7 @@ contract CoreTest is Test {
 
     function test_initializePool(address tokenA, address tokenB, uint128 fee, int32 tick, uint32 tickSpacing) public {
         tickSpacing = uint32(bound(tickSpacing, uint256(1), uint256(MAX_TICK_SPACING)));
-        tick = int32(bound(tick, MIN_TICK, MAX_TICK - 1));
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
 
         PoolKey memory key = PoolKey({
             token0: tokenA < tokenB ? tokenA : tokenB,
@@ -74,5 +74,8 @@ contract CoreTest is Test {
         (uint192 _sqrtRatio, int32 _tick) = core.poolPrice(key.toPoolId());
         assertEq(_sqrtRatio, tickToSqrtRatio(tick));
         assertEq(_tick, tick);
+
+        vm.expectRevert(Core.PoolAlreadyInitialized.selector);
+        core.initializePool(key, tick);
     }
 }

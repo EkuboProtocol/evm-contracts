@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {OwnedUpgradeable} from "./base/OwnedUpgradeable.sol";
 import {CallPoints, byteToCallPoints} from "./types/callPoints.sol";
 import {PoolKey, PositionKey} from "./types/keys.sol";
 import {Position} from "./types/position.sol";
 import {LibBitmap} from "solady/utils/LibBitmap.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -15,7 +15,11 @@ interface IForwardee {
     function forwarded(address locker, uint256 id, bytes calldata data) external returns (bytes memory);
 }
 
-contract Core is OwnedUpgradeable {
+contract Core is Ownable {
+    constructor(address owner) {
+        _initializeOwner(owner);
+    }
+
     using LibBitmap for LibBitmap.Bitmap;
 
     struct TickInfo {
@@ -104,7 +108,7 @@ contract Core is OwnedUpgradeable {
     error DeltasNotZeroed(uint256 count);
 
     // The entrypoint for all operations on the core contract
-    function lock(bytes calldata data) external onlyProxy returns (bytes memory result) {
+    function lock(bytes calldata data) external returns (bytes memory result) {
         uint256 id;
 
         assembly ("memory-safe") {

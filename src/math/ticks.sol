@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {msb} from "./bits.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 int32 constant MIN_TICK = -88722883;
 int32 constant MAX_TICK = 88722883;
@@ -123,7 +123,9 @@ function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
 
         uint256 x = negative ? (type(uint256).max / sqrtRatio) : sqrtRatio;
 
-        uint128 msbHigh = msb(x >> 128);
+        // we know x >> 128 is never zero because we check bounds above and then reciprocate sqrtRatio if the high 128 bits are zero
+        // so we don't need to handle the exceptional case of log2(0)
+        uint256 msbHigh = FixedPointMathLib.log2(x >> 128);
         x = x >> (msbHigh + 1);
         uint256 log2_unsigned = msbHigh * 0x10000000000000000;
 

@@ -22,17 +22,20 @@ contract Core is Ownable {
 
     using LibBitmap for LibBitmap.Bitmap;
 
+    // We pack the delta and net.
     struct TickInfo {
         int128 liquidityDelta;
         uint128 liquidityNet;
     }
 
+    // The pool price, we pack the tick with the sqrt ratio
     struct PoolPrice {
         uint192 sqrtRatio;
         int32 tick;
     }
 
-    // The total fees per liquidity for each token
+    // The total fees per liquidity for each token.
+    // Since these are always read together we put them in a struct, even though they cannot be packed.
     struct FeesPerLiquidity {
         uint256 token0_fees_per_liquidity;
         uint256 token1_fees_per_liquidity;
@@ -53,7 +56,7 @@ contract Core is Ownable {
     mapping(bytes32 poolId => LibBitmap.Bitmap) initializedTickBitmaps;
 
     // Balances saved for later
-    mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) savedBalances;
+    mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) public savedBalances;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external {

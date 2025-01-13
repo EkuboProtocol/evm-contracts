@@ -8,6 +8,7 @@ contract CounterScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
     address public owner = vm.envAddress("OWNER");
+    bytes32 public salt = vm.envBytes32("SALT");
 
     Core public core;
 
@@ -16,7 +17,7 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        core = new Core{salt: bytes32(0x0)}(owner);
+        core = new Core{salt: salt}(owner);
 
         vm.stopBroadcast();
     }

@@ -11,4 +11,8 @@ contract CoreTest is Test {
     function setUp() public {
         core = new Core(owner);
     }
+
+    function test_owner() public view {
+        assertEq(core.owner(), owner);
+    }
 }

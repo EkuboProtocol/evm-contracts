@@ -8,6 +8,15 @@ error ZeroSqrtRatio();
 error Amount0DeltaOverflow();
 error Amount1DeltaOverflow();
 
+function sortSqrtRatios(uint256 sqrtRatioA, uint256 sqrtRatioB)
+    pure
+    returns (uint256 sqrtRatioLower, uint256 sqrtRatioUpper)
+{
+    (sqrtRatioLower, sqrtRatioUpper) =
+        (FixedPointMathLib.min(sqrtRatioA, sqrtRatioB), FixedPointMathLib.max(sqrtRatioA, sqrtRatioB));
+    if (sqrtRatioLower == 0) revert ZeroSqrtRatio();
+}
+
 /**
  * @notice Computes the difference in amount of token0 between two sqrt ratios,
  *         rounding up if `roundUp = true`.
@@ -24,10 +33,7 @@ function amount0Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity,
     returns (uint128 amount0)
 {
     unchecked {
-        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
-            sqrtRatioA < sqrtRatioB ? (sqrtRatioA, sqrtRatioB) : (sqrtRatioB, sqrtRatioA);
-
-        if (sqrtRatioLower == 0) revert ZeroSqrtRatio();
+        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         if (liquidity == 0 || sqrtRatioLower == sqrtRatioUpper) {
             return 0;
@@ -68,8 +74,7 @@ function amount1Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity,
     returns (uint128 amount1)
 {
     unchecked {
-        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
-            sqrtRatioA < sqrtRatioB ? (sqrtRatioA, sqrtRatioB) : (sqrtRatioB, sqrtRatioA);
+        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         if (sqrtRatioLower == 0) revert ZeroSqrtRatio();
 

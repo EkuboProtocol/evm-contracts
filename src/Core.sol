@@ -73,6 +73,34 @@ contract Core is OwnedUpgradeable {
         if (locker != msg.sender) revert LockerOnly();
     }
 
+    function accountDelta(uint256 lockerId, address token, int128 delta) private {
+        bytes32 slot = keccak256(abi.encode(lockerId, token));
+
+        int128 current;
+        assembly ("memory-safe") {
+            current := tload(slot)
+        }
+
+        int128 next = current + delta;
+        if (current == 0 && next != 0) {
+            assembly ("memory-safe") {
+                let nzdCountSlot := add(lockerId, 0x200000000)
+
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), 1))
+            }
+        } else if (current != 0 && next == 0) {
+            assembly ("memory-safe") {
+                let nzdCountSlot := add(lockerId, 0x200000000)
+
+                tstore(nzdCountSlot, sub(tload(nzdCountSlot), 1))
+            }
+        }
+
+        assembly ("memory-safe") {
+            tstore(slot, next)
+        }
+    }
+
     error DeltasNotZeroed(uint256 count);
 
     // The entrypoint for all operations on the core contract

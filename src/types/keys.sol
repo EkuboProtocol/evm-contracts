@@ -3,6 +3,8 @@ pragma solidity =0.8.28;
 
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/ticks.sol";
 
+using {toPoolId, validatePoolKey} for PoolKey global;
+
 // Each pool has its own state associated with this key
 struct PoolKey {
     address token0;

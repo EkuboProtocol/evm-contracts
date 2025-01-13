@@ -6,6 +6,8 @@ import {PoolKey, PositionKey} from "./types/keys.sol";
 import {Position} from "./types/position.sol";
 import {LibBitmap} from "solady/utils/LibBitmap.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {tickToSqrtRatio} from "./math/ticks.sol";
+import {shouldCallBeforeInitializePool, shouldCallAfterInitializePool} from "./types/callPoints.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -13,6 +15,11 @@ interface ILocker {
 
 interface IForwardee {
     function forwarded(address locker, uint256 id, bytes calldata data) external returns (bytes memory);
+}
+
+interface IExtension {
+    function beforeInitializePool(PoolKey calldata key, int32 tick) external;
+    function afterInitializePool(PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
 }
 
 contract Core is Ownable {
@@ -154,6 +161,37 @@ contract Core is Ownable {
 
         assembly ("memory-safe") {
             tstore(add(0x100000000, id), locker)
+        }
+    }
+
+    error PoolAlreadyInitialized();
+    error ExtensionNotRegistered(address extension);
+
+    event PoolInitialized(PoolKey key, int32 tick, uint256 sqrtRatio);
+
+    function initializePool(PoolKey memory key, int32 tick) external returns (uint256 sqrtRatio) {
+        if (key.extension != address(0)) {
+            if (!isExtensionRegistered[key.extension]) {
+                revert ExtensionNotRegistered(key.extension);
+            }
+
+            if (shouldCallBeforeInitializePool(key.extension)) {
+                IExtension(key.extension).beforeInitializePool(key, tick);
+            }
+        }
+
+        bytes32 poolId = key.toPoolId();
+        PoolPrice memory price = poolPrice[poolId];
+        if (price.sqrtRatio != 0) revert PoolAlreadyInitialized();
+
+        sqrtRatio = tickToSqrtRatio(tick);
+        poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
+
+        emit PoolInitialized(key, tick, sqrtRatio);
+
+        // we don't need to check if extension is non-zero because a zero extension will always return false
+        if (shouldCallAfterInitializePool(key.extension)) {
+            IExtension(key.extension).afterInitializePool(key, tick, sqrtRatio);
         }
     }
 }

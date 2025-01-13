@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "../../src/math/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/math/ticks.sol";
-import {amount0Delta} from "../../src/math/delta.sol";
+import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 
 contract SqrtRatioTest is Test {
     function test_nextSqrtRatioFromAmount0() public pure {
@@ -41,5 +41,24 @@ contract SqrtRatioTest is Test {
         assertEq(nextSqrtRatioFromAmount1(1 << 128, 1, -1000000), 0);
         // 0 in case of overflow
         assertEq(nextSqrtRatioFromAmount1(type(uint256).max - type(uint128).max, 1, type(int128).max), 0);
+    }
+
+    function test_nextSqrtRatioFromAmount1_compared_amount1Delta(uint256 sqrtRatio, uint128 liquidity, int128 amount)
+        public
+        pure
+    {
+        liquidity = uint128(bound(liquidity, 1, type(uint128).max));
+        sqrtRatio = bound(sqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+
+        uint256 sqrtRatioNext = nextSqrtRatioFromAmount1(sqrtRatio, liquidity, amount);
+        // this assertion ensures that the next sqrt ratio we compute is either sufficient to produce the requested amount0,
+        // or more than the amount required to move to that price
+        if (sqrtRatioNext != 0) {
+            if (amount < 0) {
+                assertLe(uint128(uint256(-int256(amount))), amount1Delta(sqrtRatio, sqrtRatioNext, liquidity, false));
+            } else {
+                assertGe(uint128(amount), amount1Delta(sqrtRatio, sqrtRatioNext, liquidity, true));
+            }
+        }
     }
 }

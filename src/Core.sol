@@ -23,20 +23,15 @@ contract Core is OwnedUpgradeable {
         uint128 liquidityNet;
     }
 
-    struct PoolData {
-        // The current price
+    struct PoolPrice {
         uint192 sqrtRatio;
         int32 tick;
-        // The current pool liquidity
-        uint128 liquidity;
-        // The total fees per liquidity for each token
+    }
+
+    // The total fees per liquidity for each token
+    struct FeesPerLiquidity {
         uint256 token0_fees_per_liquidity;
         uint256 token1_fees_per_liquidity;
-        // All the positions on the pool
-        mapping(bytes32 positionId => Position position) positions;
-        // All the tick data for the pool
-        mapping(int32 tick => TickInfo tickInfo) ticks;
-        LibBitmap.Bitmap initializedTicks;
     }
 
     error FailedRegisterInvalidCallPoints();
@@ -46,12 +41,17 @@ contract Core is OwnedUpgradeable {
     mapping(address token => uint256 amountCollected) public protocolFeesCollected;
 
     // Keyed by the pool ID, which is the keccak256 of the ABI-encoded pool key
-    mapping(bytes32 poolId => PoolData poolData) pools;
+    mapping(bytes32 poolId => PoolPrice price) public poolPrice;
+    mapping(bytes32 poolId => uint128 liquidity) public poolLiquidity;
+    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFees;
+    mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public positions;
+    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public ticks;
+    mapping(bytes32 poolId => LibBitmap.Bitmap) initializedTickBitmaps;
 
+    // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) savedBalances;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
-
     function registerExtension(CallPoints memory expectedCallPoints) external {
         uint8 b;
         assembly ("memory-safe") {

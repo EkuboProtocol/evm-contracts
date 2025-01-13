@@ -11,6 +11,10 @@ interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
 }
 
+interface IForwardee {
+    function forwarded(address locker, uint256 id, bytes calldata data) external returns (bytes memory);
+}
+
 contract Core is OwnedUpgradeable {
     using LibBitmap for LibBitmap.Bitmap;
 
@@ -59,6 +63,16 @@ contract Core is OwnedUpgradeable {
         isExtensionRegistered[msg.sender] = true;
     }
 
+    error LockerOnly();
+
+    function requireLocker() private view returns (uint256 id, address locker) {
+        assembly ("memory-safe") {
+            id := sub(tload(0), 1)
+            locker := tload(add(0x100000000, id))
+        }
+        if (locker != msg.sender) revert LockerOnly();
+    }
+
     error DeltasNotZeroed(uint256 count);
 
     // The entrypoint for all operations on the core contract
@@ -67,16 +81,44 @@ contract Core is OwnedUpgradeable {
 
         assembly ("memory-safe") {
             id := tload(0)
+            // store the count
             tstore(0, add(id, 1))
+            // store the address of the locker
+            tstore(add(0x100000000, id), caller())
         }
+
+        // We make the assumption that this code can never be called recursively this many times, causing storage slots to overlap
+        // This is just the codified assumption
+        assert(id < type(uint32).max);
 
         result = ILocker(msg.sender).locked(id, data);
 
         uint256 nonzeroDeltaCount;
         assembly ("memory-safe") {
+            // reset the locker id
             tstore(0, id)
-            nonzeroDeltaCount := tload(add(0x10000000000000000, id))
+            // remove the address
+            tstore(add(0x100000000, id), 0)
+            // load the delta count which should already be reset to zero
+            nonzeroDeltaCount := tload(add(0x200000000, id))
         }
+
         if (nonzeroDeltaCount != 0) revert DeltasNotZeroed(nonzeroDeltaCount);
+    }
+
+    function forward(address to, bytes calldata data) external returns (bytes memory result) {
+        (uint256 id, address locker) = requireLocker();
+
+        // update this lock's locker to the forwarded address for the duration of the forwarded
+        // call, meaning only the forwarded address can update state
+        assembly ("memory-safe") {
+            tstore(add(0x100000000, id), to)
+        }
+
+        result = IForwardee(to).forwarded(locker, id, data);
+
+        assembly ("memory-safe") {
+            tstore(add(0x100000000, id), locker)
+        }
     }
 }

@@ -20,6 +20,10 @@ function validatePoolKey(PoolKey memory key) pure {
     if (key.tickSpacing == 0 || key.tickSpacing > MAX_TICK_SPACING) revert InvalidTickSpacing();
 }
 
+function toPoolId(PoolKey memory key) pure returns (bytes32) {
+    return keccak256(abi.encode(key));
+}
+
 // Bounds are lower and upper prices for which a position is active
 struct Bounds {
     int128 lower;
@@ -44,9 +48,6 @@ struct PositionKey {
     Bounds bounds;
 }
 
-// Contracts can save and load balances in core by this key
-struct SavedBalanceKey {
-    address owner;
-    address token;
-    bytes32 salt;
+function toPositionId(PositionKey memory key) pure returns (bytes32) {
+    return keccak256(abi.encode(key));
 }

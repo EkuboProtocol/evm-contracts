@@ -13,7 +13,7 @@ function fees(
     Position memory position,
     uint256 token0_fees_per_liquidity_inside,
     uint256 token1_fees_per_liquidity_inside
-) returns (uint128, uint128) {
+) pure returns (uint128, uint128) {
     unchecked {
         return (
             uint128(

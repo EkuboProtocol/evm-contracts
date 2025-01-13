@@ -72,46 +72,36 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
     if (liquidity == 0) {
         revert ZeroLiquidityNextSqrtRatioFromAmount1();
     }
+
+    unchecked {
+        uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
+
+        (uint256 quotient, uint256 remainder) = (shiftedAmountAbs / liquidity, shiftedAmountAbs % liquidity);
+
+        if (amount < 0) {
+            if (quotient > sqrtRatio) {
+                // Underflow => return 0
+                return 0;
+            }
+
+            sqrtRatioNext = sqrtRatio - quotient;
+
+            // If remainder is non-zero, we do one more step down (rounding).
+            // If sqrtRatioNext == 0 => can't go lower => return 0
+            if (remainder != 0) {
+                if (sqrtRatioNext == 0) {
+                    return 0;
+                }
+                sqrtRatioNext -= 1;
+            }
+        } else {
+            uint256 sum = sqrtRatio + quotient;
+            if (sum < sqrtRatio) {
+                return 0;
+            }
+            sqrtRatioNext = sum;
+        }
+    }
+
+    return sqrtRatioNext;
 }
-// // Compute the next ratio from a delta amount1, always rounded towards starting price for input, and
-// // away from starting price for output An empty option is returned on overflow/underflow which means
-// // the price exceeded the u256 bounds
-// pub fn next_sqrt_ratio_from_amount1(
-//     sqrt_ratio: u256, liquidity: u128, amount: i129,
-// ) -> Option<u256> {
-//     if (amount.is_zero()) {
-//         return Option::Some(sqrt_ratio);
-//     }
-
-//     assert(liquidity.is_non_zero(), 'NO_LIQUIDITY');
-
-//     let (quotient, remainder) = DivRem::div_rem(
-//         u256 { low: 0, high: amount.mag }, u256 { low: liquidity, high: 0 }.try_into().unwrap(),
-//     );
-
-//     // because quotient is rounded down, this price movement is also rounded towards sqrt_ratio
-//     if (amount.sign) {
-//         // adding amount1, taking out amount0
-//         let (res, overflow) = OverflowingSub::overflowing_sub(sqrt_ratio, quotient);
-//         if (overflow) {
-//             return Option::None(());
-//         }
-
-//         return if (remainder.is_zero()) {
-//             Option::Some(res)
-//         } else {
-//             if (res.is_non_zero()) {
-//                 Option::Some(res - 1_u256)
-//             } else {
-//                 Option::None(())
-//             }
-//         };
-//     } else {
-//         // adding amount1, taking out amount0, price goes up
-//         let (res, overflow) = OverflowingAdd::overflowing_add(sqrt_ratio, quotient);
-//         if (overflow) {
-//             return Option::None(());
-//         }
-//         return Option::Some(res);
-//     }
-// }

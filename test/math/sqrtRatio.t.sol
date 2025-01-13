@@ -12,7 +12,7 @@ contract SqrtRatioTest is Test {
         assertEq(nextSqrtRatioFromAmount0(1 << 128, 1 << 96, -10000), 340282366920938463463374650381441171457);
         assertEq(nextSqrtRatioFromAmount0(1 << 128, 1000000, 1000), 339942424496442021441932674757011200256);
         assertEq(nextSqrtRatioFromAmount0(1 << 128, 1, -100000000000000), 0);
-        assertEq(nextSqrtRatioFromAmount0(MIN_SQRT_RATIO, 1, 0x7fffffffffffffffffffffffffffffff), 2);
+        assertEq(nextSqrtRatioFromAmount0(MIN_SQRT_RATIO, 1, type(int128).max), 2);
         assertEq(nextSqrtRatioFromAmount0(1 << 128, 100000000000, -1000), (1 << 128) + 3402823703237621667009962744418);
     }
 
@@ -35,9 +35,11 @@ contract SqrtRatioTest is Test {
         }
     }
 
-    // function test_nextSqrtRatioFromAmount1() public pure {
-    //     assertEq(
-    //         nextSqrtRatioFromAmount1(1 << 128, 100000000000, 1000), (1 << 128) + 340282366920938463463374607431768211
-    //     );
-    // }
+    function test_nextSqrtRatioFromAmount1() public pure {
+        assertEq(nextSqrtRatioFromAmount1(1 << 128, 1000000, 1000), (1 << 128) + 340282366920938463463374607431768211);
+        assertEq(nextSqrtRatioFromAmount1(1 << 128, 1000000, -1000), 339942084554017524999911232824336443244);
+        assertEq(nextSqrtRatioFromAmount1(1 << 128, 1, -1000000), 0);
+        // 0 in case of overflow
+        assertEq(nextSqrtRatioFromAmount1(type(uint256).max - type(uint128).max, 1, type(int128).max), 0);
+    }
 }

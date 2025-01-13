@@ -12,7 +12,7 @@ struct CallPoints {
     bool afterCollectFees;
 }
 
-using {eq} for CallPoints global;
+using {eq, isValid} for CallPoints global;
 
 function eq(CallPoints memory a, CallPoints memory b) pure returns (bool) {
     return (
@@ -20,6 +20,13 @@ function eq(CallPoints memory a, CallPoints memory b) pure returns (bool) {
             && a.beforeSwap == b.beforeSwap && a.afterSwap == b.afterSwap
             && a.beforeUpdatePosition == b.beforeUpdatePosition && a.afterUpdatePosition == b.afterUpdatePosition
             && a.beforeCollectFees == b.beforeCollectFees && a.afterCollectFees == b.afterCollectFees
+    );
+}
+
+function isValid(CallPoints memory a) pure returns (bool) {
+    return (
+        a.beforeInitializePool || a.afterInitializePool || a.beforeSwap || a.afterSwap || a.beforeUpdatePosition
+            || a.afterUpdatePosition || a.beforeCollectFees || a.afterCollectFees
     );
 }
 

@@ -65,16 +65,20 @@ contract Core is Ownable {
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) public savedBalances;
 
+    event ExtensionRegistered(address extension);
+
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external {
         uint8 b;
         assembly ("memory-safe") {
-            b := and(shr(160, caller()), 0xff)
+            b := shr(152, caller())
         }
         CallPoints memory computed = byteToCallPoints(b);
-        if (!computed.eq(expectedCallPoints)) revert FailedRegisterInvalidCallPoints();
+        if (!computed.eq(expectedCallPoints) || !computed.isValid()) revert FailedRegisterInvalidCallPoints();
         if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
         isExtensionRegistered[msg.sender] = true;
+
+        emit ExtensionRegistered(msg.sender);
     }
 
     error LockerOnly();

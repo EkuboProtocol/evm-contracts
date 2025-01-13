@@ -2,130 +2,153 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {CallPoints, byteToCallPoints} from "../../src/types/call_points.sol";
+import {
+    CallPoints,
+    byteToCallPoints,
+    shouldCallBeforeInitializePool,
+    shouldCallAfterInitializePool,
+    shouldCallBeforeSwap,
+    shouldCallAfterSwap,
+    shouldCallBeforeUpdatePosition,
+    shouldCallAfterUpdatePosition,
+    shouldCallBeforeCollectFees,
+    shouldCallAfterCollectFees
+} from "../../src/types/callPoints.sol";
 
 contract CallPointsTest is Test {
     function test_byteToCallPoints_none() public pure {
         CallPoints memory cp = byteToCallPoints(0);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, false);
     }
 
     function test_byteToCallPoints_all() public pure {
         CallPoints memory cp = byteToCallPoints(255);
-        assertEq(cp.before_initialize_pool, true);
-        assertEq(cp.after_initialize_pool, true);
-        assertEq(cp.before_swap, true);
-        assertEq(cp.after_swap, true);
-        assertEq(cp.before_update_position, true);
-        assertEq(cp.after_update_position, true);
-        assertEq(cp.before_collect_fees, true);
-        assertEq(cp.after_collect_fees, true);
+        assertEq(cp.beforeInitializePool, true);
+        assertEq(cp.afterInitializePool, true);
+        assertEq(cp.beforeSwap, true);
+        assertEq(cp.afterSwap, true);
+        assertEq(cp.beforeUpdatePosition, true);
+        assertEq(cp.afterUpdatePosition, true);
+        assertEq(cp.beforeCollectFees, true);
+        assertEq(cp.afterCollectFees, true);
     }
 
-    function test_byteToCallPoints_before_initialize_pool() public pure {
+    function test_byteToCallPoints_beforeInitializePool() public pure {
         CallPoints memory cp = byteToCallPoints(1);
-        assertEq(cp.before_initialize_pool, true);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, true);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, false);
     }
 
-    function test_byteToCallPoints_after_initialize_pool() public pure {
+    function test_byteToCallPoints_afterInitializePool() public pure {
         CallPoints memory cp = byteToCallPoints(128);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, true);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, true);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, false);
     }
 
-    function test_byteToCallPoints_before_swap() public pure {
+    function test_byteToCallPoints_beforeSwap() public pure {
         CallPoints memory cp = byteToCallPoints(64);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, true);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, true);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, false);
     }
 
-    function test_byteToCallPoints_after_swap() public pure {
+    function test_byteToCallPoints_afterSwap() public pure {
         CallPoints memory cp = byteToCallPoints(32);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, true);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, true);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, false);
     }
 
-    function test_byteToCallPoints_before_update_position() public pure {
+    function test_byteToCallPoints_beforeUpdatePosition() public pure {
         CallPoints memory cp = byteToCallPoints(16);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, true);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, true);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, false);
     }
 
-    function test_byteToCallPoints_after_update_position() public pure {
+    function test_byteToCallPoints_afterUpdatePosition() public pure {
         CallPoints memory cp = byteToCallPoints(8);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, true);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, true);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, false);
     }
 
-    function test_byteToCallPoints_before_collect_fees() public pure {
+    function test_byteToCallPoints_beforeCollectFees() public pure {
         CallPoints memory cp = byteToCallPoints(4);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, true);
-        assertEq(cp.after_collect_fees, false);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, true);
+        assertEq(cp.afterCollectFees, false);
     }
 
-    function test_byteToCallPoints_after_collect_fees() public pure {
+    function test_byteToCallPoints_afterCollectFees() public pure {
         CallPoints memory cp = byteToCallPoints(2);
-        assertEq(cp.before_initialize_pool, false);
-        assertEq(cp.after_initialize_pool, false);
-        assertEq(cp.before_swap, false);
-        assertEq(cp.after_swap, false);
-        assertEq(cp.before_update_position, false);
-        assertEq(cp.after_update_position, false);
-        assertEq(cp.before_collect_fees, false);
-        assertEq(cp.after_collect_fees, true);
+        assertEq(cp.beforeInitializePool, false);
+        assertEq(cp.afterInitializePool, false);
+        assertEq(cp.beforeSwap, false);
+        assertEq(cp.afterSwap, false);
+        assertEq(cp.beforeUpdatePosition, false);
+        assertEq(cp.afterUpdatePosition, false);
+        assertEq(cp.beforeCollectFees, false);
+        assertEq(cp.afterCollectFees, true);
     }
 
     function test_byteToCallPoints_any_integer_does_not_revert(uint8 b) public pure {
         byteToCallPoints(b);
+    }
+
+    function test_shouldCall(address a) public pure {
+        CallPoints memory cp = byteToCallPoints(uint8(uint160(a) >> 152));
+        assertEq(shouldCallBeforeInitializePool(a), cp.beforeInitializePool);
+        assertEq(shouldCallAfterInitializePool(a), cp.afterInitializePool);
+        assertEq(shouldCallBeforeSwap(a), cp.beforeSwap);
+        assertEq(shouldCallAfterSwap(a), cp.afterSwap);
+        assertEq(shouldCallBeforeUpdatePosition(a), cp.beforeUpdatePosition);
+        assertEq(shouldCallAfterUpdatePosition(a), cp.afterUpdatePosition);
+        assertEq(shouldCallBeforeCollectFees(a), cp.beforeCollectFees);
+        assertEq(shouldCallAfterCollectFees(a), cp.afterCollectFees);
     }
 }

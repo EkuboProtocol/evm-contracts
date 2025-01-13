@@ -35,9 +35,21 @@ contract CoreTest is Test {
         address actual = address((uint160(b) << 152) + 0xdeadbeef);
         vm.etch(actual, impl.code);
 
+        vm.expectRevert(Core.FailedRegisterInvalidCallPoints.selector, address(core));
+        MockExtension(actual).register(core, byteToCallPoints(0));
+        // b + 1 will always be different
+        unchecked {
+            vm.expectRevert(Core.FailedRegisterInvalidCallPoints.selector, address(core));
+            MockExtension(actual).register(core, byteToCallPoints(b + 1));
+        }
+
         vm.expectEmit(address(core));
         emit Core.ExtensionRegistered(actual);
 
+        MockExtension(actual).register(core, byteToCallPoints(b));
+
+        // double register fails
+        vm.expectRevert(Core.ExtensionAlreadyRegistered.selector, address(core));
         MockExtension(actual).register(core, byteToCallPoints(b));
     }
 

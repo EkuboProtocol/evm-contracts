@@ -48,9 +48,6 @@ contract Core is Ownable {
         uint256 token1_fees_per_liquidity;
     }
 
-    error FailedRegisterInvalidCallPoints();
-    error ExtensionAlreadyRegistered();
-
     mapping(address extension => bool isRegistered) public isExtensionRegistered;
     mapping(address token => uint256 amountCollected) public protocolFeesCollected;
 
@@ -64,6 +61,9 @@ contract Core is Ownable {
 
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) public savedBalances;
+
+    error FailedRegisterInvalidCallPoints();
+    error ExtensionAlreadyRegistered();
 
     event ExtensionRegistered(address extension);
 

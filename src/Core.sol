@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {CallPoints, byteToCallPoints} from "./types/callPoints.sol";
+import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey, PositionKey} from "./types/keys.sol";
 import {Position} from "./types/position.sol";
-import {LibBitmap} from "solady/utils/LibBitmap.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
+import {Bitmap} from "./math/bitmap.sol";
 import {shouldCallBeforeInitializePool, shouldCallAfterInitializePool} from "./types/callPoints.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -22,12 +23,24 @@ interface IExtension {
     function afterInitializePool(PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
 }
 
+function tickToBitmapWordAndIndex(int32 tick) pure returns (uint256 word, uint8 index) {
+    unchecked {
+        uint256 rawIndex = uint256(int256(tick + 88723072));
+        (word, index) = (rawIndex / 256, uint8(255 - (rawIndex % 256)));
+    }
+}
+
+function bitmapWordAndIndexToTick(uint256 word, uint8 index) pure returns (int32 tick) {
+    unchecked {
+        int256 rawIndex = int256(word * 256 + (255 - uint256(index)));
+        tick = int32(int256(rawIndex) - 88723072);
+    }
+}
+
 contract Core is Ownable {
     constructor(address owner) {
         _initializeOwner(owner);
     }
-
-    using LibBitmap for LibBitmap.Bitmap;
 
     // We pack the delta and net.
     struct TickInfo {
@@ -57,7 +70,7 @@ contract Core is Ownable {
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFees;
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public positions;
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public ticks;
-    mapping(bytes32 poolId => LibBitmap.Bitmap) initializedTickBitmaps;
+    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) public initializedTickBitmaps;
 
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) public savedBalances;
@@ -67,13 +80,19 @@ contract Core is Ownable {
 
     event ExtensionRegistered(address extension);
 
+    // Returns the tick > fromTick that is initialized, or MAX_TICK if there is no such tick
+    function nextInitializedTick(bytes32 poolId, int32 fromTick, uint256 skipAhead)
+        public
+        view
+        returns (int32 nextTick, bool initialized)
+    {
+        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick + 1);
+        Bitmap bitmap = initializedTickBitmaps[poolId][word];
+    }
+
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external {
-        uint8 b;
-        assembly ("memory-safe") {
-            b := shr(152, caller())
-        }
-        CallPoints memory computed = byteToCallPoints(b);
+        CallPoints memory computed = addressToCallPoints(msg.sender);
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) revert FailedRegisterInvalidCallPoints();
         if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
         isExtensionRegistered[msg.sender] = true;

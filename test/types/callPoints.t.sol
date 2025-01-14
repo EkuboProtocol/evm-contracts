@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {
     CallPoints,
+    addressToCallPoints,
     byteToCallPoints,
     shouldCallBeforeInitializePool,
     shouldCallAfterInitializePool,
@@ -141,7 +142,7 @@ contract CallPointsTest is Test {
     }
 
     function test_shouldCall(address a) public pure {
-        CallPoints memory cp = byteToCallPoints(uint8(uint160(a) >> 152));
+        CallPoints memory cp = addressToCallPoints(a);
         assertEq(shouldCallBeforeInitializePool(a), cp.beforeInitializePool);
         assertEq(shouldCallAfterInitializePool(a), cp.afterInitializePool);
         assertEq(shouldCallBeforeSwap(a), cp.beforeSwap);

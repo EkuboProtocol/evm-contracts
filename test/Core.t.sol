@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Core, IExtension} from "../src/Core.sol";
+import {Core, IExtension, tickToBitmapWordAndIndex, bitmapWordAndIndexToTick} from "../src/Core.sol";
 import {PoolKey, PositionKey} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
@@ -77,5 +77,12 @@ contract CoreTest is Test {
 
         vm.expectRevert(Core.PoolAlreadyInitialized.selector);
         core.initializePool(key, tick);
+    }
+
+    function test_tickToBitmapWordAndIndex_bitmapWordAndIndexToTick(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        (uint256 word, uint8 index) = tickToBitmapWordAndIndex(tick);
+        int32 calculatedTick = bitmapWordAndIndexToTick(word, index);
+        assertEq(tick, calculatedTick);
     }
 }

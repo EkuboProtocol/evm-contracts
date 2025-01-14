@@ -30,6 +30,10 @@ function isValid(CallPoints memory a) pure returns (bool) {
     );
 }
 
+function addressToCallPoints(address a) pure returns (CallPoints memory result) {
+    result = byteToCallPoints(uint8(uint160(a) >> 152));
+}
+
 function byteToCallPoints(uint8 b) pure returns (CallPoints memory result) {
     // note the order of bytes does not match the struct order of elements because we are matching the cairo implementation
     // which for legacy reasons has the fields in this order

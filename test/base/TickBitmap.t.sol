@@ -45,11 +45,36 @@ contract TickBitmapTest is Test {
         return (tick, tickSpacing);
     }
 
+    function assertTbwi(int32 tick, uint32 tickSpacing, uint256 expectedWord, uint8 expectedIndex) public pure {
+        (uint256 word, uint8 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+        assertEq(word, expectedWord);
+        assertEq(index, expectedIndex);
+    }
+
+    function test_tickToBitmapWordAndIndex(uint32 tickSpacing) public pure {
+        // regardless of tick spacing, the 0 tick is in the middle of a word
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+        int32 mul = int32(tickSpacing);
+        assertTbwi(0, tickSpacing, 346574, 127);
+        assertTbwi(mul, tickSpacing, 346574, 126);
+        assertTbwi(mul * 127, tickSpacing, 346574, 0);
+        assertTbwi(mul * 128, tickSpacing, 346575, 255);
+        assertTbwi(mul * -1, tickSpacing, 346574, 128);
+        assertTbwi(mul * -128, tickSpacing, 346574, 255);
+        assertTbwi(mul * -129, tickSpacing, 346573, 0);
+    }
+
     function test_tickToBitmapWordAndIndex_bitmapWordAndIndexToTick(int32 tick, uint32 tickSpacing) public pure {
         (tick, tickSpacing) = bound(tick, tickSpacing);
         (uint256 word, uint8 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
         int32 calculatedTick = bitmapWordAndIndexToTick(word, index, tickSpacing);
         assertEq(tick, calculatedTick);
+    }
+
+    function checkNextTick(TickBitmap tbm, int32 fromTick, int32 expectedTick, bool expectedInitialized) private {
+        (int32 nextTick, bool initialized) = tbm.next(fromTick);
+        assertEq(nextTick, expectedTick);
+        assertTrue(expectedInitialized);
     }
 
     function test_findNextInitializedTick(int32 tick, uint32 tickSpacing) public {
@@ -59,9 +84,13 @@ contract TickBitmapTest is Test {
 
         tbm.flip(tick);
 
-        (int32 nextTick, bool initialized) = tbm.next(tick - 1);
-        assertEq(nextTick, tick);
-        assertTrue(initialized);
+        checkNextTick(tbm, tick - 1, tick, true);
+    }
+
+    function checkPrevTick(TickBitmap tbm, int32 fromTick, int32 expectedTick, bool expectedInitialized) private {
+        (int32 prevTick, bool initialized) = tbm.prev(fromTick);
+        assertEq(prevTick, expectedTick);
+        assertTrue(expectedInitialized);
     }
 
     function test_findPrevInitializedTick(int32 tick, uint32 tickSpacing) public {
@@ -71,8 +100,6 @@ contract TickBitmapTest is Test {
 
         tbm.flip(tick);
 
-        (int32 prevTick, bool initialized) = tbm.prev(tick);
-        assertEq(prevTick, tick);
-        assertTrue(initialized);
+        checkPrevTick(tbm, tick, tick, true);
     }
 }

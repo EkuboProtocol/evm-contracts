@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Bitmap} from "../math/bitmap.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {MIN_TICK, MAX_TICK} from "../math/ticks.sol";
 
 function tickToBitmapWordAndIndex(int32 tick, uint32 tickSpacing) pure returns (uint256 word, uint8 index) {
@@ -24,62 +25,37 @@ function flipTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 tick
     map[word] = map[word].toggle(index);
 }
 
-function findNextInitializedTick(
-    mapping(uint256 word => Bitmap bitmap) storage map,
-    int32 fromTick,
-    uint32 tickSpacing,
-    uint256 skipAhead
-) view returns (int32 nextTick, bool initialized) {
+function findNextInitializedTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 fromTick, uint32 tickSpacing)
+    view
+    returns (int32, bool)
+{
     unchecked {
         (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick + 1, tickSpacing);
-        while (true) {
-            Bitmap bitmap = map[word];
-            uint8 nextIndex = bitmap.leSetBit(uint8(index));
-            nextTick = bitmapWordAndIndexToTick(word, uint8(nextIndex), tickSpacing);
-            initialized = bitmap.isSet(nextIndex);
-            if (initialized) {
-                break;
-            }
-            if (nextTick >= MAX_TICK) {
-                return (MAX_TICK, false);
-            }
-            if (skipAhead == 0) {
-                return (nextTick, false);
-            }
 
-            skipAhead--;
-            word++;
-            index = 255;
+        Bitmap bitmap = map[word];
+        uint8 nextIndex = bitmap.leSetBit(uint8(index));
+        int32 nextTick = bitmapWordAndIndexToTick(word, uint8(nextIndex), tickSpacing);
+        if (nextTick > MAX_TICK) {
+            return (MAX_TICK, false);
+        } else {
+            return (nextTick, bitmap.isSet(nextIndex));
         }
     }
 }
 
-function findPrevInitializedTick(
-    mapping(uint256 word => Bitmap bitmap) storage map,
-    int32 fromTick,
-    uint32 tickSpacing,
-    uint256 skipAhead
-) view returns (int32 prevTick, bool initialized) {
+function findPrevInitializedTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 fromTick, uint32 tickSpacing)
+    view
+    returns (int32, bool)
+{
     unchecked {
         (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick, tickSpacing);
-        while (true) {
-            Bitmap bitmap = map[word];
-            uint8 prevIndex = bitmap.geSetBit(uint8(index));
-            prevTick = bitmapWordAndIndexToTick(word, uint8(prevIndex), tickSpacing);
-            initialized = bitmap.isSet(prevIndex);
-            if (initialized) {
-                break;
-            }
-            if (prevTick <= MIN_TICK) {
-                return (MIN_TICK, false);
-            }
-            if (skipAhead == 0) {
-                return (prevTick, false);
-            }
-
-            skipAhead--;
-            word--;
-            index = 0;
+        Bitmap bitmap = map[word];
+        uint8 prevIndex = bitmap.geSetBit(uint8(index));
+        int32 prevTick = bitmapWordAndIndexToTick(word, uint8(prevIndex), tickSpacing);
+        if (prevTick < MIN_TICK) {
+            return (MIN_TICK, false);
+        } else {
+            return (prevTick, bitmap.isSet(prevIndex));
         }
     }
 }

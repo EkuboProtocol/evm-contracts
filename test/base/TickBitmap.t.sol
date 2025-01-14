@@ -27,12 +27,12 @@ contract TickBitmap {
         flipTick(map, tick, tickSpacing);
     }
 
-    function next(int32 fromTick, uint256 skipAhead) public view returns (int32 tick, bool initialized) {
-        (tick, initialized) = findNextInitializedTick(map, fromTick, tickSpacing, skipAhead);
+    function next(int32 fromTick) public view returns (int32, bool) {
+        return findNextInitializedTick(map, fromTick, tickSpacing);
     }
 
-    function prev(int32 fromTick, uint256 skipAhead) public view returns (int32 tick, bool initialized) {
-        (tick, initialized) = findPrevInitializedTick(map, fromTick, tickSpacing, skipAhead);
+    function prev(int32 fromTick) public view returns (int32, bool) {
+        return findPrevInitializedTick(map, fromTick, tickSpacing);
     }
 }
 
@@ -58,7 +58,8 @@ contract TickBitmapTest is Test {
         TickBitmap tbm = new TickBitmap(tickSpacing);
 
         tbm.flip(tick);
-        (int32 nextTick, bool initialized) = tbm.next(tick - 1, 0);
+
+        (int32 nextTick, bool initialized) = tbm.next(tick - 1);
         assertEq(nextTick, tick);
         assertTrue(initialized);
     }
@@ -69,7 +70,8 @@ contract TickBitmapTest is Test {
         TickBitmap tbm = new TickBitmap(tickSpacing);
 
         tbm.flip(tick);
-        (int32 prevTick, bool initialized) = tbm.prev(tick, 0);
+
+        (int32 prevTick, bool initialized) = tbm.prev(tick);
         assertEq(prevTick, tick);
         assertTrue(initialized);
     }

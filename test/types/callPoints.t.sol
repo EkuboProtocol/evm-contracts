@@ -141,6 +141,10 @@ contract CallPointsTest is Test {
         byteToCallPoints(b);
     }
 
+    function test_callPoints_toUint8(CallPoints memory callPoints) public pure {
+        assertTrue(callPoints.eq(byteToCallPoints(callPoints.toUint8())));
+    }
+
     function test_shouldCall(address a) public pure {
         CallPoints memory cp = addressToCallPoints(a);
         assertEq(shouldCallBeforeInitializePool(a), cp.beforeInitializePool);

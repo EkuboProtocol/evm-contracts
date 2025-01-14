@@ -71,10 +71,10 @@ contract TickBitmapTest is Test {
         assertEq(tick, calculatedTick);
     }
 
-    function checkNextTick(TickBitmap tbm, int32 fromTick, int32 expectedTick, bool expectedInitialized) private {
+    function checkNextTick(TickBitmap tbm, int32 fromTick, int32 expectedTick, bool expectedInitialized) private view {
         (int32 nextTick, bool initialized) = tbm.next(fromTick);
         assertEq(nextTick, expectedTick);
-        assertTrue(expectedInitialized);
+        assertEq(initialized, expectedInitialized);
     }
 
     function test_findNextInitializedTick(int32 tick, uint32 tickSpacing) public {
@@ -87,10 +87,10 @@ contract TickBitmapTest is Test {
         checkNextTick(tbm, tick - 1, tick, true);
     }
 
-    function checkPrevTick(TickBitmap tbm, int32 fromTick, int32 expectedTick, bool expectedInitialized) private {
+    function checkPrevTick(TickBitmap tbm, int32 fromTick, int32 expectedTick, bool expectedInitialized) private view {
         (int32 prevTick, bool initialized) = tbm.prev(fromTick);
         assertEq(prevTick, expectedTick);
-        assertTrue(expectedInitialized);
+        assertEq(initialized, expectedInitialized);
     }
 
     function test_findPrevInitializedTick(int32 tick, uint32 tickSpacing) public {
@@ -101,5 +101,64 @@ contract TickBitmapTest is Test {
         tbm.flip(tick);
 
         checkPrevTick(tbm, tick, tick, true);
+    }
+
+    function test_complex_example_next_tick() public {
+        TickBitmap tbm = new TickBitmap(10);
+
+        tbm.flip(-10000);
+        tbm.flip(-1000);
+        tbm.flip(-20);
+        tbm.flip(100);
+        tbm.flip(800);
+        tbm.flip(9000);
+
+        checkNextTick(tbm, -15000, -14090, false);
+        checkNextTick(tbm, -14090, -11530, false);
+        checkNextTick(tbm, -11530, -10000, true);
+        checkNextTick(tbm, -10000, -8970, false);
+        checkNextTick(tbm, -8970, -6410, false);
+        checkNextTick(tbm, -6410, -3850, false);
+        checkNextTick(tbm, -3850, -1290, false);
+        checkNextTick(tbm, -1290, -1000, true);
+        checkNextTick(tbm, -1000, -20, true);
+        checkNextTick(tbm, -20, 100, true);
+        checkNextTick(tbm, 100, 800, true);
+        checkNextTick(tbm, 800, 1270, false);
+        checkNextTick(tbm, 1270, 3830, false);
+        checkNextTick(tbm, 3830, 6390, false);
+        checkNextTick(tbm, 6390, 8950, false);
+        checkNextTick(tbm, 8950, 9000, true);
+    }
+
+    function test_complex_example_prev_tick() public {
+        TickBitmap tbm = new TickBitmap(10);
+
+        tbm.flip(-10000);
+        tbm.flip(-1000);
+        tbm.flip(-20);
+        tbm.flip(100);
+        tbm.flip(800);
+        tbm.flip(9000);
+
+        checkPrevTick(tbm, 15000, 14080, false);
+        checkPrevTick(tbm, 14079, 11520, false);
+        checkPrevTick(tbm, 11519, 9000, true);
+        checkPrevTick(tbm, 9000, 9000, true);
+        checkPrevTick(tbm, 8999, 8960, false);
+        checkPrevTick(tbm, 8959, 6400, false);
+        checkPrevTick(tbm, 6399, 3840, false);
+        checkPrevTick(tbm, 3839, 1280, false);
+        checkPrevTick(tbm, 1279, 800, true);
+        checkPrevTick(tbm, 800, 800, true);
+        checkPrevTick(tbm, 799, 100, true);
+        checkPrevTick(tbm, 99, -20, true);
+        checkPrevTick(tbm, -20, -20, true);
+        checkPrevTick(tbm, -21, -1000, true);
+        checkPrevTick(tbm, -1001, -1280, false);
+        checkPrevTick(tbm, -1281, -3840, false);
+        checkPrevTick(tbm, -3841, -6400, false);
+        checkPrevTick(tbm, -6401, -8960, false);
+        checkPrevTick(tbm, -8961, -10000, true);
     }
 }

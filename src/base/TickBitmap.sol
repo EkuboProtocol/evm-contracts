@@ -30,7 +30,8 @@ function findNextInitializedTick(mapping(uint256 word => Bitmap bitmap) storage 
     returns (int32, bool)
 {
     unchecked {
-        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick + 1, tickSpacing);
+        (uint256 word, uint256 index) =
+            tickToBitmapWordAndIndex(fromTick < 0 ? fromTick + 1 : fromTick + int32(tickSpacing), tickSpacing);
 
         Bitmap bitmap = map[word];
         uint8 nextIndex = bitmap.leSetBit(uint8(index));
@@ -48,7 +49,8 @@ function findPrevInitializedTick(mapping(uint256 word => Bitmap bitmap) storage 
     returns (int32, bool)
 {
     unchecked {
-        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick, tickSpacing);
+        (uint256 word, uint256 index) =
+            tickToBitmapWordAndIndex(fromTick < 0 ? fromTick - (int32(tickSpacing) - 1) : fromTick, tickSpacing);
         Bitmap bitmap = map[word];
         uint8 prevIndex = bitmap.geSetBit(uint8(index));
         int32 prevTick = bitmapWordAndIndexToTick(word, uint8(prevIndex), tickSpacing);

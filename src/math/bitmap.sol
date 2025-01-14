@@ -5,7 +5,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 type Bitmap is uint256;
 
-using {toggle, isSet} for Bitmap global;
+using {toggle, isSet, ltSetBit, geSetBit} for Bitmap global;
 
 function toggle(Bitmap bitmap, uint8 index) pure returns (Bitmap result) {
     result = Bitmap.wrap(Bitmap.unwrap(bitmap) ^ (1 << index));
@@ -17,10 +17,36 @@ function isSet(Bitmap bitmap, uint8 index) pure returns (bool yes) {
     }
 }
 
-// Returns the index of the bit that is set to true and less significant than fromIndex, or (0, false) if no such bit exists
-function nextSetBit(Bitmap bitmap, uint8 fromIndex) pure returns (uint8 index, bool initialized) {
-    // use bit masks and operations to find the next set bit optimally
+error LtSetBitZero();
+// Returns the index of the bit that is set to true and less significant than index, or 0 if no such bit exists.
+
+function ltSetBit(Bitmap bitmap, uint8 index) pure returns (uint8) {
+    unchecked {
+        if (index == 0) revert LtSetBitZero();
+
+        // Mask out bits >= index.
+        // e.g. if index = 10, we only keep bits [0..9].
+        // (1 << index) - 1  sets those lower bits, then we & with the bitmap.
+        uint256 bits = Bitmap.unwrap(bitmap);
+        uint256 mask = (uint256(1) << index) - 1;
+        uint256 masked = bits & mask;
+        return uint8(FixedPointMathLib.log2(masked));
+    }
 }
 
-// Returns the index of the bit that is set to true and more or equally significant to fromIndex, or (255, false) if no such bit exists
-function prevSetBit(Bitmap bitmap, uint8 fromIndex) pure returns (uint8 index, bool initialized) {}
+// Returns the index of the bit that is set to true and more or equally significant to index, or 255 if no such bit exists.
+function geSetBit(Bitmap bitmap, uint8 index) pure returns (uint8) {
+    unchecked {
+        uint256 bits = Bitmap.unwrap(bitmap);
+        uint256 mask = ~((uint256(1) << index) - 1);
+        uint256 masked = bits & mask;
+        if (masked == 0) {
+            // No bits set at or above index
+            return 255;
+        }
+        // The lowest set bit in masked is found via (masked & -masked).
+        // Then we use log2(...) to get the index.
+        uint256 lowestSetBit = masked & (0 - masked); // or masked & (~masked + 1)
+        return uint8(FixedPointMathLib.log2(lowestSetBit));
+    }
+}

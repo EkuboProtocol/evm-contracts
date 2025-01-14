@@ -9,7 +9,6 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {shouldCallBeforeInitializePool, shouldCallAfterInitializePool} from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {TickBitmap} from "./base/TickBitmap.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -24,7 +23,7 @@ interface IExtension {
     function afterInitializePool(PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
 }
 
-contract Core is Ownable, TickBitmap {
+contract Core is Ownable {
     constructor(address owner) {
         _initializeOwner(owner);
     }

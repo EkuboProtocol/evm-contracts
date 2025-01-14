@@ -84,9 +84,7 @@ contract CoreTest is Test {
         tickSpacing = uint32(bound(tickSpacing, uint256(1), uint256(MAX_TICK_SPACING)));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
 
-        address extension = callPoints.beforeInitializePool || callPoints.afterInitializePool
-            ? createAndRegisterExtension(callPoints)
-            : address(0);
+        address extension = callPoints.isValid() ? createAndRegisterExtension(callPoints) : address(0);
         PoolKey memory key =
             PoolKey({token0: token0, token1: token1, fee: fee, tickSpacing: tickSpacing, extension: extension});
 

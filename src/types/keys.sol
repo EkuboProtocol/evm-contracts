@@ -18,7 +18,7 @@ error InvalidTokens();
 error InvalidTickSpacing();
 
 function validatePoolKey(PoolKey memory key) pure {
-    if (key.token0 == address(0) || key.token0 > key.token1) revert InvalidTokens();
+    if (key.token0 == address(0) || key.token0 >= key.token1) revert InvalidTokens();
     if (key.tickSpacing == 0 || key.tickSpacing > MAX_TICK_SPACING) revert InvalidTickSpacing();
 }
 

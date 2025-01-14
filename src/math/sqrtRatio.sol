@@ -23,24 +23,25 @@ function nextSqrtRatioFromAmount0(uint256 sqrtRatio, uint128 liquidity, int128 a
         uint256 liquidityX128 = uint256(liquidity) << 128;
         uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
 
+        bool priceIncreasing = amount < 0;
         // If amountAbs > type(uint256).max / sqrtRatio => overflow in multiplication
         // sqrtRatio is never zero
         // We know if this overflows, the denominator computed below will also always overflow
         if (amountAbs > type(uint256).max / sqrtRatio) {
-            // Overflow => return 0
-            return 0;
+            // Overflow => return the min/max for the type
+            return priceIncreasing ? type(uint256).max : 0;
         }
 
         uint256 product = amountAbs * sqrtRatio;
 
         // If amount < 0 => price is going up => denominator = (liquidityX128 - product)
         // If amount > 0 => price is going down => denominator = (liquidityX128 + product)
-        if (amount < 0) {
+        if (priceIncreasing) {
             // “Removing token0” => denominator = liquidityX128 - product
             // Check underflow or zero denominator
             // If product >= liquidityX128 => underflow (or denominator=0)
             if (product >= liquidityX128) {
-                return 0; // none
+                return type(uint256).max;
             }
             uint256 denominator = liquidityX128 - product;
 
@@ -76,9 +77,11 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
     unchecked {
         uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
 
+        bool priceDecreasing = amount < 0;
+
         (uint256 quotient, uint256 remainder) = (shiftedAmountAbs / liquidity, shiftedAmountAbs % liquidity);
 
-        if (amount < 0) {
+        if (priceDecreasing) {
             if (quotient > sqrtRatio) {
                 // Underflow => return 0
                 return 0;
@@ -97,7 +100,7 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
         } else {
             uint256 sum = sqrtRatio + quotient;
             if (sum < sqrtRatio) {
-                return 0;
+                return type(uint256).max;
             }
             sqrtRatioNext = sum;
         }

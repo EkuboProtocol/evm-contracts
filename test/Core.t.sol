@@ -79,10 +79,12 @@ contract CoreTest is Test {
         core.initializePool(key, tick);
     }
 
-    function test_tickToBitmapWordAndIndex_bitmapWordAndIndexToTick(int32 tick) public {
+    function test_tickToBitmapWordAndIndex_bitmapWordAndIndexToTick(int32 tick, uint32 tickSpacing) public pure {
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        (uint256 word, uint8 index) = tickToBitmapWordAndIndex(tick);
-        int32 calculatedTick = bitmapWordAndIndexToTick(word, index);
+        tick += int32(tickSpacing) - (tick % int32(tickSpacing));
+        (uint256 word, uint8 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+        int32 calculatedTick = bitmapWordAndIndexToTick(word, index, tickSpacing);
         assertEq(tick, calculatedTick);
     }
 }

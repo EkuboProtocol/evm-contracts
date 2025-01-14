@@ -16,12 +16,11 @@ contract BitmapTest is Test {
         assertEq(bitmap.isSet(index), !bitmap.toggle(index).isSet(index));
     }
 
-    function test_ltSetBit(Bitmap bitmap, uint8 index) public pure {
-        index = uint8(bound(index, 1, 255));
-        uint8 prev = bitmap.ltSetBit(index);
-        assertLt(prev, index);
+    function test_leSetBit(Bitmap bitmap, uint8 index) public pure {
+        uint8 prev = bitmap.leSetBit(index);
+        assertLe(prev, index);
         assertTrue(bitmap.isSet(prev) || prev == 0);
-        for (uint8 i = index - 1; i > prev; i--) {
+        for (uint8 i = index; i > prev; i--) {
             assertFalse(bitmap.isSet(i));
         }
     }

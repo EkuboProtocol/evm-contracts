@@ -25,10 +25,12 @@ function flipTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 tick
     map[word] = map[word].toggle(index);
 }
 
-function findNextInitializedTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 fromTick, uint32 tickSpacing)
-    view
-    returns (int32, bool)
-{
+function findNextInitializedTick(
+    mapping(uint256 word => Bitmap bitmap) storage map,
+    int32 fromTick,
+    uint32 tickSpacing,
+    uint8 skipAhead
+) view returns (int32, bool) {
     unchecked {
         (uint256 word, uint256 index) =
             tickToBitmapWordAndIndex(fromTick < 0 ? fromTick + 1 : fromTick + int32(tickSpacing), tickSpacing);
@@ -38,16 +40,24 @@ function findNextInitializedTick(mapping(uint256 word => Bitmap bitmap) storage 
         int32 nextTick = bitmapWordAndIndexToTick(word, uint8(nextIndex), tickSpacing);
         if (nextTick > MAX_TICK) {
             return (MAX_TICK, false);
+        } else if (bitmap.isSet(nextIndex)) {
+            return (nextTick, true);
         } else {
-            return (nextTick, bitmap.isSet(nextIndex));
+            if (skipAhead != 0) {
+                return findNextInitializedTick(map, nextTick, tickSpacing, skipAhead - 1);
+            } else {
+                return (nextTick, false);
+            }
         }
     }
 }
 
-function findPrevInitializedTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 fromTick, uint32 tickSpacing)
-    view
-    returns (int32, bool)
-{
+function findPrevInitializedTick(
+    mapping(uint256 word => Bitmap bitmap) storage map,
+    int32 fromTick,
+    uint32 tickSpacing,
+    uint8 skipAhead
+) view returns (int32, bool) {
     unchecked {
         (uint256 word, uint256 index) =
             tickToBitmapWordAndIndex(fromTick < 0 ? fromTick - (int32(tickSpacing) - 1) : fromTick, tickSpacing);
@@ -56,8 +66,14 @@ function findPrevInitializedTick(mapping(uint256 word => Bitmap bitmap) storage 
         int32 prevTick = bitmapWordAndIndexToTick(word, uint8(prevIndex), tickSpacing);
         if (prevTick < MIN_TICK) {
             return (MIN_TICK, false);
+        } else if (bitmap.isSet(prevIndex)) {
+            return (prevTick, true);
         } else {
-            return (prevTick, bitmap.isSet(prevIndex));
+            if (skipAhead != 0) {
+                return findPrevInitializedTick(map, prevTick - 1, tickSpacing, skipAhead - 1);
+            } else {
+                return (prevTick, false);
+            }
         }
     }
 }

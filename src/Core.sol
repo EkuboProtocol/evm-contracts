@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "./types/keys.sol";
-import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
+import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -14,6 +14,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
+import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -222,6 +223,26 @@ contract Core is Ownable, ExposedStorage {
         }
     }
 
+    using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
+
+    function prevInitializedTick(PoolKey memory poolKey, int32 fromTick, uint8 skipAhead)
+        external
+        view
+        returns (int32 tick, bool isInitialized)
+    {
+        (tick, isInitialized) =
+            initializedTickBitmaps[poolKey.toPoolId()].findPrevInitializedTick(fromTick, poolKey.tickSpacing, skipAhead);
+    }
+
+    function nextInitializedTick(PoolKey memory poolKey, int32 fromTick, uint8 skipAhead)
+        external
+        view
+        returns (int32 tick, bool isInitialized)
+    {
+        (tick, isInitialized) =
+            initializedTickBitmaps[poolKey.toPoolId()].findNextInitializedTick(fromTick, poolKey.tickSpacing, skipAhead);
+    }
+
     error BalanceDeltaNotEqualAllowance(address token);
     error PaymentOverflow(address token, uint256 delta);
 
@@ -289,5 +310,28 @@ contract Core is Ownable, ExposedStorage {
         } else {
             return upper.sub(lower);
         }
+    }
+
+    error OnlyCallableByExtension();
+    error CannotAccumulateFeesWithZeroLiquidity();
+
+    event FeesAccumulated(PoolKey poolKey, uint128 amount0, uint128 amount1);
+
+    // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
+    // key, i.e. the current locker _must_ be the extension.
+    // The extension must call this function within a lock callback.
+    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
+        (uint256 id, address locker) = requireLocker();
+        if (locker != poolKey.extension) revert OnlyCallableByExtension();
+        bytes32 poolId = poolKey.toPoolId();
+        uint128 liquidity = poolLiquidity[poolId];
+        if (liquidity == 0) revert CannotAccumulateFeesWithZeroLiquidity();
+
+        poolFees[poolKey.toPoolId()] = poolFees[poolId].add(feesPerLiquidityFromAmounts(amount0, amount1, liquidity));
+
+        accountDelta(id, poolKey.token0, SafeCastLib.toInt128(amount0));
+        accountDelta(id, poolKey.token1, SafeCastLib.toInt128(amount1));
+
+        emit FeesAccumulated(poolKey, amount0, amount1);
     }
 }

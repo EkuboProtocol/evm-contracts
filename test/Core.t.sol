@@ -109,5 +109,9 @@ contract CoreTest is Test {
 
         vm.expectRevert(Core.PoolAlreadyInitialized.selector);
         core.initializePool(key, tick);
+
+        (bool didInitialize, uint256 sqrtRatioCurrent) = core.maybeInitializePool(key, tick + 1);
+        assertFalse(didInitialize);
+        assertEq(sqrtRatioCurrent, tickToSqrtRatio(tick));
     }
 }

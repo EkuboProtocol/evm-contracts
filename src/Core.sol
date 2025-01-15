@@ -2,7 +2,8 @@
 pragma solidity =0.8.28;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
-import {PoolKey, PositionKey} from "./types/keys.sol";
+import {PoolKey, PositionKey, Bounds} from "./types/keys.sol";
+import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -12,6 +13,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {ExposedStorage} from "./base/ExposedStorage.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -26,11 +28,7 @@ interface IExtension {
     function afterInitializePool(PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
 }
 
-contract Core is Ownable {
-    constructor(address owner) {
-        _initializeOwner(owner);
-    }
-
+contract Core is Ownable, ExposedStorage {
     // We pack the delta and net.
     struct TickInfo {
         int128 liquidityDelta;
@@ -43,13 +41,6 @@ contract Core is Ownable {
         int32 tick;
     }
 
-    // The total fees per liquidity for each token.
-    // Since these are always read together we put them in a struct, even though they cannot be packed.
-    struct FeesPerLiquidity {
-        uint256 token0_fees_per_liquidity;
-        uint256 token1_fees_per_liquidity;
-    }
-
     mapping(address extension => bool isRegistered) public isExtensionRegistered;
     mapping(address token => uint256 amountCollected) public protocolFeesCollected;
 
@@ -59,10 +50,28 @@ contract Core is Ownable {
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFees;
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public positions;
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public ticks;
+    mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) public
+        tickFeesPerLiquidityOutside;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) public initializedTickBitmaps;
 
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) public savedBalances;
+
+    event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
+
+    function withdrawProtocolFees(address recipient, address token, uint256 amount) public onlyOwner {
+        protocolFeesCollected[token] -= amount;
+        SafeTransferLib.safeTransfer(token, recipient, amount);
+        emit ProtocolFeesWithdrawn(recipient, token, amount);
+    }
+
+    function withdrawProtocolFees(address recipient, address token) external {
+        withdrawProtocolFees(recipient, token, protocolFeesCollected[token]);
+    }
+
+    constructor(address owner) {
+        _initializeOwner(owner);
+    }
 
     error FailedRegisterInvalidCallPoints();
     error ExtensionAlreadyRegistered();
@@ -173,7 +182,7 @@ contract Core is Ownable {
 
     event PoolInitialized(PoolKey key, int32 tick, uint256 sqrtRatio);
 
-    function initializePool(PoolKey memory key, int32 tick) external returns (uint256 sqrtRatio) {
+    function initializePool(PoolKey memory key, int32 tick) public returns (uint256 sqrtRatio) {
         key.validatePoolKey();
 
         if (key.extension != address(0)) {
@@ -198,6 +207,18 @@ contract Core is Ownable {
         // we don't need to check if extension is non-zero because a zero extension will always return false
         if (shouldCallAfterInitializePool(key.extension)) {
             IExtension(key.extension).afterInitializePool(key, tick, sqrtRatio);
+        }
+    }
+
+    // Initializes the pool if it isn't already initialized, otherwise just returns the current price of the pool
+    function maybeInitializePool(PoolKey memory key, int32 tick)
+        external
+        returns (bool didInitialize, uint256 sqrtRatio)
+    {
+        sqrtRatio = poolPrice[key.toPoolId()].sqrtRatio;
+        if (sqrtRatio == 0) {
+            sqrtRatio = initializePool(key, tick);
+            didInitialize = true;
         }
     }
 
@@ -246,5 +267,27 @@ contract Core is Ownable {
         savedBalances[owner][token][salt] += amount;
 
         emit SavedBalance(owner, token, salt, amount);
+    }
+
+    // Returns the pool fees per liquidity inside the given bounds.
+    function getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds calldata bounds)
+        public
+        view
+        returns (FeesPerLiquidity memory)
+    {
+        int32 tick = poolPrice[poolId].tick;
+        mapping(int32 => FeesPerLiquidity) storage poolIdEntry = tickFeesPerLiquidityOutside[poolId];
+        FeesPerLiquidity memory lower = poolIdEntry[bounds.lower];
+        FeesPerLiquidity memory upper = poolIdEntry[bounds.upper];
+
+        if (tick < bounds.lower) {
+            return lower.sub(upper);
+        } else if (tick < bounds.upper) {
+            FeesPerLiquidity memory fees = poolFees[poolId];
+
+            return fees.sub(lower).sub(upper);
+        } else {
+            return upper.sub(lower);
+        }
     }
 }

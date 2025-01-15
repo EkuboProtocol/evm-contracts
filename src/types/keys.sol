@@ -29,8 +29,8 @@ function toPoolId(PoolKey memory key) pure returns (bytes32) {
 
 // Bounds are lower and upper prices for which a position is active
 struct Bounds {
-    int128 lower;
-    int128 upper;
+    int32 lower;
+    int32 upper;
 }
 
 error BoundsOrder();

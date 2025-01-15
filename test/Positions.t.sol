@@ -8,16 +8,19 @@ import {BaseURLTokenURIGenerator} from "../src/base/BaseURLTokenURIGenerator.sol
 import {PoolKey, PositionKey} from "../src/types/keys.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
 import {LibString} from "solady/utils/LibString.sol";
+import {WETH} from "solady/tokens/WETH.sol";
 
 contract PositionsTest is Test {
+    WETH public weth;
     ITokenURIGenerator public tokenURIGenerator;
     Core public core;
     Positions public positions;
 
     function setUp() public {
+        weth = new WETH();
         core = new Core(address(0xdeadbeef));
         tokenURIGenerator = new BaseURLTokenURIGenerator("ekubo://positions/");
-        positions = new Positions(core, tokenURIGenerator);
+        positions = new Positions(core, tokenURIGenerator, weth);
     }
 
     function test_metadata() public view {

@@ -228,9 +228,9 @@ contract Core is Ownable, ExposedStorage {
     function pay(address token) external {
         (uint256 id, address payer) = requireLocker();
         uint256 allowance = IERC20(token).allowance(payer, address(this));
-        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+        uint256 balanceBefore = SafeTransferLib.balanceOf(token, address(this));
         SafeTransferLib.safeTransferFrom(token, payer, address(this), allowance);
-        uint256 delta = IERC20(token).balanceOf(address(this)) - balanceBefore;
+        uint256 delta = SafeTransferLib.balanceOf(token, address(this)) - balanceBefore;
         if (delta != allowance) revert BalanceDeltaNotEqualAllowance(token);
         accountDelta(id, token, -SafeCastLib.toInt128(delta));
     }

@@ -9,6 +9,9 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {shouldCallBeforeInitializePool, shouldCallAfterInitializePool} from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -94,7 +97,9 @@ contract Core is Ownable {
             current := tload(slot)
         }
 
+        // this is a checked addition, so it will revert if it overflows
         int128 next = current + delta;
+
         if (current == 0 && next != 0) {
             assembly ("memory-safe") {
                 let nzdCountSlot := add(lockerId, 0x200000000)
@@ -194,5 +199,52 @@ contract Core is Ownable {
         if (shouldCallAfterInitializePool(key.extension)) {
             IExtension(key.extension).afterInitializePool(key, tick, sqrtRatio);
         }
+    }
+
+    error BalanceDeltaNotEqualAllowance(address token);
+    error PaymentOverflow(address token, uint256 delta);
+
+    function pay(address token) external {
+        (uint256 id, address payer) = requireLocker();
+        uint256 allowance = IERC20(token).allowance(payer, address(this));
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+        SafeTransferLib.safeTransferFrom(token, payer, address(this), allowance);
+        uint256 delta = IERC20(token).balanceOf(address(this)) - balanceBefore;
+        if (delta != allowance) revert BalanceDeltaNotEqualAllowance(token);
+        accountDelta(id, token, -SafeCastLib.toInt128(delta));
+    }
+
+    event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
+
+    function load(address token, bytes32 salt, uint128 amount) external {
+        (uint256 id, address owner) = requireLocker();
+
+        accountDelta(id, token, -SafeCastLib.toInt128(amount));
+
+        savedBalances[owner][token][salt] -= amount;
+
+        emit LoadedBalance(owner, token, salt, amount);
+    }
+
+    error TokenAmountTooLarge();
+
+    function withdraw(address token, address recipient, uint128 amount) external {
+        (uint256 id,) = requireLocker();
+
+        accountDelta(id, token, SafeCastLib.toInt128(amount));
+
+        SafeTransferLib.safeTransfer(token, recipient, amount);
+    }
+
+    event SavedBalance(address owner, address token, bytes32 salt, uint128 amount);
+
+    function save(address owner, address token, bytes32 salt, uint128 amount) external {
+        (uint256 id,) = requireLocker();
+
+        accountDelta(id, token, SafeCastLib.toInt128(amount));
+
+        savedBalances[owner][token][salt] += amount;
+
+        emit SavedBalance(owner, token, salt, amount);
     }
 }

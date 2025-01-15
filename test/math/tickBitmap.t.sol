@@ -31,7 +31,7 @@ contract TickBitmap {
         return next(fromTick, 0);
     }
 
-    function next(int32 fromTick, uint8 skipAhead) public view returns (int32, bool) {
+    function next(int32 fromTick, uint256 skipAhead) public view returns (int32, bool) {
         return findNextInitializedTick(map, fromTick, tickSpacing, skipAhead);
     }
 
@@ -39,7 +39,7 @@ contract TickBitmap {
         return prev(fromTick, 0);
     }
 
-    function prev(int32 fromTick, uint8 skipAhead) public view returns (int32, bool) {
+    function prev(int32 fromTick, uint256 skipAhead) public view returns (int32, bool) {
         return findPrevInitializedTick(map, fromTick, tickSpacing, skipAhead);
     }
 }
@@ -105,7 +105,7 @@ contract TickBitmapTest is Test {
         int32 fromTick,
         int32 expectedTick,
         bool expectedInitialized,
-        uint8 skipAhead
+        uint256 skipAhead
     ) private view {
         (int32 nextTick, bool initialized) = tbm.next(fromTick, skipAhead);
         assertEq(nextTick, expectedTick);
@@ -127,7 +127,7 @@ contract TickBitmapTest is Test {
         int32 fromTick,
         int32 expectedTick,
         bool expectedInitialized,
-        uint8 skipAhead
+        uint256 skipAhead
     ) private view {
         (int32 prevTick, bool initialized) = tbm.prev(fromTick, skipAhead);
         assertEq(prevTick, expectedTick);

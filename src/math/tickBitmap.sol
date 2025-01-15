@@ -29,7 +29,7 @@ function findNextInitializedTick(
     mapping(uint256 word => Bitmap bitmap) storage map,
     int32 fromTick,
     uint32 tickSpacing,
-    uint8 skipAhead
+    uint256 skipAhead
 ) view returns (int32, bool) {
     unchecked {
         (uint256 word, uint256 index) =
@@ -56,7 +56,7 @@ function findPrevInitializedTick(
     mapping(uint256 word => Bitmap bitmap) storage map,
     int32 fromTick,
     uint32 tickSpacing,
-    uint8 skipAhead
+    uint256 skipAhead
 ) view returns (int32, bool) {
     unchecked {
         (uint256 word, uint256 index) =

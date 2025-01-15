@@ -8,7 +8,16 @@ import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
-import {shouldCallBeforeInitializePool, shouldCallAfterInitializePool} from "./types/callPoints.sol";
+import {
+    shouldCallBeforeInitializePool,
+    shouldCallAfterInitializePool,
+    shouldCallBeforeUpdatePosition,
+    shouldCallAfterUpdatePosition,
+    shouldCallBeforeSwap,
+    shouldCallAfterSwap,
+    shouldCallBeforeCollectFees,
+    shouldCallAfterCollectFees
+} from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -25,8 +34,50 @@ interface IForwardee {
 }
 
 interface IExtension {
-    function beforeInitializePool(PoolKey calldata key, int32 tick) external;
-    function afterInitializePool(PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
+    function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
+    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
+
+    function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
+        external;
+    function afterUpdatePosition(
+        address locker,
+        PoolKey memory poolKey,
+        UpdatePositionParameters memory params,
+        int128 delta0,
+        int128 delta1
+    ) external;
+
+    function beforeSwap(address locker, PoolKey memory poolKey, SwapParameters memory params) external;
+    function afterSwap(
+        address locker,
+        PoolKey memory poolKey,
+        SwapParameters memory params,
+        int128 delta0,
+        int128 delta1
+    ) external;
+
+    function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external;
+    function afterCollectFees(
+        address locker,
+        PoolKey memory poolKey,
+        bytes32 salt,
+        Bounds memory bounds,
+        uint128 amount0,
+        uint128 amount1
+    ) external;
+}
+
+struct UpdatePositionParameters {
+    bytes32 salt;
+    Bounds bounds;
+    int128 liquidityDelta;
+}
+
+struct SwapParameters {
+    int128 amount;
+    bool isToken1;
+    uint256 sqrtRatioLimit;
+    uint256 skipAhead;
 }
 
 contract Core is Ownable, ExposedStorage {
@@ -191,8 +242,8 @@ contract Core is Ownable, ExposedStorage {
                 revert ExtensionNotRegistered(key.extension);
             }
 
-            if (shouldCallBeforeInitializePool(key.extension)) {
-                IExtension(key.extension).beforeInitializePool(key, tick);
+            if (shouldCallBeforeInitializePool(key.extension) && key.extension != msg.sender) {
+                IExtension(key.extension).beforeInitializePool(msg.sender, key, tick);
             }
         }
 
@@ -206,8 +257,8 @@ contract Core is Ownable, ExposedStorage {
         emit PoolInitialized(key, tick, sqrtRatio);
 
         // we don't need to check if extension is non-zero because a zero extension will always return false
-        if (shouldCallAfterInitializePool(key.extension)) {
-            IExtension(key.extension).afterInitializePool(key, tick, sqrtRatio);
+        if (shouldCallAfterInitializePool(key.extension) && key.extension != msg.sender) {
+            IExtension(key.extension).afterInitializePool(msg.sender, key, tick, sqrtRatio);
         }
     }
 
@@ -225,7 +276,7 @@ contract Core is Ownable, ExposedStorage {
 
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
-    function prevInitializedTick(PoolKey memory poolKey, int32 fromTick, uint8 skipAhead)
+    function prevInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
@@ -234,7 +285,7 @@ contract Core is Ownable, ExposedStorage {
             initializedTickBitmaps[poolKey.toPoolId()].findPrevInitializedTick(fromTick, poolKey.tickSpacing, skipAhead);
     }
 
-    function nextInitializedTick(PoolKey memory poolKey, int32 fromTick, uint8 skipAhead)
+    function nextInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
@@ -333,5 +384,71 @@ contract Core is Ownable, ExposedStorage {
         accountDelta(id, poolKey.token1, SafeCastLib.toInt128(amount1));
 
         emit FeesAccumulated(poolKey, amount0, amount1);
+    }
+
+    function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
+        external
+        returns (int128 delta0, int128 delta1)
+    {
+        (uint256 id, address locker) = requireLocker();
+
+        if (
+            poolKey.extension != address(0) && shouldCallBeforeUpdatePosition(poolKey.extension)
+                && locker != poolKey.extension
+        ) {
+            IExtension(poolKey.extension).beforeUpdatePosition(locker, poolKey, params);
+        }
+
+        bytes32 poolId = poolKey.toPoolId();
+        bytes32 positionId = PositionKey({salt: params.salt, owner: locker, bounds: params.bounds}).toPositionId();
+        Position storage position = positions[poolId][positionId];
+
+        if (
+            poolKey.extension != address(0) && shouldCallAfterUpdatePosition(poolKey.extension)
+                && locker != poolKey.extension
+        ) {
+            IExtension(poolKey.extension).afterUpdatePosition(locker, poolKey, params, delta0, delta1);
+        }
+    }
+
+    function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
+        external
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (uint256 id, address locker) = requireLocker();
+
+        if (
+            poolKey.extension != address(0) && shouldCallBeforeCollectFees(poolKey.extension)
+                && locker != poolKey.extension
+        ) {
+            IExtension(poolKey.extension).beforeCollectFees(locker, poolKey, salt, bounds);
+        }
+
+        bytes32 poolId = poolKey.toPoolId();
+
+        if (
+            poolKey.extension != address(0) && shouldCallAfterCollectFees(poolKey.extension)
+                && locker != poolKey.extension
+        ) {
+            IExtension(poolKey.extension).afterCollectFees(locker, poolKey, salt, bounds, amount0, amount1);
+        }
+    }
+
+    function swap(PoolKey memory poolKey, SwapParameters memory params)
+        external
+        returns (int128 delta0, int128 delta1)
+    {
+        (uint256 id, address locker) = requireLocker();
+
+        if (poolKey.extension != address(0) && shouldCallBeforeSwap(poolKey.extension) && locker != poolKey.extension) {
+            IExtension(poolKey.extension).beforeSwap(locker, poolKey, params);
+        }
+
+        bytes32 poolId = poolKey.toPoolId();
+        uint128 liquidity = poolLiquidity[poolId];
+
+        if (poolKey.extension != address(0) && shouldCallAfterSwap(poolKey.extension) && locker != poolKey.extension) {
+            IExtension(poolKey.extension).afterSwap(locker, poolKey, params, delta0, delta1);
+        }
     }
 }

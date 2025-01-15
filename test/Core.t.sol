@@ -2,8 +2,8 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Core, IExtension} from "../src/Core.sol";
-import {PoolKey, PositionKey} from "../src/types/keys.sol";
+import {Core, IExtension, UpdatePositionParameters, SwapParameters} from "../src/Core.sol";
+import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
 
@@ -12,16 +12,77 @@ contract MockExtension is IExtension {
         core.registerExtension(expectedCallPoints);
     }
 
-    event BeforeInitializePoolCalled(PoolKey key, int32 tick);
+    event BeforeInitializePoolCalled(address caller, PoolKey key, int32 tick);
 
-    function beforeInitializePool(PoolKey calldata key, int32 tick) external {
-        emit BeforeInitializePoolCalled(key, tick);
+    function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external {
+        emit BeforeInitializePoolCalled(caller, key, tick);
     }
 
-    event AfterInitializePoolCalled(PoolKey key, int32 tick, uint256 sqrtRatio);
+    event AfterInitializePoolCalled(address caller, PoolKey key, int32 tick, uint256 sqrtRatio);
 
-    function afterInitializePool(PoolKey calldata key, int32 tick, uint256 sqrtRatio) external {
-        emit AfterInitializePoolCalled(key, tick, sqrtRatio);
+    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external {
+        emit AfterInitializePoolCalled(caller, key, tick, sqrtRatio);
+    }
+
+    event BeforeUpdatePositionCalled(address locker, PoolKey key, UpdatePositionParameters params);
+
+    function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
+        external
+    {
+        emit BeforeUpdatePositionCalled(locker, poolKey, params);
+    }
+
+    event AfterUpdatePositionCalled(
+        address locker, PoolKey key, UpdatePositionParameters params, int128 delta0, int128 delta1
+    );
+
+    function afterUpdatePosition(
+        address locker,
+        PoolKey memory poolKey,
+        UpdatePositionParameters memory params,
+        int128 delta0,
+        int128 delta1
+    ) external {
+        emit AfterUpdatePositionCalled(locker, poolKey, params, delta0, delta1);
+    }
+
+    event BeforeSwapCalled(address locker, PoolKey key, SwapParameters params);
+
+    function beforeSwap(address locker, PoolKey memory poolKey, SwapParameters memory params) external {
+        emit BeforeSwapCalled(locker, poolKey, params);
+    }
+
+    event AfterSwapCalled(address locker, PoolKey key, SwapParameters params, int128 delta0, int128 delta1);
+
+    function afterSwap(
+        address locker,
+        PoolKey memory poolKey,
+        SwapParameters memory params,
+        int128 delta0,
+        int128 delta1
+    ) external {
+        emit AfterSwapCalled(locker, poolKey, params, delta0, delta1);
+    }
+
+    event BeforeCollectFeesCalled(address locker, PoolKey key, bytes32 salt, Bounds bounds);
+
+    function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external {
+        emit BeforeCollectFeesCalled(locker, poolKey, salt, bounds);
+    }
+
+    event AfterCollectFeesCalled(
+        address locker, PoolKey key, bytes32 salt, Bounds bounds, uint128 amount0, uint128 amount1
+    );
+
+    function afterCollectFees(
+        address locker,
+        PoolKey memory poolKey,
+        bytes32 salt,
+        Bounds memory bounds,
+        uint128 amount0,
+        uint128 amount1
+    ) external {
+        emit AfterCollectFeesCalled(locker, poolKey, salt, bounds, amount0, amount1);
     }
 }
 
@@ -90,14 +151,14 @@ contract CoreTest is Test {
 
         if (callPoints.beforeInitializePool) {
             vm.expectEmit(extension);
-            emit MockExtension.BeforeInitializePoolCalled(key, tick);
+            emit MockExtension.BeforeInitializePoolCalled(address(this), key, tick);
         }
         vm.expectEmit(address(core));
         emit Core.PoolInitialized(key, tick, tickToSqrtRatio(tick));
 
         if (callPoints.afterInitializePool) {
             vm.expectEmit(extension);
-            emit MockExtension.AfterInitializePoolCalled(key, tick, tickToSqrtRatio(tick));
+            emit MockExtension.AfterInitializePoolCalled(address(this), key, tick, tickToSqrtRatio(tick));
         }
 
         // call under test

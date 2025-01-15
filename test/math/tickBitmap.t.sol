@@ -45,19 +45,25 @@ contract TickBitmap {
 }
 
 contract TickBitmapTest is Test {
-    function test_gas() public {
+    function test_gas_flip() public {
         TickBitmap tbm = new TickBitmap(100);
 
-        tbm.flip(1000);
-        tbm.flip(-1000);
+        tbm.flip(0);
+        vm.snapshotGasLastCall("flip(0)");
+    }
 
-        vm.startSnapshotGas("next tick");
+    function test_gas_next() public {
+        TickBitmap tbm = new TickBitmap(100);
+
         tbm.next(0);
-        vm.stopSnapshotGas();
+        vm.snapshotGasLastCall("next(0)");
+    }
 
-        vm.startSnapshotGas("prev tick");
+    function test_gas_prev() public {
+        TickBitmap tbm = new TickBitmap(100);
+
         tbm.prev(0);
-        vm.stopSnapshotGas();
+        vm.snapshotGasLastCall("prev(0)");
     }
 
     function bound(int32 tick, uint32 tickSpacing) private pure returns (int32, uint32) {

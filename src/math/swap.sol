@@ -1,0 +1,142 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity =0.8.28;
+
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {computeFee, amountBeforeFee} from "./fee.sol";
+import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./sqrtRatio.sol";
+import {amount0Delta, amount1Delta} from "./delta.sol";
+
+struct SwapResult {
+    int128 consumedAmount;
+    uint128 calculatedAmount;
+    uint256 sqrtRatioNext;
+    uint128 feeAmount;
+}
+
+function isPriceIncreasing(int128 amount, bool isToken1) pure returns (bool increasing) {
+    assembly ("memory-safe") {
+        increasing := xor(isToken1, slt(amount, 0))
+    }
+}
+
+function noOpSwapResult(uint256 sqrtRatioNext) pure returns (SwapResult memory) {
+    return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioNext});
+}
+
+error SqrtRatioLimitWrongDirection();
+
+function swapResult(
+    uint256 sqrtRatio,
+    uint128 liquidity,
+    uint256 sqrtRatioLimit,
+    int128 amount,
+    bool isToken1,
+    uint128 fee
+) pure returns (SwapResult memory) {
+    if (amount == 0 || sqrtRatio == sqrtRatioLimit) {
+        return noOpSwapResult(sqrtRatio);
+    }
+
+    bool increasing = isPriceIncreasing(amount, isToken1);
+
+    // We know sqrtRatio != sqrtRatioLimit because we early return above if it is
+    if ((sqrtRatioLimit > sqrtRatio) != increasing) revert SqrtRatioLimitWrongDirection();
+
+    if (liquidity == 0) {
+        // if the pool is empty, the swap will always move all the way to the limit price
+        return noOpSwapResult(sqrtRatioLimit);
+    }
+
+    // this amount is what moves the price
+    int128 priceImpactAmount;
+    if (amount < 0) {
+        priceImpactAmount = amount;
+    } else {
+        priceImpactAmount = amount - int128(computeFee(uint128(amount), fee));
+    }
+
+    uint256 sqrtRatioNextFromAmount;
+    if (isToken1) {
+        sqrtRatioNextFromAmount = nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount);
+    } else {
+        sqrtRatioNextFromAmount = nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+    }
+
+    bool isExactOut = amount < 0;
+
+    int128 consumedAmount;
+    uint128 calculatedAmount;
+    uint128 feeAmount;
+
+    // the amount requires a swapping past the sqrt ratio limit,
+    // so we need to compute the result of swapping only to the limit
+    if (
+        (increasing && sqrtRatioNextFromAmount > sqrtRatioLimit)
+            || (!increasing && sqrtRatioNextFromAmount < sqrtRatioLimit)
+    ) {
+        uint128 specifiedAmountDelta;
+        uint128 calculatedAmountDelta;
+        if (isToken1) {
+            specifiedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
+            calculatedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
+        } else {
+            specifiedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
+            calculatedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
+        }
+
+        if (isExactOut) {
+            uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, fee);
+            consumedAmount = -int128(specifiedAmountDelta);
+            calculatedAmount = beforeFee;
+            feeAmount = beforeFee - calculatedAmountDelta;
+        } else {
+            uint128 beforeFee = amountBeforeFee(uint128(specifiedAmountDelta), fee);
+            consumedAmount = int128(beforeFee);
+            calculatedAmount = calculatedAmountDelta;
+            feeAmount = beforeFee - uint128(specifiedAmountDelta);
+        }
+
+        return SwapResult({
+            consumedAmount: consumedAmount,
+            calculatedAmount: calculatedAmount,
+            sqrtRatioNext: sqrtRatioLimit,
+            feeAmount: feeAmount
+        });
+    }
+
+    if (sqrtRatioNextFromAmount == sqrtRatio) {
+        assert(!isExactOut);
+
+        return SwapResult({
+            consumedAmount: amount,
+            calculatedAmount: 0,
+            sqrtRatioNext: sqrtRatio,
+            feeAmount: uint128(amount)
+        });
+    }
+
+    // rounds down for calculated == output, up for calculated == input
+    uint128 calculatedAmountWithoutFee;
+    if (isToken1) {
+        calculatedAmountWithoutFee = amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+    } else {
+        calculatedAmountWithoutFee = amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+    }
+
+    // add on the fee to calculated amount for exact output
+    if (isExactOut) {
+        uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, fee);
+        calculatedAmount = includingFee;
+        feeAmount = includingFee - calculatedAmountWithoutFee;
+    } else {
+        calculatedAmount = calculatedAmountWithoutFee;
+        feeAmount = uint128(amount - priceImpactAmount);
+    }
+
+    return SwapResult({
+        consumedAmount: amount,
+        calculatedAmount: calculatedAmount,
+        sqrtRatioNext: sqrtRatioNextFromAmount,
+        feeAmount: feeAmount
+    });
+}

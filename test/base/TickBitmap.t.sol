@@ -45,6 +45,21 @@ contract TickBitmap {
 }
 
 contract TickBitmapTest is Test {
+    function test_gas() public {
+        TickBitmap tbm = new TickBitmap(100);
+
+        tbm.flip(1000);
+        tbm.flip(-1000);
+
+        vm.startSnapshotGas("next tick");
+        tbm.next(0);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("prev tick");
+        tbm.prev(0);
+        vm.stopSnapshotGas();
+    }
+
     function bound(int32 tick, uint32 tickSpacing) private pure returns (int32, uint32) {
         tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));

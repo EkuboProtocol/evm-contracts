@@ -39,8 +39,8 @@ contract Positions is ERC721, Payable, CoreLocker {
         return uint256(keccak256(abi.encode(minter, salt))) >> 192;
     }
 
-    function mint() external returns (uint256 id) {
-        // generates a pseudoranomd salt
+    function mint() public returns (uint256 id) {
+        // generates a pseudorandom salt
         // note this can have encounter conflicts if a sender sends two identical transactions in the same block
         // that happen to consume exactly the same amount of gas
         id = mint(keccak256(abi.encode(block.prevrandao, gasleft())));
@@ -71,7 +71,7 @@ contract Positions is ERC721, Payable, CoreLocker {
         uint128 amount0,
         uint128 amount1,
         uint128 minLiquidity
-    ) external {
+    ) public {
         if (!_isApprovedOrOwner(msg.sender, id)) {
             revert Unauthorized(msg.sender, id);
         }
@@ -90,10 +90,34 @@ contract Positions is ERC721, Payable, CoreLocker {
             revert InsufficientLiquidityReceived(liquidity);
         }
 
-        lock(abi.encode(0, id, poolKey, positionKey, liquidity));
+        lock(abi.encodePacked(uint8(0), abi.encode(id, poolKey, positionKey, liquidity)));
     }
 
+    function mintAndDeposit(
+        PoolKey memory poolKey,
+        PositionKey memory positionKey,
+        uint128 amount0,
+        uint128 amount1,
+        uint128 minLiquidity
+    ) external {
+        uint256 id = mint();
+        deposit(id, poolKey, positionKey, amount0, amount1, minLiquidity);
+    }
+
+    error UnexpectedCallTypeByte();
+
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
-        revert("todo");
+        uint8 callType;
+
+        assembly ("memory-safe") {
+            callType := byte(0, calldataload(0))
+        }
+
+        if (callType == 0) {
+            (PoolKey memory poolKey, PositionKey memory positionKey, uint128 liquidity) =
+                abi.decode(data[1:], (PoolKey, PositionKey, uint128));
+        } else {
+            revert UnexpectedCallTypeByte();
+        }
     }
 }

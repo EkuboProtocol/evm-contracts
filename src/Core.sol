@@ -4,9 +4,10 @@ pragma solidity =0.8.28;
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "./types/keys.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
+import {isPriceIncreasing, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {tickToSqrtRatio} from "./math/ticks.sol";
+import {tickToSqrtRatio, sqrtRatioToTick, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {
     shouldCallBeforeInitializePool,
@@ -20,7 +21,6 @@ import {
 } from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
@@ -101,11 +101,11 @@ contract Core is Ownable, ExposedStorage {
     // Keyed by the pool ID, which is the keccak256 of the ABI-encoded pool key
     mapping(bytes32 poolId => PoolPrice price) public poolPrice;
     mapping(bytes32 poolId => uint128 liquidity) public poolLiquidity;
-    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFees;
+    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFeesPerLiquidity;
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public positions;
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public ticks;
     mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) public
-        tickFeesPerLiquidityOutside;
+        poolTickFeesPerLiquidityOutside;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) public initializedTickBitmaps;
 
     // Balances saved for later
@@ -353,14 +353,14 @@ contract Core is Ownable, ExposedStorage {
         returns (FeesPerLiquidity memory)
     {
         int32 tick = poolPrice[poolId].tick;
-        mapping(int32 => FeesPerLiquidity) storage poolIdEntry = tickFeesPerLiquidityOutside[poolId];
+        mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
         FeesPerLiquidity memory lower = poolIdEntry[bounds.lower];
         FeesPerLiquidity memory upper = poolIdEntry[bounds.upper];
 
         if (tick < bounds.lower) {
             return lower.sub(upper);
         } else if (tick < bounds.upper) {
-            FeesPerLiquidity memory fees = poolFees[poolId];
+            FeesPerLiquidity memory fees = poolFeesPerLiquidity[poolId];
 
             return fees.sub(lower).sub(upper);
         } else {
@@ -383,7 +383,8 @@ contract Core is Ownable, ExposedStorage {
         uint128 liquidity = poolLiquidity[poolId];
         if (liquidity == 0) revert CannotAccumulateFeesWithZeroLiquidity();
 
-        poolFees[poolKey.toPoolId()] = poolFees[poolId].add(feesPerLiquidityFromAmounts(amount0, amount1, liquidity));
+        poolFeesPerLiquidity[poolKey.toPoolId()] =
+            poolFeesPerLiquidity[poolId].add(feesPerLiquidityFromAmounts(amount0, amount1, liquidity));
 
         accountDelta(id, poolKey.token0, int256(uint256(amount0)));
         accountDelta(id, poolKey.token1, int256(uint256(amount1)));
@@ -556,6 +557,9 @@ contract Core is Ownable, ExposedStorage {
         uint128 liquidityAfter
     );
 
+    error SqrtRatioLimitWrongDirection();
+    error SqrtRatioLimitOutOfRange();
+
     function swap(PoolKey memory poolKey, SwapParameters memory params)
         external
         returns (int128 delta0, int128 delta1)
@@ -576,9 +580,91 @@ contract Core is Ownable, ExposedStorage {
             tick = price.tick;
         }
 
-        uint128 liquidity = poolLiquidity[poolId];
+        // 0 swap amount is no-op
+        if (params.amount != 0) {
+            bool increasing = isPriceIncreasing(params.amount, params.isToken1);
+            if (increasing) {
+                if (params.sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
+                if (params.sqrtRatioLimit > MAX_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
+            } else {
+                if (params.sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
+                if (params.sqrtRatioLimit < MIN_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
+            }
 
-        emit Swapped(locker, poolKey, params, delta0, delta1, sqrtRatio, tick, liquidity);
+            mapping(uint256 => Bitmap) storage bitmap = initializedTickBitmaps[poolKey.toPoolId()];
+            mapping(int32 => FeesPerLiquidity) storage tickFeesPerLiquidityOutside =
+                poolTickFeesPerLiquidityOutside[poolId];
+            mapping(int32 => TickInfo) storage poolTicks = ticks[poolId];
+
+            int128 amountRemaining = params.amount;
+            uint128 liquidity = poolLiquidity[poolId];
+
+            uint128 calculatedAmount = 0;
+
+            FeesPerLiquidity memory feesPerLiquidity = poolFeesPerLiquidity[poolId];
+
+            while (amountRemaining != 0 && sqrtRatio != params.sqrtRatioLimit) {
+                (int32 nextTick, bool isInitialized) = increasing
+                    ? bitmap.findNextInitializedTick(tick, poolKey.tickSpacing, params.skipAhead)
+                    : bitmap.findPrevInitializedTick(tick, poolKey.tickSpacing, params.skipAhead);
+
+                uint256 nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                uint256 limitedNextSqrtRatio = increasing
+                    ? FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit)
+                    : FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit);
+
+                SwapResult memory result = swapResult(
+                    sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
+                );
+
+                if (result.feeAmount != 0) {
+                    // we know liquidity is non zero if this happens
+                    feesPerLiquidity = feesPerLiquidity.add(
+                        increasing
+                            ? feesPerLiquidityFromAmounts(0, result.feeAmount, liquidity)
+                            : feesPerLiquidityFromAmounts(result.feeAmount, 0, liquidity)
+                    );
+                }
+
+                // todo: should we do this math unchecked?
+                amountRemaining -= result.consumedAmount;
+                calculatedAmount += result.calculatedAmount;
+
+                if (result.sqrtRatioNext == nextTickSqrtRatio) {
+                    sqrtRatio = result.sqrtRatioNext;
+                    tick = increasing ? nextTick : nextTick - 1;
+
+                    if (isInitialized) {
+                        int128 liquidityDelta = ticks[poolId][nextTick].liquidityDelta;
+                        liquidity = increasing
+                            ? addLiquidityDelta(liquidity, liquidityDelta)
+                            : addLiquidityDelta(liquidity, -liquidityDelta);
+                        tickFeesPerLiquidityOutside[nextTick] =
+                            feesPerLiquidity.sub(tickFeesPerLiquidityOutside[nextTick]);
+                    }
+                } else if (sqrtRatio != result.sqrtRatioNext) {
+                    sqrtRatio = result.sqrtRatioNext;
+                    tick = sqrtRatioToTick(sqrtRatio);
+                }
+            }
+
+            if (params.isToken1) {
+                delta0 = (params.amount < 0) ? int128(calculatedAmount) : -int128(calculatedAmount);
+                delta1 = params.amount - amountRemaining;
+            } else {
+                delta0 = params.amount - amountRemaining;
+                delta1 = (params.amount < 0) ? int128(calculatedAmount) : -int128(calculatedAmount);
+            }
+
+            poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
+            poolLiquidity[poolId] = liquidity;
+            poolFeesPerLiquidity[poolId] = feesPerLiquidity;
+
+            accountDelta(id, poolKey.token0, delta0);
+            accountDelta(id, poolKey.token1, delta1);
+
+            emit Swapped(locker, poolKey, params, delta0, delta1, sqrtRatio, tick, liquidity);
+        }
 
         if (shouldCallAfterSwap(poolKey.extension) && locker != poolKey.extension) {
             IExtension(poolKey.extension).afterSwap(locker, poolKey, params, delta0, delta1);

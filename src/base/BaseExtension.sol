@@ -13,7 +13,7 @@ abstract contract BaseExtension is IExtension {
         core.registerExtension(getCallPoints());
     }
 
-    function getCallPoints() internal virtual returns (CallPoints memory);
+    function getCallPoints() internal pure virtual returns (CallPoints memory);
 
     error CoreOnly();
 
@@ -24,60 +24,38 @@ abstract contract BaseExtension is IExtension {
 
     error CallPointNotImplemented();
 
-    function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external virtual {
+    function beforeInitializePool(address, PoolKey calldata, int32) external virtual {
         revert CallPointNotImplemented();
     }
 
-    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio)
+    function afterInitializePool(address, PoolKey calldata, int32, uint256) external virtual {
+        revert CallPointNotImplemented();
+    }
+
+    function beforeUpdatePosition(address, PoolKey memory, UpdatePositionParameters memory) external virtual {
+        revert CallPointNotImplemented();
+    }
+
+    function afterUpdatePosition(address, PoolKey memory, UpdatePositionParameters memory, int128, int128)
         external
         virtual
     {
         revert CallPointNotImplemented();
     }
 
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
-        external
-        virtual
-    {
+    function beforeSwap(address, PoolKey memory, SwapParameters memory) external virtual {
         revert CallPointNotImplemented();
     }
 
-    function afterUpdatePosition(
-        address locker,
-        PoolKey memory poolKey,
-        UpdatePositionParameters memory params,
-        int128 delta0,
-        int128 delta1
-    ) external virtual {
+    function afterSwap(address, PoolKey memory, SwapParameters memory, int128, int128) external virtual {
         revert CallPointNotImplemented();
     }
 
-    function beforeSwap(address locker, PoolKey memory poolKey, SwapParameters memory params) external virtual {
+    function beforeCollectFees(address, PoolKey memory, bytes32, Bounds memory) external virtual {
         revert CallPointNotImplemented();
     }
 
-    function afterSwap(
-        address locker,
-        PoolKey memory poolKey,
-        SwapParameters memory params,
-        int128 delta0,
-        int128 delta1
-    ) external virtual {
-        revert CallPointNotImplemented();
-    }
-
-    function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external {
-        revert CallPointNotImplemented();
-    }
-
-    function afterCollectFees(
-        address locker,
-        PoolKey memory poolKey,
-        bytes32 salt,
-        Bounds memory bounds,
-        uint128 amount0,
-        uint128 amount1
-    ) external virtual {
+    function afterCollectFees(address, PoolKey memory, bytes32, Bounds memory, uint128, uint128) external virtual {
         revert CallPointNotImplemented();
     }
 }

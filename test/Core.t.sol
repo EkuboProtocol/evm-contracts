@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Core, IExtension, UpdatePositionParameters, SwapParameters} from "../src/Core.sol";
+import {Core, CoreLib, IExtension, UpdatePositionParameters, SwapParameters} from "../src/Core.sol";
 import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
@@ -87,6 +87,8 @@ contract MockExtension is IExtension {
 }
 
 contract CoreTest is Test {
+    using CoreLib for Core;
+
     address public owner = address(0xdeadbeef);
     Core public core;
 

@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {Payable} from "./base/Payable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
-import {Core} from "./Core.sol";
+import {Core, CoreLib} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
 import {PoolKey, PositionKey} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -17,6 +17,8 @@ interface ITokenURIGenerator {
 }
 
 contract Positions is ERC721, Payable, CoreLocker {
+    using CoreLib for Core;
+
     ITokenURIGenerator public immutable tokenURIGenerator;
 
     constructor(Core core, ITokenURIGenerator _tokenURIGenerator, WETH weth) CoreLocker(core) Payable(weth) {

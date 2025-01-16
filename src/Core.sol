@@ -82,6 +82,17 @@ interface IExtension {
     ) external;
 }
 
+// Common storage getters we need for external contracts are defined here instead of in the core contract
+library CoreLib {
+    function poolPrice(Core core, bytes32 poolId) internal view returns (uint192 sqrtRatio, int32 tick) {
+        bytes32 result = core.sload(keccak256(abi.encodePacked(poolId, uint256(2))));
+        assembly {
+            sqrtRatio := and(result, 0xffffffffffffffffffffffffffffffffffffffffffffffff)
+            tick := shr(192, result)
+        }
+    }
+}
+
 contract Core is Ownable, ExposedStorage {
     // We pack the delta and net.
     struct TickInfo {
@@ -95,21 +106,21 @@ contract Core is Ownable, ExposedStorage {
         int32 tick;
     }
 
-    mapping(address extension => bool isRegistered) public isExtensionRegistered;
-    mapping(address token => uint256 amountCollected) public protocolFeesCollected;
+    mapping(address extension => bool isRegistered) private isExtensionRegistered;
+    mapping(address token => uint256 amountCollected) private protocolFeesCollected;
 
     // Keyed by the pool ID, which is the keccak256 of the ABI-encoded pool key
-    mapping(bytes32 poolId => PoolPrice price) public poolPrice;
-    mapping(bytes32 poolId => uint128 liquidity) public poolLiquidity;
-    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFeesPerLiquidity;
-    mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public poolPositions;
-    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public poolTicks;
-    mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) public
+    mapping(bytes32 poolId => PoolPrice price) private poolPrice;
+    mapping(bytes32 poolId => uint128 liquidity) private poolLiquidity;
+    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
+    mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) private poolPositions;
+    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
+    mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
         poolTickFeesPerLiquidityOutside;
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) public poolInitializedTickBitmaps;
+    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
     // Balances saved for later
-    mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) public savedBalances;
+    mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) private savedBalances;
 
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
 

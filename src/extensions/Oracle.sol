@@ -14,7 +14,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         oracleToken = _oracleToken;
     }
 
-    function getCallPoints() internal override returns (CallPoints memory) {
+    function getCallPoints() internal pure override returns (CallPoints memory) {
         return CallPoints({
             beforeInitializePool: true,
             afterInitializePool: false,

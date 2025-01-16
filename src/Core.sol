@@ -102,7 +102,7 @@ contract Core is Ownable, ExposedStorage {
     mapping(bytes32 poolId => PoolPrice price) public poolPrice;
     mapping(bytes32 poolId => uint128 liquidity) public poolLiquidity;
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFeesPerLiquidity;
-    mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public positions;
+    mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public poolPositions;
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public poolTicks;
     mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) public
         poolTickFeesPerLiquidityOutside;
@@ -477,7 +477,7 @@ contract Core is Ownable, ExposedStorage {
             }
 
             bytes32 positionId = positionKey.toPositionId();
-            Position memory position = positions[poolId][positionId];
+            Position memory position = poolPositions[poolId][positionId];
 
             FeesPerLiquidity memory feesPerLiquidityInside = getPoolFeesPerLiquidityInside(poolId, params.bounds);
 
@@ -489,10 +489,10 @@ contract Core is Ownable, ExposedStorage {
                 position.feesPerLiquidityInsideLast =
                     feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
                 position.liquidity = liquidityNext;
-                positions[poolId][positionId] = position;
+                poolPositions[poolId][positionId] = position;
             } else {
                 if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
-                positions[poolId][positionId] =
+                poolPositions[poolId][positionId] =
                     Position({liquidity: 0, feesPerLiquidityInsideLast: FeesPerLiquidity(0, 0)});
             }
 
@@ -529,13 +529,13 @@ contract Core is Ownable, ExposedStorage {
         bytes32 poolId = poolKey.toPoolId();
         PositionKey memory positionKey = PositionKey({salt: salt, owner: locker, bounds: bounds});
         bytes32 positionId = positionKey.toPositionId();
-        Position memory position = positions[poolId][positionId];
+        Position memory position = poolPositions[poolId][positionId];
 
         FeesPerLiquidity memory feesPerLiquidityInside = getPoolFeesPerLiquidityInside(poolId, bounds);
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 
-        positions[poolId][positionId] =
+        poolPositions[poolId][positionId] =
             Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
 
         accountDelta(id, poolKey.token0, int256(uint256(amount0)));

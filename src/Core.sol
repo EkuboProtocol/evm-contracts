@@ -20,7 +20,7 @@ import {
 } from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
@@ -152,26 +152,27 @@ contract Core is Ownable, ExposedStorage {
         if (locker != msg.sender) revert LockerOnly();
     }
 
-    function accountDelta(uint256 lockerId, address token, int128 delta) private {
-        bytes32 slot = keccak256(abi.encode(lockerId, token));
+    function accountDelta(uint256 id, address token, int256 delta) private {
+        if (delta == 0) return;
+        bytes32 slot = keccak256(abi.encode(id, token));
 
-        int128 current;
+        int256 current;
         assembly ("memory-safe") {
             current := tload(slot)
         }
 
         // this is a checked addition, so it will revert if it overflows
-        int128 next = current + delta;
+        int256 next = current + delta;
 
         if (current == 0 && next != 0) {
             assembly ("memory-safe") {
-                let nzdCountSlot := add(lockerId, 0x200000000)
+                let nzdCountSlot := add(id, 0x200000000)
 
                 tstore(nzdCountSlot, add(tload(nzdCountSlot), 1))
             }
         } else if (current != 0 && next == 0) {
             assembly ("memory-safe") {
-                let nzdCountSlot := add(lockerId, 0x200000000)
+                let nzdCountSlot := add(id, 0x200000000)
 
                 tstore(nzdCountSlot, sub(tload(nzdCountSlot), 1))
             }
@@ -296,16 +297,19 @@ contract Core is Ownable, ExposedStorage {
     }
 
     error BalanceDeltaNotEqualAllowance(address token);
-    error PaymentOverflow(address token, uint256 delta);
+    error AllowanceOverflow(address token, uint256 delta);
 
     function pay(address token) external {
         (uint256 id, address payer) = requireLocker();
         uint256 allowance = IERC20(token).allowance(payer, address(this));
+        if (allowance > type(uint128).max) {
+            revert AllowanceOverflow(token, allowance);
+        }
         uint256 balanceBefore = SafeTransferLib.balanceOf(token, address(this));
         SafeTransferLib.safeTransferFrom(token, payer, address(this), allowance);
-        uint256 delta = SafeTransferLib.balanceOf(token, address(this)) - balanceBefore;
-        if (delta != allowance) revert BalanceDeltaNotEqualAllowance(token);
-        accountDelta(id, token, -SafeCastLib.toInt128(delta));
+        uint256 balanceDelta = SafeTransferLib.balanceOf(token, address(this)) - balanceBefore;
+        if (balanceDelta != allowance) revert BalanceDeltaNotEqualAllowance(token);
+        accountDelta(id, token, -int256(balanceDelta));
     }
 
     event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
@@ -313,7 +317,7 @@ contract Core is Ownable, ExposedStorage {
     function load(address token, bytes32 salt, uint128 amount) external {
         (uint256 id, address owner) = requireLocker();
 
-        accountDelta(id, token, -SafeCastLib.toInt128(amount));
+        accountDelta(id, token, -int256(uint256(amount)));
 
         savedBalances[owner][token][salt] -= amount;
 
@@ -325,7 +329,7 @@ contract Core is Ownable, ExposedStorage {
     function withdraw(address token, address recipient, uint128 amount) external {
         (uint256 id,) = requireLocker();
 
-        accountDelta(id, token, SafeCastLib.toInt128(amount));
+        accountDelta(id, token, int256(uint256(amount)));
 
         SafeTransferLib.safeTransfer(token, recipient, amount);
     }
@@ -335,7 +339,7 @@ contract Core is Ownable, ExposedStorage {
     function save(address owner, address token, bytes32 salt, uint128 amount) external {
         (uint256 id,) = requireLocker();
 
-        accountDelta(id, token, SafeCastLib.toInt128(amount));
+        accountDelta(id, token, int256(uint256(amount)));
 
         savedBalances[owner][token][salt] += amount;
 
@@ -381,8 +385,8 @@ contract Core is Ownable, ExposedStorage {
 
         poolFees[poolKey.toPoolId()] = poolFees[poolId].add(feesPerLiquidityFromAmounts(amount0, amount1, liquidity));
 
-        accountDelta(id, poolKey.token0, SafeCastLib.toInt128(amount0));
-        accountDelta(id, poolKey.token1, SafeCastLib.toInt128(amount1));
+        accountDelta(id, poolKey.token0, int256(uint256(amount0)));
+        accountDelta(id, poolKey.token1, int256(uint256(amount1)));
 
         emit FeesAccumulated(poolKey, amount0, amount1);
     }
@@ -519,9 +523,20 @@ contract Core is Ownable, ExposedStorage {
             IExtension(poolKey.extension).beforeCollectFees(locker, poolKey, salt, bounds);
         }
 
-        PositionKey memory positionKey = PositionKey({salt: salt, owner: locker, bounds: bounds});
-
         bytes32 poolId = poolKey.toPoolId();
+        PositionKey memory positionKey = PositionKey({salt: salt, owner: locker, bounds: bounds});
+        bytes32 positionId = positionKey.toPositionId();
+        Position memory position = positions[poolId][positionId];
+
+        FeesPerLiquidity memory feesPerLiquidityInside = getPoolFeesPerLiquidityInside(poolId, bounds);
+
+        (amount0, amount1) = position.fees(feesPerLiquidityInside);
+
+        positions[poolId][positionId] =
+            Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
+
+        accountDelta(id, poolKey.token0, int256(uint256(amount0)));
+        accountDelta(id, poolKey.token1, int256(uint256(amount1)));
 
         emit PositionFeesCollected(poolKey, positionKey, amount0, amount1);
 

@@ -4,34 +4,20 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Payable} from "../../src/base/Payable.sol";
 import {WETH} from "solady/tokens/WETH.sol";
-import {ERC20} from "solady/tokens/ERC20.sol";
+import {TestToken} from "../TestToken.sol";
 
 contract MockPayable is Payable {
     constructor(WETH weth) Payable(weth) {}
 }
 
-contract MockERC20 is ERC20 {
-    constructor() {
-        _mint(msg.sender, type(uint128).max);
-    }
-
-    function name() public pure override returns (string memory) {
-        return "TestToken";
-    }
-
-    function symbol() public pure override returns (string memory) {
-        return "TT";
-    }
-}
-
 contract PayableTest is Test {
     WETH public weth;
-    MockERC20 public token;
+    TestToken public token;
     MockPayable public mp;
 
     function setUp() public {
         weth = new WETH();
-        token = new MockERC20();
+        token = new TestToken();
         mp = new MockPayable(weth);
     }
 

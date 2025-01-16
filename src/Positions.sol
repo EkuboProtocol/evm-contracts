@@ -4,12 +4,13 @@ pragma solidity =0.8.28;
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {Payable} from "./base/Payable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
-import {Core, CoreLib} from "./Core.sol";
+import {Core, CoreLib, UpdatePositionParameters} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
-import {PoolKey, PositionKey} from "./types/keys.sol";
+import {PoolKey, PositionKey, Bounds} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
+import {console} from "forge-std/console.sol";
 
 // This functionality is externalized so it can be upgraded later, e.g. to change the URL or generate the URI on-chain
 interface ITokenURIGenerator {
@@ -56,6 +57,14 @@ contract Positions is ERC721, Payable, CoreLocker {
     }
 
     error Unauthorized(address caller, uint256 id);
+
+    modifier authorizedForNft(uint256 id) {
+        if (!_isApprovedOrOwner(msg.sender, id)) {
+            revert Unauthorized(msg.sender, id);
+        }
+        _;
+    }
+
     error InsufficientLiquidityReceived(uint128 liquidity);
 
     function getPoolPrice(PoolKey memory poolKey) public returns (uint256) {
@@ -69,55 +78,122 @@ contract Positions is ERC721, Payable, CoreLocker {
     function deposit(
         uint256 id,
         PoolKey memory poolKey,
-        PositionKey memory positionKey,
+        Bounds memory bounds,
         uint128 amount0,
         uint128 amount1,
         uint128 minLiquidity
-    ) public returns (uint128 liquidity) {
-        if (!_isApprovedOrOwner(msg.sender, id)) {
-            revert Unauthorized(msg.sender, id);
-        }
-
+    ) public authorizedForNft(id) returns (uint128 liquidity) {
         uint256 sqrtRatio = getPoolPrice(poolKey);
 
-        liquidity = maxLiquidity(
-            sqrtRatio,
-            tickToSqrtRatio(positionKey.bounds.lower),
-            tickToSqrtRatio(positionKey.bounds.upper),
-            amount0,
-            amount1
-        );
+        liquidity =
+            maxLiquidity(sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), amount0, amount1);
 
         if (liquidity < minLiquidity) {
             revert InsufficientLiquidityReceived(liquidity);
         }
 
-        lock(abi.encodePacked(uint8(0), abi.encode(id, poolKey, positionKey, liquidity)));
+        lock(abi.encodePacked(uint8(0), abi.encode(id, poolKey, bounds, liquidity)));
+    }
+
+    function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
+        public
+        authorizedForNft(id)
+    {
+        lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, recipient)));
+    }
+
+    function withdraw(
+        uint256 id,
+        PoolKey memory poolKey,
+        Bounds memory bounds,
+        uint128 liquidity,
+        address recipient,
+        uint128 minAmount0,
+        uint128 minAmount1
+    ) public authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
+        (amount0, amount1) = abi.decode(
+            lock(
+                abi.encodePacked(
+                    uint8(2), abi.encode(id, poolKey, bounds, liquidity, recipient, minAmount0, minAmount1)
+                )
+            ),
+            (uint128, uint128)
+        );
+    }
+
+    function maybeInitializePool(PoolKey memory poolKey, int32 tick) external {
+        uint256 price = getPoolPrice(poolKey);
+        if (price == 0) {
+            core.initializePool(poolKey, tick);
+        }
     }
 
     function mintAndDeposit(
         PoolKey memory poolKey,
-        PositionKey memory positionKey,
+        Bounds memory bounds,
         uint128 amount0,
         uint128 amount1,
         uint128 minLiquidity
     ) external returns (uint256 id, uint128 liquidity) {
         id = mint();
-        liquidity = deposit(id, poolKey, positionKey, amount0, amount1, minLiquidity);
+        liquidity = deposit(id, poolKey, bounds, amount0, amount1, minLiquidity);
     }
 
     error UnexpectedCallTypeByte();
+    error InsufficientAmountWithdrawn();
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
         uint8 callType;
 
         assembly ("memory-safe") {
-            callType := byte(0, calldataload(0))
+            callType := byte(0, calldataload(data.offset))
         }
 
         if (callType == 0) {
-            (PoolKey memory poolKey, PositionKey memory positionKey, uint128 liquidity) =
-                abi.decode(data[1:], (PoolKey, PositionKey, uint128));
+            (uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
+                abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128));
+
+            (int128 delta0, int128 delta1) = core.updatePosition(
+                poolKey,
+                UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: int128(liquidity)})
+            );
+
+            payCore(poolKey.token0, uint128(delta0));
+            payCore(poolKey.token1, uint128(delta1));
+        } else if (callType == 1) {
+            (uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient) =
+                abi.decode(data[1:], (uint256, PoolKey, Bounds, address));
+
+            (uint128 amount0, uint128 amount1) = core.collectFees(poolKey, bytes32(id), bounds);
+
+            withdrawFromCore(poolKey.token0, amount0, recipient);
+            withdrawFromCore(poolKey.token1, amount1, recipient);
+        } else if (callType == 2) {
+            (
+                uint256 id,
+                PoolKey memory poolKey,
+                Bounds memory bounds,
+                uint128 liquidity,
+                address recipient,
+                uint128 minToken0,
+                uint128 minToken1
+            ) = abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128, address, uint128, uint128));
+
+            (int128 delta0, int128 delta1) = core.updatePosition(
+                poolKey,
+                UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: -int128(liquidity)})
+            );
+
+            (uint128 amount0, uint128 amount1) = (uint128(-delta0), uint128(-delta1));
+
+            if (amount0 < minToken0 || amount1 < minToken1) {
+                revert InsufficientAmountWithdrawn();
+            }
+
+            withdrawFromCore(poolKey.token0, amount0, recipient);
+            withdrawFromCore(poolKey.token1, amount1, recipient);
+
+            result = abi.encode(amount0, amount1);
         } else {
             revert UnexpectedCallTypeByte();
         }

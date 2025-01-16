@@ -4,13 +4,14 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Core} from "../src/Core.sol";
 import {Positions, ITokenURIGenerator} from "../src/Positions.sol";
-import {BaseURLTokenURIGenerator} from "../src/base/BaseURLTokenURIGenerator.sol";
+import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, PositionKey} from "../src/types/keys.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {WETH} from "solady/tokens/WETH.sol";
 
 contract PositionsTest is Test {
+    address owner = address(0xdeadbeef);
     WETH public weth;
     ITokenURIGenerator public tokenURIGenerator;
     Core public core;
@@ -18,8 +19,8 @@ contract PositionsTest is Test {
 
     function setUp() public {
         weth = new WETH();
-        core = new Core(address(0xdeadbeef));
-        tokenURIGenerator = new BaseURLTokenURIGenerator("ekubo://positions/");
+        core = new Core(owner);
+        tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
         positions = new Positions(core, tokenURIGenerator, weth);
     }
 

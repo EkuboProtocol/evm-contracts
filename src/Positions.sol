@@ -71,14 +71,14 @@ contract Positions is ERC721, Payable, CoreLocker {
         uint128 amount0,
         uint128 amount1,
         uint128 minLiquidity
-    ) public {
+    ) public returns (uint128 liquidity) {
         if (!_isApprovedOrOwner(msg.sender, id)) {
             revert Unauthorized(msg.sender, id);
         }
 
         uint256 sqrtRatio = getPoolPrice(poolKey);
 
-        uint128 liquidity = maxLiquidity(
+        liquidity = maxLiquidity(
             sqrtRatio,
             tickToSqrtRatio(positionKey.bounds.lower),
             tickToSqrtRatio(positionKey.bounds.upper),
@@ -99,9 +99,9 @@ contract Positions is ERC721, Payable, CoreLocker {
         uint128 amount0,
         uint128 amount1,
         uint128 minLiquidity
-    ) external {
-        uint256 id = mint();
-        deposit(id, poolKey, positionKey, amount0, amount1, minLiquidity);
+    ) external returns (uint256 id, uint128 liquidity) {
+        id = mint();
+        liquidity = deposit(id, poolKey, positionKey, amount0, amount1, minLiquidity);
     }
 
     error UnexpectedCallTypeByte();

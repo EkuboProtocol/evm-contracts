@@ -122,20 +122,16 @@ contract Core is Ownable, ExposedStorage {
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) private savedBalances;
 
+    constructor(address owner) {
+        _initializeOwner(owner);
+    }
+
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
 
-    function withdrawProtocolFees(address recipient, address token, uint256 amount) public onlyOwner {
+    function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
         protocolFeesCollected[token] -= amount;
         SafeTransferLib.safeTransfer(token, recipient, amount);
         emit ProtocolFeesWithdrawn(recipient, token, amount);
-    }
-
-    function withdrawProtocolFees(address recipient, address token) external {
-        withdrawProtocolFees(recipient, token, protocolFeesCollected[token]);
-    }
-
-    constructor(address owner) {
-        _initializeOwner(owner);
     }
 
     error FailedRegisterInvalidCallPoints();

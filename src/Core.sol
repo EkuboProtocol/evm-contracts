@@ -271,18 +271,6 @@ contract Core is Ownable, ExposedStorage {
         }
     }
 
-    // Initializes the pool if it isn't already initialized, otherwise just returns the current price of the pool
-    function maybeInitializePool(PoolKey memory key, int32 tick)
-        external
-        returns (bool didInitialize, uint256 sqrtRatio)
-    {
-        sqrtRatio = poolPrice[key.toPoolId()].sqrtRatio;
-        if (sqrtRatio == 0) {
-            sqrtRatio = initializePool(key, tick);
-            didInitialize = true;
-        }
-    }
-
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
     function prevInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)

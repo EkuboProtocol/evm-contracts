@@ -9,6 +9,7 @@ import {WETH} from "solady/tokens/WETH.sol";
 import {PoolKey, PositionKey} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
+import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
 
 // This functionality is externalized so it can be upgraded later, e.g. to change the URL or generate the URI on-chain
 interface ITokenURIGenerator {
@@ -38,14 +39,30 @@ contract Positions is ERC721, Payable, CoreLocker {
         return uint256(keccak256(abi.encode(minter, salt))) >> 192;
     }
 
+    function mint() external returns (uint256 id) {
+        // generates a pseudoranomd salt
+        // note this can have encounter conflicts if a sender sends two identical transactions in the same block
+        // that happen to consume exactly the same amount of gas
+        id = mint(keccak256(abi.encode(block.prevrandao, gasleft())));
+    }
+
     // Mints an NFT for the caller with the ID given by shr(192, keccak256(minter, salt))
     // This prevents us from having to store a counter of how many were minted
-    function mint(bytes32 salt) external {
-        _mint(msg.sender, saltToId(msg.sender, salt));
+    function mint(bytes32 salt) public returns (uint256 id) {
+        id = saltToId(msg.sender, salt);
+        _mint(msg.sender, id);
     }
 
     error Unauthorized(address caller, uint256 id);
     error InsufficientLiquidityReceived(uint128 liquidity);
+
+    function getPoolPrice(PoolKey memory poolKey) public returns (uint256) {
+        if (shouldCallBeforeUpdatePosition(poolKey.extension)) {
+            revert("todo");
+        }
+        (uint192 sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
+        return sqrtRatio;
+    }
 
     function deposit(
         uint256 id,
@@ -59,7 +76,7 @@ contract Positions is ERC721, Payable, CoreLocker {
             revert Unauthorized(msg.sender, id);
         }
 
-        (uint192 sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
+        uint256 sqrtRatio = getPoolPrice(poolKey);
 
         uint128 liquidity = maxLiquidity(
             sqrtRatio,

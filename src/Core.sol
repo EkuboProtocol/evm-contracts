@@ -649,6 +649,7 @@ contract Core is Ownable, ExposedStorage {
             }
 
             if (params.isToken1) {
+                // todo: overflow checks?
                 delta0 = (params.amount < 0) ? int128(calculatedAmount) : -int128(calculatedAmount);
                 delta1 = params.amount - amountRemaining;
             } else {

@@ -6,7 +6,7 @@ import {Multicallable} from "solady/utils/Multicallable.sol";
 import {Payable} from "./base/Payable.sol";
 import {Clearable} from "./base/Clearable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
-import {Core, ILocker} from "./Core.sol";
+import {Core} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
 import {PoolKey, PositionKey} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -17,7 +17,7 @@ interface ITokenURIGenerator {
     function generateTokenURI(uint256 id) external view returns (string memory);
 }
 
-contract Positions is ILocker, ERC721, Multicallable, Payable, Clearable, CoreLocker {
+contract Positions is ERC721, Multicallable, Payable, Clearable, CoreLocker {
     ITokenURIGenerator public immutable tokenURIGenerator;
 
     constructor(Core core, ITokenURIGenerator _tokenURIGenerator, WETH weth)

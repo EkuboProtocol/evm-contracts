@@ -445,6 +445,7 @@ contract Core is Ownable, ExposedStorage {
         }
 
         bytes32 poolId = poolKey.toPoolId();
+        PoolPrice memory price = poolPrice[poolId];
         uint128 liquidity = poolLiquidity[poolId];
 
         if (poolKey.extension != address(0) && shouldCallAfterSwap(poolKey.extension) && locker != poolKey.extension) {

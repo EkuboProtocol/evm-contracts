@@ -103,10 +103,10 @@ contract Core is Ownable, ExposedStorage {
     mapping(bytes32 poolId => uint128 liquidity) public poolLiquidity;
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) public poolFeesPerLiquidity;
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) public positions;
-    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public ticks;
+    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) public poolTicks;
     mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) public
         poolTickFeesPerLiquidityOutside;
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) public initializedTickBitmaps;
+    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) public poolInitializedTickBitmaps;
 
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) public savedBalances;
@@ -283,8 +283,9 @@ contract Core is Ownable, ExposedStorage {
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) =
-            initializedTickBitmaps[poolKey.toPoolId()].findPrevInitializedTick(fromTick, poolKey.tickSpacing, skipAhead);
+        (tick, isInitialized) = poolInitializedTickBitmaps[poolKey.toPoolId()].findPrevInitializedTick(
+            fromTick, poolKey.tickSpacing, skipAhead
+        );
     }
 
     function nextInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
@@ -292,8 +293,9 @@ contract Core is Ownable, ExposedStorage {
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) =
-            initializedTickBitmaps[poolKey.toPoolId()].findNextInitializedTick(fromTick, poolKey.tickSpacing, skipAhead);
+        (tick, isInitialized) = poolInitializedTickBitmaps[poolKey.toPoolId()].findNextInitializedTick(
+            fromTick, poolKey.tickSpacing, skipAhead
+        );
     }
 
     error BalanceDeltaNotEqualAllowance(address token);
@@ -407,8 +409,8 @@ contract Core is Ownable, ExposedStorage {
         }
     }
 
-    function updateTick(PoolKey memory poolKey, int32 tick, int128 liquidityDelta, bool isUpper) private {
-        TickInfo storage tickInfo = ticks[poolKey.toPoolId()][tick];
+    function updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
+        TickInfo storage tickInfo = poolTicks[poolId][tick];
 
         // todo: can we optimize this so it's only one sload?
 
@@ -418,7 +420,7 @@ contract Core is Ownable, ExposedStorage {
             isUpper ? tickInfo.liquidityDelta - liquidityDelta : tickInfo.liquidityDelta + liquidityDelta;
 
         if ((tickInfo.liquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(initializedTickBitmaps[poolKey.toPoolId()], tick, poolKey.tickSpacing);
+            flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
         }
 
         tickInfo.liquidityDelta = liquidityDeltaNext;
@@ -494,8 +496,8 @@ contract Core is Ownable, ExposedStorage {
                     Position({liquidity: 0, feesPerLiquidityInsideLast: FeesPerLiquidity(0, 0)});
             }
 
-            updateTick(poolKey, params.bounds.lower, params.liquidityDelta, false);
-            updateTick(poolKey, params.bounds.upper, params.liquidityDelta, true);
+            updateTick(poolId, params.bounds.lower, poolKey.tickSpacing, params.liquidityDelta, false);
+            updateTick(poolId, params.bounds.upper, poolKey.tickSpacing, params.liquidityDelta, true);
 
             if (price.tick >= params.bounds.lower && price.tick < params.bounds.upper) {
                 poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
@@ -591,10 +593,10 @@ contract Core is Ownable, ExposedStorage {
                 if (params.sqrtRatioLimit < MIN_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
             }
 
-            mapping(uint256 => Bitmap) storage bitmap = initializedTickBitmaps[poolKey.toPoolId()];
+            mapping(uint256 => Bitmap) storage initializedTickBitmaps = poolInitializedTickBitmaps[poolKey.toPoolId()];
             mapping(int32 => FeesPerLiquidity) storage tickFeesPerLiquidityOutside =
                 poolTickFeesPerLiquidityOutside[poolId];
-            mapping(int32 => TickInfo) storage poolTicks = ticks[poolId];
+            mapping(int32 => TickInfo) storage ticks = poolTicks[poolId];
 
             int128 amountRemaining = params.amount;
             uint128 liquidity = poolLiquidity[poolId];
@@ -605,8 +607,8 @@ contract Core is Ownable, ExposedStorage {
 
             while (amountRemaining != 0 && sqrtRatio != params.sqrtRatioLimit) {
                 (int32 nextTick, bool isInitialized) = increasing
-                    ? bitmap.findNextInitializedTick(tick, poolKey.tickSpacing, params.skipAhead)
-                    : bitmap.findPrevInitializedTick(tick, poolKey.tickSpacing, params.skipAhead);
+                    ? initializedTickBitmaps.findNextInitializedTick(tick, poolKey.tickSpacing, params.skipAhead)
+                    : initializedTickBitmaps.findPrevInitializedTick(tick, poolKey.tickSpacing, params.skipAhead);
 
                 uint256 nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                 uint256 limitedNextSqrtRatio = increasing
@@ -635,7 +637,7 @@ contract Core is Ownable, ExposedStorage {
                     tick = increasing ? nextTick : nextTick - 1;
 
                     if (isInitialized) {
-                        int128 liquidityDelta = ticks[poolId][nextTick].liquidityDelta;
+                        int128 liquidityDelta = ticks[nextTick].liquidityDelta;
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
                             : addLiquidityDelta(liquidity, -liquidityDelta);

@@ -9,7 +9,7 @@ import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 
 import {WETH} from "solady/tokens/WETH.sol";
 
-contract CounterScript is Script {
+contract DeployScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
     address public owner = vm.envAddress("OWNER");

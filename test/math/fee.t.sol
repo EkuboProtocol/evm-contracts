@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {computeFee, accumulateFeeAmount, amountBeforeFee} from "../../src/math/fee.sol";
+import {computeFee, amountBeforeFee} from "../../src/math/fee.sol";
 
 contract FeeTest is Test {
     function test_computeFee() public pure {
@@ -11,15 +11,6 @@ contract FeeTest is Test {
         assertEq(computeFee(100, 1 << 126), 25);
         assertEq(computeFee(100, 1 << 125), 13);
         assertEq(computeFee(type(uint128).max, type(uint128).max), type(uint128).max);
-    }
-
-    function test_accumulateFeeAmount(uint128 x, uint128 y) public pure {
-        uint256 z = uint256(x) + y;
-        if (z > type(uint128).max) {
-            assertEq(accumulateFeeAmount(x, y), type(uint128).max);
-        } else {
-            assertEq(accumulateFeeAmount(x, y), z);
-        }
     }
 
     function test_amountBeforeFee_computeFee(uint128 amount, uint128 fee) public pure {

@@ -27,10 +27,3 @@ function amountBeforeFee(uint128 afterFee, uint128 fee) pure returns (uint128 re
     }
     result = uint128(r);
 }
-
-// Adds two uint128 values, maxing out at the max uint128 value
-function accumulateFeeAmount(uint128 a, uint128 b) pure returns (uint128) {
-    unchecked {
-        return uint128(FixedPointMathLib.min(0xffffffffffffffffffffffffffffffff, uint256(a) + uint256(b)));
-    }
-}

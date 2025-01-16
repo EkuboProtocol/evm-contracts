@@ -33,6 +33,19 @@ interface IForwardee {
     function forwarded(address locker, uint256 id, bytes calldata data) external returns (bytes memory);
 }
 
+struct UpdatePositionParameters {
+    bytes32 salt;
+    Bounds bounds;
+    int128 liquidityDelta;
+}
+
+struct SwapParameters {
+    int128 amount;
+    bool isToken1;
+    uint256 sqrtRatioLimit;
+    uint256 skipAhead;
+}
+
 interface IExtension {
     function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
     function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
@@ -65,19 +78,6 @@ interface IExtension {
         uint128 amount0,
         uint128 amount1
     ) external;
-}
-
-struct UpdatePositionParameters {
-    bytes32 salt;
-    Bounds bounds;
-    int128 liquidityDelta;
-}
-
-struct SwapParameters {
-    int128 amount;
-    bool isToken1;
-    uint256 sqrtRatioLimit;
-    uint256 skipAhead;
 }
 
 contract Core is Ownable, ExposedStorage {

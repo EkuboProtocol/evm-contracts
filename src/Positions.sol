@@ -2,9 +2,7 @@
 pragma solidity =0.8.28;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {Multicallable} from "solady/utils/Multicallable.sol";
 import {Payable} from "./base/Payable.sol";
-import {Clearable} from "./base/Clearable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {Core} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
@@ -17,14 +15,10 @@ interface ITokenURIGenerator {
     function generateTokenURI(uint256 id) external view returns (string memory);
 }
 
-contract Positions is ERC721, Multicallable, Payable, Clearable, CoreLocker {
+contract Positions is ERC721, Payable, CoreLocker {
     ITokenURIGenerator public immutable tokenURIGenerator;
 
-    constructor(Core core, ITokenURIGenerator _tokenURIGenerator, WETH weth)
-        CoreLocker(core)
-        Payable(weth)
-        Clearable(weth)
-    {
+    constructor(Core core, ITokenURIGenerator _tokenURIGenerator, WETH weth) CoreLocker(core) Payable(weth) {
         tokenURIGenerator = _tokenURIGenerator;
     }
 

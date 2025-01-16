@@ -4,7 +4,6 @@ pragma solidity =0.8.28;
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {Payable} from "./base/Payable.sol";
-import {Clearable} from "./base/Clearable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {Core, SwapParameters} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
@@ -33,8 +32,8 @@ struct Delta {
     int128 amount1;
 }
 
-contract Router is Multicallable, Payable, Clearable, CoreLocker {
-    constructor(Core core, WETH weth) CoreLocker(core) Payable(weth) Clearable(weth) {}
+contract Router is Payable, CoreLocker {
+    constructor(Core core, WETH weth) CoreLocker(core) Payable(weth) {}
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
         (Swap[] memory swaps) = abi.decode(data, (Swap[]));

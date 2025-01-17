@@ -91,6 +91,13 @@ library CoreLib {
             tick := shr(192, result)
         }
     }
+
+    function poolLiquidity(Core core, bytes32 poolId) internal view returns (uint128 liquidity) {
+        bytes32 result = core.sload(keccak256(abi.encodePacked(poolId, uint256(3))));
+        assembly {
+            liquidity := and(result, 0xffffffffffffffffffffffffffffffff)
+        }
+    }
 }
 
 contract Core is Ownable, ExposedStorage {

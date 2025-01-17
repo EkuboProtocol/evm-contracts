@@ -101,7 +101,7 @@ abstract contract FullTest is Test {
     TestToken token0;
     TestToken token1;
 
-    function setUp() public {
+    function setUp() public virtual {
         weth = new WETH();
         core = new Core(owner);
         tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
@@ -130,6 +130,13 @@ abstract contract FullTest is Test {
         returns (PoolKey memory poolKey)
     {
         address extension = (callPoints.isValid()) ? createAndRegisterExtension(callPoints) : address(0);
+        poolKey = createPool(tick, fee, tickSpacing, extension);
+    }
+
+    function createPool(int32 tick, uint128 fee, uint32 tickSpacing, address extension)
+        internal
+        returns (PoolKey memory poolKey)
+    {
         poolKey = PoolKey({
             token0: address(token0),
             token1: address(token1),

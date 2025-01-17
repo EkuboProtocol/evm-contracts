@@ -135,4 +135,17 @@ abstract contract FullTest is Test {
         });
         core.initializePool(poolKey, tick);
     }
+
+    function createPosition(PoolKey memory poolKey, Bounds memory bounds, uint128 amount0, uint128 amount1)
+        internal
+        returns (uint256 id, uint128 liquidity)
+    {
+        token0.approve(address(positions), amount0);
+        token1.approve(address(positions), amount1);
+
+        positions.pay(address(token1), amount0);
+        positions.pay(address(token0), amount1);
+
+        (id, liquidity) = positions.mintAndDeposit(poolKey, bounds, amount0, amount1, 0);
+    }
 }

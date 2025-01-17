@@ -45,9 +45,9 @@ contract RouterTest is FullTest {
         assertEq(d.amount1, -99);
     }
 
-    function test_swap_gas(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(693147, 1 << 127, 100, callPoints);
-        createPosition(poolKey, Bounds(693100, 693200), 1000, 1000);
+    function test_swap_gas() public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
         token0.approve(address(router), 100);
         router.pay(address(token0), 100);
@@ -57,9 +57,5 @@ contract RouterTest is FullTest {
             TokenAmount({token: address(token0), amount: 100})
         );
         vm.snapshotGasLastCall("swap 100 token0");
-
-        assertEq(d.amount0, 100);
-        // approximately 1x after fee
-        assertEq(d.amount1, -99);
     }
 }

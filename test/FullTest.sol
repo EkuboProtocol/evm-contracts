@@ -121,6 +121,10 @@ abstract contract FullTest is Test {
         return actual;
     }
 
+    function createPool(int32 tick, uint128 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
+        poolKey = createPool(tick, fee, tickSpacing, CallPoints(false, false, false, false, false, false, false, false));
+    }
+
     function createPool(int32 tick, uint128 fee, uint32 tickSpacing, CallPoints memory callPoints)
         internal
         returns (PoolKey memory poolKey)

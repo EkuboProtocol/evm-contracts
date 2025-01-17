@@ -5,27 +5,41 @@ import {Script, console} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {Positions, ITokenURIGenerator} from "../src/Positions.sol";
 import {Router} from "../src/Router.sol";
-import {Oracle} from "../src/extensions/Oracle.sol";
+import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
-
+import {CallPoints} from "../src/types/callPoints.sol";
+import {console} from "forge-std/console.sol";
 import {WETH} from "solady/tokens/WETH.sol";
+
+function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
+    return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)))));
+}
+
+address constant DETERMINISTIC_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+
+function findExtensionSalt(bytes32 initCodeHash, CallPoints memory callPoints) pure returns (bytes32 salt) {
+    uint8 startingByte = callPoints.toUint8();
+
+    unchecked {
+        while (true) {
+            uint8 predictedStartingByte =
+                uint8(uint160(getCreate2Address(DETERMINISTIC_DEPLOYER, salt, initCodeHash)) >> 152);
+
+            if (predictedStartingByte == startingByte) {
+                break;
+            }
+
+            salt = bytes32(uint256(salt) + 1);
+        }
+    }
+}
 
 contract DeployScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
     address public owner = vm.envAddress("OWNER");
 
-    Core public core;
-    ITokenURIGenerator public tokenURIGenerator;
-    Positions public positions;
-    Router public router;
-    Oracle public oracle;
-
-    // function setUp() public {}
-
     function run() public {
-        vm.startBroadcast();
-
         WETH weth;
         string memory baseUrl;
         address ekuboToken;
@@ -45,12 +59,16 @@ contract DeployScript is Script {
             revert UnrecognizedChainId(block.chainid);
         }
 
-        core = new Core{salt: 0x0}(owner);
-        tokenURIGenerator = new BaseURLTokenURIGenerator(owner, baseUrl);
-        positions = new Positions{salt: 0x0}(core, tokenURIGenerator, weth);
-        router = new Router{salt: 0x0}(core, weth);
-        oracle = new Oracle{salt: 0x0}(core, ekuboToken);
-
+        vm.startBroadcast();
+        Core core = new Core{salt: 0x0}(owner);
+        ITokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: 0x0}(owner, baseUrl);
+        Positions positions = new Positions{salt: 0x0}(core, tokenURIGenerator, weth);
+        Router router = new Router{salt: 0x0}(core, weth);
+        Oracle oracle = new Oracle{
+            salt: findExtensionSalt(
+                keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core, ekuboToken))), oracleCallPoints()
+            )
+        }(core, ekuboToken);
         vm.stopBroadcast();
     }
 }

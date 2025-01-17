@@ -8,6 +8,19 @@ import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {MAX_TICK_SPACING} from "../math/ticks.sol";
 
+function oracleCallPoints() pure returns (CallPoints memory) {
+    return CallPoints({
+        beforeInitializePool: true,
+        afterInitializePool: false,
+        beforeUpdatePosition: true,
+        afterUpdatePosition: false,
+        beforeSwap: true,
+        afterSwap: false,
+        beforeCollectFees: false,
+        afterCollectFees: false
+    });
+}
+
 contract Oracle is ExposedStorage, BaseExtension {
     using CoreLib for Core;
 
@@ -48,16 +61,7 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
-        return CallPoints({
-            beforeInitializePool: true,
-            afterInitializePool: false,
-            beforeUpdatePosition: true,
-            afterUpdatePosition: false,
-            beforeSwap: true,
-            afterSwap: false,
-            beforeCollectFees: false,
-            afterCollectFees: false
-        });
+        return oracleCallPoints();
     }
 
     error PairsWithOracleTokenOnly();

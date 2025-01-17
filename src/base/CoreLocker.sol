@@ -20,7 +20,7 @@ abstract contract CoreLocker is ILocker {
     }
 
     function lock(bytes memory data) internal returns (bytes memory result) {
-        return core.lock(data);
+        result = core.lock(data);
     }
 
     function payCore(address token, uint256 amount) internal {

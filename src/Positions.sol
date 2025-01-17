@@ -6,7 +6,7 @@ import {Payable} from "./base/Payable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {Core, CoreLib, UpdatePositionParameters} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
-import {PoolKey, PositionKey, Bounds} from "./types/keys.sol";
+import {PoolKey, PositionKey, Bounds, maxBounds} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
@@ -67,9 +67,10 @@ contract Positions is ERC721, Payable, CoreLocker {
 
     error InsufficientLiquidityReceived(uint128 liquidity);
 
+    // Gets the pool price of a pool, accounting for any before update position extension behavior
     function getPoolPrice(PoolKey memory poolKey) public returns (uint256) {
         if (shouldCallBeforeUpdatePosition(poolKey.extension)) {
-            revert("todo");
+            return abi.decode(lock(abi.encodePacked(uint8(3), abi.encode(poolKey))), (uint256));
         }
         (uint192 sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
         return sqrtRatio;
@@ -194,6 +195,18 @@ contract Positions is ERC721, Payable, CoreLocker {
             withdrawFromCore(poolKey.token1, amount1, recipient);
 
             result = abi.encode(amount0, amount1);
+        } else if (callType == 3) {
+            (PoolKey memory poolKey) = abi.decode(data[1:], (PoolKey));
+
+            // an empty update that we expect to succeed in all cases for well-behaving extensions
+            core.updatePosition(
+                poolKey,
+                UpdatePositionParameters({salt: bytes32(0), bounds: maxBounds(poolKey.tickSpacing), liquidityDelta: 0})
+            );
+
+            (uint256 price,) = core.poolPrice(poolKey.toPoolId());
+
+            result = abi.encode(price);
         } else {
             revert UnexpectedCallTypeByte();
         }

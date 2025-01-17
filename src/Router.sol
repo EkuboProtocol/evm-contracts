@@ -8,8 +8,9 @@ import {CoreLocker} from "./base/CoreLocker.sol";
 import {Core, SwapParameters} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
 import {PoolKey, PositionKey} from "./types/keys.sol";
-import {tickToSqrtRatio} from "./math/ticks.sol";
+import {tickToSqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
+import {isPriceIncreasing} from "./math/swap.sol";
 
 struct RouteNode {
     PoolKey poolKey;
@@ -38,32 +39,60 @@ contract Router is Payable, CoreLocker {
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
         (Swap[] memory swaps) = abi.decode(data, (Swap[]));
         Delta[][] memory results = new Delta[][](swaps.length);
-        for (uint256 i = 0; i < swaps.length; i++) {
-            Swap memory s = swaps[i];
-            results[i] = new Delta[](s.route.length);
+        unchecked {
+            for (uint256 i = 0; i < swaps.length; i++) {
+                Swap memory s = swaps[i];
+                results[i] = new Delta[](s.route.length);
 
-            for (uint256 j = 0; j < s.route.length; j++) {
-                RouteNode memory node = s.route[j];
+                TokenAmount memory firstSwapAmount;
                 TokenAmount memory tokenAmount = s.tokenAmount;
 
-                bool isToken1 = tokenAmount.token == node.poolKey.token1;
+                for (uint256 j = 0; j < s.route.length; j++) {
+                    RouteNode memory node = s.route[j];
 
-                (int128 delta0, int128 delta1) = core.swap(
-                    node.poolKey,
-                    SwapParameters({
-                        amount: tokenAmount.amount,
-                        isToken1: tokenAmount.token == node.poolKey.token1,
-                        sqrtRatioLimit: node.sqrtRatioLimit,
-                        skipAhead: node.skipAhead
-                    })
-                );
+                    bool isToken1 = tokenAmount.token == node.poolKey.token1;
 
-                results[i][j] = Delta(delta0, delta1);
+                    uint256 sqrtRatioLimit = node.sqrtRatioLimit;
+                    if (sqrtRatioLimit == 0) {
+                        sqrtRatioLimit =
+                            isPriceIncreasing(tokenAmount.amount, isToken1) ? MAX_SQRT_RATIO : MIN_SQRT_RATIO;
+                    }
 
-                if (isToken1) {
-                    tokenAmount = TokenAmount({token: node.poolKey.token0, amount: -delta0});
+                    (int128 delta0, int128 delta1) = core.swap(
+                        node.poolKey,
+                        SwapParameters({
+                            amount: tokenAmount.amount,
+                            isToken1: isToken1,
+                            sqrtRatioLimit: sqrtRatioLimit,
+                            skipAhead: node.skipAhead
+                        })
+                    );
+
+                    results[i][j] = Delta(delta0, delta1);
+
+                    if (firstSwapAmount.token == address(0)) {
+                        firstSwapAmount = isToken1
+                            ? TokenAmount({amount: delta1, token: node.poolKey.token1})
+                            : TokenAmount({amount: delta0, token: node.poolKey.token0});
+                    }
+
+                    if (isToken1) {
+                        tokenAmount = TokenAmount({token: node.poolKey.token0, amount: -delta0});
+                    } else {
+                        tokenAmount = TokenAmount({token: node.poolKey.token1, amount: -delta1});
+                    }
+                }
+
+                if (firstSwapAmount.amount < 0) {
+                    withdrawFromCore(firstSwapAmount.token, uint128(-firstSwapAmount.amount), address(this));
                 } else {
-                    tokenAmount = TokenAmount({token: node.poolKey.token1, amount: -delta1});
+                    payCore(firstSwapAmount.token, uint128(firstSwapAmount.amount));
+                }
+
+                if (tokenAmount.amount > 0) {
+                    withdrawFromCore(tokenAmount.token, uint128(tokenAmount.amount), address(this));
+                } else {
+                    payCore(tokenAmount.token, uint128(-tokenAmount.amount));
                 }
             }
         }

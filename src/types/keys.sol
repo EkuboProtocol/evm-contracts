@@ -45,6 +45,12 @@ function validateBounds(Bounds memory bounds, uint32 tickSpacing) pure {
     if (bounds.lower % spacing != 0 || bounds.upper % spacing != 0) revert BoundsTickSpacing();
 }
 
+function maxBounds(uint32 tickSpacing) pure returns (Bounds memory) {
+    int32 spacing = int32(tickSpacing);
+
+    return Bounds({lower: (MIN_TICK / spacing) * spacing, upper: (MAX_TICK / spacing) * spacing});
+}
+
 // A position is keyed by the pool and this position key
 struct PositionKey {
     bytes32 salt;

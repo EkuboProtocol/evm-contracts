@@ -83,13 +83,13 @@ contract Router is CoreLocker {
                 }
 
                 if (firstSwapAmount.amount < 0) {
-                    withdrawFromCore(firstSwapAmount.token, uint128(-firstSwapAmount.amount), address(this));
+                    withdrawFromCore(firstSwapAmount.token, uint128(-firstSwapAmount.amount), swapper);
                 } else {
                     payCore(swapper, firstSwapAmount.token, uint128(firstSwapAmount.amount));
                 }
 
                 if (tokenAmount.amount > 0) {
-                    withdrawFromCore(tokenAmount.token, uint128(tokenAmount.amount), address(this));
+                    withdrawFromCore(tokenAmount.token, uint128(tokenAmount.amount), swapper);
                 } else {
                     payCore(swapper, tokenAmount.token, uint128(-tokenAmount.amount));
                 }

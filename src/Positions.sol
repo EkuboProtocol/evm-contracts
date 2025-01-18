@@ -10,13 +10,14 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
 import {TransfersTokens} from "./base/TransfersTokens.sol";
+import {Multicallable} from "solady/utils/Multicallable.sol";
 
 // This functionality is externalized so it can be upgraded later, e.g. to change the URL or generate the URI on-chain
 interface ITokenURIGenerator {
     function generateTokenURI(uint256 id) external view returns (string memory);
 }
 
-contract Positions is CoreLocker, ERC721 {
+contract Positions is Multicallable, CoreLocker, ERC721 {
     using CoreLib for Core;
 
     ITokenURIGenerator public immutable tokenURIGenerator;

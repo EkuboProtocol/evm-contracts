@@ -8,6 +8,7 @@ import {isPriceIncreasing, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio, sqrtRatioToTick, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "./math/ticks.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {
     shouldCallBeforeInitializePool,
@@ -26,10 +27,11 @@ import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
-import {TransfersTokens} from "./base/TransfersTokens.sol";
+import {TransfersTokens, NATIVE_TOKEN_ADDRESS} from "./base/TransfersTokens.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
+    function payCallback(uint256 id, address token, bytes calldata data) external returns (bytes memory);
 }
 
 interface IForwardee {
@@ -301,48 +303,32 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         );
     }
 
-    error BalanceTooGreat();
-
-    uint256 constant MAX_BALANCE = type(uint256).max >> 1; // == (1<<255) - 1
-
-    function startPayment(address token) external {
-        uint256 tokenBalance = balanceOfToken(token);
-        if (tokenBalance > MAX_BALANCE) revert BalanceTooGreat();
-        assembly ("memory-safe") {
-            tstore(
-                add(0xb2167327b5ed4f50eaa3f30a1543bbcd48e24d90dc0da6920d198e2eedf81ef7, token),
-                // sets the most significant bit in the token balance which we know is not set because we checked tokenBalance < MAX_BALANCE
-                or(0x8000000000000000000000000000000000000000000000000000000000000000, tokenBalance)
-            )
-        }
-    }
-
+    error PaymentTooLarge();
     error NoPaymentMade();
-    error CallStartPaymentFirst();
 
-    function completePayment(address token) external payable {
-        (uint256 id,) = requireLocker();
+    uint256 constant MAX_INT256 = type(uint256).max >> 1; // == (1<<255) - 1
 
-        uint256 previousBalance;
-        assembly ("memory-safe") {
-            let slot := add(0xb2167327b5ed4f50eaa3f30a1543bbcd48e24d90dc0da6920d198e2eedf81ef7, token)
-            previousBalance := sub(tload(slot), 0x8000000000000000000000000000000000000000000000000000000000000000)
-            tstore(slot, 0)
-        }
+    // Token must not be the NATIVE_TOKEN_ADDRESS.
+    // If you want to pay in the native token, simply transfer it to this contract.
+    function pay(address token, bytes memory data) external returns (uint256 payment) {
+        (uint256 id, address caller) = requireLocker();
 
-        // if we know the actual balance is less than (1<<255),
-        // then subtracting the value (1<<255) will necessarily underflow to a value that is greater than or equal to (1<<255)
-        if (previousBalance >= MAX_BALANCE) revert CallStartPaymentFirst();
+        uint256 tokenBalanceBefore = SafeTransferLib.balanceOf(token, address(this));
 
-        uint256 balance = balanceOfToken(token);
-        if (balance <= previousBalance) {
+        ILocker(caller).payCallback(id, token, data);
+
+        uint256 tokenBalanceAfter = SafeTransferLib.balanceOf(token, address(this));
+
+        if (tokenBalanceAfter <= tokenBalanceBefore) {
             revert NoPaymentMade();
         }
 
         unchecked {
-            uint256 payment = balance - previousBalance;
+            payment = tokenBalanceAfter - tokenBalanceBefore;
 
-            // no safe cast necessary because payment is necessarily less than MAX_BALANCE which is 255 bits
+            if (payment > MAX_INT256) revert PaymentTooLarge();
+
+            // The unary negative operator never fails because payment is less than max int256
             accountDelta(id, token, -int256(payment));
         }
     }
@@ -704,6 +690,16 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
         if (shouldCallAfterSwap(poolKey.extension) && locker != poolKey.extension) {
             IExtension(poolKey.extension).afterSwap(locker, poolKey, params, delta0, delta1);
+        }
+    }
+
+    // Used to pay native tokens owed
+    receive() external payable {
+        (uint256 id,) = requireLocker();
+
+        // Assumption that msg.value will never overflow this cast or subtraction
+        unchecked {
+            accountDelta(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }
 }

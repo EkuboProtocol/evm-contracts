@@ -7,7 +7,7 @@ import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "../test/TestToken.sol";
 import {PoolKey, PositionKey, Bounds, maxBounds} from "../src/types/keys.sol";
-import {ETH_ADDRESS} from "../src/base/TransfersTokens.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/base/TransfersTokens.sol";
 
 contract GenerateTransactions is Script {
     error UnrecognizedChainId(uint256 chainId);
@@ -25,7 +25,7 @@ contract GenerateTransactions is Script {
         // token1.approve(address(router), type(uint256).max);
 
         PoolKey memory poolKey = PoolKey({
-            token0: ETH_ADDRESS,
+            token0: NATIVE_TOKEN_ADDRESS,
             token1: address(token1),
             fee: uint128((uint256(3000) << 128) / 1000000),
             tickSpacing: 5982,
@@ -39,7 +39,7 @@ contract GenerateTransactions is Script {
         // +/- 10%
         // positions.mintAndDeposit{value: 10000000}(poolKey, bounds, 10000000, 10000000 * 100, 0);
 
-        router.swap{value: 1000}(RouteNode(poolKey, 0, 0), TokenAmount(ETH_ADDRESS, 1000));
+        router.swap{value: 1000}(RouteNode(poolKey, 0, 0), TokenAmount(NATIVE_TOKEN_ADDRESS, 1000));
         router.swap(RouteNode(poolKey, 0, 0), TokenAmount(address(token1), 100000));
 
         vm.stopBroadcast();

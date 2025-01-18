@@ -9,7 +9,7 @@ import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
-import {ETH_ADDRESS} from "../src/base/TransfersTokens.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/base/TransfersTokens.sol";
 
 contract MockExtension is IExtension {
     function register(Core core, CallPoints calldata expectedCallPoints) external {
@@ -133,7 +133,7 @@ abstract contract FullTest is Test {
 
     // creates a pool of token1/ETH
     function createETHPool(int32 tick, uint128 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(ETH_ADDRESS, address(token1), tick, fee, tickSpacing, address(0));
+        poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), tick, fee, tickSpacing, address(0));
     }
 
     function createPool(int32 tick, uint128 fee, uint32 tickSpacing, address extension)
@@ -160,7 +160,7 @@ abstract contract FullTest is Test {
         returns (uint256 id, uint128 liquidity)
     {
         uint256 value;
-        if (poolKey.token0 == ETH_ADDRESS) {
+        if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
             value = amount0;
         } else {
             TestToken(poolKey.token0).approve(address(positions), amount0);

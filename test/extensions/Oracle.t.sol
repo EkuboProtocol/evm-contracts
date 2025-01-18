@@ -14,7 +14,7 @@ import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle, MAX_TICK_AT_MAX_TICK_SPACING} from "../../src/extensions/Oracle.sol";
 import {toUint8} from "../../src/types/callPoints.sol";
-import {ETH_ADDRESS} from "../../src/base/TransfersTokens.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/base/TransfersTokens.sol";
 
 contract OracleTest is FullTest {
     Oracle oracle;
@@ -35,7 +35,7 @@ contract OracleTest is FullTest {
                 }).toUint8()
             ) << 152
         );
-        deployCodeTo("Oracle.sol", abi.encode(core, ETH_ADDRESS), deployAddress);
+        deployCodeTo("Oracle.sol", abi.encode(core, NATIVE_TOKEN_ADDRESS), deployAddress);
         oracle = Oracle(deployAddress);
     }
 
@@ -44,12 +44,12 @@ contract OracleTest is FullTest {
     }
 
     function test_getImmutables() public view {
-        assertEq(oracle.oracleToken(), ETH_ADDRESS);
+        assertEq(oracle.oracleToken(), NATIVE_TOKEN_ADDRESS);
         assertEq(oracle.timestampOffset(), uint64(block.timestamp));
     }
 
     function test_createPool_beforeInitializePool() public {
-        createPool(ETH_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
         assertEq(oracle.snapshotCount(address(token1)), 1);
         (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 0);
@@ -63,14 +63,15 @@ contract OracleTest is FullTest {
         createPool(address(token0), address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
 
         vm.expectRevert(Oracle.TickSpacingMustBeMaximum.selector);
-        createPool(ETH_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING - 1, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING - 1, address(oracle));
 
         vm.expectRevert(Oracle.FeeMustBeZero.selector);
-        createPool(ETH_ADDRESS, address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
     }
 
     function test_createPosition() public {
-        PoolKey memory poolKey = createPool(ETH_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        PoolKey memory poolKey =
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
 
         advanceTime(30);
 

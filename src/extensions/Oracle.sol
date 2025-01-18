@@ -21,10 +21,10 @@ function oracleCallPoints() pure returns (CallPoints memory) {
     });
 }
 
+int32 constant MAX_TICK_AT_MAX_TICK_SPACING = 88368108;
+
 contract Oracle is ExposedStorage, BaseExtension {
     using CoreLib for Core;
-
-    int32 public constant MAX_TICK_AT_MAX_TICK_SPACING = 88368108;
 
     address public immutable oracleToken;
     // all snapshots are taken with respect to this snapshot.

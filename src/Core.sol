@@ -491,20 +491,22 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             PositionKey memory positionKey = PositionKey({salt: params.salt, owner: locker, bounds: params.bounds});
 
             if (params.liquidityDelta < 0) {
-                uint128 amount0Fee = computeFee(uint128(-delta0), poolKey.fee);
-                uint128 amount1Fee = computeFee(uint128(-delta1), poolKey.fee);
-                // this will never overflow for a reasonably behaved token
-                unchecked {
-                    if (amount0Fee > 0) {
-                        protocolFeesCollected[poolKey.token0] += amount0Fee;
+                if (poolKey.fee != 0) {
+                    uint128 amount0Fee = computeFee(uint128(-delta0), poolKey.fee);
+                    uint128 amount1Fee = computeFee(uint128(-delta1), poolKey.fee);
+                    // this will never overflow for a reasonably behaved token
+                    unchecked {
+                        if (amount0Fee > 0) {
+                            protocolFeesCollected[poolKey.token0] += amount0Fee;
+                        }
+                        if (amount1Fee > 0) {
+                            protocolFeesCollected[poolKey.token1] += amount1Fee;
+                        }
                     }
-                    if (amount1Fee > 0) {
-                        protocolFeesCollected[poolKey.token1] += amount1Fee;
-                    }
+                    delta0 += int128(amount0Fee);
+                    delta1 += int128(amount1Fee);
+                    emit ProtocolFeesPaid(poolKey, positionKey, amount0Fee, amount1Fee);
                 }
-                delta0 += int128(amount0Fee);
-                delta1 += int128(amount1Fee);
-                emit ProtocolFeesPaid(poolKey, positionKey, amount0Fee, amount1Fee);
             }
 
             bytes32 positionId = positionKey.toPositionId();

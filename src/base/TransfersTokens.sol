@@ -16,10 +16,7 @@ abstract contract TransfersTokens {
         }
     }
 
-    error CannotTransferFromETH();
-
     function transferTokenFrom(address token, address spender, address recipient, uint256 amount) internal {
-        assert(token != ETH_ADDRESS);
         SafeTransferLib.safeTransferFrom(token, spender, recipient, amount);
     }
 

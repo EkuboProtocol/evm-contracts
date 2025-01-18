@@ -16,19 +16,19 @@ contract MockExtension is IExtension {
         core.registerExtension(expectedCallPoints);
     }
 
-    event BeforeInitializePoolCalled(address caller, PoolKey key, int32 tick);
+    event BeforeInitializePoolCalled(address caller, PoolKey poolKey, int32 tick);
 
     function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external {
         emit BeforeInitializePoolCalled(caller, key, tick);
     }
 
-    event AfterInitializePoolCalled(address caller, PoolKey key, int32 tick, uint256 sqrtRatio);
+    event AfterInitializePoolCalled(address caller, PoolKey poolKey, int32 tick, uint256 sqrtRatio);
 
     function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external {
         emit AfterInitializePoolCalled(caller, key, tick, sqrtRatio);
     }
 
-    event BeforeUpdatePositionCalled(address locker, PoolKey key, UpdatePositionParameters params);
+    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, UpdatePositionParameters params);
 
     function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
@@ -37,7 +37,7 @@ contract MockExtension is IExtension {
     }
 
     event AfterUpdatePositionCalled(
-        address locker, PoolKey key, UpdatePositionParameters params, int128 delta0, int128 delta1
+        address locker, PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1
     );
 
     function afterUpdatePosition(
@@ -50,13 +50,13 @@ contract MockExtension is IExtension {
         emit AfterUpdatePositionCalled(locker, poolKey, params, delta0, delta1);
     }
 
-    event BeforeSwapCalled(address locker, PoolKey key, SwapParameters params);
+    event BeforeSwapCalled(address locker, PoolKey poolKey, SwapParameters params);
 
     function beforeSwap(address locker, PoolKey memory poolKey, SwapParameters memory params) external {
         emit BeforeSwapCalled(locker, poolKey, params);
     }
 
-    event AfterSwapCalled(address locker, PoolKey key, SwapParameters params, int128 delta0, int128 delta1);
+    event AfterSwapCalled(address locker, PoolKey poolKey, SwapParameters params, int128 delta0, int128 delta1);
 
     function afterSwap(
         address locker,
@@ -68,14 +68,14 @@ contract MockExtension is IExtension {
         emit AfterSwapCalled(locker, poolKey, params, delta0, delta1);
     }
 
-    event BeforeCollectFeesCalled(address locker, PoolKey key, bytes32 salt, Bounds bounds);
+    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, bytes32 salt, Bounds bounds);
 
     function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external {
         emit BeforeCollectFeesCalled(locker, poolKey, salt, bounds);
     }
 
     event AfterCollectFeesCalled(
-        address locker, PoolKey key, bytes32 salt, Bounds bounds, uint128 amount0, uint128 amount1
+        address locker, PoolKey poolKey, bytes32 salt, Bounds bounds, uint128 amount0, uint128 amount1
     );
 
     function afterCollectFees(

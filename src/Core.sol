@@ -252,7 +252,7 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
     error PoolAlreadyInitialized();
     error ExtensionNotRegistered(address extension);
 
-    event PoolInitialized(PoolKey key, int32 tick, uint256 sqrtRatio);
+    event PoolInitialized(PoolKey poolKey, int32 tick, uint256 sqrtRatio);
 
     function initializePool(PoolKey memory key, int32 tick) public returns (uint256 sqrtRatio) {
         key.validatePoolKey();

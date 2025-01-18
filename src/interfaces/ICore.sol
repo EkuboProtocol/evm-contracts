@@ -142,6 +142,8 @@ interface ICore is IExposedStorage {
 
     // Withdraws a token amount from the core contract to the given recipient.
     function withdraw(address token, address recipient, uint128 amount) external;
+    // Withdraws an amount of the native token
+    function withdrawNative(address recipient, uint128 amount) external;
 
     // Saves an amount of a token to be used later.
     function save(address owner, address token, bytes32 salt, uint128 amount) external;

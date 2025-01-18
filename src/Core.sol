@@ -26,7 +26,6 @@ import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
-import {TransfersTokens} from "./base/TransfersTokens.sol";
 import {
     ICore,
     UpdatePositionParameters,
@@ -56,7 +55,7 @@ library CoreLib {
     }
 }
 
-contract Core is ICore, Ownable, ExposedStorage, TransfersTokens {
+contract Core is ICore, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
     // We pack the delta and net.
@@ -93,7 +92,7 @@ contract Core is ICore, Ownable, ExposedStorage, TransfersTokens {
 
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
         protocolFeesCollected[token] -= amount;
-        transferToken(token, recipient, amount);
+        SafeTransferLib.safeTransfer(token, recipient, amount);
         emit ProtocolFeesWithdrawn(recipient, token, amount);
     }
 
@@ -282,7 +281,15 @@ contract Core is ICore, Ownable, ExposedStorage, TransfersTokens {
 
         accountDelta(id, token, int256(uint256(amount)));
 
-        transferToken(token, recipient, amount);
+        SafeTransferLib.safeTransfer(token, recipient, amount);
+    }
+
+    function withdrawNative(address recipient, uint128 amount) external {
+        (uint256 id,) = requireLocker();
+
+        accountDelta(id, NATIVE_TOKEN_ADDRESS, int256(uint256(amount)));
+
+        SafeTransferLib.safeTransferETH(recipient, amount);
     }
 
     function save(address owner, address token, bytes32 salt, uint128 amount) external {

@@ -10,7 +10,6 @@ import {PoolKey, PositionKey, Bounds, maxBounds} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
-import {TransfersTokens} from "./base/TransfersTokens.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 
 // This functionality is externalized so it can be upgraded later, e.g. to change the URL or generate the URI on-chain

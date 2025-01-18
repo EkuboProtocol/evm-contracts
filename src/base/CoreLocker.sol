@@ -3,9 +3,8 @@ pragma solidity =0.8.28;
 
 import {ICore, ILocker, NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {TransfersTokens} from "./TransfersTokens.sol";
 
-abstract contract CoreLocker is ILocker, TransfersTokens {
+abstract contract CoreLocker is ILocker {
     ICore internal immutable core;
 
     constructor(ICore _core) {
@@ -25,7 +24,7 @@ abstract contract CoreLocker is ILocker, TransfersTokens {
 
     function payCallback(uint256, address token, bytes memory data) external onlyCore returns (bytes memory) {
         (address from, uint256 amount) = abi.decode(data, (address, uint256));
-        transferTokenFrom(token, from, address(core), amount);
+        SafeTransferLib.safeTransferFrom(token, from, address(core), amount);
     }
 
     function lock(bytes memory data) internal returns (bytes memory result) {
@@ -44,7 +43,11 @@ abstract contract CoreLocker is ILocker, TransfersTokens {
 
     function withdrawFromCore(address token, uint128 amount, address recipient) internal {
         if (amount > 0) {
-            core.withdraw(token, recipient, amount);
+            if (token == NATIVE_TOKEN_ADDRESS) {
+                core.withdrawNative(recipient, amount);
+            } else {
+                core.withdraw(token, recipient, amount);
+            }
         }
     }
 

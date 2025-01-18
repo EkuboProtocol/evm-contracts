@@ -98,7 +98,11 @@ contract Router is CoreLocker {
         return abi.encode(results);
     }
 
-    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount) external returns (Delta memory result) {
+    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount)
+        external
+        payable
+        returns (Delta memory result)
+    {
         Swap memory s;
         s.route = new RouteNode[](1);
         s.route[0] = node;
@@ -106,13 +110,13 @@ contract Router is CoreLocker {
         return multihop_swap(s)[0];
     }
 
-    function multihop_swap(Swap memory s) public returns (Delta[] memory result) {
+    function multihop_swap(Swap memory s) public payable returns (Delta[] memory result) {
         Swap[] memory swaps = new Swap[](1);
         swaps[0] = s;
         result = multi_multihop_swap(swaps)[0];
     }
 
-    function multi_multihop_swap(Swap[] memory swaps) public returns (Delta[][] memory results) {
+    function multi_multihop_swap(Swap[] memory swaps) public payable returns (Delta[][] memory results) {
         results = abi.decode(lock(abi.encode(msg.sender, swaps)), (Delta[][]));
     }
 }

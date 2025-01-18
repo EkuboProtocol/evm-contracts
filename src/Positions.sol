@@ -41,7 +41,7 @@ contract Positions is CoreLocker, ERC721 {
         return uint256(keccak256(abi.encode(minter, salt))) >> 192;
     }
 
-    function mint() public returns (uint256 id) {
+    function mint() public payable returns (uint256 id) {
         // generates a pseudorandom salt
         // note this can have encounter conflicts if a sender sends two identical transactions in the same block
         // that happen to consume exactly the same amount of gas
@@ -50,7 +50,7 @@ contract Positions is CoreLocker, ERC721 {
 
     // Mints an NFT for the caller with the ID given by shr(192, keccak256(minter, salt))
     // This prevents us from having to store a counter of how many were minted
-    function mint(bytes32 salt) public returns (uint256 id) {
+    function mint(bytes32 salt) public payable returns (uint256 id) {
         id = saltToId(msg.sender, salt);
         _mint(msg.sender, id);
     }
@@ -82,7 +82,7 @@ contract Positions is CoreLocker, ERC721 {
         uint128 amount0,
         uint128 amount1,
         uint128 minLiquidity
-    ) public authorizedForNft(id) returns (uint128 liquidity) {
+    ) public payable authorizedForNft(id) returns (uint128 liquidity) {
         uint256 sqrtRatio = getPoolPrice(poolKey);
 
         liquidity =
@@ -97,6 +97,7 @@ contract Positions is CoreLocker, ERC721 {
 
     function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
         public
+        payable
         authorizedForNft(id)
     {
         lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, recipient)));
@@ -110,7 +111,7 @@ contract Positions is CoreLocker, ERC721 {
         address recipient,
         uint128 minAmount0,
         uint128 minAmount1
-    ) public authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
+    ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
         (amount0, amount1) = abi.decode(
             lock(
                 abi.encodePacked(
@@ -121,7 +122,7 @@ contract Positions is CoreLocker, ERC721 {
         );
     }
 
-    function maybeInitializePool(PoolKey memory poolKey, int32 tick) external {
+    function maybeInitializePool(PoolKey memory poolKey, int32 tick) external payable {
         uint256 price = getPoolPrice(poolKey);
         if (price == 0) {
             core.initializePool(poolKey, tick);
@@ -134,7 +135,7 @@ contract Positions is CoreLocker, ERC721 {
         uint128 amount0,
         uint128 amount1,
         uint128 minLiquidity
-    ) external returns (uint256 id, uint128 liquidity) {
+    ) external payable returns (uint256 id, uint128 liquidity) {
         id = mint();
         liquidity = deposit(id, poolKey, bounds, amount0, amount1, minLiquidity);
     }

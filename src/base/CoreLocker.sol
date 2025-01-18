@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Core, ILocker} from "../Core.sol";
 
-import {TransfersTokens} from "./TransfersTokens.sol";
+import {TransfersTokens, ETH_ADDRESS} from "./TransfersTokens.sol";
 
 abstract contract CoreLocker is ILocker, TransfersTokens {
     Core internal immutable core;
@@ -26,8 +26,13 @@ abstract contract CoreLocker is ILocker, TransfersTokens {
     function payCore(address from, address token, uint256 amount) internal {
         if (amount > 0) {
             core.startPayment(token);
-            transferTokenFrom(token, from, address(core), amount);
-            core.completePayment(token);
+
+            if (token == ETH_ADDRESS) {
+                core.completePayment{value: amount}(token);
+            } else {
+                transferTokenFrom(token, from, address(core), amount);
+                core.completePayment(token);
+            }
         }
     }
 

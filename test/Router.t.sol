@@ -49,7 +49,18 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 100);
 
-        Delta memory d = router.swap(
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100})
+        );
+        vm.snapshotGasLastCall("swap 100 token0");
+    }
+
+    function test_swap_eth_gas() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100})
         );

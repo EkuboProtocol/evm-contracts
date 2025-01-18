@@ -306,11 +306,11 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
     error BalanceTooGreat();
 
-    uint256 constant MAX_BALANCE = type(uint256).max >> 1;
+    uint256 constant MAX_BALANCE = type(uint256).max >> 1; // == (1<<255) - 1
 
     function startPayment(address token) external {
         uint256 tokenBalance = balanceOfToken(token);
-        if (tokenBalance >= MAX_BALANCE) revert BalanceTooGreat();
+        if (tokenBalance > MAX_BALANCE) revert BalanceTooGreat();
         assembly ("memory-safe") {
             tstore(
                 add(0xb2167327b5ed4f50eaa3f30a1543bbcd48e24d90dc0da6920d198e2eedf81ef7, token),
@@ -332,11 +332,13 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             previousBalance := sub(tload(slot), 0x8000000000000000000000000000000000000000000000000000000000000000)
             tstore(slot, 0)
         }
-        unchecked {
-            if (previousBalance > MAX_BALANCE) revert CallStartPaymentFirst();
-        }
+
+        // if we know the actual balance is less than (1<<255),
+        // then subtracting the value (1<<255) will necessarily underflow to a value that is greater than or equal to (1<<255)
+        if (previousBalance >= MAX_BALANCE) revert CallStartPaymentFirst();
+
         uint256 balance = balanceOfToken(token);
-        if (balance < previousBalance) {
+        if (balance <= previousBalance) {
             revert NoPaymentMade();
         }
 

@@ -39,6 +39,19 @@ contract CoreTest is FullTest {
         MockExtension(actual).register(core, byteToCallPoints(b));
     }
 
+    function test_balanceSubtractionAssumption() public pure {
+        unchecked {
+            assertEq(
+                uint256(0) - uint256(0x8000000000000000000000000000000000000000000000000000000000000000),
+                0x8000000000000000000000000000000000000000000000000000000000000000
+            );
+            assertEq(
+                uint256(1) - uint256(0x8000000000000000000000000000000000000000000000000000000000000000),
+                0x8000000000000000000000000000000000000000000000000000000000000001
+            );
+        }
+    }
+
     function test_initializePool(
         address token0,
         address token1,

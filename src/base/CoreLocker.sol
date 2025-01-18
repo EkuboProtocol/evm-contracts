@@ -3,9 +3,9 @@ pragma solidity =0.8.28;
 
 import {Core, ILocker} from "../Core.sol";
 
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {TransfersTokens} from "./TransfersTokens.sol";
 
-abstract contract CoreLocker is ILocker {
+abstract contract CoreLocker is ILocker, TransfersTokens {
     Core internal immutable core;
 
     constructor(Core _core) {
@@ -23,10 +23,11 @@ abstract contract CoreLocker is ILocker {
         result = core.lock(data);
     }
 
-    function payCore(address token, uint256 amount) internal {
+    function payCore(address from, address token, uint256 amount) internal {
         if (amount > 0) {
-            SafeTransferLib.safeApprove(token, address(core), amount);
-            core.pay(token);
+            core.startPayment(token);
+            transferTokenFrom(token, from, address(core), amount);
+            core.completePayment(token);
         }
     }
 

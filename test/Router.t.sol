@@ -19,7 +19,6 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
         token0.approve(address(router), 100);
-        router.pay(address(token0), 100);
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
@@ -34,7 +33,6 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(693100, 693200), 1000, 1000);
 
         token0.approve(address(router), 100);
-        router.pay(address(token0), 100);
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
@@ -50,7 +48,6 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
         token0.approve(address(router), 100);
-        router.pay(address(token0), 100);
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),

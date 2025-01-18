@@ -26,6 +26,7 @@ import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
+import {TransfersTokens} from "./base/TransfersTokens.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);
@@ -100,7 +101,7 @@ library CoreLib {
     }
 }
 
-contract Core is Ownable, ExposedStorage {
+contract Core is Ownable, ExposedStorage, TransfersTokens {
     // We pack the delta and net.
     struct TickInfo {
         int128 liquidityDelta;
@@ -137,7 +138,7 @@ contract Core is Ownable, ExposedStorage {
 
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
         protocolFeesCollected[token] -= amount;
-        SafeTransferLib.safeTransfer(token, recipient, amount);
+        transferToken(token, recipient, amount);
         emit ProtocolFeesWithdrawn(recipient, token, amount);
     }
 
@@ -303,17 +304,46 @@ contract Core is Ownable, ExposedStorage {
     error BalanceDeltaNotEqualAllowance(address token);
     error AllowanceOverflow(address token, uint256 delta);
 
-    function pay(address token) external {
-        (uint256 id, address payer) = requireLocker();
-        uint256 allowance = IERC20(token).allowance(payer, address(this));
-        if (allowance > type(uint128).max) {
-            revert AllowanceOverflow(token, allowance);
+    error BalanceTooGreat();
+
+    uint256 constant MAX_BALANCE = type(uint256).max >> 1;
+
+    function startPayment(address token) external {
+        uint256 tokenBalance = balanceOfToken(token);
+        if (tokenBalance >= MAX_BALANCE) revert BalanceTooGreat();
+        assembly ("memory-safe") {
+            tstore(
+                add(0xb2167327b5ed4f50eaa3f30a1543bbcd48e24d90dc0da6920d198e2eedf81ef7, token),
+                // sets the most significant bit in the token balance which we know is not set because we checked tokenBalance < MAX_BALANCE
+                or(0x8000000000000000000000000000000000000000000000000000000000000000, tokenBalance)
+            )
         }
-        uint256 balanceBefore = SafeTransferLib.balanceOf(token, address(this));
-        SafeTransferLib.safeTransferFrom(token, payer, address(this), allowance);
-        uint256 balanceDelta = SafeTransferLib.balanceOf(token, address(this)) - balanceBefore;
-        if (balanceDelta != allowance) revert BalanceDeltaNotEqualAllowance(token);
-        accountDelta(id, token, -int256(balanceDelta));
+    }
+
+    error NoPaymentMade();
+    error CallStartPaymentFirst();
+
+    function completePayment(address token) external payable {
+        (uint256 id,) = requireLocker();
+
+        uint256 previousBalance;
+        assembly ("memory-safe") {
+            let slot := add(0xb2167327b5ed4f50eaa3f30a1543bbcd48e24d90dc0da6920d198e2eedf81ef7, token)
+            previousBalance := sub(tload(slot), 0x8000000000000000000000000000000000000000000000000000000000000000)
+            tstore(slot, 0)
+        }
+        unchecked {
+            if (previousBalance > MAX_BALANCE) revert CallStartPaymentFirst();
+        }
+        uint256 balance = balanceOfToken(token);
+        if (balance < previousBalance) {
+            revert NoPaymentMade();
+        }
+
+        uint256 payment = balance - previousBalance;
+
+        // no safe cast necessary because payment is necessarily less than MAX_BALANCE which is 255 bits
+        accountDelta(id, token, -int256(payment));
     }
 
     event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
@@ -335,7 +365,7 @@ contract Core is Ownable, ExposedStorage {
 
         accountDelta(id, token, int256(uint256(amount)));
 
-        SafeTransferLib.safeTransfer(token, recipient, amount);
+        transferToken(token, recipient, amount);
     }
 
     event SavedBalance(address owner, address token, bytes32 salt, uint128 amount);

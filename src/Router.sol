@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
-import {Payable} from "./base/Payable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {Core, SwapParameters} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
@@ -33,11 +32,11 @@ struct Delta {
     int128 amount1;
 }
 
-contract Router is Payable, CoreLocker {
-    constructor(Core core, WETH weth) CoreLocker(core) Payable(weth) {}
+contract Router is CoreLocker {
+    constructor(Core core) CoreLocker(core) {}
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
-        (Swap[] memory swaps) = abi.decode(data, (Swap[]));
+        (address swapper, Swap[] memory swaps) = abi.decode(data, (address, Swap[]));
         Delta[][] memory results = new Delta[][](swaps.length);
         unchecked {
             for (uint256 i = 0; i < swaps.length; i++) {
@@ -86,13 +85,13 @@ contract Router is Payable, CoreLocker {
                 if (firstSwapAmount.amount < 0) {
                     withdrawFromCore(firstSwapAmount.token, uint128(-firstSwapAmount.amount), address(this));
                 } else {
-                    payCore(firstSwapAmount.token, uint128(firstSwapAmount.amount));
+                    payCore(swapper, firstSwapAmount.token, uint128(firstSwapAmount.amount));
                 }
 
                 if (tokenAmount.amount > 0) {
                     withdrawFromCore(tokenAmount.token, uint128(tokenAmount.amount), address(this));
                 } else {
-                    payCore(tokenAmount.token, uint128(-tokenAmount.amount));
+                    payCore(swapper, tokenAmount.token, uint128(-tokenAmount.amount));
                 }
             }
         }
@@ -114,6 +113,6 @@ contract Router is Payable, CoreLocker {
     }
 
     function multi_multihop_swap(Swap[] memory swaps) public returns (Delta[][] memory results) {
-        results = abi.decode(lock(abi.encode(swaps)), (Delta[][]));
+        results = abi.decode(lock(abi.encode(msg.sender, swaps)), (Delta[][]));
     }
 }

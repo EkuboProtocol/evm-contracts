@@ -2,7 +2,6 @@
 pragma solidity =0.8.28;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {Payable} from "./base/Payable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {Core, CoreLib, UpdatePositionParameters} from "./Core.sol";
 import {WETH} from "solady/tokens/WETH.sol";
@@ -10,19 +9,19 @@ import {PoolKey, PositionKey, Bounds, maxBounds} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
-import {console} from "forge-std/console.sol";
+import {TransfersTokens} from "./base/TransfersTokens.sol";
 
 // This functionality is externalized so it can be upgraded later, e.g. to change the URL or generate the URI on-chain
 interface ITokenURIGenerator {
     function generateTokenURI(uint256 id) external view returns (string memory);
 }
 
-contract Positions is ERC721, Payable, CoreLocker {
+contract Positions is CoreLocker, ERC721 {
     using CoreLib for Core;
 
     ITokenURIGenerator public immutable tokenURIGenerator;
 
-    constructor(Core core, ITokenURIGenerator _tokenURIGenerator, WETH weth) CoreLocker(core) Payable(weth) {
+    constructor(Core core, ITokenURIGenerator _tokenURIGenerator) CoreLocker(core) {
         tokenURIGenerator = _tokenURIGenerator;
     }
 
@@ -93,7 +92,7 @@ contract Positions is ERC721, Payable, CoreLocker {
             revert InsufficientLiquidityReceived(liquidity);
         }
 
-        lock(abi.encodePacked(uint8(0), abi.encode(id, poolKey, bounds, liquidity)));
+        lock(abi.encodePacked(uint8(0), abi.encode(msg.sender, id, poolKey, bounds, liquidity)));
     }
 
     function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
@@ -151,16 +150,16 @@ contract Positions is ERC721, Payable, CoreLocker {
         }
 
         if (callType == 0) {
-            (uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
-                abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128));
+            (address caller, uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
+                abi.decode(data[1:], (address, uint256, PoolKey, Bounds, uint128));
 
             (int128 delta0, int128 delta1) = core.updatePosition(
                 poolKey,
                 UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: int128(liquidity)})
             );
 
-            payCore(poolKey.token0, uint128(delta0));
-            payCore(poolKey.token1, uint128(delta1));
+            payCore(caller, poolKey.token0, uint128(delta0));
+            payCore(caller, poolKey.token1, uint128(delta1));
         } else if (callType == 1) {
             (uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient) =
                 abi.decode(data[1:], (uint256, PoolKey, Bounds, address));

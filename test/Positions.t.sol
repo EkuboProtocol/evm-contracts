@@ -25,9 +25,6 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), 100);
         token1.approve(address(positions), 100);
 
-        positions.pay(address(token0), 100);
-        positions.pay(address(token1), 100);
-
         Bounds memory bounds = Bounds({lower: -100, upper: 100});
 
         (uint256 id, uint128 liquidity) = positions.mintAndDeposit(poolKey, bounds, 100, 100, 0);

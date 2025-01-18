@@ -7,7 +7,6 @@ import {Positions, ITokenURIGenerator} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
-import {WETH} from "solady/tokens/WETH.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 
@@ -92,7 +91,6 @@ contract MockExtension is IExtension {
 
 abstract contract FullTest is Test {
     address immutable owner = address(0xdeadbeefdeadbeef);
-    WETH weth;
     ITokenURIGenerator tokenURIGenerator;
     Core core;
     Positions positions;
@@ -102,11 +100,10 @@ abstract contract FullTest is Test {
     TestToken token1;
 
     function setUp() public virtual {
-        weth = new WETH();
         core = new Core(owner);
         tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
-        positions = new Positions(core, tokenURIGenerator, weth);
-        router = new Router(core, weth);
+        positions = new Positions(core, tokenURIGenerator);
+        router = new Router(core);
         TestToken tokenA = new TestToken();
         TestToken tokenB = new TestToken();
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
@@ -153,9 +150,6 @@ abstract contract FullTest is Test {
     {
         token0.approve(address(positions), amount0);
         token1.approve(address(positions), amount1);
-
-        positions.pay(address(token1), amount0);
-        positions.pay(address(token0), amount1);
 
         (id, liquidity) = positions.mintAndDeposit(poolKey, bounds, amount0, amount1, 0);
     }

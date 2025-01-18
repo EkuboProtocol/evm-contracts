@@ -448,7 +448,9 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
 
-    event PositionUpdated(PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1);
+    event PositionUpdated(
+        address locker, PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1
+    );
     event ProtocolFeesPaid(PoolKey poolKey, PositionKey positionKey, uint128 amount0, uint128 amount1);
 
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
@@ -525,7 +527,7 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             accountDelta(id, poolKey.token0, delta0);
             accountDelta(id, poolKey.token1, delta1);
 
-            emit PositionUpdated(poolKey, params, delta0, delta1);
+            emit PositionUpdated(locker, poolKey, params, delta0, delta1);
         }
 
         if (shouldCallAfterUpdatePosition(poolKey.extension) && locker != poolKey.extension) {

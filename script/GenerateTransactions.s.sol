@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
 import {Positions} from "../src/Positions.sol";
-import {Router} from "../src/Router.sol";
+import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "../test/TestToken.sol";
 import {PoolKey, PositionKey, Bounds, maxBounds} from "../src/types/keys.sol";
@@ -31,12 +31,15 @@ contract GenerateTransactions is Script {
             extension: address(0)
         });
 
-        Bounds memory bounds = Bounds(4606140 - 5982 * 33, 4606140 + 5982 * 33);
+        // Bounds memory bounds = Bounds(4606140 - 5982 * 33, 4606140 + 5982 * 33);
 
         // ~100 token1/token0
         // positions.maybeInitializePool(poolKey, 4606140);
         // +/- 10%
-        positions.mintAndDeposit(poolKey, bounds, 10000000, 10000000 * 100, 0);
+        // positions.mintAndDeposit(poolKey, bounds, 10000000, 10000000 * 100, 0);
+
+        router.swap(RouteNode(poolKey, 0, 0), TokenAmount(address(token0), 1000));
+        router.swap(RouteNode(poolKey, 0, 0), TokenAmount(address(token1), 100000));
 
         vm.stopBroadcast();
     }

@@ -254,30 +254,30 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
     event PoolInitialized(PoolKey poolKey, int32 tick, uint256 sqrtRatio);
 
-    function initializePool(PoolKey memory key, int32 tick) public returns (uint256 sqrtRatio) {
-        key.validatePoolKey();
+    function initializePool(PoolKey memory poolKey, int32 tick) public returns (uint256 sqrtRatio) {
+        poolKey.validatePoolKey();
 
-        if (key.extension != address(0)) {
-            if (!isExtensionRegistered[key.extension]) {
-                revert ExtensionNotRegistered(key.extension);
+        if (poolKey.extension != address(0)) {
+            if (!isExtensionRegistered[poolKey.extension]) {
+                revert ExtensionNotRegistered(poolKey.extension);
             }
 
-            if (shouldCallBeforeInitializePool(key.extension) && key.extension != msg.sender) {
-                IExtension(key.extension).beforeInitializePool(msg.sender, key, tick);
+            if (shouldCallBeforeInitializePool(poolKey.extension) && poolKey.extension != msg.sender) {
+                IExtension(poolKey.extension).beforeInitializePool(msg.sender, poolKey, tick);
             }
         }
 
-        bytes32 poolId = key.toPoolId();
+        bytes32 poolId = poolKey.toPoolId();
         PoolPrice memory price = poolPrice[poolId];
         if (price.sqrtRatio != 0) revert PoolAlreadyInitialized();
 
         sqrtRatio = tickToSqrtRatio(tick);
         poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
 
-        emit PoolInitialized(key, tick, sqrtRatio);
+        emit PoolInitialized(poolKey, tick, sqrtRatio);
 
-        if (shouldCallAfterInitializePool(key.extension) && key.extension != msg.sender) {
-            IExtension(key.extension).afterInitializePool(msg.sender, key, tick, sqrtRatio);
+        if (shouldCallAfterInitializePool(poolKey.extension) && poolKey.extension != msg.sender) {
+            IExtension(poolKey.extension).afterInitializePool(msg.sender, poolKey, tick, sqrtRatio);
         }
     }
 

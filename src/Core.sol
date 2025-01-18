@@ -301,9 +301,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         );
     }
 
-    error BalanceDeltaNotEqualAllowance(address token);
-    error AllowanceOverflow(address token, uint256 delta);
-
     error BalanceTooGreat();
 
     uint256 constant MAX_BALANCE = type(uint256).max >> 1; // == (1<<255) - 1
@@ -361,8 +358,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
         emit LoadedBalance(owner, token, salt, amount);
     }
-
-    error TokenAmountTooLarge();
 
     function withdraw(address token, address recipient, uint128 amount) external {
         (uint256 id,) = requireLocker();

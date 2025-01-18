@@ -709,6 +709,4 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             IExtension(poolKey.extension).afterSwap(locker, poolKey, params, delta0, delta1);
         }
     }
-
-    receive() external payable {}
 }

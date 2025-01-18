@@ -23,7 +23,7 @@ abstract contract CoreLocker is ILocker, TransfersTokens {
         return handleLockData(data);
     }
 
-    function payCallback(uint256 id, address token, bytes memory data) external onlyCore returns (bytes memory) {
+    function payCallback(uint256, address token, bytes memory data) external onlyCore returns (bytes memory result) {
         (address from, uint256 amount) = abi.decode(data, (address, uint256));
         transferTokenFrom(token, from, address(core), amount);
     }

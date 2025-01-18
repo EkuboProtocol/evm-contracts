@@ -105,8 +105,8 @@ abstract contract FullTest is Test {
         tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
         positions = new Positions(core, tokenURIGenerator);
         router = new Router(core);
-        TestToken tokenA = new TestToken();
-        TestToken tokenB = new TestToken();
+        TestToken tokenA = new TestToken(address(this));
+        TestToken tokenB = new TestToken(address(this));
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
     }
 

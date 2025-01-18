@@ -1,15 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {Core} from "../src/Core.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
-import {Positions, ITokenURIGenerator} from "../src/Positions.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
-import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
-import {LibString} from "solady/utils/LibString.sol";
-import {WETH} from "solady/tokens/WETH.sol";
-import {TestToken} from "./TestToken.sol";
+import {PoolKey, Bounds} from "../src/types/keys.sol";
 import {FullTest} from "./FullTest.sol";
 
 contract PositionsTest is FullTest {

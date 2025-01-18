@@ -2,13 +2,14 @@
 pragma solidity =0.8.28;
 
 import {FullTest, MockExtension} from "./FullTest.sol";
-import {Core, CoreLib, IExtension, UpdatePositionParameters, SwapParameters} from "../src/Core.sol";
+import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
 
 contract CoreTest is FullTest {
-    using CoreLib for Core;
+    using CoreLib for *;
 
     function test_owner() public view {
         assertEq(core.owner(), owner);
@@ -21,21 +22,21 @@ contract CoreTest is FullTest {
         address actual = address((uint160(b) << 152) + 0xdeadbeef);
         vm.etch(actual, impl.code);
 
-        vm.expectRevert(Core.FailedRegisterInvalidCallPoints.selector, address(core));
+        vm.expectRevert(ICore.FailedRegisterInvalidCallPoints.selector, address(core));
         MockExtension(actual).register(core, byteToCallPoints(0));
         // b + 1 will always be different
         unchecked {
-            vm.expectRevert(Core.FailedRegisterInvalidCallPoints.selector, address(core));
+            vm.expectRevert(ICore.FailedRegisterInvalidCallPoints.selector, address(core));
             MockExtension(actual).register(core, byteToCallPoints(b + 1));
         }
 
         vm.expectEmit(address(core));
-        emit Core.ExtensionRegistered(actual);
+        emit ICore.ExtensionRegistered(actual);
 
         MockExtension(actual).register(core, byteToCallPoints(b));
 
         // double register fails
-        vm.expectRevert(Core.ExtensionAlreadyRegistered.selector, address(core));
+        vm.expectRevert(ICore.ExtensionAlreadyRegistered.selector, address(core));
         MockExtension(actual).register(core, byteToCallPoints(b));
     }
 
@@ -74,7 +75,7 @@ contract CoreTest is FullTest {
             emit MockExtension.BeforeInitializePoolCalled(address(this), key, tick);
         }
         vm.expectEmit(address(core));
-        emit Core.PoolInitialized(key, tick, tickToSqrtRatio(tick));
+        emit ICore.PoolInitialized(key, tick, tickToSqrtRatio(tick));
 
         if (callPoints.afterInitializePool) {
             vm.expectEmit(extension);
@@ -88,7 +89,7 @@ contract CoreTest is FullTest {
         assertEq(_sqrtRatio, tickToSqrtRatio(tick));
         assertEq(_tick, tick);
 
-        vm.expectRevert(Core.PoolAlreadyInitialized.selector);
+        vm.expectRevert(ICore.PoolAlreadyInitialized.selector);
         core.initializePool(key, tick);
     }
 }

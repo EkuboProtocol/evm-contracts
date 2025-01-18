@@ -53,9 +53,9 @@ contract DeployScript is Script {
         vm.startBroadcast();
         Core core = new Core{salt: 0x0}(owner);
         ITokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: 0x0}(owner, baseUrl);
-        Positions positions = new Positions{salt: 0x0}(core, tokenURIGenerator);
-        Router router = new Router{salt: 0x0}(core);
-        Oracle oracle = new Oracle{
+        new Positions{salt: 0x0}(core, tokenURIGenerator);
+        new Router{salt: 0x0}(core);
+        new Oracle{
             salt: findExtensionSalt(
                 keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core, ekuboToken))), oracleCallPoints()
             )

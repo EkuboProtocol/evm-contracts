@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {Core} from "../../src/Core.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {Positions, ITokenURIGenerator} from "../../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../../src/BaseURLTokenURIGenerator.sol";
@@ -14,7 +14,6 @@ import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle, MAX_TICK_AT_MAX_TICK_SPACING} from "../../src/extensions/Oracle.sol";
 import {toUint8} from "../../src/types/callPoints.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../../src/base/TransfersTokens.sol";
 
 contract OracleTest is FullTest {
     Oracle oracle;

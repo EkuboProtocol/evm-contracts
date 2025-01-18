@@ -3,7 +3,8 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "../types/keys.sol";
-import {Core, UpdatePositionParameters, SwapParameters, CoreLib} from "../Core.sol";
+import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
+import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {MAX_TICK_SPACING} from "../math/ticks.sol";
@@ -24,7 +25,7 @@ function oracleCallPoints() pure returns (CallPoints memory) {
 int32 constant MAX_TICK_AT_MAX_TICK_SPACING = 88368108;
 
 contract Oracle is ExposedStorage, BaseExtension {
-    using CoreLib for Core;
+    using CoreLib for ICore;
 
     address public immutable oracleToken;
     // all snapshots are taken with respect to this snapshot.
@@ -43,7 +44,7 @@ contract Oracle is ExposedStorage, BaseExtension {
     mapping(address token => uint256 count) public snapshotCount;
     mapping(address token => mapping(uint256 index => Snapshot snapshot)) public snapshots;
 
-    constructor(Core core, address _oracleToken) BaseExtension(core) {
+    constructor(ICore core, address _oracleToken) BaseExtension(core) {
         timestampOffset = uint64(block.timestamp);
         oracleToken = _oracleToken;
     }

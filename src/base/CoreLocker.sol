@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {Core, ILocker} from "../Core.sol";
+import {ICore, ILocker, NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {TransfersTokens, NATIVE_TOKEN_ADDRESS} from "./TransfersTokens.sol";
+import {TransfersTokens} from "./TransfersTokens.sol";
 
 abstract contract CoreLocker is ILocker, TransfersTokens {
-    Core internal immutable core;
+    ICore internal immutable core;
 
-    constructor(Core _core) {
+    constructor(ICore _core) {
         core = _core;
     }
 

@@ -6,8 +6,8 @@ import {Positions} from "../src/Positions.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "../test/TestToken.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/ICore.sol";
 import {PoolKey, PositionKey, Bounds, maxBounds} from "../src/types/keys.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/base/TransfersTokens.sol";
 
 contract GenerateTransactions is Script {
     error UnrecognizedChainId(uint256 chainId);

@@ -2,17 +2,23 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Core, CoreLib, IExtension, UpdatePositionParameters, SwapParameters} from "../src/Core.sol";
+import {
+    ICore,
+    NATIVE_TOKEN_ADDRESS,
+    IExtension,
+    UpdatePositionParameters,
+    SwapParameters
+} from "../src/interfaces/ICore.sol";
+import {Core} from "../src/Core.sol";
 import {Positions, ITokenURIGenerator} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/base/TransfersTokens.sol";
 
 contract MockExtension is IExtension {
-    function register(Core core, CallPoints calldata expectedCallPoints) external {
+    function register(ICore core, CallPoints calldata expectedCallPoints) external {
         core.registerExtension(expectedCallPoints);
     }
 

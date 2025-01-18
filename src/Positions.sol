@@ -3,7 +3,8 @@ pragma solidity =0.8.28;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
-import {Core, CoreLib, UpdatePositionParameters} from "./Core.sol";
+import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
+import {CoreLib} from "./libraries/CoreLib.sol";
 import {WETH} from "solady/tokens/WETH.sol";
 import {PoolKey, PositionKey, Bounds, maxBounds} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -18,11 +19,11 @@ interface ITokenURIGenerator {
 }
 
 contract Positions is Multicallable, CoreLocker, ERC721 {
-    using CoreLib for Core;
+    using CoreLib for ICore;
 
     ITokenURIGenerator public immutable tokenURIGenerator;
 
-    constructor(Core core, ITokenURIGenerator _tokenURIGenerator) CoreLocker(core) {
+    constructor(ICore core, ITokenURIGenerator _tokenURIGenerator) CoreLocker(core) {
         tokenURIGenerator = _tokenURIGenerator;
     }
 

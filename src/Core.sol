@@ -22,68 +22,21 @@ import {
 } from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
-import {TransfersTokens, NATIVE_TOKEN_ADDRESS} from "./base/TransfersTokens.sol";
-
-interface ILocker {
-    function locked(uint256 id, bytes calldata data) external returns (bytes memory);
-    function payCallback(uint256 id, address token, bytes calldata data) external returns (bytes memory);
-}
-
-interface IForwardee {
-    function forwarded(address locker, uint256 id, bytes calldata data) external returns (bytes memory);
-}
-
-struct UpdatePositionParameters {
-    bytes32 salt;
-    Bounds bounds;
-    int128 liquidityDelta;
-}
-
-struct SwapParameters {
-    int128 amount;
-    bool isToken1;
-    uint256 sqrtRatioLimit;
-    uint256 skipAhead;
-}
-
-interface IExtension {
-    function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
-    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
-
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
-        external;
-    function afterUpdatePosition(
-        address locker,
-        PoolKey memory poolKey,
-        UpdatePositionParameters memory params,
-        int128 delta0,
-        int128 delta1
-    ) external;
-
-    function beforeSwap(address locker, PoolKey memory poolKey, SwapParameters memory params) external;
-    function afterSwap(
-        address locker,
-        PoolKey memory poolKey,
-        SwapParameters memory params,
-        int128 delta0,
-        int128 delta1
-    ) external;
-
-    function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external;
-    function afterCollectFees(
-        address locker,
-        PoolKey memory poolKey,
-        bytes32 salt,
-        Bounds memory bounds,
-        uint128 amount0,
-        uint128 amount1
-    ) external;
-}
+import {TransfersTokens} from "./base/TransfersTokens.sol";
+import {
+    ICore,
+    UpdatePositionParameters,
+    SwapParameters,
+    IExtension,
+    IForwardee,
+    ILocker,
+    NATIVE_TOKEN_ADDRESS
+} from "./interfaces/ICore.sol";
+import {IExposedStorage} from "./base/ExposedStorage.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -103,7 +56,9 @@ library CoreLib {
     }
 }
 
-contract Core is Ownable, ExposedStorage, TransfersTokens {
+contract Core is ICore, Ownable, ExposedStorage, TransfersTokens {
+    using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
+
     // We pack the delta and net.
     struct TickInfo {
         int128 liquidityDelta;
@@ -136,18 +91,11 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         _initializeOwner(owner);
     }
 
-    event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
-
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
         protocolFeesCollected[token] -= amount;
         transferToken(token, recipient, amount);
         emit ProtocolFeesWithdrawn(recipient, token, amount);
     }
-
-    error FailedRegisterInvalidCallPoints();
-    error ExtensionAlreadyRegistered();
-
-    event ExtensionRegistered(address extension);
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external {
@@ -158,8 +106,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
         emit ExtensionRegistered(msg.sender);
     }
-
-    error LockerOnly();
 
     function requireLocker() private view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
@@ -199,8 +145,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             tstore(slot, next)
         }
     }
-
-    error DeltasNotZeroed(uint256 count);
 
     // The entrypoint for all operations on the core contract
     function lock(bytes calldata data) external returns (bytes memory result) {
@@ -249,12 +193,7 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         }
     }
 
-    error PoolAlreadyInitialized();
-    error ExtensionNotRegistered(address extension);
-
-    event PoolInitialized(PoolKey poolKey, int32 tick, uint256 sqrtRatio);
-
-    function initializePool(PoolKey memory poolKey, int32 tick) public returns (uint256 sqrtRatio) {
+    function initializePool(PoolKey memory poolKey, int32 tick) external returns (uint256 sqrtRatio) {
         poolKey.validatePoolKey();
 
         if (poolKey.extension != address(0)) {
@@ -281,8 +220,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         }
     }
 
-    using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
-
     function prevInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
         external
         view
@@ -302,9 +239,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             fromTick, poolKey.tickSpacing, skipAhead
         );
     }
-
-    error PaymentTooLarge();
-    error NoPaymentMade();
 
     uint256 constant MAX_INT256 = type(uint256).max >> 1; // == (1<<255) - 1
 
@@ -333,8 +267,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         }
     }
 
-    event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
-
     function load(address token, bytes32 salt, uint128 amount) external {
         (uint256 id, address owner) = requireLocker();
 
@@ -352,8 +284,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
         transferToken(token, recipient, amount);
     }
-
-    event SavedBalance(address owner, address token, bytes32 salt, uint128 amount);
 
     function save(address owner, address token, bytes32 salt, uint128 amount) external {
         (uint256 id,) = requireLocker();
@@ -387,11 +317,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         }
     }
 
-    error OnlyCallableByExtension();
-    error CannotAccumulateFeesWithZeroLiquidity();
-
-    event FeesAccumulated(PoolKey poolKey, uint128 amount0, uint128 amount1);
-
     // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
     // key, i.e. the current locker _must_ be the extension.
     // The extension must call this function within a lock callback.
@@ -410,9 +335,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
 
         emit FeesAccumulated(poolKey, amount0, amount1);
     }
-
-    error LiquidityUnderflow();
-    error LiquidityOverflow();
 
     function addLiquidityDelta(uint128 liquidity, int128 liquidityDelta) private pure returns (uint128) {
         unchecked {
@@ -443,15 +365,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         tickInfo.liquidityDelta = liquidityDeltaNext;
         tickInfo.liquidityNet = liquidityNetNext;
     }
-
-    error PoolNotInitialized();
-
-    error MustCollectFeesBeforeWithdrawingAllLiquidity();
-
-    event PositionUpdated(
-        address locker, PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1
-    );
-    event ProtocolFeesPaid(PoolKey poolKey, PositionKey positionKey, uint128 amount0, uint128 amount1);
 
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
@@ -535,8 +448,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
         }
     }
 
-    event PositionFeesCollected(PoolKey poolKey, PositionKey positionKey, uint128 amount0, uint128 amount1);
-
     function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
         external
         returns (uint128 amount0, uint128 amount1)
@@ -568,20 +479,6 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             IExtension(poolKey.extension).afterCollectFees(locker, poolKey, salt, bounds, amount0, amount1);
         }
     }
-
-    event Swapped(
-        address locker,
-        PoolKey poolKey,
-        SwapParameters params,
-        int128 delta0,
-        int128 delta1,
-        uint256 sqrtRatioAfter,
-        int32 tickAfter,
-        uint128 liquidityAfter
-    );
-
-    error SqrtRatioLimitWrongDirection();
-    error SqrtRatioLimitOutOfRange();
 
     function swap(PoolKey memory poolKey, SwapParameters memory params)
         external

@@ -9,10 +9,8 @@ contract DeployTestTokens is Script {
 
     function run() public {
         vm.startBroadcast();
-        TestToken tokenA =
-            new TestToken{salt: bytes32(0x0000000000000000000000000000000000000000000000000000000000000001)}(owner);
-        TestToken tokenB =
-            new TestToken{salt: bytes32(0x0000000000000000000000000000000000000000000000000000000000000002)}(owner);
+        new TestToken{salt: bytes32(0x0000000000000000000000000000000000000000000000000000000000000001)}(owner);
+        new TestToken{salt: bytes32(0x0000000000000000000000000000000000000000000000000000000000000002)}(owner);
         vm.stopBroadcast();
     }
 }

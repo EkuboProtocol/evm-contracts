@@ -4,12 +4,13 @@ pragma solidity =0.8.28;
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
-import {Core, SwapParameters} from "./Core.sol";
+import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {WETH} from "solady/tokens/WETH.sol";
 import {PoolKey, PositionKey} from "./types/keys.sol";
 import {tickToSqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {isPriceIncreasing} from "./math/swap.sol";
+import {Multicallable} from "solady/utils/Multicallable.sol";
 
 struct RouteNode {
     PoolKey poolKey;
@@ -32,8 +33,8 @@ struct Delta {
     int128 amount1;
 }
 
-contract Router is CoreLocker {
-    constructor(Core core) CoreLocker(core) {}
+contract Router is Multicallable, CoreLocker {
+    constructor(ICore core) CoreLocker(core) {}
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
         (address swapper, Swap[] memory swaps) = abi.decode(data, (address, Swap[]));

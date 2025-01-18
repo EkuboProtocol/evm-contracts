@@ -64,6 +64,6 @@ contract RouterTest is FullTest {
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100})
         );
-        vm.snapshotGasLastCall("swap 100 token0");
+        vm.snapshotGasLastCall("swap 100 wei of eth");
     }
 }

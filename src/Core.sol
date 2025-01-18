@@ -340,10 +340,12 @@ contract Core is Ownable, ExposedStorage, TransfersTokens {
             revert NoPaymentMade();
         }
 
-        uint256 payment = balance - previousBalance;
+        unchecked {
+            uint256 payment = balance - previousBalance;
 
-        // no safe cast necessary because payment is necessarily less than MAX_BALANCE which is 255 bits
-        accountDelta(id, token, -int256(payment));
+            // no safe cast necessary because payment is necessarily less than MAX_BALANCE which is 255 bits
+            accountDelta(id, token, -int256(payment));
+        }
     }
 
     event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);

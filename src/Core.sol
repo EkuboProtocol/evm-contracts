@@ -8,7 +8,6 @@ import {isPriceIncreasing, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio, sqrtRatioToTick, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "./math/ticks.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {
     shouldCallBeforeInitializePool,
@@ -35,25 +34,6 @@ import {
     ILocker,
     NATIVE_TOKEN_ADDRESS
 } from "./interfaces/ICore.sol";
-import {IExposedStorage} from "./base/ExposedStorage.sol";
-
-// Common storage getters we need for external contracts are defined here instead of in the core contract
-library CoreLib {
-    function poolPrice(Core core, bytes32 poolId) internal view returns (uint192 sqrtRatio, int32 tick) {
-        bytes32 result = core.sload(keccak256(abi.encodePacked(poolId, uint256(2))));
-        assembly {
-            sqrtRatio := and(result, 0xffffffffffffffffffffffffffffffffffffffffffffffff)
-            tick := shr(192, result)
-        }
-    }
-
-    function poolLiquidity(Core core, bytes32 poolId) internal view returns (uint128 liquidity) {
-        bytes32 result = core.sload(keccak256(abi.encodePacked(poolId, uint256(3))));
-        assembly {
-            liquidity := and(result, 0xffffffffffffffffffffffffffffffff)
-        }
-    }
-}
 
 contract Core is ICore, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
@@ -94,6 +74,12 @@ contract Core is ICore, Ownable, ExposedStorage {
         protocolFeesCollected[token] -= amount;
         SafeTransferLib.safeTransfer(token, recipient, amount);
         emit ProtocolFeesWithdrawn(recipient, token, amount);
+    }
+
+    function withdrawNativeProtocolFees(address recipient, uint256 amount) external onlyOwner {
+        protocolFeesCollected[NATIVE_TOKEN_ADDRESS] -= amount;
+        SafeTransferLib.safeTransferETH(recipient, amount);
+        emit ProtocolFeesWithdrawn(recipient, NATIVE_TOKEN_ADDRESS, amount);
     }
 
     // Extensions must call this function to become registered. The call points are validated against the caller address

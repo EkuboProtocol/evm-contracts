@@ -3,20 +3,10 @@ pragma solidity =0.8.28;
 
 import {ICore, ILocker, NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {UsesCore} from "./UsesCore.sol";
 
-abstract contract CoreLocker is ILocker {
-    ICore internal immutable core;
-
-    constructor(ICore _core) {
-        core = _core;
-    }
-
-    error CoreOnly();
-
-    modifier onlyCore() {
-        if (msg.sender != address(core)) revert CoreOnly();
-        _;
-    }
+abstract contract CoreLocker is UsesCore, ILocker {
+    constructor(ICore core) UsesCore(core) {}
 
     function locked(uint256, bytes calldata data) external onlyCore returns (bytes memory) {
         return handleLockData(data);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/ICore.sol";
+import {NATIVE_TOKEN_ADDRESS, UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {Positions, ITokenURIGenerator} from "../../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../../src/BaseURLTokenURIGenerator.sol";
@@ -14,6 +14,7 @@ import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle, MAX_TICK_AT_MAX_TICK_SPACING} from "../../src/extensions/Oracle.sol";
 import {toUint8} from "../../src/types/callPoints.sol";
+import {UsesCore} from "../../src/base/UsesCore.sol";
 
 contract OracleTest is FullTest {
     Oracle oracle;
@@ -93,6 +94,20 @@ contract OracleTest is FullTest {
         assertEq(secondsSinceOffset, 75);
         assertEq(secondsPerLiquidityCumulative, (45 << 128) / liquidity);
         assertEq(tickCumulative, 75 * 693147);
+    }
+
+    function test_cannotCallExtensionMethodsDirectly() public {
+        PoolKey memory poolKey =
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+
+        vm.expectRevert(UsesCore.CoreOnly.selector);
+        oracle.beforeInitializePool(address(0), poolKey, 0);
+
+        vm.expectRevert(UsesCore.CoreOnly.selector);
+        oracle.beforeUpdatePosition(address(0), poolKey, UpdatePositionParameters(bytes32(0x0), Bounds(-100, 100), 0));
+
+        vm.expectRevert(UsesCore.CoreOnly.selector);
+        oracle.beforeSwap(address(0), poolKey, SwapParameters(0, false, 0, 0));
     }
 
     receive() external payable {}

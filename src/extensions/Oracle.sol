@@ -25,6 +25,15 @@ function oracleCallPoints() pure returns (CallPoints memory) {
 int32 constant MAX_TICK_AT_MAX_TICK_SPACING = 88368108;
 
 contract Oracle is ExposedStorage, BaseExtension {
+    error PairsWithOracleTokenOnly();
+    error FeeMustBeZero();
+    error TickSpacingMustBeMaximum();
+    error BoundsMustBeMaximum();
+
+    event SnapshotEvent(
+        address token, uint256 index, uint64 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative
+    );
+
     using CoreLib for ICore;
 
     address public immutable oracleToken;
@@ -64,14 +73,6 @@ contract Oracle is ExposedStorage, BaseExtension {
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return oracleCallPoints();
     }
-
-    error PairsWithOracleTokenOnly();
-    error FeeMustBeZero();
-    error TickSpacingMustBeMaximum();
-
-    event SnapshotEvent(
-        address token, uint256 index, uint64 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative
-    );
 
     function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
         if (key.token0 != oracleToken && key.token1 != oracleToken) revert PairsWithOracleTokenOnly();
@@ -120,8 +121,6 @@ contract Oracle is ExposedStorage, BaseExtension {
             );
         }
     }
-
-    error BoundsMustBeMaximum();
 
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory params)
         external

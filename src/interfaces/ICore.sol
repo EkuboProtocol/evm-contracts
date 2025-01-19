@@ -106,8 +106,11 @@ interface ICore is IExposedStorage {
     error PaymentTooLarge();
     error NoPaymentMade();
 
-    // Allows the owner of the contract to withdraw the protocol withdrawal fees collected by the contract.
+    // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external;
+
+    // Allows the owner of the contract to withdraw the native token protocol withdrawal fees collected
+    function withdrawNativeProtocolFees(address recipient, uint256 amount) external;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external;

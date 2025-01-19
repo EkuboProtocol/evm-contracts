@@ -4,25 +4,16 @@ pragma solidity =0.8.28;
 import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "../types/keys.sol";
+import {UsesCore} from "./UsesCore.sol";
 
-abstract contract BaseExtension is IExtension {
-    ICore internal immutable core;
+abstract contract BaseExtension is UsesCore, IExtension {
+    error CallPointNotImplemented();
 
-    constructor(ICore _core) {
-        core = _core;
+    constructor(ICore core) UsesCore(core) {
         core.registerExtension(getCallPoints());
     }
 
     function getCallPoints() internal pure virtual returns (CallPoints memory);
-
-    error CoreOnly();
-
-    modifier onlyCore() {
-        if (msg.sender != address(core)) revert CoreOnly();
-        _;
-    }
-
-    error CallPointNotImplemented();
 
     function beforeInitializePool(address, PoolKey calldata, int32) external virtual {
         revert CallPointNotImplemented();

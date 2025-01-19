@@ -23,6 +23,9 @@ struct TokenAmount {
 struct Swap {
     RouteNode[] route;
     TokenAmount tokenAmount;
+    // If the swap has a positive tokenAmount.amount, this is the minimum amount that the final swap should receive.
+    // If the swap has a negative tokenAmount.amount, this is the maximum amount that the last swap should pay (noting exact out swaps are performed backwards).
+    uint256 calculatedAmountThreshold;
 }
 
 struct Delta {
@@ -31,6 +34,9 @@ struct Delta {
 }
 
 contract Router is Multicallable, Permittable, CoreLocker {
+    error MinimumOutputNotReceived(uint256 swapIndex, uint256 amountReceived, uint256 minimumAmountOut);
+    error MaximumInputExceeded(uint256 swapIndex, uint256 amountRequired, uint256 maximumAmountIn);
+
     constructor(ICore core) CoreLocker(core) {}
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
@@ -40,6 +46,8 @@ contract Router is Multicallable, Permittable, CoreLocker {
             for (uint256 i = 0; i < swaps.length; i++) {
                 Swap memory s = swaps[i];
                 results[i] = new Delta[](s.route.length);
+
+                bool isExactOut = s.tokenAmount.amount < 0;
 
                 TokenAmount memory firstSwapAmount;
                 TokenAmount memory tokenAmount = s.tokenAmount;
@@ -80,6 +88,16 @@ contract Router is Multicallable, Permittable, CoreLocker {
                     }
                 }
 
+                if (!isExactOut && uint256(int256(tokenAmount.amount)) < s.calculatedAmountThreshold) {
+                    revert MinimumOutputNotReceived(i, uint256(int256(tokenAmount.amount)), s.calculatedAmountThreshold);
+                }
+                if (
+                    isExactOut && s.calculatedAmountThreshold != 0
+                        && uint256(-int256(tokenAmount.amount)) > s.calculatedAmountThreshold
+                ) {
+                    revert MaximumInputExceeded(i, uint256(-int256(tokenAmount.amount)), s.calculatedAmountThreshold);
+                }
+
                 if (firstSwapAmount.amount < 0) {
                     withdrawFromCore(firstSwapAmount.token, uint128(-firstSwapAmount.amount), swapper);
                 } else {
@@ -96,7 +114,7 @@ contract Router is Multicallable, Permittable, CoreLocker {
         return abi.encode(results);
     }
 
-    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount)
+    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount, uint128 calculatedAmountThreshold)
         external
         payable
         returns (Delta memory result)
@@ -105,6 +123,7 @@ contract Router is Multicallable, Permittable, CoreLocker {
         s.route = new RouteNode[](1);
         s.route[0] = node;
         s.tokenAmount = tokenAmount;
+        s.calculatedAmountThreshold = calculatedAmountThreshold;
         return multihopSwap(s)[0];
     }
 

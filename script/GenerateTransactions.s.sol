@@ -39,8 +39,8 @@ contract GenerateTransactions is Script {
         // +/- 10%
         positions.mintAndDeposit{value: 10000000}(poolKey, bounds, 10000000, 10000000 * 100, 0);
 
-        router.swap{value: 1000}(RouteNode(poolKey, 0, 0), TokenAmount(NATIVE_TOKEN_ADDRESS, 1000));
-        router.swap(RouteNode(poolKey, 0, 0), TokenAmount(address(token1), 100000));
+        router.swap{value: 1000}(RouteNode(poolKey, 0, 0), TokenAmount(NATIVE_TOKEN_ADDRESS, 1000), 0);
+        router.swap(RouteNode(poolKey, 0, 0), TokenAmount(address(token1), 100000), 0);
 
         vm.stopBroadcast();
     }

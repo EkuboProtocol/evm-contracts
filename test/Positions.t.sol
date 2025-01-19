@@ -47,7 +47,8 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            0
         );
 
         (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
@@ -77,7 +78,8 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100})
+            TokenAmount({token: address(token1), amount: 100}),
+            0
         );
 
         (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
@@ -104,12 +106,14 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            0
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50})
+            TokenAmount({token: address(token1), amount: 50}),
+            0
         );
 
         (uint128 amount0, uint128 amount1) =

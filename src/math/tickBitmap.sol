@@ -3,41 +3,25 @@ pragma solidity =0.8.28;
 
 import {Bitmap} from "../math/bitmap.sol";
 import {MIN_TICK, MAX_TICK} from "../math/ticks.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-function floorDiv(int32 tick, uint32 tickSpacing) pure returns (int32 quotient) {
-    assembly ("memory-safe") {
-        quotient := sdiv(tick, tickSpacing)
-        let remainder := smod(tick, tickSpacing)
-        if slt(remainder, 0) { quotient := sub(quotient, 1) }
-    }
-}
-
-// Aligns the tick to the nearest multiple of tickSpacing, rounded towards negative infinity
-// e.g. floor(tick/tickSpacing) * tickSpacing
-function alignTick(int32 tick, uint32 tickSpacing) pure returns (int32 r) {
-    tick = floorDiv(tick, tickSpacing);
-    assembly ("memory-safe") {
-        r := mul(tick, tickSpacing)
-    }
-}
-
-// Addition of this offset does two things--it centers the 0 tick within a single bitmap regardless of tick spacing,
+// Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
+// Addition of the offset does two things--it centers the 0 tick within a single bitmap regardless of tick spacing,
 // and gives us a contiguous range of unsigned integers for all ticks
-int256 constant ABSOLUTE_MINIMUM_TICK_ARGUMENT_OFFSET = 89421695;
-
+// Always rounds the tick down to the nearest multiple of tickSpacing
 function tickToBitmapWordAndIndex(int32 tick, uint32 tickSpacing) pure returns (uint256 word, uint256 index) {
-    unchecked {
-        int256 spacingMultiple = floorDiv(tick, tickSpacing);
-
-        uint256 rawIndex = uint256(spacingMultiple + ABSOLUTE_MINIMUM_TICK_ARGUMENT_OFFSET);
-        (word, index) = (rawIndex / 256, rawIndex % 256);
+    assembly ("memory-safe") {
+        let rawIndex := add(sub(sdiv(tick, tickSpacing), slt(smod(tick, tickSpacing), 0)), 89421695)
+        word := div(rawIndex, 256)
+        index := mod(rawIndex, 256)
     }
 }
 
+// Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
 function bitmapWordAndIndexToTick(uint256 word, uint256 index, uint32 tickSpacing) pure returns (int32 tick) {
-    unchecked {
-        int256 rawIndex = int256(word * 256 + index);
-        tick = int32(rawIndex - ABSOLUTE_MINIMUM_TICK_ARGUMENT_OFFSET) * int32(tickSpacing);
+    assembly ("memory-safe") {
+        let rawIndex := add(mul(word, 256), index)
+        tick := mul(sub(rawIndex, 89421695), tickSpacing)
     }
 }
 
@@ -52,22 +36,30 @@ function findNextInitializedTick(
     int32 fromTick,
     uint32 tickSpacing,
     uint256 skipAhead
-) view returns (int32, bool) {
+) view returns (int32 nextTick, bool isInitialized) {
     unchecked {
-        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick + int32(tickSpacing), tickSpacing);
-        Bitmap bitmap = map[word];
-        uint256 nextIndex = bitmap.geSetBit(uint8(index));
-        if (nextIndex != 256) {
-            return (bitmapWordAndIndexToTick(word, nextIndex, tickSpacing), true);
-        } else {
-            int32 nextTick = bitmapWordAndIndexToTick(word, 255, tickSpacing);
-            if (nextTick > MAX_TICK) {
-                return (MAX_TICK, false);
+        nextTick = fromTick;
+        while (nextTick < MAX_TICK) {
+            // convert the given tick to the bitmap position of the next nearest potential initialized tick
+            (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick + int32(tickSpacing), tickSpacing);
+
+            // find the index of the previous tick in that word
+            uint256 nextIndex = map[word].geSetBit(uint8(index));
+
+            // if we found one, return it
+            if (nextIndex != 256) {
+                (nextTick, isInitialized) = (bitmapWordAndIndexToTick(word, nextIndex, tickSpacing), true);
+                break;
             }
-            if (skipAhead != 0) {
-                return findNextInitializedTick(map, nextTick, tickSpacing, skipAhead - 1);
+
+            // otherwise, return the tick of the most significant bit in the word
+            nextTick = int32(FixedPointMathLib.min(MAX_TICK, bitmapWordAndIndexToTick(word, 255, tickSpacing)));
+
+            // if we are done searching, stop here
+            if (skipAhead == 0) {
+                break;
             }
-            return (nextTick, false);
+            skipAhead--;
         }
     }
 }
@@ -77,23 +69,27 @@ function findPrevInitializedTick(
     int32 fromTick,
     uint32 tickSpacing,
     uint256 skipAhead
-) view returns (int32, bool) {
+) view returns (int32 prevTick, bool isInitialized) {
     unchecked {
-        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick, tickSpacing);
-        Bitmap bitmap = map[word];
-        uint256 prevIndex = bitmap.leSetBit(uint8(index));
+        prevTick = fromTick;
+        while (prevTick > MIN_TICK) {
+            // convert the given tick to its bitmap position
+            (uint256 word, uint256 index) = tickToBitmapWordAndIndex(prevTick, tickSpacing);
 
-        if (prevIndex != 256) {
-            return (bitmapWordAndIndexToTick(word, prevIndex, tickSpacing), true);
-        } else {
-            int32 prevTick = bitmapWordAndIndexToTick(word, 0, tickSpacing);
-            if (prevTick < MIN_TICK) {
-                return (bitmapWordAndIndexToTick(word, prevIndex, tickSpacing), false);
+            // find the index of the previous tick in that word
+            uint256 prevIndex = map[word].leSetBit(uint8(index));
+
+            if (prevIndex != 256) {
+                (prevTick, isInitialized) = (bitmapWordAndIndexToTick(word, prevIndex, tickSpacing), true);
+                break;
             }
-            if (skipAhead != 0) {
-                return findPrevInitializedTick(map, prevTick - 1, tickSpacing, skipAhead - 1);
+
+            prevTick = int32(FixedPointMathLib.max(MIN_TICK, bitmapWordAndIndexToTick(word, 0, tickSpacing)));
+
+            if (skipAhead == 0) {
+                break;
             }
-            return (prevTick, false);
+            skipAhead--;
         }
     }
 }

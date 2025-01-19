@@ -74,11 +74,13 @@ contract Oracle is ExposedStorage, BaseExtension {
     function search(address token, uint64 time, uint256 minIndex, uint256 maxIndex)
         public
         view
-        returns (uint256, Snapshot memory)
+        returns (uint256 index, Snapshot memory snapshot)
     {
         unchecked {
             if (time < timestampOffset) revert NoPreviousSnapshotExists(token, time);
             if (time > timestampOffset + type(uint32).max) revert MustRedeployContract();
+
+            mapping(uint256 => Snapshot) storage tokenSnapshots = snapshots[token];
 
             uint32 targetSso = uint32(time - timestampOffset);
 
@@ -87,7 +89,7 @@ contract Oracle is ExposedStorage, BaseExtension {
 
             while (left < right) {
                 uint256 mid = (left + right + 1) >> 1;
-                uint64 midSso = snapshots[token][mid].secondsSinceOffset;
+                uint64 midSso = tokenSnapshots[mid].secondsSinceOffset;
                 if (midSso <= targetSso) {
                     left = mid;
                 } else {
@@ -95,7 +97,7 @@ contract Oracle is ExposedStorage, BaseExtension {
                 }
             }
 
-            Snapshot memory snap = snapshots[token][left];
+            Snapshot memory snap = tokenSnapshots[left];
             if (snap.secondsSinceOffset > targetSso) {
                 revert NoPreviousSnapshotExists(token, time);
             }
@@ -104,11 +106,15 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     // Returns the snapshot with the greatest secondsSinceOffsetToTimestamp(snapshot.secondsSinceOffset) that is less than or equal to the given time
-    function findPreviousSnapshot(address token, uint64 time) public view returns (uint256, Snapshot memory) {
-        uint256 count = snapshotCount[token];
+    function findPreviousSnapshot(address token, uint64 time)
+        public
+        view
+        returns (uint256 count, uint256 index, Snapshot memory snapshot)
+    {
+        count = snapshotCount[token];
         if (count == 0) revert NoPreviousSnapshotExists(token, time);
 
-        return search(token, time, 0, count - 1);
+        (index, snapshot) = search(token, time, 0, count - 1);
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {

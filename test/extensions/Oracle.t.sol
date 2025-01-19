@@ -147,38 +147,38 @@ contract OracleTest is FullTest {
         );
         oracle.findPreviousSnapshot(address(token1), poolCreationTime - 6);
 
-        (uint256 i, Oracle.Snapshot memory s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime);
+        (, uint256 i, Oracle.Snapshot memory s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime);
         assertEq(i, 0);
         assertEq(s.secondsSinceOffset, 5);
         assertEq(s.secondsPerLiquidityCumulative, 0);
         assertEq(s.tickCumulative, 0);
 
-        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 9);
+        (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 9);
         assertEq(i, 0);
         assertEq(s.secondsSinceOffset, 5);
         assertEq(s.secondsPerLiquidityCumulative, 0);
         assertEq(s.tickCumulative, 0);
 
-        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 10);
+        (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 10);
         assertEq(i, 1);
         assertEq(s.secondsSinceOffset, 15);
         assertEq(s.secondsPerLiquidityCumulative, 0);
         assertEq(s.tickCumulative, 10 * 2 * -693147);
 
-        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 11);
+        (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 11);
         assertEq(i, 1);
         assertEq(s.secondsSinceOffset, 15);
         assertEq(s.secondsPerLiquidityCumulative, 0);
         assertEq(s.tickCumulative, 10 * 2 * -693147);
 
-        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 15);
+        (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 15);
         assertEq(i, 1);
         assertEq(s.secondsSinceOffset, 15);
         assertEq(s.secondsPerLiquidityCumulative, 0);
         assertEq(s.tickCumulative, 10 * 2 * -693147);
 
         // if we pass in a future time it works fine
-        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 100);
+        (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 100);
         assertEq(i, 2);
         assertEq(s.secondsSinceOffset, 21);
         assertEq(s.secondsPerLiquidityCumulative, 0);

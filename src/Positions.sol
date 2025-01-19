@@ -125,6 +125,26 @@ contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
         );
     }
 
+    function collectFeesAndWithdraw(
+        uint256 id,
+        PoolKey memory poolKey,
+        Bounds memory bounds,
+        uint128 liquidity,
+        address recipient,
+        uint128 minAmount0,
+        uint128 minAmount1
+    ) external payable returns (uint128 amount0, uint128 amount1) {
+        (amount0, amount1) = collectFees(id, poolKey, bounds, recipient);
+        (uint128 p0, uint128 p1) = withdraw(id, poolKey, bounds, liquidity, recipient, minAmount0, minAmount1);
+        amount0 += p0;
+        amount1 += p1;
+    }
+
+    // Can be used to lock liquidity, or just to refund some gas after withdrawing
+    function burn(uint256 id) external payable authorizedForNft(id) {
+        _burn(id);
+    }
+
     function maybeInitializePool(PoolKey memory poolKey, int32 tick) external payable {
         uint256 price = getPoolPrice(poolKey);
         if (price == 0) {

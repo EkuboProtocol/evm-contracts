@@ -92,11 +92,9 @@ interface ICore is IExposedStorage {
     error FailedRegisterInvalidCallPoints();
     error ExtensionAlreadyRegistered();
     error LockerOnly();
-    error DeltasNotZeroed();
+    error DebtsNotZeroed();
     error PoolAlreadyInitialized();
     error ExtensionNotRegistered();
-    error OnlyCallableByExtension();
-    error CannotAccumulateFeesWithZeroLiquidity();
     error PoolNotInitialized();
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
     error SqrtRatioLimitWrongDirection();

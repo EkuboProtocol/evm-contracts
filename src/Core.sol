@@ -98,8 +98,9 @@ contract Core is ICore, Ownable, ExposedStorage {
         if (locker != msg.sender) revert LockerOnly();
     }
 
-    function accountDelta(uint256 id, address token, int256 delta) private {
-        if (delta == 0) return;
+    // Negative means erasing debt, positive means adding debt
+    function accountDebt(uint256 id, address token, int256 debtChange) private {
+        if (debtChange == 0) return;
 
         bytes32 slot;
         int256 current;
@@ -109,7 +110,7 @@ contract Core is ICore, Ownable, ExposedStorage {
         }
 
         // this is a checked addition, so it will revert if it overflows
-        int256 next = current + delta;
+        int256 next = current + debtChange;
 
         if (current == 0 && next != 0) {
             assembly ("memory-safe") {
@@ -148,17 +149,17 @@ contract Core is ICore, Ownable, ExposedStorage {
 
         result = ILocker(msg.sender).locked(id, data);
 
-        uint256 nonzeroDeltaCount;
+        uint256 nonzeroDebtCount;
         assembly ("memory-safe") {
             // reset the locker id
             tstore(0, id)
             // remove the address
             tstore(add(0x100000000, id), 0)
             // load the delta count which should already be reset to zero
-            nonzeroDeltaCount := tload(add(0x200000000, id))
+            nonzeroDebtCount := tload(add(0x200000000, id))
         }
 
-        if (nonzeroDeltaCount != 0) revert DeltasNotZeroed();
+        if (nonzeroDebtCount != 0) revert DebtsNotZeroed();
     }
 
     function forward(address to, bytes calldata data) external returns (bytes memory result) {
@@ -247,14 +248,14 @@ contract Core is ICore, Ownable, ExposedStorage {
             if (payment > MAX_INT256) revert PaymentTooLarge();
 
             // The unary negative operator never fails because payment is less than max int256
-            accountDelta(id, token, -int256(payment));
+            accountDebt(id, token, -int256(payment));
         }
     }
 
     function load(address token, bytes32 salt, uint128 amount) external {
         (uint256 id, address owner) = requireLocker();
 
-        accountDelta(id, token, -int256(uint256(amount)));
+        accountDebt(id, token, -int256(uint256(amount)));
 
         savedBalances[owner][token][salt] -= amount;
 
@@ -264,7 +265,7 @@ contract Core is ICore, Ownable, ExposedStorage {
     function withdraw(address token, address recipient, uint128 amount) external {
         (uint256 id,) = requireLocker();
 
-        accountDelta(id, token, int256(uint256(amount)));
+        accountDebt(id, token, int256(uint256(amount)));
 
         if (token == NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeTransferETH(recipient, amount);
@@ -276,7 +277,7 @@ contract Core is ICore, Ownable, ExposedStorage {
     function save(address owner, address token, bytes32 salt, uint128 amount) external {
         (uint256 id,) = requireLocker();
 
-        accountDelta(id, token, int256(uint256(amount)));
+        accountDebt(id, token, int256(uint256(amount)));
 
         savedBalances[owner][token][salt] += amount;
 
@@ -310,16 +311,16 @@ contract Core is ICore, Ownable, ExposedStorage {
     // The extension must call this function within a lock callback.
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
         (uint256 id, address locker) = requireLocker();
-        if (locker != poolKey.extension) revert OnlyCallableByExtension();
+        require(locker == poolKey.extension);
         bytes32 poolId = poolKey.toPoolId();
         uint128 liquidity = poolLiquidity[poolId];
-        if (liquidity == 0) revert CannotAccumulateFeesWithZeroLiquidity();
+        require(liquidity != 0);
 
         poolFeesPerLiquidity[poolKey.toPoolId()] =
             poolFeesPerLiquidity[poolId].add(feesPerLiquidityFromAmounts(amount0, amount1, liquidity));
 
-        accountDelta(id, poolKey.token0, int256(uint256(amount0)));
-        accountDelta(id, poolKey.token1, int256(uint256(amount1)));
+        accountDebt(id, poolKey.token0, int256(uint256(amount0)));
+        accountDebt(id, poolKey.token1, int256(uint256(amount1)));
 
         emit FeesAccumulated(poolKey, amount0, amount1);
     }
@@ -411,8 +412,8 @@ contract Core is ICore, Ownable, ExposedStorage {
                 poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
             }
 
-            accountDelta(id, poolKey.token0, delta0);
-            accountDelta(id, poolKey.token1, delta1);
+            accountDebt(id, poolKey.token0, delta0);
+            accountDebt(id, poolKey.token1, delta1);
 
             emit PositionUpdated(locker, poolKey, params, delta0, delta1);
         }
@@ -444,8 +445,8 @@ contract Core is ICore, Ownable, ExposedStorage {
         poolPositions[poolId][positionId] =
             Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
 
-        accountDelta(id, poolKey.token0, -int256(uint256(amount0)));
-        accountDelta(id, poolKey.token1, -int256(uint256(amount1)));
+        accountDebt(id, poolKey.token0, -int256(uint256(amount0)));
+        accountDebt(id, poolKey.token1, -int256(uint256(amount1)));
 
         emit PositionFeesCollected(poolKey, positionKey, amount0, amount1);
 
@@ -554,8 +555,8 @@ contract Core is ICore, Ownable, ExposedStorage {
             poolLiquidity[poolId] = liquidity;
             poolFeesPerLiquidity[poolId] = feesPerLiquidity;
 
-            accountDelta(id, poolKey.token0, delta0);
-            accountDelta(id, poolKey.token1, delta1);
+            accountDebt(id, poolKey.token0, delta0);
+            accountDebt(id, poolKey.token1, delta1);
 
             emit Swapped(locker, poolKey, params, delta0, delta1, sqrtRatio, tick, liquidity);
         }
@@ -571,7 +572,7 @@ contract Core is ICore, Ownable, ExposedStorage {
 
         // Assumption that msg.value will never overflow this cast or subtraction
         unchecked {
-            accountDelta(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+            accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }
 }

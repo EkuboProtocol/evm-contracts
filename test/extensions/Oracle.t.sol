@@ -85,7 +85,8 @@ contract OracleTest is FullTest {
             oracle.snapshots(address(token1), 1);
         assertEq(secondsSinceOffset, 30);
         assertEq(secondsPerLiquidityCumulative, 0);
-        assertEq(tickCumulative, 30 * 693147);
+        // the tick is flipped so that the price is always oracleToken/token
+        assertEq(tickCumulative, 30 * -693147);
 
         advanceTime(45);
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity, address(this), 0, 0);
@@ -96,7 +97,7 @@ contract OracleTest is FullTest {
         (secondsSinceOffset, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 2);
         assertEq(secondsSinceOffset, 75);
         assertEq(secondsPerLiquidityCumulative, (45 << 128) / liquidity);
-        assertEq(tickCumulative, 75 * 693147);
+        assertEq(tickCumulative, 75 * -693147);
     }
 
     function test_cannotCallExtensionMethodsDirectly() public {

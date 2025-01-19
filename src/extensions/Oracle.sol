@@ -99,6 +99,11 @@ contract Oracle is ExposedStorage, BaseExtension {
         uint128 liquidity = core.poolLiquidity(poolId);
         (, int32 tick) = core.poolPrice(poolId);
 
+        // we always make the price as if it's oracleToken/token
+        if (token > oracleToken) {
+            tick = -tick;
+        }
+
         snapshotCount[token] = count + 1;
         Snapshot memory snapshot = Snapshot({
             secondsSinceOffset: sso,

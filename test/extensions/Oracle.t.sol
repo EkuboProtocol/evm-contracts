@@ -66,6 +66,10 @@ contract OracleTest is FullTest {
     function test_createPosition_failsForPositionsNotWideEnough() public {
         PoolKey memory poolKey =
             createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        vm.expectRevert(Oracle.BoundsMustBeMaximum.selector);
+        positions.mintAndDeposit{value: 100}(
+            poolKey, Bounds(-int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING)), 100, 100, 0
+        );
     }
 
     function test_createPosition() public {

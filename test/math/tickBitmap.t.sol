@@ -142,6 +142,14 @@ contract TickBitmapTest is Test {
 
         checkNextTick(tbm, MIN_TICK, MAX_TICK, false, 0);
         checkNextTick(tbm, MIN_TICK, MAX_TICK, false, type(uint256).max);
+
+        tbm.flip(MIN_TICK);
+        tbm.flip(MAX_TICK);
+        checkPrevTick(tbm, MAX_TICK - 1, MIN_TICK, true, 0);
+        checkPrevTick(tbm, MAX_TICK - 1, MIN_TICK, true, type(uint256).max);
+
+        checkNextTick(tbm, MIN_TICK, MAX_TICK, true, 0);
+        checkNextTick(tbm, MIN_TICK, MAX_TICK, true, type(uint256).max);
     }
 
     function test_findPrevInitializedTick(int32 tick, uint32 tickSpacing) public {

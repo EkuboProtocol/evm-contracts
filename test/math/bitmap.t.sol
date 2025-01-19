@@ -5,6 +5,24 @@ import {Test} from "forge-std/Test.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";
 
 contract BitmapTest is Test {
+    function test_gas() public {
+        vm.startSnapshotGas("toggle");
+        Bitmap.wrap(0x8).toggle(3);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("isSet");
+        Bitmap.wrap(0x8).isSet(3);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("leSetBit");
+        Bitmap.wrap(type(uint256).max).leSetBit(9);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("geSetBit");
+        Bitmap.wrap(type(uint256).max).geSetBit(9);
+        vm.stopSnapshotGas();
+    }
+
     function test_toggle(uint8 bit) public pure {
         assertEq(Bitmap.unwrap(Bitmap.wrap(0).toggle(bit)), 1 << bit);
         assertEq(Bitmap.unwrap(Bitmap.wrap(0).toggle(bit).toggle(bit)), 0);

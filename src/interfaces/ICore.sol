@@ -105,10 +105,8 @@ interface ICore is IExposedStorage {
     error NoPaymentMade();
 
     // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
+    // To withdraw the native token protocol fees, call with token = NATIVE_TOKEN_ADDRESS
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external;
-
-    // Allows the owner of the contract to withdraw the native token protocol withdrawal fees collected
-    function withdrawNativeProtocolFees(address recipient, uint256 amount) external;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external;
@@ -143,9 +141,6 @@ interface ICore is IExposedStorage {
 
     // Withdraws a token amount from the core contract to the given recipient.
     function withdraw(address token, address recipient, uint128 amount) external;
-
-    // Withdraws an amount of the native token
-    function withdrawNative(address recipient, uint128 amount) external;
 
     // Saves an amount of a token to be used later.
     function save(address owner, address token, bytes32 salt, uint128 amount) external;

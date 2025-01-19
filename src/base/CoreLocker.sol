@@ -37,11 +37,7 @@ abstract contract CoreLocker is UsesCore, ILocker {
 
     function withdrawFromCore(address token, uint128 amount, address recipient) internal {
         if (amount > 0) {
-            if (token == NATIVE_TOKEN_ADDRESS) {
-                core.withdrawNative(recipient, amount);
-            } else {
-                core.withdraw(token, recipient, amount);
-            }
+            core.withdraw(token, recipient, amount);
         }
     }
 

@@ -72,14 +72,12 @@ contract Core is ICore, Ownable, ExposedStorage {
 
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
         protocolFeesCollected[token] -= amount;
-        SafeTransferLib.safeTransfer(token, recipient, amount);
+        if (token == NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeTransferETH(recipient, amount);
+        } else {
+            SafeTransferLib.safeTransfer(token, recipient, amount);
+        }
         emit ProtocolFeesWithdrawn(recipient, token, amount);
-    }
-
-    function withdrawNativeProtocolFees(address recipient, uint256 amount) external onlyOwner {
-        protocolFeesCollected[NATIVE_TOKEN_ADDRESS] -= amount;
-        SafeTransferLib.safeTransferETH(recipient, amount);
-        emit ProtocolFeesWithdrawn(recipient, NATIVE_TOKEN_ADDRESS, amount);
     }
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
@@ -267,15 +265,11 @@ contract Core is ICore, Ownable, ExposedStorage {
 
         accountDelta(id, token, int256(uint256(amount)));
 
-        SafeTransferLib.safeTransfer(token, recipient, amount);
-    }
-
-    function withdrawNative(address recipient, uint128 amount) external {
-        (uint256 id,) = requireLocker();
-
-        accountDelta(id, NATIVE_TOKEN_ADDRESS, int256(uint256(amount)));
-
-        SafeTransferLib.safeTransferETH(recipient, amount);
+        if (token == NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeTransferETH(recipient, amount);
+        } else {
+            SafeTransferLib.safeTransfer(token, recipient, amount);
+        }
     }
 
     function save(address owner, address token, bytes32 salt, uint128 amount) external {

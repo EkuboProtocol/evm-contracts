@@ -7,7 +7,7 @@ import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICo
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {MAX_TICK_SPACING} from "../math/ticks.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/ticks.sol";
 
 function oracleCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -21,8 +21,6 @@ function oracleCallPoints() pure returns (CallPoints memory) {
         afterCollectFees: false
     });
 }
-
-int32 constant MAX_TICK_AT_MAX_TICK_SPACING = 88368108;
 
 contract Oracle is ExposedStorage, BaseExtension {
     error PairsWithOracleTokenOnly();
@@ -127,8 +125,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         override
         onlyCore
     {
-        if (params.bounds.lower != -MAX_TICK_AT_MAX_TICK_SPACING || params.bounds.upper != MAX_TICK_AT_MAX_TICK_SPACING)
-        {
+        if (params.bounds.lower != MIN_TICK || params.bounds.upper != MAX_TICK) {
             revert BoundsMustBeMaximum();
         }
 

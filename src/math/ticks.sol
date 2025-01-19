@@ -3,10 +3,10 @@ pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-int32 constant MIN_TICK = -88722883;
-int32 constant MAX_TICK = 88722883;
+int32 constant MIN_TICK = -88722835;
+int32 constant MAX_TICK = 88722835;
 uint32 constant MAX_TICK_MAGNITUDE = uint32(MAX_TICK);
-uint32 constant MAX_TICK_SPACING = 354892;
+uint32 constant MAX_TICK_SPACING = 698605;
 
 error InvalidTick(int32 tick);
 
@@ -108,8 +108,8 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
     }
 }
 
-uint256 constant MIN_SQRT_RATIO = 18446748437148339061;
-uint256 constant MAX_SQRT_RATIO = 6277100250585753475930931601400621808602321654880405518632;
+uint256 constant MIN_SQRT_RATIO = 18447191164202170526;
+uint256 constant MAX_SQRT_RATIO = 6276949602062853172742588666638147158083741740262337144812;
 
 error InvalidSqrtRatio(uint256 sqrtRatio);
 

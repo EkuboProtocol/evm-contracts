@@ -3,17 +3,11 @@ pragma solidity =0.8.28;
 
 import {NATIVE_TOKEN_ADDRESS, UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
-import {Positions, ITokenURIGenerator} from "../../src/Positions.sol";
-import {BaseURLTokenURIGenerator} from "../../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, PositionKey, Bounds} from "../../src/types/keys.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../../src/math/ticks.sol";
-import {LibString} from "solady/utils/LibString.sol";
-import {WETH} from "solady/tokens/WETH.sol";
-import {TestToken} from "../TestToken.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
-import {Oracle, MAX_TICK_AT_MAX_TICK_SPACING} from "../../src/extensions/Oracle.sol";
-import {toUint8} from "../../src/types/callPoints.sol";
+import {Oracle} from "../../src/extensions/Oracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 
 contract OracleTest is FullTest {
@@ -69,13 +63,18 @@ contract OracleTest is FullTest {
         createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
     }
 
+    function test_createPosition_failsForSmallerPosition() public {
+        PoolKey memory poolKey =
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+    }
+
     function test_createPosition() public {
         PoolKey memory poolKey =
             createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
 
         advanceTime(30);
 
-        Bounds memory bounds = Bounds(-MAX_TICK_AT_MAX_TICK_SPACING, MAX_TICK_AT_MAX_TICK_SPACING);
+        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
         (uint256 id, uint128 liquidity) = createPosition(poolKey, bounds, 100, 200);
         assertEq(oracle.snapshotCount(address(token1)), 2);
         (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =

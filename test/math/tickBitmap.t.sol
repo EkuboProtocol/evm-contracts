@@ -134,6 +134,16 @@ contract TickBitmapTest is Test {
         assertEq(initialized, expectedInitialized);
     }
 
+    function test_maxTickSpacing_behavior() public {
+        TickBitmap tbm = new TickBitmap(MAX_TICK_SPACING);
+        // no skip ahead required at max tick spacing
+        checkPrevTick(tbm, MAX_TICK, MIN_TICK, false, 0);
+        checkPrevTick(tbm, MAX_TICK, MIN_TICK, false, type(uint256).max);
+
+        checkNextTick(tbm, MIN_TICK, MAX_TICK, false, 0);
+        checkNextTick(tbm, MIN_TICK, MAX_TICK, false, type(uint256).max);
+    }
+
     function test_findPrevInitializedTick(int32 tick, uint32 tickSpacing) public {
         (tick, tickSpacing) = bound(tick, tickSpacing);
 

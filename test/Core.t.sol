@@ -7,12 +7,17 @@ import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
+import {Core} from "../src/Core.sol";
 
 contract CoreTest is FullTest {
     using CoreLib for *;
 
     function test_owner() public view {
         assertEq(core.owner(), owner);
+    }
+
+    function test_codeSize() public {
+        vm.snapshotValue("Core runtime code length", type(Core).runtimeCode.length);
     }
 
     function test_registerExtension(uint8 b) public {

@@ -84,10 +84,10 @@ contract Core is ICore, Ownable, ExposedStorage {
     function registerExtension(CallPoints memory expectedCallPoints) external {
         CallPoints memory computed = addressToCallPoints(msg.sender);
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) revert FailedRegisterInvalidCallPoints();
-        if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
-        isExtensionRegistered[msg.sender] = true;
-
-        emit ExtensionRegistered(msg.sender);
+        if (!isExtensionRegistered[msg.sender]) {
+            isExtensionRegistered[msg.sender] = true;
+            emit ExtensionRegistered(msg.sender);
+        }
     }
 
     function requireLocker() private view returns (uint256 id, address locker) {

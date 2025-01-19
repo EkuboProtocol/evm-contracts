@@ -37,11 +37,9 @@ contract CoreTest is FullTest {
 
         vm.expectEmit(address(core));
         emit ICore.ExtensionRegistered(actual);
-
         MockExtension(actual).register(core, byteToCallPoints(b));
 
-        // double register fails
-        vm.expectRevert(ICore.ExtensionAlreadyRegistered.selector, address(core));
+        // double register is no-op
         MockExtension(actual).register(core, byteToCallPoints(b));
     }
 

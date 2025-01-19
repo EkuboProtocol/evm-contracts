@@ -68,6 +68,41 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
+    error NoPreviousSnapshotExists(address token, uint64 time);
+    error MustRedeployContract();
+
+    // Returns the snapshot with the greatest secondsSinceOffsetToTimestamp(snapshot.secondsSinceOffset) that is less than or equal to the given time
+    function findPreviousSnapshot(address token, uint64 time) public view returns (uint256, Snapshot memory) {
+        unchecked {
+            if (time < timestampOffset) revert NoPreviousSnapshotExists(token, time);
+            if (time > timestampOffset + type(uint32).max) revert MustRedeployContract();
+
+            uint32 targetSso = uint32(time - timestampOffset);
+
+            uint256 count = snapshotCount[token];
+            if (count == 0) revert NoPreviousSnapshotExists(token, time);
+
+            uint256 left = 0;
+            uint256 right = count - 1;
+
+            while (left < right) {
+                uint256 mid = (left + right + 1) >> 1;
+                uint64 midSso = snapshots[token][mid].secondsSinceOffset;
+                if (midSso <= targetSso) {
+                    left = mid;
+                } else {
+                    right = mid - 1;
+                }
+            }
+
+            Snapshot memory snap = snapshots[token][left];
+            if (snap.secondsSinceOffset > targetSso) {
+                revert NoPreviousSnapshotExists(token, time);
+            }
+            return (left, snap);
+        }
+    }
+
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return oracleCallPoints();
     }

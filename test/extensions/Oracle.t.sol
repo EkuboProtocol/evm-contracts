@@ -9,8 +9,11 @@ import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle} from "../../src/extensions/Oracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
+import {CoreLib} from "../../src/libraries/CoreLib.sol";
 
 contract OracleTest is FullTest {
+    using CoreLib for *;
+
     Oracle oracle;
 
     function setUp() public override {
@@ -98,6 +101,88 @@ contract OracleTest is FullTest {
         assertEq(secondsSinceOffset, 75);
         assertEq(secondsPerLiquidityCumulative, (45 << 128) / liquidity);
         assertEq(tickCumulative, 75 * -693147);
+    }
+
+    function movePrice(PoolKey memory poolKey, int32 targetTick) private {
+        (, int32 tick) = core.poolPrice(poolKey.toPoolId());
+
+        if (tick < targetTick) {
+            router.swap(
+                RouteNode(poolKey, tickToSqrtRatio(targetTick), 0), TokenAmount(address(token0), type(int128).min), 0
+            );
+        } else if (tick > targetTick) {
+            router.swap(
+                RouteNode(poolKey, tickToSqrtRatio(targetTick) + 1, 0),
+                TokenAmount(address(token1), type(int128).min),
+                0
+            );
+        }
+    }
+
+    function test_findPreviousSnapshot() public {
+        advanceTime(5);
+        uint64 poolCreationTime = uint64(block.timestamp);
+
+        PoolKey memory poolKey =
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+
+        // immediately moved after initialization
+        movePrice(poolKey, 693147 * 2);
+
+        advanceTime(10);
+
+        movePrice(poolKey, 693146 / 2);
+
+        advanceTime(6);
+
+        movePrice(poolKey, 693147);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 1)
+        );
+        oracle.findPreviousSnapshot(address(token1), poolCreationTime - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 6)
+        );
+        oracle.findPreviousSnapshot(address(token1), poolCreationTime - 6);
+
+        (uint256 i, Oracle.Snapshot memory s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime);
+        assertEq(i, 0);
+        assertEq(s.secondsSinceOffset, 5);
+        assertEq(s.secondsPerLiquidityCumulative, 0);
+        assertEq(s.tickCumulative, 0);
+
+        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 9);
+        assertEq(i, 0);
+        assertEq(s.secondsSinceOffset, 5);
+        assertEq(s.secondsPerLiquidityCumulative, 0);
+        assertEq(s.tickCumulative, 0);
+
+        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 10);
+        assertEq(i, 1);
+        assertEq(s.secondsSinceOffset, 15);
+        assertEq(s.secondsPerLiquidityCumulative, 0);
+        assertEq(s.tickCumulative, 10 * 2 * -693147);
+
+        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 11);
+        assertEq(i, 1);
+        assertEq(s.secondsSinceOffset, 15);
+        assertEq(s.secondsPerLiquidityCumulative, 0);
+        assertEq(s.tickCumulative, 10 * 2 * -693147);
+
+        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 15);
+        assertEq(i, 1);
+        assertEq(s.secondsSinceOffset, 15);
+        assertEq(s.secondsPerLiquidityCumulative, 0);
+        assertEq(s.tickCumulative, 10 * 2 * -693147);
+
+        // if we pass in a future time it works fine
+        (i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 100);
+        assertEq(i, 2);
+        assertEq(s.secondsSinceOffset, 21);
+        assertEq(s.secondsPerLiquidityCumulative, 0);
+        assertEq(s.tickCumulative, (10 * 2 * -693147) + (-693146 / 2 * 6));
     }
 
     function test_cannotCallExtensionMethodsDirectly() public {

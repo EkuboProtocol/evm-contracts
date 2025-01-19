@@ -118,12 +118,12 @@ interface ICore is IExposedStorage {
     // Sets the initial price for a new pool in terms of tick.
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (uint256 sqrtRatio);
 
-    function prevInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
+    function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
 
-    function nextInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
+    function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);

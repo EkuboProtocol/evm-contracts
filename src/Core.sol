@@ -205,24 +205,22 @@ contract Core is ICore, Ownable, ExposedStorage {
         }
     }
 
-    function prevInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
+    function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) = poolInitializedTickBitmaps[poolKey.toPoolId()].findPrevInitializedTick(
-            fromTick, poolKey.tickSpacing, skipAhead
-        );
+        (tick, isInitialized) =
+            poolInitializedTickBitmaps[poolId].findPrevInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    function nextInitializedTick(PoolKey memory poolKey, int32 fromTick, uint256 skipAhead)
+    function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) = poolInitializedTickBitmaps[poolKey.toPoolId()].findNextInitializedTick(
-            fromTick, poolKey.tickSpacing, skipAhead
-        );
+        (tick, isInitialized) =
+            poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
     uint256 constant MAX_INT256 = type(uint256).max >> 1; // == (1<<255) - 1

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-
 // Returns the fee to charge based on the amount, which is the fee (a 0.128 number) times the
 // amount, rounded up
 function computeFee(uint128 amount, uint128 fee) pure returns (uint128 result) {

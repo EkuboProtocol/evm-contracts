@@ -13,6 +13,10 @@ contract FeeTest is Test {
         assertEq(computeFee(type(uint128).max, type(uint128).max), type(uint128).max);
     }
 
+    function test_computeFee_always_le_amount(uint128 amount, uint128 fee) public pure {
+        assertLe(computeFee(amount, fee), amount);
+    }
+
     function test_amountBeforeFee_computeFee(uint128 amount, uint128 fee) public pure {
         // prevents overflow
         amount = uint128(bound(amount, 0, type(uint128).max >> 1));

@@ -14,7 +14,7 @@ abstract contract CoreLocker is UsesCore, ILocker {
 
     function payCallback(uint256, address token, bytes memory data) external onlyCore returns (bytes memory) {
         (address from, uint256 amount) = abi.decode(data, (address, uint256));
-        SafeTransferLib.safeTransferFrom(token, from, address(core), amount);
+        SafeTransferLib.safeTransferFrom2(token, from, address(core), amount);
     }
 
     function lock(bytes memory data) internal returns (bytes memory result) {

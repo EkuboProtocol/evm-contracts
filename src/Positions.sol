@@ -5,19 +5,19 @@ import {ERC721} from "solady/tokens/ERC721.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
-import {WETH} from "solady/tokens/WETH.sol";
-import {PoolKey, PositionKey, Bounds, maxBounds} from "./types/keys.sol";
+import {PoolKey, Bounds, maxBounds} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
+import {Permittable} from "./base/Permittable.sol";
 
 // This functionality is externalized so it can be upgraded later, e.g. to change the URL or generate the URI on-chain
 interface ITokenURIGenerator {
     function generateTokenURI(uint256 id) external view returns (string memory);
 }
 
-contract Positions is Multicallable, CoreLocker, ERC721 {
+contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
     using CoreLib for ICore;
 
     ITokenURIGenerator public immutable tokenURIGenerator;

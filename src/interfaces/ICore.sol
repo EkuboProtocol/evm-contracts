@@ -97,8 +97,6 @@ interface ICore is IExposedStorage {
     error ExtensionNotRegistered(address extension);
     error OnlyCallableByExtension();
     error CannotAccumulateFeesWithZeroLiquidity();
-    error LiquidityUnderflow();
-    error LiquidityOverflow();
     error PoolNotInitialized();
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
     error SqrtRatioLimitWrongDirection();

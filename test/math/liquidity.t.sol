@@ -2,7 +2,12 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
+import {
+    liquidityDeltaToAmountDelta,
+    addLiquidityDelta,
+    LiquidityUnderflow,
+    LiquidityOverflow
+} from "../../src/math/liquidity.sol";
 
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, tickToSqrtRatio} from "../../src/math/ticks.sol";
 
@@ -83,5 +88,22 @@ contract LiquidityTest is Test {
             liquidityDeltaToAmountDelta(tickToSqrtRatio(0), 1000000000, tickToSqrtRatio(-10), tickToSqrtRatio(10));
         assertEq(amount0, 5000, "amount0");
         assertEq(amount1, 5000, "amount1");
+    }
+
+    function test_addLiquidityDelta() public {
+        vm.expectRevert(LiquidityOverflow.selector);
+        addLiquidityDelta(type(uint128).max, 1);
+        vm.expectRevert(LiquidityUnderflow.selector);
+        addLiquidityDelta(0, -1);
+    }
+
+    function test_addLiquidityDelta_examples() public pure {
+        assertEq(addLiquidityDelta(0, 100), 100);
+        assertEq(addLiquidityDelta(0, type(int128).max), uint128(type(int128).max));
+        assertEq(addLiquidityDelta(type(uint128).max, 0), type(uint128).max);
+        assertEq(addLiquidityDelta(type(uint128).max >> 1, 1), uint128(1) << 127);
+        assertEq(addLiquidityDelta(1 << 127, type(int128).min), 0);
+        assertEq(addLiquidityDelta(0, type(int128).max), type(uint128).max >> 1);
+        assertEq(addLiquidityDelta(type(uint128).max, type(int128).min), type(uint128).max >> 1);
     }
 }

@@ -89,3 +89,18 @@ function maxLiquidity(uint256 sqrtRatio, uint256 sqrtRatioA, uint256 sqrtRatioB,
         return maxLiquidityForToken1(sqrtRatioLower, sqrtRatioUpper, amount1);
     }
 }
+
+error LiquidityUnderflow();
+error LiquidityOverflow();
+
+function addLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure returns (uint128) {
+    unchecked {
+        int256 l = int256(uint256(liquidity));
+        int256 lNext = l + liquidityDelta;
+
+        if (lNext < 0) revert LiquidityUnderflow();
+        if (lNext > 0xffffffffffffffffffffffffffffffff) revert LiquidityOverflow();
+
+        return uint128(uint256(lNext));
+    }
+}

@@ -22,7 +22,7 @@ import {
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
-import {liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
+import {liquidityDeltaToAmountDelta, addLiquidityDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {
@@ -327,18 +327,6 @@ contract Core is ICore, Ownable, ExposedStorage {
         accountDelta(id, poolKey.token1, int256(uint256(amount1)));
 
         emit FeesAccumulated(poolKey, amount0, amount1);
-    }
-
-    function addLiquidityDelta(uint128 liquidity, int128 liquidityDelta) private pure returns (uint128) {
-        unchecked {
-            int256 l = int256(uint256(liquidity));
-            int256 lNext = l + liquidityDelta;
-
-            if (lNext < 0) revert LiquidityUnderflow();
-            if (lNext > type(int128).max) revert LiquidityOverflow();
-
-            return uint128(int128(lNext));
-        }
     }
 
     function updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {

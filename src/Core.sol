@@ -445,8 +445,8 @@ contract Core is ICore, Ownable, ExposedStorage {
         poolPositions[poolId][positionId] =
             Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
 
-        accountDelta(id, poolKey.token0, int256(uint256(amount0)));
-        accountDelta(id, poolKey.token1, int256(uint256(amount1)));
+        accountDelta(id, poolKey.token0, -int256(uint256(amount0)));
+        accountDelta(id, poolKey.token1, -int256(uint256(amount1)));
 
         emit PositionFeesCollected(poolKey, positionKey, amount0, amount1);
 
@@ -469,11 +469,11 @@ contract Core is ICore, Ownable, ExposedStorage {
         uint256 sqrtRatio;
         int32 tick;
         {
-            PoolPrice memory price = poolPrice[poolId];
-            sqrtRatio = price.sqrtRatio;
-            if (sqrtRatio == 0) revert PoolNotInitialized();
-            tick = price.tick;
+            PoolPrice storage price = poolPrice[poolId];
+            (tick, sqrtRatio) = (price.tick, price.sqrtRatio);
         }
+
+        if (sqrtRatio == 0) revert PoolNotInitialized();
 
         // 0 swap amount is no-op
         if (params.amount != 0) {

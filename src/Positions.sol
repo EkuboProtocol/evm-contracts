@@ -8,7 +8,7 @@ import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolKey, Bounds, maxBounds} from "./types/keys.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
-import {shouldCallBeforeUpdatePosition, shouldCallBeforeCollectFees} from "./types/callPoints.sol";
+import {shouldCallBeforeUpdatePosition} from "./types/callPoints.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 
@@ -100,8 +100,10 @@ contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
         public
         payable
         authorizedForNft(id)
+        returns (uint128 amount0, uint128 amount1)
     {
-        lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, recipient)));
+        return
+            abi.decode(lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, recipient))), (uint128, uint128));
     }
 
     function withdraw(
@@ -170,6 +172,8 @@ contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
 
             withdrawFromCore(poolKey.token0, amount0, recipient);
             withdrawFromCore(poolKey.token1, amount1, recipient);
+
+            result = abi.encode(amount0, amount1);
         } else if (callType == 2) {
             (
                 uint256 id,

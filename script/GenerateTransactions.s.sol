@@ -19,10 +19,10 @@ contract GenerateTransactions is Script {
 
     function run() public {
         vm.startBroadcast();
-        // token0.approve(address(positions), type(uint256).max);
-        // token1.approve(address(positions), type(uint256).max);
-        // token0.approve(address(router), type(uint256).max);
-        // token1.approve(address(router), type(uint256).max);
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
 
         PoolKey memory poolKey = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
@@ -32,12 +32,12 @@ contract GenerateTransactions is Script {
             extension: address(0)
         });
 
-        // Bounds memory bounds = Bounds(4606140 - 5982 * 33, 4606140 + 5982 * 33);
+        Bounds memory bounds = Bounds(4606140 - 5982 * 33, 4606140 + 5982 * 33);
 
         // ~100 token1/token0
-        // positions.maybeInitializePool(poolKey, 4606140);
+        positions.maybeInitializePool(poolKey, 4606140);
         // +/- 10%
-        // positions.mintAndDeposit{value: 10000000}(poolKey, bounds, 10000000, 10000000 * 100, 0);
+        positions.mintAndDeposit{value: 10000000}(poolKey, bounds, 10000000, 10000000 * 100, 0);
 
         router.swap{value: 1000}(RouteNode(poolKey, 0, 0), TokenAmount(NATIVE_TOKEN_ADDRESS, 1000));
         router.swap(RouteNode(poolKey, 0, 0), TokenAmount(address(token1), 100000));

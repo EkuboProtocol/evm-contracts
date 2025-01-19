@@ -527,7 +527,6 @@ contract Core is ICore, Ownable, ExposedStorage {
                     );
                 }
 
-                // todo: should we do this math unchecked?
                 amountRemaining -= result.consumedAmount;
                 calculatedAmount += result.calculatedAmount;
 

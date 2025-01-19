@@ -31,6 +31,10 @@ abstract contract CoreLocker is UsesCore, ILocker {
         }
     }
 
+    function refundNativeToken() external {
+        SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
+    }
+
     function withdrawFromCore(address token, uint128 amount, address recipient) internal {
         if (amount > 0) {
             if (token == NATIVE_TOKEN_ADDRESS) {

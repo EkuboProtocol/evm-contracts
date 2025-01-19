@@ -10,7 +10,7 @@ import {
     SwapParameters
 } from "../src/interfaces/ICore.sol";
 import {Core} from "../src/Core.sol";
-import {Positions, ITokenURIGenerator} from "../src/Positions.sol";
+import {Positions} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
@@ -98,7 +98,7 @@ contract MockExtension is IExtension {
 
 abstract contract FullTest is Test {
     address immutable owner = address(0xdeadbeefdeadbeef);
-    ITokenURIGenerator tokenURIGenerator;
+    BaseURLTokenURIGenerator tokenURIGenerator;
     Core core;
     Positions positions;
     Router router;

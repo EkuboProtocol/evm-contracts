@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
-import {Positions, ITokenURIGenerator} from "../src/Positions.sol";
+import {Positions} from "../src/Positions.sol";
 import {Router} from "../src/Router.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
@@ -52,7 +52,7 @@ contract DeployScript is Script {
 
         vm.startBroadcast();
         Core core = new Core{salt: 0x0}(owner);
-        ITokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: 0x0}(owner, baseUrl);
+        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: 0x0}(owner, baseUrl);
         new Positions{salt: 0x0}(core, tokenURIGenerator);
         new Router{salt: 0x0}(core);
         new Oracle{

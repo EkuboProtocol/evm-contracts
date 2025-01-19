@@ -11,11 +11,7 @@ import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition} from "./types/callPoints.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {Permittable} from "./base/Permittable.sol";
-
-// This functionality is externalized so it can be upgraded later, e.g. to change the URL or generate the URI on-chain
-interface ITokenURIGenerator {
-    function generateTokenURI(uint256 id) external view returns (string memory);
-}
+import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 
 contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
     using CoreLib for ICore;
@@ -65,7 +61,7 @@ contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
         _;
     }
 
-    error InsufficientLiquidityReceived(uint128 liquidity);
+    error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
 
     // Gets the pool price of a pool, accounting for any before update position extension behavior
     function getPoolPrice(PoolKey memory poolKey) public returns (uint256) {
@@ -90,7 +86,7 @@ contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
             maxLiquidity(sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), amount0, amount1);
 
         if (liquidity < minLiquidity) {
-            revert InsufficientLiquidityReceived(liquidity);
+            revert DepositFailedDueToSlippage(liquidity, minLiquidity);
         }
 
         lock(abi.encodePacked(uint8(0), abi.encode(msg.sender, id, poolKey, bounds, liquidity)));

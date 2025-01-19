@@ -141,7 +141,9 @@ contract TickBitmapTest is Test {
         (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
         int32 calculatedTick = bitmapWordAndIndexToTick(word, index, tickSpacing);
 
-        // assertEq(floorDiv(tick, tickSpacing) * int32(tickSpacing), calculatedTick);
+        assertLe(calculatedTick, tick);
+        assertGt(calculatedTick + int32(tickSpacing), tick);
+        assertEq(calculatedTick % int32(tickSpacing), 0);
     }
 
     function checkNextTick(

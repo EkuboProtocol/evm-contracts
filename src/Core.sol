@@ -53,7 +53,7 @@ contract Core is ICore, Ownable, ExposedStorage {
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
     mapping(address token => uint256 amountCollected) private protocolFeesCollected;
 
-    // Keyed by the pool ID, which is the keccak256 of the ABI-encoded pool key
+    // Keyed by the pool ID, which is the hash of the ABI-encoded pool key
     mapping(bytes32 poolId => PoolPrice price) private poolPrice;
     mapping(bytes32 poolId => uint128 liquidity) private poolLiquidity;
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
@@ -100,10 +100,11 @@ contract Core is ICore, Ownable, ExposedStorage {
 
     function accountDelta(uint256 id, address token, int256 delta) private {
         if (delta == 0) return;
-        bytes32 slot = keccak256(abi.encode(id, token));
 
+        bytes32 slot;
         int256 current;
         assembly ("memory-safe") {
+            slot := add(add(id, 0x300000000), token)
             current := tload(slot)
         }
 
@@ -325,8 +326,6 @@ contract Core is ICore, Ownable, ExposedStorage {
 
     function updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
         TickInfo storage tickInfo = poolTicks[poolId][tick];
-
-        // todo: can we optimize this so it's only one sload?
 
         uint128 liquidityNetNext = addLiquidityDelta(tickInfo.liquidityNet, liquidityDelta);
         // this is checked math

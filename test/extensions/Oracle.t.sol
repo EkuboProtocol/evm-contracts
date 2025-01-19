@@ -185,6 +185,45 @@ contract OracleTest is FullTest {
         assertEq(s.tickCumulative, (10 * 2 * -693147) + (-693146 / 2 * 6));
     }
 
+    function test_extrapolateSnapshot() public {
+        advanceTime(5);
+        uint64 poolCreationTime = uint64(block.timestamp);
+
+        PoolKey memory poolKey =
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+
+        // immediately moved after initialization
+        movePrice(poolKey, 693147 * 2);
+
+        advanceTime(10);
+
+        movePrice(poolKey, 693146 / 2);
+
+        advanceTime(6);
+
+        movePrice(poolKey, 693147);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 1)
+        );
+        oracle.extrapolateSnapshot(address(token1), poolCreationTime - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 6)
+        );
+        oracle.extrapolateSnapshot(address(token1), poolCreationTime - 6);
+
+        (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
+            oracle.extrapolateSnapshot(address(token1), poolCreationTime);
+        assertEq(secondsPerLiquidityCumulative, 0);
+        assertEq(tickCumulative, 0);
+
+        (secondsPerLiquidityCumulative, tickCumulative) =
+            oracle.extrapolateSnapshot(address(token1), poolCreationTime + 9);
+        assertEq(secondsPerLiquidityCumulative, 0);
+        assertEq(tickCumulative, 9 * -693147 * 2);
+    }
+
     function test_cannotCallExtensionMethodsDirectly() public {
         PoolKey memory poolKey =
             createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));

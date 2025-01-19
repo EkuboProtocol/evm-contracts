@@ -117,6 +117,79 @@ contract Oracle is ExposedStorage, BaseExtension {
         (index, snapshot) = search(token, time, 0, count - 1);
     }
 
+    function getPoolKey(address token) public view returns (PoolKey memory) {
+        if (token < oracleToken) {
+            return PoolKey({
+                token0: token,
+                token1: oracleToken,
+                fee: 0,
+                tickSpacing: MAX_TICK_SPACING,
+                extension: address(this)
+            });
+        } else {
+            return PoolKey({
+                token0: oracleToken,
+                token1: token,
+                fee: 0,
+                tickSpacing: MAX_TICK_SPACING,
+                extension: address(this)
+            });
+        }
+    }
+
+    error FutureTime();
+
+    function extrapolateSnapshot(address token, uint64 atTime)
+        public
+        view
+        returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative)
+    {
+        if (atTime > block.timestamp) revert FutureTime();
+
+        (uint256 count, uint256 index, Snapshot memory snapshot) = findPreviousSnapshot(token, atTime);
+
+        unchecked {
+            (secondsPerLiquidityCumulative, tickCumulative) =
+                (snapshot.secondsPerLiquidityCumulative, snapshot.tickCumulative);
+
+            // we know this subtraction will not underflow due to checks in findPreviousSnapshot
+            uint32 timePassed = uint32(atTime - timestampOffset - snapshot.secondsSinceOffset);
+
+            if (timePassed != 0) {
+                int32 tick;
+                uint128 liquidity;
+                // last snapshot, read current price and liquidity to get difference
+                if (index == count - 1) {
+                    bytes32 poolId = getPoolKey(token).toPoolId();
+                    (, tick) = core.poolPrice(poolId);
+                    if (token > oracleToken) {
+                        tick = -tick;
+                    }
+                    liquidity = core.poolLiquidity(poolId);
+                } else {
+                    // read the next index
+                    // there must be a next index or else index would be equal to count - 1
+                    Snapshot memory next = snapshots[token][index + 1];
+                    tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timePassed)));
+                    if (next.secondsPerLiquidityCumulative != snapshot.secondsPerLiquidityCumulative) {
+                        liquidity = uint128(
+                            type(uint256).max
+                                / (
+                                    (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
+                                        / timePassed
+                                )
+                        );
+                    }
+                }
+
+                tickCumulative += int64(tick) * int64(uint64(timePassed));
+                if (liquidity > 0) {
+                    secondsPerLiquidityCumulative += (uint160(timePassed) << 128) / liquidity;
+                }
+            }
+        }
+    }
+
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return oracleCallPoints();
     }

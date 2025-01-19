@@ -159,7 +159,7 @@ contract Core is ICore, Ownable, ExposedStorage {
             nonzeroDeltaCount := tload(add(0x200000000, id))
         }
 
-        if (nonzeroDeltaCount != 0) revert DeltasNotZeroed(nonzeroDeltaCount);
+        if (nonzeroDeltaCount != 0) revert DeltasNotZeroed();
     }
 
     function forward(address to, bytes calldata data) external returns (bytes memory result) {
@@ -183,7 +183,7 @@ contract Core is ICore, Ownable, ExposedStorage {
 
         if (poolKey.extension != address(0)) {
             if (!isExtensionRegistered[poolKey.extension]) {
-                revert ExtensionNotRegistered(poolKey.extension);
+                revert ExtensionNotRegistered();
             }
 
             if (shouldCallBeforeInitializePool(poolKey.extension) && poolKey.extension != msg.sender) {

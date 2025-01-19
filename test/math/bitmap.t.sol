@@ -16,21 +16,37 @@ contract BitmapTest is Test {
         assertEq(bitmap.isSet(index), !bitmap.toggle(index).isSet(index));
     }
 
+    function test_mask() public pure {
+        uint8 index = 255;
+        unchecked {
+            assertEq((uint256(1) << (uint256(index) + 1)) - 1, type(uint256).max);
+            assertEq((uint256(1) << (uint256(index) + 1)), 0);
+        }
+    }
+
     function test_leSetBit(Bitmap bitmap, uint8 index) public pure {
-        uint8 prev = bitmap.leSetBit(index);
-        assertLe(prev, index);
-        assertTrue(bitmap.isSet(prev) || prev == 0);
-        for (uint8 i = index; i > prev; i--) {
-            assertFalse(bitmap.isSet(i));
+        uint256 prev = bitmap.leSetBit(index);
+        if (prev != 256) {
+            assertLe(prev, index);
+            assertTrue(bitmap.isSet(uint8(prev)));
+            for (uint256 i = index; i > prev; i--) {
+                assertFalse(bitmap.isSet(uint8(i)));
+            }
+        } else {
+            for (uint256 i = index; i >= 0;) {
+                assertFalse(bitmap.isSet(uint8(i)));
+                if (i == 0) break;
+                i--;
+            }
         }
     }
 
     function test_geSetBit(Bitmap bitmap, uint8 index) public pure {
-        uint8 next = bitmap.geSetBit(index);
+        uint256 next = bitmap.geSetBit(index);
         assertGe(next, index);
-        assertTrue(bitmap.isSet(next) || next == 255);
-        for (uint8 i = index; i < next; i++) {
-            assertFalse(bitmap.isSet(i));
+        if (next != 256) assertTrue(bitmap.isSet(uint8(next)));
+        for (uint256 i = index; i < next; i++) {
+            assertFalse(bitmap.isSet(uint8(i)));
         }
     }
 }

@@ -7,7 +7,8 @@ import {
     bitmapWordAndIndexToTick,
     flipTick,
     findNextInitializedTick,
-    findPrevInitializedTick
+    findPrevInitializedTick,
+    alignTick
 } from "../../src/math/tickBitmap.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";
@@ -18,12 +19,22 @@ contract TickBitmap {
     uint32 public immutable tickSpacing;
 
     constructor(uint32 _tickSpacing) {
+        assert(_tickSpacing <= MAX_TICK_SPACING);
+        assert(_tickSpacing > 0);
         tickSpacing = _tickSpacing;
     }
 
-    function flip(int32 tick) public {
-        // this is another expectation for how the bitmap is used in core
+    function isInitialized(int32 tick) public view returns (bool) {
         assert(tick % int32(tickSpacing) == 0);
+        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+        return map[word].isSet(uint8(index));
+    }
+
+    function flip(int32 tick) public {
+        // this is an expectation for how the bitmap is used in core
+        require((tick % int32(tickSpacing)) == 0, "mod");
+        require(tick <= MAX_TICK, "max");
+        require(tick >= MIN_TICK, "min");
         flipTick(map, tick, tickSpacing);
     }
 
@@ -59,6 +70,14 @@ contract TickBitmapTest is Test {
         vm.snapshotGasLastCall("next(0)");
     }
 
+    function test_gas_next_set() public {
+        TickBitmap tbm = new TickBitmap(100);
+
+        tbm.flip(3000);
+        tbm.next(0);
+        vm.snapshotGasLastCall("next(0) == 3000");
+    }
+
     function test_gas_prev() public {
         TickBitmap tbm = new TickBitmap(100);
 
@@ -66,38 +85,79 @@ contract TickBitmapTest is Test {
         vm.snapshotGasLastCall("prev(0)");
     }
 
-    function bound(int32 tick, uint32 tickSpacing) private pure returns (int32, uint32) {
-        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
-        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        // rounds towards zero to a multiple of tick spacing
-        tick = (tick / int32(tickSpacing)) * int32(tickSpacing);
-        return (tick, tickSpacing);
+    function test_gas_prev_set() public {
+        TickBitmap tbm = new TickBitmap(100);
+
+        tbm.flip(-3000);
+        tbm.prev(0);
+        vm.snapshotGasLastCall("prev(0) == -3000");
     }
 
-    function assertTbwi(int32 tick, uint32 tickSpacing, uint256 expectedWord, uint8 expectedIndex) public pure {
-        (uint256 word, uint8 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+    function boundTick(int32 tick) private pure returns (int32) {
+        return int32(bound(tick, MIN_TICK, MAX_TICK));
+    }
+
+    function boundTickSpacing(uint32 tickSpacing) private pure returns (uint32) {
+        return uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+    }
+
+    function assertTbwi(int32 tick, uint32 tickSpacing, uint256 expectedWord, uint256 expectedIndex) public pure {
+        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
         assertEq(word, expectedWord);
         assertEq(index, expectedIndex);
     }
 
+    function test_alignTick(int32 tick, uint32 tickSpacing) public pure {
+        (tick, tickSpacing) = (boundTick(tick), boundTickSpacing(tickSpacing));
+        int32 aligned = alignTick(tick, tickSpacing);
+
+        // firstly, no remainder
+        assertEq(aligned % int32(tickSpacing), 0);
+        // check it's always rounded towards negative infinity
+        if (tick >= 0) {
+            assertEq(aligned, (tick / int32(tickSpacing)) * int32(tickSpacing));
+        } else {
+            assertEq(aligned, ((tick + 1 - int32(tickSpacing)) / int32(tickSpacing)) * int32(tickSpacing));
+        }
+        assertLe(aligned, MAX_TICK);
+        assertGe(aligned, MIN_TICK - int32(tickSpacing) + 1);
+    }
+
     function test_tickToBitmapWordAndIndex(uint32 tickSpacing) public pure {
         // regardless of tick spacing, the 0 tick is in the middle of a word
-        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+        tickSpacing = boundTickSpacing(tickSpacing);
         int32 mul = int32(tickSpacing);
-        assertTbwi(0, tickSpacing, 346574, 127);
-        assertTbwi(mul, tickSpacing, 346574, 126);
-        assertTbwi(mul * 127, tickSpacing, 346574, 0);
-        assertTbwi(mul * 128, tickSpacing, 346575, 255);
-        assertTbwi(mul * -1, tickSpacing, 346574, 128);
-        assertTbwi(mul * -128, tickSpacing, 346574, 255);
-        assertTbwi(mul * -129, tickSpacing, 346573, 0);
+
+        uint256 word = 349303;
+        assertTbwi(0, tickSpacing, word, 127);
+        // positive ticks
+        assertTbwi(mul - 1, tickSpacing, word, 127);
+        assertTbwi(mul, tickSpacing, word, 128);
+        assertTbwi((mul * 127) + (mul - 1), tickSpacing, word, 254);
+        assertTbwi(mul * 128, tickSpacing, word, 255);
+        assertTbwi(mul * 128 + (mul - 1), tickSpacing, word, 255);
+        assertTbwi(mul * 129, tickSpacing, word + 1, 0);
+
+        // negative ticks
+        assertTbwi(-1, tickSpacing, word, 126);
+        assertTbwi(-mul, tickSpacing, word, 126);
+        assertTbwi(-mul * 126, tickSpacing, word, 1);
+        assertTbwi(-mul * 127, tickSpacing, word, 0);
+        assertTbwi((-mul * 127) - 1, tickSpacing, word - 1, 255);
+    }
+
+    function test_tickToBitmapWordAndIndex_min_max_values() public pure {
+        // min/max tick are in a single bitmap at max tick spacing
+        assertTbwi(MAX_TICK, MAX_TICK_SPACING, 349303, 254);
+        assertTbwi(MIN_TICK, MAX_TICK_SPACING, 349303, 0);
     }
 
     function test_tickToBitmapWordAndIndex_bitmapWordAndIndexToTick(int32 tick, uint32 tickSpacing) public pure {
-        (tick, tickSpacing) = bound(tick, tickSpacing);
-        (uint256 word, uint8 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+        (tick, tickSpacing) = (boundTick(tick), boundTickSpacing(tickSpacing));
+
+        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
         int32 calculatedTick = bitmapWordAndIndexToTick(word, index, tickSpacing);
-        assertEq(tick, calculatedTick);
+        assertEq(alignTick(tick, tickSpacing), calculatedTick);
     }
 
     function checkNextTick(
@@ -113,10 +173,12 @@ contract TickBitmapTest is Test {
     }
 
     function test_findNextInitializedTick(int32 tick, uint32 tickSpacing) public {
-        (tick, tickSpacing) = bound(tick, tickSpacing);
+        (tick, tickSpacing) = (boundTick(tick), boundTickSpacing(tickSpacing));
+
+        // rounds towards zero on purpose
+        tick = (tick / int32(tickSpacing)) * int32(tickSpacing);
 
         TickBitmap tbm = new TickBitmap(tickSpacing);
-
         tbm.flip(tick);
 
         checkNextTick(tbm, tick - 1, tick, true, 0);
@@ -153,7 +215,9 @@ contract TickBitmapTest is Test {
     }
 
     function test_findPrevInitializedTick(int32 tick, uint32 tickSpacing) public {
-        (tick, tickSpacing) = bound(tick, tickSpacing);
+        (tick, tickSpacing) = (boundTick(tick), boundTickSpacing(tickSpacing));
+
+        tick = (tick / int32(tickSpacing)) * int32(tickSpacing);
 
         TickBitmap tbm = new TickBitmap(tickSpacing);
 
@@ -162,42 +226,35 @@ contract TickBitmapTest is Test {
         checkPrevTick(tbm, tick, tick, true, 0);
     }
 
-    function test_complex_example_next_tick() public {
-        TickBitmap tbm = new TickBitmap(10);
+    function findTicksInRange(TickBitmap tbm, int32 fromTick, int32 endingTick, uint256 skipAhead)
+        private
+        view
+        returns (int32[] memory finds)
+    {
+        assert(fromTick != endingTick);
+        bool increasing = fromTick < endingTick;
+        finds = new int32[](100);
+        uint256 count = 0;
 
-        tbm.flip(-10000);
-        tbm.flip(-1000);
-        tbm.flip(-20);
-        tbm.flip(100);
-        tbm.flip(800);
-        tbm.flip(9000);
+        while (true) {
+            if (increasing && fromTick > endingTick) break;
+            if (!increasing && fromTick < endingTick) break;
 
-        checkNextTick(tbm, -15000, -14090, false, 0);
-        checkNextTick(tbm, -14090, -11530, false, 0);
-        checkNextTick(tbm, -11530, -10000, true, 0);
-        checkNextTick(tbm, -10000, -8970, false, 0);
-        checkNextTick(tbm, -8970, -6410, false, 0);
-        checkNextTick(tbm, -6410, -3850, false, 0);
-        checkNextTick(tbm, -3850, -1290, false, 0);
-        checkNextTick(tbm, -1290, -1000, true, 0);
-        checkNextTick(tbm, -1000, -20, true, 0);
-        checkNextTick(tbm, -20, 100, true, 0);
-        checkNextTick(tbm, 100, 800, true, 0);
-        checkNextTick(tbm, 800, 1270, false, 0);
-        checkNextTick(tbm, 1270, 3830, false, 0);
-        checkNextTick(tbm, 3830, 6390, false, 0);
-        checkNextTick(tbm, 6390, 8950, false, 0);
-        checkNextTick(tbm, 8950, 9000, true, 0);
+            (int32 n, bool i) = increasing ? tbm.next(fromTick, skipAhead) : tbm.prev(fromTick, skipAhead);
 
-        checkNextTick(tbm, -15000, -10000, true, 5);
-        checkNextTick(tbm, -10000, -1000, true, 5);
-        checkNextTick(tbm, -1000, -20, true, 5);
-        checkNextTick(tbm, -20, 100, true, 5);
-        checkNextTick(tbm, 100, 800, true, 5);
-        checkNextTick(tbm, 800, 9000, true, 5);
+            if (i) {
+                finds[count++] = n;
+            }
+
+            fromTick = increasing ? n : n - 1;
+        }
+
+        assembly ("memory-safe") {
+            mstore(finds, count)
+        }
     }
 
-    function test_complex_example_prev_tick() public {
+    function test_ticksAreFoundInRange() public {
         TickBitmap tbm = new TickBitmap(10);
 
         tbm.flip(-10000);
@@ -207,31 +264,22 @@ contract TickBitmapTest is Test {
         tbm.flip(800);
         tbm.flip(9000);
 
-        checkPrevTick(tbm, 15000, 14080, false, 0);
-        checkPrevTick(tbm, 14079, 11520, false, 0);
-        checkPrevTick(tbm, 11519, 9000, true, 0);
-        checkPrevTick(tbm, 9000, 9000, true, 0);
-        checkPrevTick(tbm, 8999, 8960, false, 0);
-        checkPrevTick(tbm, 8959, 6400, false, 0);
-        checkPrevTick(tbm, 6399, 3840, false, 0);
-        checkPrevTick(tbm, 3839, 1280, false, 0);
-        checkPrevTick(tbm, 1279, 800, true, 0);
-        checkPrevTick(tbm, 800, 800, true, 0);
-        checkPrevTick(tbm, 799, 100, true, 0);
-        checkPrevTick(tbm, 99, -20, true, 0);
-        checkPrevTick(tbm, -20, -20, true, 0);
-        checkPrevTick(tbm, -21, -1000, true, 0);
-        checkPrevTick(tbm, -1001, -1280, false, 0);
-        checkPrevTick(tbm, -1281, -3840, false, 0);
-        checkPrevTick(tbm, -3841, -6400, false, 0);
-        checkPrevTick(tbm, -6401, -8960, false, 0);
-        checkPrevTick(tbm, -8961, -10000, true, 0);
+        int32[] memory finds = findTicksInRange(tbm, -15005, 15003, 0);
+        assertEq(finds[0], -10000);
+        assertEq(finds[1], -1000);
+        assertEq(finds[2], -20);
+        assertEq(finds[3], 100);
+        assertEq(finds[4], 800);
+        assertEq(finds[5], 9000);
+        assertEq(finds.length, 6);
 
-        checkPrevTick(tbm, 15000, 9000, true, 5);
-        checkPrevTick(tbm, 8999, 800, true, 5);
-        checkPrevTick(tbm, 799, 100, true, 5);
-        checkPrevTick(tbm, 99, -20, true, 5);
-        checkPrevTick(tbm, -21, -1000, true, 5);
-        checkPrevTick(tbm, -1001, -10000, true, 5);
+        finds = findTicksInRange(tbm, 15005, -15003, 0);
+        assertEq(finds[5], -10000);
+        assertEq(finds[4], -1000);
+        assertEq(finds[3], -20);
+        assertEq(finds[2], 100);
+        assertEq(finds[1], 800);
+        assertEq(finds[0], 9000);
+        assertEq(finds.length, 6);
     }
 }

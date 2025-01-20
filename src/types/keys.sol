@@ -24,8 +24,11 @@ function validatePoolKey(PoolKey memory key) pure {
     if (key.tickSpacing == 0 || key.tickSpacing > MAX_TICK_SPACING) revert InvalidTickSpacing();
 }
 
-function toPoolId(PoolKey memory key) pure returns (bytes32) {
-    return keccak256(abi.encode(key));
+function toPoolId(PoolKey memory key) pure returns (bytes32 result) {
+    assembly ("memory-safe") {
+        // it's already copied into memory
+        result := keccak256(key, 160)
+    }
 }
 
 // Bounds are lower and upper prices for which a position is active
@@ -58,6 +61,11 @@ struct PositionKey {
     Bounds bounds;
 }
 
-function toPositionId(PositionKey memory key) pure returns (bytes32) {
-    return keccak256(abi.encode(key));
+function toPositionId(PositionKey memory key) pure returns (bytes32 result) {
+    assembly ("memory-safe") {
+        // salt and owner
+        result := keccak256(key, 64)
+        // then bounds.lower and bounds.upper
+        result := xor(result, keccak256(mload(add(key, 64)), 64))
+    }
 }

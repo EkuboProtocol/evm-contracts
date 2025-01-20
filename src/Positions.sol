@@ -34,8 +34,13 @@ contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
         return tokenURIGenerator.generateTokenURI(id);
     }
 
-    function saltToId(address minter, bytes32 salt) public pure returns (uint256) {
-        return uint256(keccak256(abi.encode(minter, salt))) >> 192;
+    function saltToId(address minter, bytes32 salt) public pure returns (uint256 result) {
+        assembly ("memory-safe") {
+            mstore(0, minter)
+            mstore(32, salt)
+            // we use 40 bits which supports over a trillion positions and gives us a pretty small chance of collisions
+            result := shr(216, keccak256(0, 64))
+        }
     }
 
     function mint() public payable returns (uint256 id) {

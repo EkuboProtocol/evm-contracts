@@ -7,7 +7,9 @@ import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICo
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/ticks.sol";
+import {amount0Delta} from "../math/delta.sol";
+import {tickToSqrtRatio, MIN_TICK, MAX_TICK, MAX_TICK_SPACING, MAX_SQRT_RATIO} from "../math/ticks.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 function oracleCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -27,6 +29,10 @@ contract Oracle is ExposedStorage, BaseExtension {
     error FeeMustBeZero();
     error TickSpacingMustBeMaximum();
     error BoundsMustBeMaximum();
+    error FutureTime();
+    error NoPreviousSnapshotExists(address token, uint64 time);
+    error MustRedeployContract();
+    error EndTimeMustBeGreaterThanStartTime();
 
     event SnapshotEvent(
         address token, uint256 index, uint64 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative
@@ -67,9 +73,6 @@ contract Oracle is ExposedStorage, BaseExtension {
             return timestampOffset + uint64(sso);
         }
     }
-
-    error NoPreviousSnapshotExists(address token, uint64 time);
-    error MustRedeployContract();
 
     function search(address token, uint64 time, uint256 minIndex, uint256 maxIndex)
         public
@@ -137,8 +140,6 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
-    error FutureTime();
-
     function extrapolateSnapshot(address token, uint64 atTime)
         public
         view
@@ -175,22 +176,53 @@ contract Oracle is ExposedStorage, BaseExtension {
                             / int64(uint64(next.secondsSinceOffset - snapshot.secondsSinceOffset))
                     );
 
-                    if (next.secondsPerLiquidityCumulative != snapshot.secondsPerLiquidityCumulative) {
-                        liquidity = uint128(
-                            (type(uint128).max)
-                                / (
-                                    (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
-                                        / (next.secondsSinceOffset - snapshot.secondsSinceOffset)
-                                )
-                        );
-                    }
+                    liquidity = uint128(
+                        (type(uint128).max)
+                            / (
+                                (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
+                                    / (next.secondsSinceOffset - snapshot.secondsSinceOffset)
+                            )
+                    );
                 }
 
                 tickCumulative += int64(tick) * int64(uint64(timePassed));
-                if (liquidity > 0) {
-                    secondsPerLiquidityCumulative += (uint160(timePassed) << 128) / liquidity;
-                }
+                secondsPerLiquidityCumulative +=
+                    (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
             }
+        }
+    }
+
+    function getAveragesOverPeriod(address baseToken, address quoteToken, uint64 startTime, uint64 endTime)
+        public
+        returns (uint128 liquidity, int32 tick)
+    {
+        if (endTime <= startTime) revert EndTimeMustBeGreaterThanStartTime();
+
+        if (baseToken == oracleToken) {
+            (uint160 secondsPerLiquidityCumulativeEnd, int64 tickCumulativeEnd) =
+                extrapolateSnapshot(quoteToken, endTime);
+            (uint160 secondsPerLiquidityCumulativeStart, int64 tickCumulativeStart) =
+                extrapolateSnapshot(quoteToken, startTime);
+
+            liquidity = uint128(
+                (uint160(endTime - startTime) << 128)
+                    / (secondsPerLiquidityCumulativeEnd - secondsPerLiquidityCumulativeStart)
+            );
+            tick = int32((tickCumulativeEnd - tickCumulativeStart) / int64(endTime - startTime));
+        } else if (quoteToken == oracleToken) {
+            // we just flip the tick
+            (uint128 liquidityBase, int32 tickBase) = getAveragesOverPeriod(oracleToken, baseToken, startTime, endTime);
+            return (liquidityBase, -tickBase);
+        } else {
+            (uint128 liquidityBase, int32 tickBase) = getAveragesOverPeriod(oracleToken, baseToken, startTime, endTime);
+            (uint128 liquidityQuote, int32 tickQuote) =
+                getAveragesOverPeriod(oracleToken, quoteToken, startTime, endTime);
+
+            uint128 amountBase = amount0Delta(tickToSqrtRatio(tickBase), MAX_SQRT_RATIO, liquidityBase, false);
+            uint128 amountQuote = amount0Delta(tickToSqrtRatio(tickQuote), MAX_SQRT_RATIO, liquidityQuote, false);
+
+            tick = tickQuote - tickBase;
+            liquidity = uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote)));
         }
     }
 
@@ -235,9 +267,8 @@ contract Oracle is ExposedStorage, BaseExtension {
             snapshotCount[token] = count + 1;
             Snapshot memory snapshot = Snapshot({
                 secondsSinceOffset: sso,
-                secondsPerLiquidityCumulative: liquidity > 0
-                    ? last.secondsPerLiquidityCumulative + ((uint160(timePassed) << 128) / liquidity)
-                    : last.secondsPerLiquidityCumulative,
+                secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative
+                    + ((uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity))),
                 tickCumulative: last.tickCumulative + int64(uint64(timePassed)) * tick
             });
 

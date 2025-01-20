@@ -87,7 +87,7 @@ contract OracleTest is FullTest {
         (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 1);
         assertEq(secondsSinceOffset, 30);
-        assertEq(secondsPerLiquidityCumulative, 0);
+        assertEq(secondsPerLiquidityCumulative, uint160(30) << 128);
         // the tick is flipped so that the price is always oracleToken/token
         assertEq(tickCumulative, 30 * -693147);
 
@@ -99,7 +99,7 @@ contract OracleTest is FullTest {
         assertEq(oracle.snapshotCount(address(token1)), 3);
         (secondsSinceOffset, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 2);
         assertEq(secondsSinceOffset, 75);
-        assertEq(secondsPerLiquidityCumulative, (45 << 128) / liquidity);
+        assertEq(secondsPerLiquidityCumulative, (uint160(30) << 128) + ((uint160(45) << 128) / liquidity));
         assertEq(tickCumulative, 75 * -693147);
     }
 
@@ -267,6 +267,16 @@ contract OracleTest is FullTest {
             ((uint160(10) << 128) / liquidity) + (uint160(11) << 128) / (liquidity / 2) - 1
         );
         assertEq(tickCumulative, (10 * -693147 * 2) + (6 * -693146 / 2) + (5 * -693147));
+
+        (uint128 liquidityAverage, int32 tickAverage) =
+            oracle.getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, address(token1), poolCreationTime, poolCreationTime + 21);
+        assertEq(liquidityAverage, 927);
+        assertEq(tickAverage, -924195);
+
+        (liquidityAverage, tickAverage) =
+            oracle.getAveragesOverPeriod(address(token1), NATIVE_TOKEN_ADDRESS, poolCreationTime, poolCreationTime + 21);
+        assertEq(liquidityAverage, 927);
+        assertEq(tickAverage, 924195);
     }
 
     function test_cannotCallExtensionMethodsDirectly() public {

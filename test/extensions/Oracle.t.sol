@@ -220,6 +220,8 @@ contract OracleTest is FullTest {
 
         movePrice(poolKey, 693147);
 
+        advanceTime(5);
+
         vm.expectRevert(
             abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 1)
         );
@@ -256,6 +258,15 @@ contract OracleTest is FullTest {
             secondsPerLiquidityCumulative, ((uint160(10) << 128) / liquidity) + (uint160(1) << 128) / (liquidity / 2)
         );
         assertEq(tickCumulative, 10 * -693147 * 2 + (-693146 / 2));
+
+        (secondsPerLiquidityCumulative, tickCumulative) =
+            oracle.extrapolateSnapshot(address(token1), poolCreationTime + 21);
+        assertEq(
+            secondsPerLiquidityCumulative,
+            // it underestimates slightly
+            ((uint160(10) << 128) / liquidity) + (uint160(11) << 128) / (liquidity / 2) - 1
+        );
+        assertEq(tickCumulative, (10 * -693147 * 2) + (6 * -693146 / 2) + (5 * -693147));
     }
 
     function test_cannotCallExtensionMethodsDirectly() public {

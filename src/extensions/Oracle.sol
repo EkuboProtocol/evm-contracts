@@ -177,7 +177,7 @@ contract Oracle is ExposedStorage, BaseExtension {
 
                     if (next.secondsPerLiquidityCumulative != snapshot.secondsPerLiquidityCumulative) {
                         liquidity = uint128(
-                            (uint256(1) << 128)
+                            (type(uint128).max)
                                 / (
                                     (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
                                         / (next.secondsSinceOffset - snapshot.secondsSinceOffset)

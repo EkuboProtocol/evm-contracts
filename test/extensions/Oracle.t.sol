@@ -93,7 +93,7 @@ contract OracleTest is FullTest {
         assertEq(tickCumulative, 30 * -693147);
 
         advanceTime(45);
-        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity, address(this), 0, 0);
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity, address(this));
         assertEq(amount0, 99);
         assertEq(amount1, 199);
 
@@ -139,7 +139,7 @@ contract OracleTest is FullTest {
 
         advanceTime(10);
 
-        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2, address(this), 0, 0);
+        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2, address(this));
 
         movePrice(poolKey, 693146 / 2);
 
@@ -267,7 +267,7 @@ contract OracleTest is FullTest {
 
         advanceTime(10);
 
-        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2, address(this), 0, 0);
+        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2, address(this));
 
         movePrice(poolKey, 693146 / 2);
 

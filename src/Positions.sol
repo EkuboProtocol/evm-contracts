@@ -15,6 +15,9 @@ import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 
 contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, ERC721 {
+    error Unauthorized(address caller, uint256 id);
+    error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
+
     using CoreLib for ICore;
 
     ITokenURIGenerator public immutable tokenURIGenerator;
@@ -33,6 +36,13 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
 
     function tokenURI(uint256 id) public view override returns (string memory) {
         return tokenURIGenerator.generateTokenURI(id);
+    }
+
+    modifier authorizedForNft(uint256 id) {
+        if (!_isApprovedOrOwner(msg.sender, id)) {
+            revert Unauthorized(msg.sender, id);
+        }
+        _;
     }
 
     function saltToId(address minter, bytes32 salt) public pure returns (uint256 result) {
@@ -58,18 +68,9 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         _mint(msg.sender, id);
     }
 
-    error Unauthorized(address caller, uint256 id);
-
-    modifier authorizedForNft(uint256 id) {
-        if (!_isApprovedOrOwner(msg.sender, id)) {
-            revert Unauthorized(msg.sender, id);
-        }
-        _;
-    }
-
-    error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
-
     // Gets the pool price of a pool, accounting for any before update position extension behavior
+    //  todo: we should allow specifying bounds and liquidity delta here, in case the extension behavior depends on it,
+    //          and catch reverts to get the price
     function getPoolPrice(PoolKey memory poolKey) public returns (uint256) {
         if (shouldCallBeforeUpdatePosition(poolKey.extension)) {
             return abi.decode(lock(abi.encodePacked(uint8(3), abi.encode(poolKey))), (uint256));
@@ -108,22 +109,14 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
             abi.decode(lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, recipient))), (uint128, uint128));
     }
 
-    function withdraw(
-        uint256 id,
-        PoolKey memory poolKey,
-        Bounds memory bounds,
-        uint128 liquidity,
-        address recipient,
-        uint128 minAmount0,
-        uint128 minAmount1
-    ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
+    function withdraw(uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity, address recipient)
+        public
+        payable
+        authorizedForNft(id)
+        returns (uint128 amount0, uint128 amount1)
+    {
         (amount0, amount1) = abi.decode(
-            lock(
-                abi.encodePacked(
-                    uint8(2), abi.encode(id, poolKey, bounds, liquidity, recipient, minAmount0, minAmount1)
-                )
-            ),
-            (uint128, uint128)
+            lock(abi.encodePacked(uint8(2), abi.encode(id, poolKey, bounds, liquidity, recipient))), (uint128, uint128)
         );
     }
 
@@ -132,12 +125,10 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         PoolKey memory poolKey,
         Bounds memory bounds,
         uint128 liquidity,
-        address recipient,
-        uint128 minAmount0,
-        uint128 minAmount1
+        address recipient
     ) external payable returns (uint128 amount0, uint128 amount1) {
         (amount0, amount1) = collectFees(id, poolKey, bounds, recipient);
-        (uint128 p0, uint128 p1) = withdraw(id, poolKey, bounds, liquidity, recipient, minAmount0, minAmount1);
+        (uint128 p0, uint128 p1) = withdraw(id, poolKey, bounds, liquidity, recipient);
         amount0 += p0;
         amount1 += p1;
     }
@@ -165,8 +156,7 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         liquidity = deposit(id, poolKey, bounds, amount0, amount1, minLiquidity);
     }
 
-    error UnexpectedCallTypeByte();
-    error InsufficientAmountWithdrawn();
+    error UnexpectedCallTypeByte(uint8 b);
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
         uint8 callType;
@@ -197,15 +187,8 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
 
             result = abi.encode(amount0, amount1);
         } else if (callType == 2) {
-            (
-                uint256 id,
-                PoolKey memory poolKey,
-                Bounds memory bounds,
-                uint128 liquidity,
-                address recipient,
-                uint128 minToken0,
-                uint128 minToken1
-            ) = abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128, address, uint128, uint128));
+            (uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity, address recipient) =
+                abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128, address));
 
             (int128 delta0, int128 delta1) = core.updatePosition(
                 poolKey,
@@ -213,10 +196,6 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
             );
 
             (uint128 amount0, uint128 amount1) = (uint128(-delta0), uint128(-delta1));
-
-            if (amount0 < minToken0 || amount1 < minToken1) {
-                revert InsufficientAmountWithdrawn();
-            }
 
             withdrawFromCore(poolKey.token0, amount0, recipient);
             withdrawFromCore(poolKey.token1, amount1, recipient);
@@ -235,7 +214,7 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
 
             result = abi.encode(price);
         } else {
-            revert UnexpectedCallTypeByte();
+            revert UnexpectedCallTypeByte(callType);
         }
     }
 }

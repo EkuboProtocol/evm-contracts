@@ -3,14 +3,15 @@ pragma solidity =0.8.28;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
 
 // Has methods that are multicallable for checking deadlines and balance changes
 // Necessarily multicallable, because these methods are expected to be called as part of another transaction that manipulates balances
 // All methods are payable in case they are paired with other payable Multicallable calls
 abstract contract SlippageChecker is Multicallable {
     error TransactionExpired(uint256 deadline);
-    error MinimumOutputNotReceived(uint256 minimumOutput);
-    error MaximumInputExceeded(uint256 maximumInput);
+    error MinimumOutputNotReceived(address token, uint256 minimumOutput);
+    error MaximumInputExceeded(address token, uint256 maximumInput);
 
     function balanceKey(address sender, address token) private pure returns (bytes32 key) {
         assembly ("memory-safe") {
@@ -28,9 +29,17 @@ abstract contract SlippageChecker is Multicallable {
         }
     }
 
+    function getBalance(address token, address owner) private view returns (uint256 balance) {
+        if (token == NATIVE_TOKEN_ADDRESS) {
+            balance = owner.balance;
+        } else {
+            balance = SafeTransferLib.balanceOf(token, msg.sender);
+        }
+    }
+
     function recordBalanceForSlippageCheck(address token) external payable {
         bytes32 key = balanceKey(msg.sender, token);
-        uint256 bal = SafeTransferLib.balanceOf(token, msg.sender);
+        uint256 bal = getBalance(token, msg.sender);
         assembly ("memory-safe") {
             tstore(key, bal)
         }
@@ -42,20 +51,20 @@ abstract contract SlippageChecker is Multicallable {
 
     function checkMinimumOutputReceived(address token, uint256 minimumOutput) external payable {
         uint256 prev = getRecordedBalance(token);
-        uint256 bal = SafeTransferLib.balanceOf(token, msg.sender);
+        uint256 bal = getBalance(token, msg.sender);
         unchecked {
             if (bal < prev || (prev - bal) < minimumOutput) {
-                revert MaximumInputExceeded(minimumOutput);
+                revert MaximumInputExceeded(token, minimumOutput);
             }
         }
     }
 
     function checkMaximumInputNotExceeded(address token, uint256 maximumInput) external payable {
         uint256 prev = getRecordedBalance(token);
-        uint256 bal = SafeTransferLib.balanceOf(token, msg.sender);
+        uint256 bal = getBalance(token, msg.sender);
         unchecked {
             if (bal < prev && (prev - bal) > maximumInput) {
-                revert MaximumInputExceeded(maximumInput);
+                revert MaximumInputExceeded(token, maximumInput);
             }
         }
     }

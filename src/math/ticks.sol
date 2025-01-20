@@ -12,7 +12,7 @@ error InvalidTick(int32 tick);
 
 function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
     unchecked {
-        uint32 t = tick < 0 ? uint32(-tick) : uint32(tick);
+        uint256 t = FixedPointMathLib.abs(tick);
         if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
         if ((t & 0x1) != 0) {

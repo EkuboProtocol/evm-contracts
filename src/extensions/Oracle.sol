@@ -158,8 +158,8 @@ contract Oracle is ExposedStorage, BaseExtension {
             if (timePassed != 0) {
                 int32 tick;
                 uint128 liquidity;
-                // last snapshot, read current price and liquidity to get difference
                 if (index == count - 1) {
+                    // last snapshot, read current price and liquidity
                     bytes32 poolId = getPoolKey(token).toPoolId();
                     (, tick) = core.poolPrice(poolId);
                     if (token > oracleToken) {
@@ -167,16 +167,20 @@ contract Oracle is ExposedStorage, BaseExtension {
                     }
                     liquidity = core.poolLiquidity(poolId);
                 } else {
-                    // read the next index
-                    // there must be a next index or else index would be equal to count - 1
+                    // otherwise take the difference between 2 snapshots to get the last value of the tick/liquidity
+                    // at the time of the previous snapshot
                     Snapshot memory next = snapshots[token][index + 1];
-                    tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timePassed)));
+                    tick = int32(
+                        (next.tickCumulative - snapshot.tickCumulative)
+                            / int64(uint64(next.secondsSinceOffset - snapshot.secondsSinceOffset))
+                    );
+
                     if (next.secondsPerLiquidityCumulative != snapshot.secondsPerLiquidityCumulative) {
                         liquidity = uint128(
-                            type(uint256).max
+                            (uint256(1) << 128)
                                 / (
                                     (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
-                                        / timePassed
+                                        / (next.secondsSinceOffset - snapshot.secondsSinceOffset)
                                 )
                         );
                     }
@@ -209,34 +213,35 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     function maybeInsertSnapshot(bytes32 poolId, address token) private {
-        uint256 count = snapshotCount[token];
-        Snapshot memory last = snapshots[token][count - 1];
-
-        uint32 sso = secondsSinceOffset();
-        uint32 lastSso = last.secondsSinceOffset;
-
-        uint32 timePassed = sso - lastSso;
-        if (timePassed == 0) return;
-
-        uint128 liquidity = core.poolLiquidity(poolId);
-        (, int32 tick) = core.poolPrice(poolId);
-
-        // we always make the price as if it's oracleToken/token
-        if (token > oracleToken) {
-            tick = -tick;
-        }
-
-        snapshotCount[token] = count + 1;
-        Snapshot memory snapshot = Snapshot({
-            secondsSinceOffset: sso,
-            secondsPerLiquidityCumulative: liquidity > 0
-                ? last.secondsPerLiquidityCumulative + (uint160(timePassed) << 128) / liquidity
-                : last.secondsPerLiquidityCumulative,
-            tickCumulative: last.tickCumulative + int64(uint64(timePassed)) * tick
-        });
-
-        snapshots[token][count] = snapshot;
         unchecked {
+            uint256 count = snapshotCount[token];
+            // we know count is always g.t. 0 in the places this is called
+            Snapshot memory last = snapshots[token][count - 1];
+
+            uint32 sso = secondsSinceOffset();
+            uint32 lastSso = last.secondsSinceOffset;
+
+            uint32 timePassed = sso - lastSso;
+            if (timePassed == 0) return;
+
+            uint128 liquidity = core.poolLiquidity(poolId);
+            (, int32 tick) = core.poolPrice(poolId);
+
+            // we always make the price as if it's oracleToken/token
+            if (token > oracleToken) {
+                tick = -tick;
+            }
+
+            snapshotCount[token] = count + 1;
+            Snapshot memory snapshot = Snapshot({
+                secondsSinceOffset: sso,
+                secondsPerLiquidityCumulative: liquidity > 0
+                    ? last.secondsPerLiquidityCumulative + ((uint160(timePassed) << 128) / liquidity)
+                    : last.secondsPerLiquidityCumulative,
+                tickCumulative: last.tickCumulative + int64(uint64(timePassed)) * tick
+            });
+
+            snapshots[token][count] = snapshot;
             emit SnapshotEvent(
                 token,
                 count,

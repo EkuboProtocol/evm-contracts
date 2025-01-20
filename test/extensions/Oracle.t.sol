@@ -114,12 +114,12 @@ contract OracleTest is FullTest {
 
         if (tick < targetTick) {
             router.swap{value: 1000000}(
-                RouteNode(poolKey, tickToSqrtRatio(targetTick), 0), TokenAmount(poolKey.token0, type(int128).min), 0
+                RouteNode(poolKey, tickToSqrtRatio(targetTick), 0), TokenAmount(poolKey.token0, type(int128).min)
             );
             router.refundNativeToken();
         } else if (tick > targetTick) {
             router.swap{value: 1000000}(
-                RouteNode(poolKey, tickToSqrtRatio(targetTick) + 1, 0), TokenAmount(poolKey.token1, type(int128).min), 0
+                RouteNode(poolKey, tickToSqrtRatio(targetTick) + 1, 0), TokenAmount(poolKey.token1, type(int128).min)
             );
             router.refundNativeToken();
         }

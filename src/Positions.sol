@@ -11,9 +11,10 @@ import {maxLiquidity} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition} from "./types/callPoints.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {Permittable} from "./base/Permittable.sol";
+import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 
-contract Positions is Multicallable, Permittable, CoreLocker, ERC721 {
+contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, ERC721 {
     using CoreLib for ICore;
 
     ITokenURIGenerator public immutable tokenURIGenerator;

@@ -66,8 +66,12 @@ contract Core is ICore, Ownable, ExposedStorage {
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) private savedBalances;
 
-    constructor(address owner) {
+    // The time after which the contract will no longer allow swaps or position updates with non-negative liquidity delta
+    uint256 public immutable expirationTime;
+
+    constructor(address owner, uint256 _expirationTime) {
         _initializeOwner(owner);
+        expirationTime = _expirationTime;
     }
 
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
@@ -343,6 +347,8 @@ contract Core is ICore, Ownable, ExposedStorage {
         external
         returns (int128 delta0, int128 delta1)
     {
+        if (block.timestamp > expirationTime && params.liquidityDelta > 0) revert ContractHasExpired();
+
         (uint256 id, address locker) = requireLocker();
 
         if (shouldCallBeforeUpdatePosition(poolKey.extension) && locker != poolKey.extension) {
@@ -457,6 +463,10 @@ contract Core is ICore, Ownable, ExposedStorage {
         external
         returns (int128 delta0, int128 delta1)
     {
+        if (block.timestamp > expirationTime) {
+            revert ContractHasExpired();
+        }
+
         (uint256 id, address locker) = requireLocker();
 
         if (shouldCallBeforeSwap(poolKey.extension) && locker != poolKey.extension) {

@@ -16,8 +16,23 @@ contract CoreTest is FullTest {
         assertEq(core.owner(), owner);
     }
 
-    function test_codeSize() public {
-        vm.snapshotValue("Core runtime code length", type(Core).runtimeCode.length);
+    function test_expiration() public {
+        Core c = new Core(address(0), block.timestamp);
+        vm.warp(block.timestamp + 1);
+
+        // does not need to be within a lock or even valid to trigger this error
+
+        vm.expectRevert(ICore.ContractHasExpired.selector);
+        c.swap(
+            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
+            SwapParameters(0, true, 0, 0)
+        );
+
+        vm.expectRevert(ICore.ContractHasExpired.selector);
+        c.updatePosition(
+            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
+            UpdatePositionParameters(0, Bounds(0, 0), 1)
+        );
     }
 
     function test_registerExtension(uint8 b) public {

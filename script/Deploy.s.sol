@@ -51,7 +51,7 @@ contract DeployScript is Script {
         }
 
         vm.startBroadcast();
-        Core core = new Core{salt: 0x0}(owner);
+        Core core = new Core{salt: 0x0}(owner, block.timestamp + 7 days);
         BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: 0x0}(owner, baseUrl);
         new Positions{salt: 0x0}(core, tokenURIGenerator);
         new Router{salt: 0x0}(core);

@@ -293,10 +293,14 @@ contract Oracle is ExposedStorage, BaseExtension {
             revert BoundsMustBeMaximum();
         }
 
-        maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token0 == oracleToken ? poolKey.token1 : poolKey.token0);
+        if (params.liquidityDelta != 0) {
+            maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token0 == oracleToken ? poolKey.token1 : poolKey.token0);
+        }
     }
 
-    function beforeSwap(address, PoolKey memory poolKey, SwapParameters memory) external override onlyCore {
-        maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token0 == oracleToken ? poolKey.token1 : poolKey.token0);
+    function beforeSwap(address, PoolKey memory poolKey, SwapParameters memory params) external override onlyCore {
+        if (params.amount != 0) {
+            maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token0 == oracleToken ? poolKey.token1 : poolKey.token0);
+        }
     }
 }

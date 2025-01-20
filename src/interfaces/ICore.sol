@@ -89,6 +89,8 @@ interface ICore is IExposedStorage {
     );
     event ProtocolFeesPaid(PoolKey poolKey, PositionKey positionKey, uint128 amount0, uint128 amount1);
 
+    // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
+    error ContractHasExpired();
     error FailedRegisterInvalidCallPoints();
     error LockerOnly();
     error DebtsNotZeroed();

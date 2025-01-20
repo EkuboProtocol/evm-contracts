@@ -192,6 +192,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
+    // The returned tick always represents quoteToken / baseToken
     function getAveragesOverPeriod(address baseToken, address quoteToken, uint64 startTime, uint64 endTime)
         public
         returns (uint128 liquidity, int32 tick)

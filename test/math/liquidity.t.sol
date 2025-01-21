@@ -97,6 +97,16 @@ contract LiquidityTest is Test {
         addLiquidityDelta(0, -1);
     }
 
+    function test_addLiquidityDeltaInvariants(uint128 liquidity, int128 delta) public {
+        int256 result = int256(uint256(liquidity)) + delta;
+        if (result < 0) {
+            vm.expectRevert(LiquidityUnderflow.selector);
+        } else if (result > int256(uint256(type(uint128).max))) {
+            vm.expectRevert(LiquidityOverflow.selector);
+        }
+        addLiquidityDelta(liquidity, delta);
+    }
+
     function test_addLiquidityDelta_examples() public pure {
         assertEq(addLiquidityDelta(0, 100), 100);
         assertEq(addLiquidityDelta(0, type(int128).max), uint128(type(int128).max));

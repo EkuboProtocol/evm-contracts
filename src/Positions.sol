@@ -17,6 +17,7 @@ import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, ERC721 {
     error Unauthorized(address caller, uint256 id);
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
+    error DepositOverflow();
 
     using CoreLib for ICore;
 
@@ -95,6 +96,10 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
 
         if (liquidity < minLiquidity) {
             revert DepositFailedDueToSlippage(liquidity, minLiquidity);
+        }
+
+        if (liquidity > uint128(type(int128).max)) {
+            revert DepositOverflow();
         }
 
         (amount0, amount1) = abi.decode(

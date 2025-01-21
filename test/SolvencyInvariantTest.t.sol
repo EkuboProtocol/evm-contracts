@@ -6,6 +6,7 @@ import {PoolKey, Bounds, maxBounds} from "../src/types/keys.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
+import {MaxLiquidityForToken0Overflow, MaxLiquidityForToken1Overflow} from "../src/math/liquidity.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
@@ -70,6 +71,8 @@ contract Handler is StdUtils, StdAssertions {
         _;
     }
 
+    error UnexpectedDepositError(bytes4 sig, bytes data);
+
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, Bounds memory bounds)
         public
         ifPoolExists
@@ -95,7 +98,18 @@ contract Handler is StdUtils, StdAssertions {
             bytes32 poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += int256(uint256(result0));
             poolBalances[poolId].amount1 += int256(uint256(result1));
-        } catch (bytes memory err) {}
+        } catch (bytes memory err) {
+            bytes4 sig;
+            assembly ("memory-safe") {
+                sig := mload(add(err, 32))
+            }
+            if (
+                sig != Positions.DepositOverflow.selector && sig != MaxLiquidityForToken0Overflow.selector
+                    && sig != MaxLiquidityForToken1Overflow.selector
+            ) {
+                revert UnexpectedDepositError(sig, err);
+            }
+        }
     }
 
     function withdrawAllPositions() public {

@@ -87,7 +87,7 @@ contract RouterTest is FullTest {
         route[0] = RouteNode(poolKey, 0, 0);
         route[1] = RouteNode(poolKey, 0, 0);
 
-        Delta[] memory d = router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: 100}), false));
+        Delta[] memory d = router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: 100})));
         assertEq(d[0].amount0, 100);
         assertEq(d[0].amount1, -49);
         assertEq(d[1].amount0, -24);
@@ -104,7 +104,7 @@ contract RouterTest is FullTest {
         route[0] = RouteNode(poolKey, 0, 0);
         route[1] = RouteNode(poolKey, 0, 0);
 
-        Delta[] memory d = router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: -100}), false));
+        Delta[] memory d = router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: -100})));
         assertEq(d[0].amount0, -100);
         assertEq(d[0].amount1, 202);
         assertEq(d[1].amount0, 406);
@@ -127,8 +127,8 @@ contract RouterTest is FullTest {
         route1[0] = RouteNode(poolKey, 0, 0);
         route1[1] = RouteNode(poolKey, 0, 0);
 
-        swaps[0] = Swap(route0, TokenAmount({token: address(token0), amount: 100}), false);
-        swaps[1] = Swap(route1, TokenAmount({token: address(token0), amount: -100}), false);
+        swaps[0] = Swap(route0, TokenAmount({token: address(token0), amount: 100}));
+        swaps[1] = Swap(route1, TokenAmount({token: address(token0), amount: -100}));
 
         Delta[][] memory d = router.multiMultihopSwap(swaps);
         assertEq(d[0][0].amount0, 100);

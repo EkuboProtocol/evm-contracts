@@ -11,6 +11,7 @@ import {Oracle} from "../../src/extensions/Oracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {TestToken} from "../TestToken.sol";
+import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 
 contract OracleTest is FullTest {
     using CoreLib for *;
@@ -105,25 +106,25 @@ contract OracleTest is FullTest {
     }
 
     function movePrice(PoolKey memory poolKey, int32 targetTick) private {
-        (, int32 tick) = core.poolPrice(poolKey.toPoolId());
+        (uint192 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+        uint128 liquidity = core.poolLiquidity(poolKey.toPoolId());
 
-        if (poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
+        bool isToken0ETH = poolKey.token0 == NATIVE_TOKEN_ADDRESS;
+        if (!isToken0ETH) {
             TestToken(poolKey.token0).approve(address(router), type(uint256).max);
         }
         TestToken(poolKey.token1).approve(address(router), type(uint256).max);
 
         if (tick < targetTick) {
-            router.swap{value: 1000000}(
-                RouteNode(poolKey, tickToSqrtRatio(targetTick), 0), TokenAmount(poolKey.token0, type(int128).min), true
-            );
-            router.refundNativeToken();
+            uint256 targetRatio = tickToSqrtRatio(targetTick);
+            uint128 amount = amount1Delta(sqrtRatio, targetRatio, liquidity, true);
+            router.swap(RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token1, int128(amount)));
         } else if (tick > targetTick) {
-            router.swap{value: 1000000}(
-                RouteNode(poolKey, tickToSqrtRatio(targetTick) + 1, 0),
-                TokenAmount(poolKey.token1, type(int128).min),
-                true
+            uint256 targetRatio = tickToSqrtRatio(targetTick) + 1;
+            uint128 amount = amount0Delta(sqrtRatio, targetRatio, liquidity, true);
+            router.swap{value: isToken0ETH ? amount : 0}(
+                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token0, int128(amount))
             );
-            router.refundNativeToken();
         }
     }
 

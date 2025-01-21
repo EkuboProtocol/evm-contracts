@@ -24,7 +24,6 @@ struct TokenAmount {
 struct Swap {
     RouteNode[] route;
     TokenAmount tokenAmount;
-    bool allowPartialSwaps;
 }
 
 struct Delta {
@@ -45,7 +44,6 @@ contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
                 Swap memory s = swaps[i];
                 results[i] = new Delta[](s.route.length);
 
-                bool assertDeltas = !s.allowPartialSwaps;
                 TokenAmount memory firstSwapAmount;
                 TokenAmount memory tokenAmount = s.tokenAmount;
 
@@ -79,10 +77,10 @@ contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
                     }
 
                     if (isToken1) {
-                        if (assertDeltas && delta1 != tokenAmount.amount) revert PartialSwapsDisallowed();
+                        if (delta1 != tokenAmount.amount) revert PartialSwapsDisallowed();
                         tokenAmount = TokenAmount({token: node.poolKey.token0, amount: -delta0});
                     } else {
-                        if (assertDeltas && delta0 != tokenAmount.amount) revert PartialSwapsDisallowed();
+                        if (delta0 != tokenAmount.amount) revert PartialSwapsDisallowed();
                         tokenAmount = TokenAmount({token: node.poolKey.token1, amount: -delta1});
                     }
                 }
@@ -108,29 +106,20 @@ contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
         payable
         returns (Delta memory result)
     {
-        result = swap(node, tokenAmount, false);
+        Swap[] memory swaps = new Swap[](1);
+        RouteNode[] memory nodes = new RouteNode[](1);
+        nodes[0] = node;
+        swaps[0] = Swap(nodes, tokenAmount);
+        result = abi.decode(lock(abi.encode(msg.sender, swaps)), (Delta[][]))[0][0];
     }
 
-    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount, bool allowPartialSwaps)
-        public
-        payable
-        returns (Delta memory result)
-    {
-        Swap memory s;
-        s.route = new RouteNode[](1);
-        s.route[0] = node;
-        s.tokenAmount = tokenAmount;
-        s.allowPartialSwaps = allowPartialSwaps;
-        result = multihopSwap(s)[0];
-    }
-
-    function multihopSwap(Swap memory s) public payable returns (Delta[] memory result) {
+    function multihopSwap(Swap memory s) external payable returns (Delta[] memory result) {
         Swap[] memory swaps = new Swap[](1);
         swaps[0] = s;
-        result = multiMultihopSwap(swaps)[0];
+        result = abi.decode(lock(abi.encode(msg.sender, swaps)), (Delta[][]))[0];
     }
 
-    function multiMultihopSwap(Swap[] memory swaps) public payable returns (Delta[][] memory results) {
+    function multiMultihopSwap(Swap[] memory swaps) external payable returns (Delta[][] memory results) {
         results = abi.decode(lock(abi.encode(msg.sender, swaps)), (Delta[][]));
     }
 }

@@ -53,8 +53,8 @@ abstract contract SlippageChecker is Multicallable {
         uint256 prev = getRecordedBalance(token);
         uint256 bal = getBalance(token, msg.sender);
         unchecked {
-            if (bal < prev || (prev - bal) < minimumOutput) {
-                revert MaximumInputExceeded(token, minimumOutput);
+            if (bal < prev || (bal - prev) < minimumOutput) {
+                revert MinimumOutputNotReceived(token, minimumOutput);
             }
         }
     }

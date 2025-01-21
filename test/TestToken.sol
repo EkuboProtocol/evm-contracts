@@ -5,7 +5,7 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 
 contract TestToken is ERC20 {
     constructor(address recipient) {
-        _mint(recipient, type(uint128).max);
+        _mint(recipient, type(uint256).max);
     }
 
     function name() public pure override returns (string memory) {

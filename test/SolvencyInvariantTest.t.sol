@@ -30,8 +30,8 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     struct Balances {
-        uint256 amount0;
-        uint256 amount1;
+        int256 amount0;
+        int256 amount1;
     }
 
     Positions immutable positions;
@@ -40,6 +40,7 @@ contract Handler is StdUtils, StdAssertions {
     TestToken immutable token1;
     PoolKey poolKey;
     ActivePosition[] activePositions;
+    PoolKey[] allPoolKeys;
 
     mapping(bytes32 poolId => Balances balances) poolBalances;
 
@@ -55,10 +56,10 @@ contract Handler is StdUtils, StdAssertions {
         tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         poolKey = PoolKey(address(token0), address(token1), fee, tickSpacing, address(0));
-        assertNotEq(
-            positions.maybeInitializePool(PoolKey(address(token0), address(token1), fee, tickSpacing, address(0)), tick),
-            0
-        );
+        (bool initialized, uint256 sqrtRatio) =
+            positions.maybeInitializePool(PoolKey(address(token0), address(token1), fee, tickSpacing, address(0)), tick);
+        assertNotEq(sqrtRatio, 0);
+        if (initialized) allPoolKeys.push(poolKey);
     }
 
     modifier ifPoolExists() {
@@ -80,19 +81,22 @@ contract Handler is StdUtils, StdAssertions {
         }
 
         bytes32 poolId = poolKey.toPoolId();
-        poolBalances[poolId].amount0 += result0;
-        poolBalances[poolId].amount1 += result1;
+        poolBalances[poolId].amount0 += int256(uint256(result0));
+        poolBalances[poolId].amount1 += int256(uint256(result1));
     }
 
     function withdrawAllPositions() public {
         for (uint256 i = 0; i < activePositions.length; i++) {
-            positions.collectFeesAndWithdraw(
+            (uint128 amount0, uint128 amount1) = positions.collectFeesAndWithdraw(
                 positionId,
                 activePositions[i].poolKey,
                 activePositions[i].bounds,
                 activePositions[i].liquidity,
                 address(this)
             );
+            bytes32 poolId = activePositions[i].poolKey.toPoolId();
+            poolBalances[poolId].amount0 -= int256(uint256(amount0));
+            poolBalances[poolId].amount1 -= int256(uint256(amount1));
         }
         assembly ("memory-safe") {
             sstore(activePositions.slot, 0)
@@ -127,18 +131,33 @@ contract Handler is StdUtils, StdAssertions {
             RouteNode(poolKey, params.sqrtRatioLimit, params.skipAhead),
             TokenAmount(params.isToken1 ? address(token1) : address(token0), params.amount)
         );
-        // todo: apply deltas
+
+        bytes32 poolId = poolKey.toPoolId();
+        poolBalances[poolId].amount0 += d.amount0;
+        poolBalances[poolId].amount1 += d.amount1;
+    }
+
+    function checkAllPoolsHavePositiveBalance() public view {
+        for (uint256 i = 0; i < allPoolKeys.length; i++) {
+            bytes32 poolId = allPoolKeys[i].toPoolId();
+            assertGe(poolBalances[poolId].amount0, 0);
+            assertGe(poolBalances[poolId].amount1, 0);
+        }
     }
 }
 
 contract SolvencyInvariantTest is FullTest {
+    Handler handler;
+
     function setUp() public override {
         FullTest.setUp();
-        Handler handler = new Handler(positions, router, token0, token1);
+        handler = new Handler(positions, router, token0, token1);
         token0.transfer(address(handler), type(uint256).max);
         token1.transfer(address(handler), type(uint256).max);
         targetContract(address(handler));
     }
 
-    function invariant_canWithdrawAllPositions() public {}
+    function invariant_allPoolsHavePositiveBalance() public view {
+        handler.checkAllPoolsHavePositiveBalance();
+    }
 }

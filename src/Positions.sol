@@ -141,9 +141,14 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         _burn(id);
     }
 
-    function maybeInitializePool(PoolKey memory poolKey, int32 tick) external payable returns (uint256 sqrtRatio) {
+    function maybeInitializePool(PoolKey memory poolKey, int32 tick)
+        external
+        payable
+        returns (bool initialized, uint256 sqrtRatio)
+    {
         (sqrtRatio,) = getPoolPrice(poolKey);
         if (sqrtRatio == 0) {
+            initialized = true;
             sqrtRatio = core.initializePool(poolKey, tick);
         }
     }

@@ -107,34 +107,23 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
 
     // Negative means erasing debt, positive means adding debt
     function accountDebt(uint256 id, address token, int256 debtChange) private {
-        if (debtChange == 0) return;
-
-        bytes32 slot;
-        int256 current;
         assembly ("memory-safe") {
-            slot := add(add(id, 0x300000000), token)
-            current := tload(slot)
-        }
+            if iszero(iszero(debtChange)) {
+                let deltaSlot := add(add(id, 0x300000000), token)
+                let current := tload(deltaSlot)
 
-        // this is a checked addition, so it will revert if it overflows
-        int256 next = current + debtChange;
+                // we know this never overflows because debtChange is only ever derived from 128 bit values in this contract
+                let next := add(current, debtChange)
 
-        if (current == 0 && next != 0) {
-            assembly ("memory-safe") {
-                let nzdCountSlot := add(id, 0x200000000)
+                let nextZero := iszero(next)
+                if xor(iszero(current), nextZero) {
+                    let nzdCountSlot := add(id, 0x200000000)
 
-                tstore(nzdCountSlot, add(tload(nzdCountSlot), 1))
+                    tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
+                }
+
+                tstore(deltaSlot, next)
             }
-        } else if (current != 0 && next == 0) {
-            assembly ("memory-safe") {
-                let nzdCountSlot := add(id, 0x200000000)
-
-                tstore(nzdCountSlot, sub(tload(nzdCountSlot), 1))
-            }
-        }
-
-        assembly ("memory-safe") {
-            tstore(slot, next)
         }
     }
 

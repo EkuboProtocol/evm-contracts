@@ -183,6 +183,8 @@ contract Core is ICore, Ownable, ExposedStorage {
     }
 
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (uint256 sqrtRatio) {
+        if (block.timestamp > expirationTime) revert ContractHasExpired();
+
         poolKey.validatePoolKey();
 
         if (poolKey.extension != address(0)) {
@@ -312,6 +314,8 @@ contract Core is ICore, Ownable, ExposedStorage {
     // key, i.e. the current locker _must_ be the extension.
     // The extension must call this function within a lock callback.
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
+        if (block.timestamp > expirationTime) revert ContractHasExpired();
+
         (uint256 id, address locker) = requireLocker();
         require(locker == poolKey.extension);
         bytes32 poolId = poolKey.toPoolId();

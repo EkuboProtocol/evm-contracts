@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "../types/keys.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
-import {IExposedStorage} from "../base/ExposedStorage.sol";
+import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 
 interface ILocker {
     function locked(uint256 id, bytes calldata data) external returns (bytes memory);

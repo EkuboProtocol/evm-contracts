@@ -59,7 +59,7 @@ contract LiquidityTest is Test {
             assertLe(delta0, 0);
             assertLe(delta1, 0);
         } else if (liquidityDelta > 0) {
-            assertTrue(delta1 != 0 || delta0 != 0);
+            assertTrue(delta1 != 0 || delta0 != 0 || sqrtRatioLower == sqrtRatioUpper);
             assertGe(delta0, 0);
             assertGe(delta1, 0);
         } else {

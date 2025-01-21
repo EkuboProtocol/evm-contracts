@@ -13,10 +13,13 @@ ignored_error_codes = [2394, 6321, 3860, 5574]
 
 [invariant]
 fail_on_revert = true
-
+runs = 1
 
 [profile.ci]
 verbosity = 3
 
 [profile.ci.fuzz]
 runs = 1000000
+
+[profile.ci.invariant]
+runs = 256

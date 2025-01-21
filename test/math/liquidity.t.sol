@@ -13,7 +13,24 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, tickToSqrtRatio} from "../../src/math/ti
 
 int32 constant TICKS_IN_ONE_PERCENT = 9950;
 
+// we need this for vm.assumeNoRevert to work
+contract TestTarget {
+    function amountDeltas(uint256 sqrtRatio, int128 liquidityDelta, uint256 sqrtRatioLower, uint256 sqrtRatioUpper)
+        external
+        pure
+        returns (int128 delta0, int128 delta1)
+    {
+        (delta0, delta1) = liquidityDeltaToAmountDelta(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
+    }
+}
+
 contract LiquidityTest is Test {
+    TestTarget tt;
+
+    function setUp() public {
+        tt = new TestTarget();
+    }
+
     function test_liquidityDeltaToAmountDelta_full_range_mid_price() public pure {
         (int128 amount0, int128 amount1) = liquidityDeltaToAmountDelta(
             0x100000000000000000000000000000000, // (1 << 128)
@@ -30,23 +47,19 @@ contract LiquidityTest is Test {
         int128 liquidityDelta,
         uint256 sqrtRatioLower,
         uint256 sqrtRatioUpper
-    ) public pure {
+    ) public view {
         sqrtRatio = bound(sqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
         sqrtRatioLower = bound(sqrtRatioLower, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
         sqrtRatioUpper = bound(sqrtRatioUpper, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
 
         vm.assumeNoRevert();
-        (int128 delta0, int128 delta1) =
-            liquidityDeltaToAmountDelta(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
-
-        if (liquidityDelta != 0) {
-            assertTrue(delta1 != 0 || delta0 != 0);
-        }
+        (int128 delta0, int128 delta1) = tt.amountDeltas(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
         if (liquidityDelta < 0) {
             assertLe(delta0, 0);
             assertLe(delta1, 0);
         } else if (liquidityDelta > 0) {
+            assertTrue(delta1 != 0 || delta0 != 0);
             assertGe(delta0, 0);
             assertGe(delta1, 0);
         } else {

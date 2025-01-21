@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {
     amount0Delta,
     amount1Delta,
+    sortSqrtRatios,
     ZeroSqrtRatio,
     Amount0DeltaOverflow,
     Amount1DeltaOverflow
@@ -13,6 +14,22 @@ import {
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/math/ticks.sol";
 
 contract DeltaTest is Test {
+    function test_sortSqrtRatios(uint256 a, uint256 b) public {
+        if (a == 0 || b == 0) {
+            vm.expectRevert(ZeroSqrtRatio.selector);
+        }
+
+        (uint256 c, uint256 d) = sortSqrtRatios(a, b);
+
+        if (a < b) {
+            assertEq(a, c);
+            assertEq(b, d);
+        } else {
+            assertEq(a, d);
+            assertEq(b, c);
+        }
+    }
+
     function test_amount0Delta_examples() public pure {
         assertEq(amount0Delta(1 << 128, MIN_SQRT_RATIO, 1, false), 18446296994052723737);
         assertEq(amount0Delta(MIN_SQRT_RATIO, 1 << 128, 1, false), 18446296994052723737);

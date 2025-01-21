@@ -23,17 +23,16 @@ function liquidityDeltaToAmountDelta(
             return (0, 0);
         }
         bool isPositive = (liquidityDelta > 0);
+        // type(uint256).max cast to int256 is -1
         int256 sign = int256(FixedPointMathLib.ternary(isPositive, 1, type(uint256).max));
+        // absolute value of a int128 always fits in a uint128
         uint128 magnitude = uint128(FixedPointMathLib.abs(liquidityDelta));
 
         if (sqrtRatio <= sqrtRatioLower) {
-            // Entirely in [lower, upper) range for token0
-            // => token1 delta is zero
             delta0 = SafeCastLib.toInt128(
                 sign * int256(uint256(amount0Delta(sqrtRatioLower, sqrtRatioUpper, magnitude, isPositive)))
             );
         } else if (sqrtRatio < sqrtRatioUpper) {
-            // Partially in [lower, upper) => token0 and token1 are both affected
             delta0 = SafeCastLib.toInt128(
                 sign * int256(uint256(amount0Delta(sqrtRatio, sqrtRatioUpper, magnitude, isPositive)))
             );
@@ -41,8 +40,6 @@ function liquidityDeltaToAmountDelta(
                 sign * int256(uint256(amount1Delta(sqrtRatioLower, sqrtRatio, magnitude, isPositive)))
             );
         } else {
-            // Entirely in [lower, upper) range for token1
-            // => token0 delta is zero
             delta1 = SafeCastLib.toInt128(
                 sign * int256(uint256(amount1Delta(sqrtRatioLower, sqrtRatioUpper, magnitude, isPositive)))
             );

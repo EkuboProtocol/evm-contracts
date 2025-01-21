@@ -110,3 +110,15 @@ function addLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure return
         return uint128(uint256(lNext));
     }
 }
+
+function subLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure returns (uint128) {
+    unchecked {
+        int256 l = int256(uint256(liquidity));
+        int256 lNext = l - liquidityDelta;
+
+        if (lNext < 0) revert LiquidityUnderflow();
+        if (lNext > 0xffffffffffffffffffffffffffffffff) revert LiquidityOverflow();
+
+        return uint128(uint256(lNext));
+    }
+}

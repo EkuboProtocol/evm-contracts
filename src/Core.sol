@@ -21,9 +21,10 @@ import {
 } from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {ExpiringContract} from "./base/ExpiringContract.sol";
-import {liquidityDeltaToAmountDelta, addLiquidityDelta} from "./math/liquidity.sol";
+import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {
@@ -379,20 +380,23 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
 
             if (params.liquidityDelta < 0) {
                 if (poolKey.fee != 0) {
-                    uint128 amount0Fee = computeFee(uint128(-delta0), poolKey.fee);
-                    uint128 amount1Fee = computeFee(uint128(-delta1), poolKey.fee);
-                    // this will never overflow for a reasonably behaved token
                     unchecked {
+                        // uint128(-delta0) is ok in unchecked block
+                        uint128 amount0Fee = computeFee(uint128(-delta0), poolKey.fee);
+                        uint128 amount1Fee = computeFee(uint128(-delta1), poolKey.fee);
+                        // this will never overflow for a well behaved token since protocol fees are stored as uint256
                         if (amount0Fee > 0) {
                             protocolFeesCollected[poolKey.token0] += amount0Fee;
                         }
                         if (amount1Fee > 0) {
                             protocolFeesCollected[poolKey.token1] += amount1Fee;
                         }
+                        // delta is at most equal to -(amount fee), so this will maximally reach 0 and no overflow/underflow check is needed
+                        // in addition, casting is safe because computed fee is never g.t. the input amount
+                        delta0 += int128(amount0Fee);
+                        delta1 += int128(amount1Fee);
+                        emit ProtocolFeesPaid(poolKey, positionKey, amount0Fee, amount1Fee);
                     }
-                    delta0 += int128(amount0Fee);
-                    delta1 += int128(amount1Fee);
-                    emit ProtocolFeesPaid(poolKey, positionKey, amount0Fee, amount1Fee);
                 }
             }
 
@@ -544,7 +548,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
                         int128 liquidityDelta = ticks[nextTick].liquidityDelta;
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
-                            : addLiquidityDelta(liquidity, -liquidityDelta);
+                            : subLiquidityDelta(liquidity, liquidityDelta);
                         tickFeesPerLiquidityOutside[nextTick] =
                             feesPerLiquidity.sub(tickFeesPerLiquidityOutside[nextTick]);
                     }
@@ -554,13 +558,14 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
                 }
             }
 
-            if (params.isToken1) {
-                // todo: overflow checks?
-                delta0 = (params.amount < 0) ? int128(calculatedAmount) : -int128(calculatedAmount);
-                delta1 = params.amount - amountRemaining;
-            } else {
-                delta0 = params.amount - amountRemaining;
-                delta1 = (params.amount < 0) ? int128(calculatedAmount) : -int128(calculatedAmount);
+            unchecked {
+                int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(params.amount < 0, 1, type(uint256).max));
+                int128 calculatedAmountDelta =
+                    SafeCastLib.toInt128(calculatedAmountSign * int256(uint256(calculatedAmount)));
+
+                (delta0, delta1) = params.isToken1
+                    ? (calculatedAmountDelta, params.amount - amountRemaining)
+                    : (params.amount - amountRemaining, calculatedAmountDelta);
             }
 
             poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});

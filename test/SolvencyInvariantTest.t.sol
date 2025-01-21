@@ -23,6 +23,7 @@ import {
     MAX_TICK_SPACING,
     tickToSqrtRatio
 } from "../src/math/ticks.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 
 contract Handler is StdUtils, StdAssertions {
     uint256 immutable positionId;
@@ -74,8 +75,7 @@ contract Handler is StdUtils, StdAssertions {
         _;
     }
 
-    error UnexpectedDepositError(bytes4 sig, bytes data);
-    error UnexpectedSwapError(bytes4 sig, bytes data);
+    error UnexpectedError(bytes4 sig, bytes data);
 
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, Bounds memory bounds)
         public
@@ -108,26 +108,55 @@ contract Handler is StdUtils, StdAssertions {
                 sig != Positions.DepositOverflow.selector && sig != MaxLiquidityForToken0Overflow.selector
                     && sig != MaxLiquidityForToken1Overflow.selector && sig != SafeCastLib.Overflow.selector
             ) {
-                revert UnexpectedDepositError(sig, err);
+                revert UnexpectedError(sig, err);
             }
         }
     }
 
-    function withdrawAllPositions() public {
-        for (uint256 i = 0; i < activePositions.length; i++) {
-            (uint128 amount0, uint128 amount1) = positions.collectFeesAndWithdraw(
-                positionId,
-                activePositions[i].poolKey,
-                activePositions[i].bounds,
-                activePositions[i].liquidity,
-                address(this)
-            );
-            bytes32 poolId = activePositions[i].poolKey.toPoolId();
+    function withdraw(uint256 index, uint128 liquidity) public {
+        if (activePositions.length == 0) return;
+
+        ActivePosition storage p = activePositions[bound(index, 0, activePositions.length - 1)];
+
+        liquidity = uint128(bound(liquidity, 0, p.liquidity));
+
+        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity, address(this)) returns (
+            uint128 amount0, uint128 amount1
+        ) {
+            bytes32 poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));
+            p.liquidity -= liquidity;
+        } catch (bytes memory err) {
+            bytes4 sig;
+            assembly ("memory-safe") {
+                sig := mload(add(err, 32))
+            }
+
+            if (sig != ICore.MustCollectFeesBeforeWithdrawingAllLiquidity.selector) {
+                revert UnexpectedError(sig, err);
+            }
         }
-        assembly ("memory-safe") {
-            sstore(activePositions.slot, 0)
+    }
+
+    function collectFees(uint256 index) public {
+        if (activePositions.length == 0) return;
+
+        ActivePosition storage p = activePositions[bound(index, 0, activePositions.length - 1)];
+
+        try positions.collectFees(positionId, p.poolKey, p.bounds, address(this)) returns (
+            uint128 amount0, uint128 amount1
+        ) {
+            bytes32 poolId = p.poolKey.toPoolId();
+            poolBalances[poolId].amount0 -= int256(uint256(amount0));
+            poolBalances[poolId].amount1 -= int256(uint256(amount1));
+        } catch (bytes memory err) {
+            bytes4 sig;
+            assembly ("memory-safe") {
+                sig := mload(add(err, 32))
+            }
+
+            revert UnexpectedError(sig, err);
         }
     }
 
@@ -163,9 +192,9 @@ contract Handler is StdUtils, StdAssertions {
             if (
                 sig != Router.PartialSwapsDisallowed.selector && sig != 0xffffffff && sig != 0x00000000
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
-                    && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71
+                    && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71 && sig != SafeCastLib.Overflow.selector
             ) {
-                revert UnexpectedSwapError(sig, err);
+                revert UnexpectedError(sig, err);
             }
         }
     }

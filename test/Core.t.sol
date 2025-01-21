@@ -59,6 +59,13 @@ contract CoreTest is FullTest {
         );
     }
 
+    function test_castingAssumption() public pure {
+        // we make this assumption on solidity behavior in the protocol fee collection
+        unchecked {
+            assertEq(uint128(-type(int128).min), uint128(uint256(-int256(type(int128).min))));
+        }
+    }
+
     function test_registerExtension(uint8 b) public {
         b = uint8(bound(b, 1, type(uint8).max));
 

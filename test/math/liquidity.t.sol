@@ -55,16 +55,16 @@ contract LiquidityTest is Test {
         vm.assumeNoRevert();
         (int128 delta0, int128 delta1) = tt.amountDeltas(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
-        if (liquidityDelta < 0) {
+        if (sqrtRatioLower == sqrtRatioUpper || liquidityDelta == 0) {
+            assertEq(delta0, 0);
+            assertEq(delta1, 0);
+        } else if (liquidityDelta < 0) {
             assertLe(delta0, 0);
             assertLe(delta1, 0);
         } else if (liquidityDelta > 0) {
-            assertTrue(delta1 != 0 || delta0 != 0 || sqrtRatioLower == sqrtRatioUpper);
+            assertTrue(delta1 != 0 || delta0 != 0);
             assertGe(delta0, 0);
             assertGe(delta1, 0);
-        } else {
-            assertEq(delta0, 0);
-            assertEq(delta1, 0);
         }
     }
 

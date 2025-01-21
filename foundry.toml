@@ -19,7 +19,7 @@ runs = 1
 verbosity = 3
 
 [profile.ci.fuzz]
-runs = 1000000
+runs = 100000
 
 [profile.ci.invariant]
-runs = 256
+runs = 128

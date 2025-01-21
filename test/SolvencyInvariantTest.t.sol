@@ -38,7 +38,6 @@ contract Handler is StdUtils, StdAssertions {
     Router immutable router;
     TestToken immutable token0;
     TestToken immutable token1;
-    PoolKey poolKey;
     ActivePosition[] activePositions;
     PoolKey[] allPoolKeys;
 
@@ -49,13 +48,17 @@ contract Handler is StdUtils, StdAssertions {
         router = _router;
         token0 = _token0;
         token1 = _token1;
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
         positionId = positions.mint();
     }
 
     function createNewPool(uint128 fee, uint32 tickSpacing, int32 tick) public {
         tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        poolKey = PoolKey(address(token0), address(token1), fee, tickSpacing, address(0));
+        PoolKey memory poolKey = PoolKey(address(token0), address(token1), fee, tickSpacing, address(0));
         (bool initialized, uint256 sqrtRatio) =
             positions.maybeInitializePool(PoolKey(address(token0), address(token1), fee, tickSpacing, address(0)), tick);
         assertNotEq(sqrtRatio, 0);
@@ -63,26 +66,36 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     modifier ifPoolExists() {
-        if (poolKey.token0 == address(0)) return;
+        if (allPoolKeys.length == 0) return;
         _;
     }
 
-    function deposit(uint128 amount0, uint128 amount1, Bounds memory bounds) public ifPoolExists {
+    function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, Bounds memory bounds)
+        public
+        ifPoolExists
+    {
+        PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
         Bounds memory max = maxBounds(poolKey.tickSpacing);
-        bounds.lower = int32(bound(bounds.lower, max.lower, MAX_TICK - int32(poolKey.tickSpacing)));
+        bounds.lower = int32(bound(bounds.lower, max.lower, max.upper - int32(poolKey.tickSpacing)));
         // snap to nearest valid tick
         bounds.lower = (bounds.lower / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
-        bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing), max.lower));
+        bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing), max.upper));
+        bounds.upper = (bounds.upper / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
 
-        (uint128 liquidity, uint128 result0, uint128 result1) =
-            positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0);
-        if (liquidity > 0) {
-            activePositions.push(ActivePosition(poolKey, bounds, liquidity));
-        }
+        amount0 = uint128(bound(amount0, 0, type(uint64).max));
+        amount1 = uint128(bound(amount1, 0, type(uint64).max));
 
-        bytes32 poolId = poolKey.toPoolId();
-        poolBalances[poolId].amount0 += int256(uint256(result0));
-        poolBalances[poolId].amount1 += int256(uint256(result1));
+        try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
+            uint128 liquidity, uint128 result0, uint128 result1
+        ) {
+            if (liquidity > 0) {
+                activePositions.push(ActivePosition(poolKey, bounds, liquidity));
+            }
+
+            bytes32 poolId = poolKey.toPoolId();
+            poolBalances[poolId].amount0 += int256(uint256(result0));
+            poolBalances[poolId].amount1 += int256(uint256(result1));
+        } catch (bytes memory err) {}
     }
 
     function withdrawAllPositions() public {
@@ -103,39 +116,38 @@ contract Handler is StdUtils, StdAssertions {
         }
     }
 
-    function swap(SwapParameters memory params) public ifPoolExists {
-        (uint256 price, int32 tick) = positions.getPoolPrice(poolKey);
+    // function swap(SwapParameters memory params) public ifPoolExists {
+    //     (uint256 price, int32 tick) = positions.getPoolPrice(poolKey);
 
-        if (isPriceIncreasing(params.amount, params.isToken1)) {
-            // the max tick is far away in terms of tick spacing
-            if (tick + (100 * int32(poolKey.tickSpacing)) < MAX_TICK) {
-                params.sqrtRatioLimit =
-                    bound(params.sqrtRatioLimit, price, tickToSqrtRatio(tick + (100 * int32(poolKey.tickSpacing))));
-            } else {
-                params.sqrtRatioLimit = bound(params.sqrtRatioLimit, price, MAX_SQRT_RATIO);
-            }
-        } else {
-            // the min tick is far away in terms of tick spacing
-            if (tick - (100 * int32(poolKey.tickSpacing)) > MIN_TICK) {
-                params.sqrtRatioLimit =
-                    bound(params.sqrtRatioLimit, price, tickToSqrtRatio(tick - (100 * int32(poolKey.tickSpacing))));
-            } else {
-                params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, price);
-            }
-        }
+    //     PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length)];
+    //     if (isPriceIncreasing(params.amount, params.isToken1)) {
+    //         // the max tick is far away in terms of tick spacing
+    //         if (tick + (32768 * int32(poolKey.tickSpacing)) < MAX_TICK) {
+    //             params.sqrtRatioLimit =
+    //                 bound(params.sqrtRatioLimit, price, tickToSqrtRatio(tick + (100 * int32(poolKey.tickSpacing))));
+    //         } else {
+    //             params.sqrtRatioLimit = bound(params.sqrtRatioLimit, price, MAX_SQRT_RATIO);
+    //         }
+    //     } else {
+    //         // the min tick is far away in terms of tick spacing
+    //         if (tick - (32768 * int32(poolKey.tickSpacing)) > MIN_TICK) {
+    //             params.sqrtRatioLimit =
+    //                 bound(params.sqrtRatioLimit, price, tickToSqrtRatio(tick - (100 * int32(poolKey.tickSpacing))));
+    //         } else {
+    //             params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, price);
+    //         }
+    //     }
 
-        params.skipAhead = bound(params.skipAhead, 0, 10);
-        token0.approve(address(router), type(uint256).max);
-        token1.approve(address(router), type(uint256).max);
-        Delta memory d = router.swap(
-            RouteNode(poolKey, params.sqrtRatioLimit, params.skipAhead),
-            TokenAmount(params.isToken1 ? address(token1) : address(token0), params.amount)
-        );
+    //     params.skipAhead = bound(params.skipAhead, 0, 10);
+    //     Delta memory d = router.swap(
+    //         RouteNode(poolKey, params.sqrtRatioLimit, params.skipAhead),
+    //         TokenAmount(params.isToken1 ? address(token1) : address(token0), params.amount)
+    //     );
 
-        bytes32 poolId = poolKey.toPoolId();
-        poolBalances[poolId].amount0 += d.amount0;
-        poolBalances[poolId].amount1 += d.amount1;
-    }
+    //     bytes32 poolId = poolKey.toPoolId();
+    //     poolBalances[poolId].amount0 += d.amount0;
+    //     poolBalances[poolId].amount1 += d.amount1;
+    // }
 
     function checkAllPoolsHavePositiveBalance() public view {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {

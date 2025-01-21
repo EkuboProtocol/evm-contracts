@@ -11,6 +11,7 @@ optimizer_runs = 4294967295
 via_ir = true
 ignored_error_codes = [2394, 6321, 3860, 5574]
 
+[invariant]
 fail_on_revert = true
 
 [profile.ci]

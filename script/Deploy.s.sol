@@ -41,10 +41,10 @@ contract DeployScript is Script {
         string memory baseUrl;
         address ekuboToken;
         if (block.chainid == 1) {
-            baseUrl = "https://mainnet-evm-api.ekubo.org/";
+            baseUrl = "https://eth-mainnet-api.ekubo.org/positions/nft/";
             ekuboToken = 0x04C46E830Bb56ce22735d5d8Fc9CB90309317d0f;
         } else if (block.chainid == 11155111) {
-            baseUrl = "https://sepolia-evm-api.ekubo.org/";
+            baseUrl = "https://eth-sepolia-api.ekubo.org/positions/nft/";
             ekuboToken = 0x618C25b11a5e9B5Ad60B04bb64FcBdfBad7621d1;
         } else {
             revert UnrecognizedChainId(block.chainid);

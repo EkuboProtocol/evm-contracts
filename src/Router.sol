@@ -24,6 +24,7 @@ struct TokenAmount {
 struct Swap {
     RouteNode[] route;
     TokenAmount tokenAmount;
+    bool allowPartialSwaps;
 }
 
 struct Delta {
@@ -32,6 +33,8 @@ struct Delta {
 }
 
 contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
+    error PartialSwapsDisallowed();
+
     constructor(ICore core) CoreLocker(core) {}
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
@@ -42,6 +45,7 @@ contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
                 Swap memory s = swaps[i];
                 results[i] = new Delta[](s.route.length);
 
+                bool assertDeltas = !s.allowPartialSwaps;
                 TokenAmount memory firstSwapAmount;
                 TokenAmount memory tokenAmount = s.tokenAmount;
 
@@ -75,8 +79,10 @@ contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
                     }
 
                     if (isToken1) {
+                        if (assertDeltas && delta1 != tokenAmount.amount) revert PartialSwapsDisallowed();
                         tokenAmount = TokenAmount({token: node.poolKey.token0, amount: -delta0});
                     } else {
+                        if (assertDeltas && delta0 != tokenAmount.amount) revert PartialSwapsDisallowed();
                         tokenAmount = TokenAmount({token: node.poolKey.token1, amount: -delta1});
                     }
                 }
@@ -102,11 +108,20 @@ contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
         payable
         returns (Delta memory result)
     {
+        result = swap(node, tokenAmount, false);
+    }
+
+    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount, bool allowPartialSwaps)
+        public
+        payable
+        returns (Delta memory result)
+    {
         Swap memory s;
         s.route = new RouteNode[](1);
         s.route[0] = node;
         s.tokenAmount = tokenAmount;
-        return multihopSwap(s)[0];
+        s.allowPartialSwaps = allowPartialSwaps;
+        result = multihopSwap(s)[0];
     }
 
     function multihopSwap(Swap memory s) public payable returns (Delta[] memory result) {

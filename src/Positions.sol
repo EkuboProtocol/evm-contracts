@@ -71,32 +71,35 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
     // Gets the pool price of a pool, accounting for any before update position extension behavior
     //  todo: we should allow specifying bounds and liquidity delta here, in case the extension behavior depends on it,
     //          and catch reverts to get the price
-    function getPoolPrice(PoolKey memory poolKey) public returns (uint256) {
+    function getPoolPrice(PoolKey memory poolKey) public returns (uint192 sqrtRatio, int32 tick) {
         if (shouldCallBeforeUpdatePosition(poolKey.extension)) {
-            return abi.decode(lock(abi.encodePacked(uint8(3), abi.encode(poolKey))), (uint256));
+            (sqrtRatio, tick) = abi.decode(lock(abi.encodePacked(uint8(3), abi.encode(poolKey))), (uint192, int32));
+        } else {
+            (sqrtRatio, tick) = core.poolPrice(poolKey.toPoolId());
         }
-        (uint192 sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
-        return sqrtRatio;
     }
 
     function deposit(
         uint256 id,
         PoolKey memory poolKey,
         Bounds memory bounds,
-        uint128 amount0,
-        uint128 amount1,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
         uint128 minLiquidity
-    ) public payable authorizedForNft(id) returns (uint128 liquidity) {
-        uint256 sqrtRatio = getPoolPrice(poolKey);
+    ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
+        (uint256 sqrtRatio,) = getPoolPrice(poolKey);
 
-        liquidity =
-            maxLiquidity(sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), amount0, amount1);
+        liquidity = maxLiquidity(
+            sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), maxAmount0, maxAmount1
+        );
 
         if (liquidity < minLiquidity) {
             revert DepositFailedDueToSlippage(liquidity, minLiquidity);
         }
 
-        lock(abi.encodePacked(uint8(0), abi.encode(msg.sender, id, poolKey, bounds, liquidity)));
+        (amount0, amount1) = abi.decode(
+            lock(abi.encodePacked(uint8(0), abi.encode(msg.sender, id, poolKey, bounds, liquidity))), (uint128, uint128)
+        );
     }
 
     function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
@@ -138,22 +141,22 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         _burn(id);
     }
 
-    function maybeInitializePool(PoolKey memory poolKey, int32 tick) external payable {
-        uint256 price = getPoolPrice(poolKey);
-        if (price == 0) {
-            core.initializePool(poolKey, tick);
+    function maybeInitializePool(PoolKey memory poolKey, int32 tick) external payable returns (uint256 sqrtRatio) {
+        (sqrtRatio,) = getPoolPrice(poolKey);
+        if (sqrtRatio == 0) {
+            sqrtRatio = core.initializePool(poolKey, tick);
         }
     }
 
     function mintAndDeposit(
         PoolKey memory poolKey,
         Bounds memory bounds,
-        uint128 amount0,
-        uint128 amount1,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
         uint128 minLiquidity
-    ) external payable returns (uint256 id, uint128 liquidity) {
+    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint();
-        liquidity = deposit(id, poolKey, bounds, amount0, amount1, minLiquidity);
+        (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
     }
 
     error UnexpectedCallTypeByte(uint8 b);
@@ -174,8 +177,12 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
                 UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: int128(liquidity)})
             );
 
-            payCore(caller, poolKey.token0, uint128(delta0));
-            payCore(caller, poolKey.token1, uint128(delta1));
+            uint128 amount0 = uint128(delta0);
+            uint128 amount1 = uint128(delta1);
+            payCore(caller, poolKey.token0, amount0);
+            payCore(caller, poolKey.token1, amount1);
+
+            result = abi.encode(amount0, amount1);
         } else if (callType == 1) {
             (uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient) =
                 abi.decode(data[1:], (uint256, PoolKey, Bounds, address));
@@ -210,9 +217,9 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
                 UpdatePositionParameters({salt: bytes32(0), bounds: maxBounds(poolKey.tickSpacing), liquidityDelta: 0})
             );
 
-            (uint256 price,) = core.poolPrice(poolKey.toPoolId());
+            (uint256 price, int32 tick) = core.poolPrice(poolKey.toPoolId());
 
-            result = abi.encode(price);
+            result = abi.encode(price, tick);
         } else {
             revert UnexpectedCallTypeByte(callType);
         }

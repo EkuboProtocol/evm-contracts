@@ -173,6 +173,6 @@ abstract contract FullTest is Test {
         }
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
-        (id, liquidity) = positions.mintAndDeposit{value: value}(poolKey, bounds, amount0, amount1, 0);
+        (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, bounds, amount0, amount1, 0);
     }
 }

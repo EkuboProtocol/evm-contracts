@@ -21,7 +21,7 @@ contract PositionsTest is FullTest {
 
         Bounds memory bounds = Bounds({lower: -100, upper: 100});
 
-        (uint256 id, uint128 liquidity) = positions.mintAndDeposit(poolKey, bounds, 100, 100, 0);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 100, 100, 0);
         assertGt(id, 0);
         assertGt(liquidity, 0);
         assertEq(token0.balanceOf(address(core)), 100);

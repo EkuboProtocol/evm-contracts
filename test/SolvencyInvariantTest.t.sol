@@ -6,6 +6,8 @@ import {PoolKey, Bounds, maxBounds} from "../src/types/keys.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
+import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
+import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {MaxLiquidityForToken0Overflow, MaxLiquidityForToken1Overflow} from "../src/math/liquidity.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -73,6 +75,7 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     error UnexpectedDepositError(bytes4 sig, bytes data);
+    error UnexpectedSwapError(bytes4 sig, bytes data);
 
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, Bounds memory bounds)
         public
@@ -128,38 +131,44 @@ contract Handler is StdUtils, StdAssertions {
         }
     }
 
-    // function swap(SwapParameters memory params) public ifPoolExists {
-    //     (uint256 price, int32 tick) = positions.getPoolPrice(poolKey);
+    function swap(uint256 poolKeyIndex, SwapParameters memory params) public ifPoolExists {
+        PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-    //     PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length)];
-    //     if (isPriceIncreasing(params.amount, params.isToken1)) {
-    //         // the max tick is far away in terms of tick spacing
-    //         if (tick + (32768 * int32(poolKey.tickSpacing)) < MAX_TICK) {
-    //             params.sqrtRatioLimit =
-    //                 bound(params.sqrtRatioLimit, price, tickToSqrtRatio(tick + (100 * int32(poolKey.tickSpacing))));
-    //         } else {
-    //             params.sqrtRatioLimit = bound(params.sqrtRatioLimit, price, MAX_SQRT_RATIO);
-    //         }
-    //     } else {
-    //         // the min tick is far away in terms of tick spacing
-    //         if (tick - (32768 * int32(poolKey.tickSpacing)) > MIN_TICK) {
-    //             params.sqrtRatioLimit =
-    //                 bound(params.sqrtRatioLimit, price, tickToSqrtRatio(tick - (100 * int32(poolKey.tickSpacing))));
-    //         } else {
-    //             params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, price);
-    //         }
-    //     }
+        (uint256 price,) = positions.getPoolPrice(poolKey);
 
-    //     params.skipAhead = bound(params.skipAhead, 0, 10);
-    //     Delta memory d = router.swap(
-    //         RouteNode(poolKey, params.sqrtRatioLimit, params.skipAhead),
-    //         TokenAmount(params.isToken1 ? address(token1) : address(token0), params.amount)
-    //     );
+        params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
 
-    //     bytes32 poolId = poolKey.toPoolId();
-    //     poolBalances[poolId].amount0 += d.amount0;
-    //     poolBalances[poolId].amount1 += d.amount1;
-    // }
+        if (isPriceIncreasing(params.amount, params.isToken1)) {
+            params.sqrtRatioLimit = bound(params.sqrtRatioLimit, price, MAX_SQRT_RATIO);
+        } else {
+            params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, price);
+        }
+
+        params.skipAhead = bound(params.skipAhead, 0, type(uint8).max);
+
+        try router.swap{gas: 15000000}(
+            RouteNode(poolKey, params.sqrtRatioLimit, params.skipAhead),
+            TokenAmount(params.isToken1 ? address(token1) : address(token0), params.amount)
+        ) returns (Delta memory d) {
+            bytes32 poolId = poolKey.toPoolId();
+            poolBalances[poolId].amount0 += d.amount0;
+            poolBalances[poolId].amount1 += d.amount1;
+        } catch (bytes memory err) {
+            bytes4 sig;
+            assembly ("memory-safe") {
+                sig := mload(add(err, 32))
+            }
+            // 0xffffffff and 0x00000000 are evm errors for out of gas
+            // 0x4e487b71 is arithmetic overflow/underflow
+            if (
+                sig != Router.PartialSwapsDisallowed.selector && sig != 0xffffffff && sig != 0x00000000
+                    && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
+                    && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71
+            ) {
+                revert UnexpectedSwapError(sig, err);
+            }
+        }
+    }
 
     function checkAllPoolsHavePositiveBalance() public view {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {

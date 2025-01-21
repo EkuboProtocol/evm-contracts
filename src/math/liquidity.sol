@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {amount0Delta, amount1Delta, sortSqrtRatios} from "./delta.sol";
 
 /**
@@ -16,28 +17,36 @@ function liquidityDeltaToAmountDelta(
     int128 liquidityDelta,
     uint256 sqrtRatioLower,
     uint256 sqrtRatioUpper
-) pure returns (int128, int128) {
-    if (liquidityDelta == 0) {
-        return (0, 0);
-    }
+) pure returns (int128 delta0, int128 delta1) {
+    unchecked {
+        if (liquidityDelta == 0) {
+            return (0, 0);
+        }
+        bool isPositive = (liquidityDelta > 0);
+        int256 sign = int256(FixedPointMathLib.ternary(isPositive, 1, type(uint256).max));
+        uint128 magnitude = uint128(FixedPointMathLib.abs(liquidityDelta));
 
-    bool roundUp = (liquidityDelta >= 0);
-    int128 sign = liquidityDelta < 0 ? int128(-1) : int128(1);
-    uint128 liquidityMag = liquidityDelta < 0 ? uint128(-liquidityDelta) : uint128(liquidityDelta);
-
-    if (sqrtRatio <= sqrtRatioLower) {
-        // Entirely in [lower, upper) range for token0
-        // => token1 delta is zero
-        return (sign * int128(amount0Delta(sqrtRatioLower, sqrtRatioUpper, liquidityMag, roundUp)), 0);
-    } else if (sqrtRatio < sqrtRatioUpper) {
-        // Partially in [lower, upper) => token0 and token1 are both affected
-        int128 amt0 = sign * int128(amount0Delta(sqrtRatio, sqrtRatioUpper, liquidityMag, roundUp));
-        int128 amt1 = sign * int128(amount1Delta(sqrtRatioLower, sqrtRatio, liquidityMag, roundUp));
-        return (amt0, amt1);
-    } else {
-        // Entirely in [lower, upper) range for token1
-        // => token0 delta is zero
-        return (0, sign * int128(amount1Delta(sqrtRatioLower, sqrtRatioUpper, liquidityMag, roundUp)));
+        if (sqrtRatio <= sqrtRatioLower) {
+            // Entirely in [lower, upper) range for token0
+            // => token1 delta is zero
+            delta0 = SafeCastLib.toInt128(
+                sign * int256(uint256(amount0Delta(sqrtRatioLower, sqrtRatioUpper, magnitude, isPositive)))
+            );
+        } else if (sqrtRatio < sqrtRatioUpper) {
+            // Partially in [lower, upper) => token0 and token1 are both affected
+            delta0 = SafeCastLib.toInt128(
+                sign * int256(uint256(amount0Delta(sqrtRatio, sqrtRatioUpper, magnitude, isPositive)))
+            );
+            delta1 = SafeCastLib.toInt128(
+                sign * int256(uint256(amount1Delta(sqrtRatioLower, sqrtRatio, magnitude, isPositive)))
+            );
+        } else {
+            // Entirely in [lower, upper) range for token1
+            // => token0 delta is zero
+            delta1 = SafeCastLib.toInt128(
+                sign * int256(uint256(amount1Delta(sqrtRatioLower, sqrtRatioUpper, magnitude, isPositive)))
+            );
+        }
     }
 }
 

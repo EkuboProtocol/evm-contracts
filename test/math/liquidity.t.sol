@@ -25,6 +25,36 @@ contract LiquidityTest is Test {
         assertEq(amount1, 10000, "amount1");
     }
 
+    function test_liquidityDeltaToAmountDelta_sign(
+        uint256 sqrtRatio,
+        int128 liquidityDelta,
+        uint256 sqrtRatioLower,
+        uint256 sqrtRatioUpper
+    ) public pure {
+        sqrtRatio = bound(sqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+        sqrtRatioLower = bound(sqrtRatioLower, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+        sqrtRatioUpper = bound(sqrtRatioUpper, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+
+        vm.assumeNoRevert();
+        (int128 delta0, int128 delta1) =
+            liquidityDeltaToAmountDelta(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
+
+        if (liquidityDelta != 0) {
+            assertTrue(delta1 != 0 || delta0 != 0);
+        }
+
+        if (liquidityDelta < 0) {
+            assertLe(delta0, 0);
+            assertLe(delta1, 0);
+        } else if (liquidityDelta > 0) {
+            assertGe(delta0, 0);
+            assertGe(delta1, 0);
+        } else {
+            assertEq(delta0, 0);
+            assertEq(delta1, 0);
+        }
+    }
+
     function test_liquidityDeltaToAmountDelta_full_range_mid_price_withdraw() public pure {
         (int128 amount0, int128 amount1) =
             liquidityDeltaToAmountDelta(0x100000000000000000000000000000000, -10000, MIN_SQRT_RATIO, MAX_SQRT_RATIO);

@@ -8,6 +8,7 @@ import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {MaxLiquidityForToken0Overflow, MaxLiquidityForToken1Overflow} from "../src/math/liquidity.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {Positions} from "../src/Positions.sol";
@@ -85,9 +86,6 @@ contract Handler is StdUtils, StdAssertions {
         bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing), max.upper));
         bounds.upper = (bounds.upper / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
 
-        amount0 = uint128(bound(amount0, 0, type(uint64).max));
-        amount1 = uint128(bound(amount1, 0, type(uint64).max));
-
         try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
             uint128 liquidity, uint128 result0, uint128 result1
         ) {
@@ -105,7 +103,7 @@ contract Handler is StdUtils, StdAssertions {
             }
             if (
                 sig != Positions.DepositOverflow.selector && sig != MaxLiquidityForToken0Overflow.selector
-                    && sig != MaxLiquidityForToken1Overflow.selector
+                    && sig != MaxLiquidityForToken1Overflow.selector && sig != SafeCastLib.Overflow.selector
             ) {
                 revert UnexpectedDepositError(sig, err);
             }

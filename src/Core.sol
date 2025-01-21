@@ -351,9 +351,9 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
             IExtension(poolKey.extension).beforeUpdatePosition(locker, poolKey, params);
         }
 
-        if (params.liquidityDelta != 0) {
-            params.bounds.validateBounds(poolKey.tickSpacing);
+        params.bounds.validateBounds(poolKey.tickSpacing);
 
+        if (params.liquidityDelta != 0) {
             bytes32 poolId = poolKey.toPoolId();
             PoolPrice memory price = poolPrice[poolId];
             if (price.sqrtRatio == 0) revert PoolNotInitialized();

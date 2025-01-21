@@ -91,11 +91,16 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
         }
     }
 
-    function requireLocker() private view returns (uint256 id, address locker) {
+    function getLocker() private view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
             id := sub(tload(0), 1)
             locker := tload(add(0x100000000, id))
         }
+        if (id == type(uint256).max) revert NotLocked();
+    }
+
+    function requireLocker() private view returns (uint256 id, address locker) {
+        (id, locker) = getLocker();
         if (locker != msg.sender) revert LockerOnly();
     }
 
@@ -224,7 +229,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    uint256 constant MAX_INT256 = type(uint256).max >> 1; // == (1<<255) - 1
+    uint256 constant PAYMENT_LIMIT = 1 << 255;
 
     // Token must not be the NATIVE_TOKEN_ADDRESS.
     // If you want to pay in the native token, simply transfer it to this contract.
@@ -244,7 +249,8 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
         unchecked {
             payment = tokenBalanceAfter - tokenBalanceBefore;
 
-            if (payment > MAX_INT256) revert PaymentTooLarge();
+            // no custom error because this is not possible under the assumption tokens have total supplies l.t. 2**128
+            require(payment < PAYMENT_LIMIT);
 
             // The unary negative operator never fails because payment is less than max int256
             accountDebt(id, token, -int256(payment));
@@ -252,13 +258,19 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     }
 
     function load(address token, bytes32 salt, uint128 amount) external {
-        (uint256 id, address owner) = requireLocker();
+        (uint256 id,) = getLocker();
+
+        unchecked {
+            uint256 balance = savedBalances[msg.sender][token][salt];
+            if (balance < amount) {
+                revert InsufficientSavedBalance();
+            }
+            savedBalances[msg.sender][token][salt] = balance - amount;
+        }
 
         accountDebt(id, token, -int256(uint256(amount)));
 
-        savedBalances[owner][token][salt] -= amount;
-
-        emit LoadedBalance(owner, token, salt, amount);
+        emit LoadedBalance(msg.sender, token, salt, amount);
     }
 
     function withdraw(address token, address recipient, uint128 amount) external {
@@ -276,9 +288,8 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     function save(address owner, address token, bytes32 salt, uint128 amount) external {
         (uint256 id,) = requireLocker();
 
-        accountDebt(id, token, int256(uint256(amount)));
-
         savedBalances[owner][token][salt] += amount;
+        accountDebt(id, token, int256(uint256(amount)));
 
         emit SavedBalance(owner, token, salt, amount);
     }

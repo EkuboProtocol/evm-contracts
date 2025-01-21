@@ -40,13 +40,13 @@ contract CoreTest is FullTest {
             UpdatePositionParameters(0, Bounds(0, 0), 1)
         );
 
-        vm.expectRevert(ICore.LockerOnly.selector);
+        vm.expectRevert(ICore.NotLocked.selector);
         c.updatePosition(
             PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
             UpdatePositionParameters(0, Bounds(0, 0), 0)
         );
 
-        vm.expectRevert(ICore.LockerOnly.selector);
+        vm.expectRevert(ICore.NotLocked.selector);
         c.collectFees(
             PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
             bytes32(0),

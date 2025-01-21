@@ -91,7 +91,9 @@ interface ICore is IExposedStorage {
 
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
     error FailedRegisterInvalidCallPoints();
+    error NotLocked();
     error LockerOnly();
+    error InsufficientSavedBalance();
     error DebtsNotZeroed();
     error PoolAlreadyInitialized();
     error ExtensionNotRegistered();
@@ -99,7 +101,6 @@ interface ICore is IExposedStorage {
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
     error SqrtRatioLimitWrongDirection();
     error SqrtRatioLimitOutOfRange();
-    error PaymentTooLarge();
     error NoPaymentMade();
 
     // Allows the owner of the contract to withdraw the protocol withdrawal fees collected

@@ -70,7 +70,7 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     function secondsSinceOffsetToTimestamp(uint32 sso) public view returns (uint64) {
         unchecked {
-            return timestampOffset + uint64(sso);
+            return timestampOffset + sso;
         }
     }
 

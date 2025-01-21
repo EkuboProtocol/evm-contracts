@@ -8,6 +8,7 @@ import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
 import {Core} from "../src/Core.sol";
+import {ExpiringContract} from "../src/base/ExpiringContract.sol";
 
 contract CoreTest is FullTest {
     using CoreLib for *;
@@ -22,16 +23,39 @@ contract CoreTest is FullTest {
 
         // does not need to be within a lock or even valid to trigger this error
 
-        vm.expectRevert(ICore.ContractHasExpired.selector);
+        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
+        c.initializePool(
+            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}), 0
+        );
+
+        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
         c.swap(
             PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
             SwapParameters(0, true, 0, 0)
         );
 
-        vm.expectRevert(ICore.ContractHasExpired.selector);
+        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
         c.updatePosition(
             PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
             UpdatePositionParameters(0, Bounds(0, 0), 1)
+        );
+
+        vm.expectRevert(ICore.LockerOnly.selector);
+        c.updatePosition(
+            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
+            UpdatePositionParameters(0, Bounds(0, 0), 0)
+        );
+
+        vm.expectRevert(ICore.LockerOnly.selector);
+        c.collectFees(
+            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
+            bytes32(0),
+            Bounds(0, 0)
+        );
+
+        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
+        c.accumulateAsFees(
+            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}), 0, 0
         );
     }
 

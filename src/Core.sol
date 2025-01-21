@@ -22,6 +22,7 @@ import {
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
+import {ExpiringContract} from "./base/ExpiringContract.sol";
 import {liquidityDeltaToAmountDelta, addLiquidityDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
@@ -35,7 +36,7 @@ import {
     NATIVE_TOKEN_ADDRESS
 } from "./interfaces/ICore.sol";
 
-contract Core is ICore, Ownable, ExposedStorage {
+contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
     // We pack the delta and net.
@@ -66,12 +67,8 @@ contract Core is ICore, Ownable, ExposedStorage {
     // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) private savedBalances;
 
-    // The time after which the contract will no longer allow swaps or position updates with non-negative liquidity delta
-    uint256 public immutable expirationTime;
-
-    constructor(address owner, uint256 _expirationTime) {
+    constructor(address owner, uint256 expirationTime) ExpiringContract(expirationTime) {
         _initializeOwner(owner);
-        expirationTime = _expirationTime;
     }
 
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
@@ -182,9 +179,7 @@ contract Core is ICore, Ownable, ExposedStorage {
         }
     }
 
-    function initializePool(PoolKey memory poolKey, int32 tick) external returns (uint256 sqrtRatio) {
-        if (block.timestamp > expirationTime) revert ContractHasExpired();
-
+    function initializePool(PoolKey memory poolKey, int32 tick) external expires returns (uint256 sqrtRatio) {
         poolKey.validatePoolKey();
 
         if (poolKey.extension != address(0)) {
@@ -313,9 +308,7 @@ contract Core is ICore, Ownable, ExposedStorage {
     // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
     // key, i.e. the current locker _must_ be the extension.
     // The extension must call this function within a lock callback.
-    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
-        if (block.timestamp > expirationTime) revert ContractHasExpired();
-
+    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external expires {
         (uint256 id, address locker) = requireLocker();
         require(locker == poolKey.extension);
         bytes32 poolId = poolKey.toPoolId();
@@ -349,10 +342,9 @@ contract Core is ICore, Ownable, ExposedStorage {
 
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
+        expiresIff(params.liquidityDelta > 0)
         returns (int128 delta0, int128 delta1)
     {
-        if (block.timestamp > expirationTime && params.liquidityDelta > 0) revert ContractHasExpired();
-
         (uint256 id, address locker) = requireLocker();
 
         if (shouldCallBeforeUpdatePosition(poolKey.extension) && locker != poolKey.extension) {
@@ -465,12 +457,9 @@ contract Core is ICore, Ownable, ExposedStorage {
 
     function swap(PoolKey memory poolKey, SwapParameters memory params)
         external
+        expires
         returns (int128 delta0, int128 delta1)
     {
-        if (block.timestamp > expirationTime) {
-            revert ContractHasExpired();
-        }
-
         (uint256 id, address locker) = requireLocker();
 
         if (shouldCallBeforeSwap(poolKey.extension) && locker != poolKey.extension) {

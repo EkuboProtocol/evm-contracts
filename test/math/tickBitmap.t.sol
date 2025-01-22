@@ -136,6 +136,12 @@ contract TickBitmapInvariantTest is Test {
 }
 
 contract TickBitmapTest is Test {
+    function test_gas_tickToBitmapWordAndIndex() public returns (uint256 word, uint256 index) {
+        vm.startSnapshotGas("tickToBitmapWordAndIndex(150,100)");
+        (word, index) = tickToBitmapWordAndIndex(150, 100);
+        vm.stopSnapshotGas();
+    }
+
     function test_gas_next_entire_map() public {
         TickBitmap tbm = new TickBitmap(100);
         // incurs about ~6930 sloads which is 14553000 gas minimum

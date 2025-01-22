@@ -157,7 +157,8 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         payable
         returns (bool initialized, uint256 sqrtRatio)
     {
-        (sqrtRatio,) = getPoolPrice(poolKey);
+        // the before update position hook shouldn't be taken into account here
+        (sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
         if (sqrtRatio == 0) {
             initialized = true;
             sqrtRatio = core.initializePool(poolKey, tick);

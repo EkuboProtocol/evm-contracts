@@ -113,14 +113,16 @@ contract Handler is StdUtils, StdAssertions {
         }
     }
 
-    function withdraw(uint256 index, uint128 liquidity) public {
+    function withdraw(uint256 index, uint128 liquidity, bool collectFees) public {
         if (activePositions.length == 0) return;
 
         ActivePosition storage p = activePositions[bound(index, 0, activePositions.length - 1)];
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity) returns (uint128 amount0, uint128 amount1) {
+        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity, address(this), collectFees) returns (
+            uint128 amount0, uint128 amount1
+        ) {
             bytes32 poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));
@@ -131,30 +133,12 @@ contract Handler is StdUtils, StdAssertions {
                 sig := mload(add(err, 32))
             }
 
-            if (sig != ICore.MustCollectFeesBeforeWithdrawingAllLiquidity.selector) {
+            if (
+                sig != ICore.MustCollectFeesBeforeWithdrawingAllLiquidity.selector
+                    && sig != SafeCastLib.Overflow.selector
+            ) {
                 revert UnexpectedError(sig, err);
             }
-        }
-    }
-
-    function collectFees(uint256 index) public {
-        if (activePositions.length == 0) return;
-
-        ActivePosition storage p = activePositions[bound(index, 0, activePositions.length - 1)];
-
-        try positions.collectFees(positionId, p.poolKey, p.bounds, address(this)) returns (
-            uint128 amount0, uint128 amount1
-        ) {
-            bytes32 poolId = p.poolKey.toPoolId();
-            poolBalances[poolId].amount0 -= int256(uint256(amount0));
-            poolBalances[poolId].amount1 -= int256(uint256(amount1));
-        } catch (bytes memory err) {
-            bytes4 sig;
-            assembly ("memory-safe") {
-                sig := mload(add(err, 32))
-            }
-
-            revert UnexpectedError(sig, err);
         }
     }
 

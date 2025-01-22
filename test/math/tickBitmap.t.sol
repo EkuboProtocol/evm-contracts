@@ -2,6 +2,8 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {StdUtils} from "forge-std/StdUtils.sol";
+import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {
     tickToBitmapWordAndIndex,
     bitmapWordAndIndexToTick,
@@ -11,6 +13,7 @@ import {
 } from "../../src/math/tickBitmap.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";
+import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 
 contract TickBitmap {
     mapping(uint256 => Bitmap) public map;
@@ -54,7 +57,103 @@ contract TickBitmap {
     }
 }
 
+contract TickBitmapHandler is StdUtils, StdAssertions {
+    using RedBlackTreeLib for *;
+
+    TickBitmap tbm;
+
+    RedBlackTreeLib.Tree tree;
+
+    constructor(TickBitmap _tbm) {
+        tbm = _tbm;
+    }
+
+    function flip(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        int32 ts = int32(tbm.tickSpacing());
+        tick = (tick / ts) * ts;
+
+        tbm.flip(tick);
+        if (tbm.isInitialized(tick)) {
+            tree.insert(uint256(int256(tick) - type(int32).min));
+        } else {
+            tree.remove(uint256(int256(tick) - type(int32).min));
+        }
+    }
+
+    function checkAllTicksMatchRedBlackTree() public view {
+        uint256[] memory initialized = tree.values();
+        int32 p;
+        for (uint256 i = 0; i < initialized.length; i++) {
+            int32 t = int32(int256(initialized[i]) + type(int32).min);
+            assertTrue(tbm.isInitialized(t));
+
+            {
+                (int32 pT, bool pI) = tbm.prev(t - 1, type(uint256).max);
+                if (i != 0) {
+                    assertEq(pT, p);
+                    assertTrue(pI);
+                } else {
+                    assertEq(pT, MIN_TICK);
+                    assertFalse(pI);
+                }
+            }
+
+            (int32 tt, bool tI) = tbm.prev(t, type(uint256).max);
+            assertEq(tt, t);
+            assertTrue(tI);
+
+            {
+                (int32 nt, bool nI) = tbm.next(t, type(uint256).max);
+
+                if (i != initialized.length - 1) {
+                    int32 n = int32(int256(initialized[i + 1]) + type(int32).min);
+                    assertEq(nt, n);
+                    assertTrue(nI);
+                } else {
+                    assertEq(nt, MAX_TICK);
+                    assertFalse(nI);
+                }
+            }
+
+            p = t;
+        }
+    }
+}
+
+contract TickBitmapInvariantTest is Test {
+    TickBitmapHandler tbh;
+
+    function setUp() public {
+        TickBitmap tbm = new TickBitmap(100);
+        excludeContract(address(tbm));
+        tbh = new TickBitmapHandler(tbm);
+    }
+
+    function invariant_checkAllTicksMatchRedBlackTree() public view {
+        tbh.checkAllTicksMatchRedBlackTree();
+    }
+}
+
 contract TickBitmapTest is Test {
+    function test_gas_next_entire_map() public {
+        TickBitmap tbm = new TickBitmap(100);
+        // incurs about ~6930 sloads which is 14553000 gas minimum
+        (int32 t, bool i) = tbm.next(MIN_TICK, type(uint256).max);
+        vm.snapshotGasLastCall("ts = 100, next(MIN_TICK, type(uint256).max)");
+        assertEq(t, MAX_TICK);
+        assertFalse(i);
+    }
+
+    function test_gas_prev_entire_map() public {
+        TickBitmap tbm = new TickBitmap(100);
+        // incurs about ~6930 sloads which is 14553000 gas minimum
+        (int32 t, bool i) = tbm.prev(MAX_TICK, type(uint256).max);
+        vm.snapshotGasLastCall("ts = 100, prev(MAX_TICK, type(uint256).max)");
+        assertEq(t, MIN_TICK);
+        assertFalse(i);
+    }
+
     function test_gas_flip() public {
         TickBitmap tbm = new TickBitmap(100);
 

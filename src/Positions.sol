@@ -59,7 +59,13 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         // generates a pseudorandom salt
         // note this can have encounter conflicts if a sender sends two identical transactions in the same block
         // that happen to consume exactly the same amount of gas
-        id = mint(keccak256(abi.encode(block.prevrandao, gasleft())));
+        bytes32 salt;
+        assembly ("memory-safe") {
+            mstore(0, prevrandao())
+            mstore(32, gas())
+            salt := keccak256(0, 64)
+        }
+        id = mint(salt);
     }
 
     // Mints an NFT for the caller with the ID given by shr(192, keccak256(minter, salt))

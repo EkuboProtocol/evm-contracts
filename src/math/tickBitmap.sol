@@ -39,9 +39,9 @@ function findNextInitializedTick(
 ) view returns (int32 nextTick, bool isInitialized) {
     unchecked {
         nextTick = fromTick;
-        while (nextTick < MAX_TICK) {
+        while (true) {
             // convert the given tick to the bitmap position of the next nearest potential initialized tick
-            (uint256 word, uint256 index) = tickToBitmapWordAndIndex(fromTick + int32(tickSpacing), tickSpacing);
+            (uint256 word, uint256 index) = tickToBitmapWordAndIndex(nextTick + int32(tickSpacing), tickSpacing);
 
             // find the index of the previous tick in that word
             uint256 nextIndex = map[word].geSetBit(uint8(index));
@@ -53,12 +53,18 @@ function findNextInitializedTick(
             }
 
             // otherwise, return the tick of the most significant bit in the word
-            nextTick = int32(FixedPointMathLib.min(MAX_TICK, bitmapWordAndIndexToTick(word, 255, tickSpacing)));
+            nextTick = bitmapWordAndIndexToTick(word, 255, tickSpacing);
+
+            if (nextTick >= MAX_TICK) {
+                nextTick = MAX_TICK;
+                break;
+            }
 
             // if we are done searching, stop here
             if (skipAhead == 0) {
                 break;
             }
+
             skipAhead--;
         }
     }
@@ -72,7 +78,7 @@ function findPrevInitializedTick(
 ) view returns (int32 prevTick, bool isInitialized) {
     unchecked {
         prevTick = fromTick;
-        while (prevTick > MIN_TICK) {
+        while (true) {
             // convert the given tick to its bitmap position
             (uint256 word, uint256 index) = tickToBitmapWordAndIndex(prevTick, tickSpacing);
 
@@ -84,12 +90,19 @@ function findPrevInitializedTick(
                 break;
             }
 
-            prevTick = int32(FixedPointMathLib.max(MIN_TICK, bitmapWordAndIndexToTick(word, 0, tickSpacing)));
+            prevTick = bitmapWordAndIndexToTick(word, 0, tickSpacing);
+
+            if (prevTick <= MIN_TICK) {
+                prevTick = MIN_TICK;
+                break;
+            }
 
             if (skipAhead == 0) {
                 break;
             }
+
             skipAhead--;
+            prevTick--;
         }
     }
 }

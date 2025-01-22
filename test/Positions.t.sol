@@ -27,7 +27,7 @@ contract PositionsTest is FullTest {
         assertEq(token0.balanceOf(address(core)), 100);
         assertEq(token1.balanceOf(address(core)), 100);
 
-        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity, address(this));
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity);
 
         // original 100, rounded down, minus the 50% fee
         assertEq(amount0, 49);
@@ -50,15 +50,15 @@ contract PositionsTest is FullTest {
             TokenAmount({token: address(token0), amount: 100})
         );
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
+        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
         assertEq(amount0, 49);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
+        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity, address(this));
+        (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
 
         assertEq(amount0, 74);
         assertEq(amount1, 25);
@@ -80,15 +80,15 @@ contract PositionsTest is FullTest {
             TokenAmount({token: address(token1), amount: 100})
         );
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
+        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
         assertEq(amount0, 0);
         assertEq(amount1, 49);
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
+        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity, address(this));
+        (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
 
         assertEq(amount0, 25);
         assertEq(amount1, 74);
@@ -112,8 +112,7 @@ contract PositionsTest is FullTest {
             TokenAmount({token: address(token1), amount: 50})
         );
 
-        (uint128 amount0, uint128 amount1) =
-            positions.collectFeesAndWithdraw(id, poolKey, Bounds(-100, 100), liquidity, address(this));
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
         assertEq(amount0, 111);
         assertEq(amount1, 61);
     }

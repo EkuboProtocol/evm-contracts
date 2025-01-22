@@ -13,32 +13,32 @@ abstract contract SlippageChecker is Multicallable {
     error MinimumOutputNotReceived(address token, uint256 minimumOutput);
     error MaximumInputExceeded(address token, uint256 maximumInput);
 
-    function balanceKey(address sender, address token) private pure returns (bytes32 key) {
+    function balanceKey(address token, address account) private pure returns (bytes32 key) {
         assembly ("memory-safe") {
-            mstore(0, sender)
-            mstore(32, token)
+            mstore(0, token)
+            mstore(32, account)
             // 0x2ea13d3f0340a613d1765d6e239004eca4cb7efa2e253d1e113c4d333b8db7c8 == `cast keccak "SlippageChecker#balanceKey"`
             key := add(keccak256(0, 64), 0x2ea13d3f0340a613d1765d6e239004eca4cb7efa2e253d1e113c4d333b8db7c8)
         }
     }
 
-    function getRecordedBalance(address token) private view returns (uint256 prev) {
-        bytes32 key = balanceKey(msg.sender, token);
+    function getRecordedBalance(address token, address account) private view returns (uint256 prev) {
+        bytes32 key = balanceKey(token, account);
         assembly ("memory-safe") {
             prev := tload(key)
         }
     }
 
-    function getBalance(address token, address owner) private view returns (uint256 balance) {
+    function getBalance(address token, address account) private view returns (uint256 balance) {
         if (token == NATIVE_TOKEN_ADDRESS) {
-            balance = owner.balance;
+            balance = account.balance;
         } else {
-            balance = SafeTransferLib.balanceOf(token, msg.sender);
+            balance = SafeTransferLib.balanceOf(token, account);
         }
     }
 
     function recordBalanceForSlippageCheck(address token) external payable {
-        bytes32 key = balanceKey(msg.sender, token);
+        bytes32 key = balanceKey(token, msg.sender);
         uint256 bal = getBalance(token, msg.sender);
         assembly ("memory-safe") {
             tstore(key, bal)
@@ -50,7 +50,7 @@ abstract contract SlippageChecker is Multicallable {
     }
 
     function checkMinimumOutputReceived(address token, uint256 minimumOutput) external payable {
-        uint256 prev = getRecordedBalance(token);
+        uint256 prev = getRecordedBalance(token, msg.sender);
         uint256 bal = getBalance(token, msg.sender);
         unchecked {
             if (bal < prev || (bal - prev) < minimumOutput) {
@@ -60,7 +60,7 @@ abstract contract SlippageChecker is Multicallable {
     }
 
     function checkMaximumInputNotExceeded(address token, uint256 maximumInput) external payable {
-        uint256 prev = getRecordedBalance(token);
+        uint256 prev = getRecordedBalance(token, msg.sender);
         uint256 bal = getBalance(token, msg.sender);
         unchecked {
             if (bal < prev && (prev - bal) > maximumInput) {

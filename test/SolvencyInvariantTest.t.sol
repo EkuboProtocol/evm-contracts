@@ -120,9 +120,7 @@ contract Handler is StdUtils, StdAssertions {
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity, address(this)) returns (
-            uint128 amount0, uint128 amount1
-        ) {
+        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity) returns (uint128 amount0, uint128 amount1) {
             bytes32 poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));

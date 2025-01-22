@@ -113,38 +113,45 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         );
     }
 
+    function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
+        public
+        payable
+        authorizedForNft(id)
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = collectFees(id, poolKey, bounds, msg.sender);
+    }
+
     function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
         public
         payable
         authorizedForNft(id)
         returns (uint128 amount0, uint128 amount1)
     {
-        return
-            abi.decode(lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, recipient))), (uint128, uint128));
+        (amount0, amount1) = withdraw(id, poolKey, bounds, 0, recipient, true);
     }
 
-    function withdraw(uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity, address recipient)
+    function withdraw(
+        uint256 id,
+        PoolKey memory poolKey,
+        Bounds memory bounds,
+        uint128 liquidity,
+        address recipient,
+        bool withFees
+    ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
+        (amount0, amount1) = abi.decode(
+            lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, liquidity, recipient, withFees))),
+            (uint128, uint128)
+        );
+    }
+
+    function withdraw(uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity)
         public
         payable
         authorizedForNft(id)
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = abi.decode(
-            lock(abi.encodePacked(uint8(2), abi.encode(id, poolKey, bounds, liquidity, recipient))), (uint128, uint128)
-        );
-    }
-
-    function collectFeesAndWithdraw(
-        uint256 id,
-        PoolKey memory poolKey,
-        Bounds memory bounds,
-        uint128 liquidity,
-        address recipient
-    ) external payable returns (uint128 amount0, uint128 amount1) {
-        (amount0, amount1) = collectFees(id, poolKey, bounds, recipient);
-        (uint128 p0, uint128 p1) = withdraw(id, poolKey, bounds, liquidity, recipient);
-        amount0 += p0;
-        amount1 += p1;
+        (amount0, amount1) = withdraw(id, poolKey, bounds, liquidity, address(msg.sender), true);
     }
 
     // Can be used to lock liquidity, or just to refund some gas after withdrawing
@@ -201,25 +208,33 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
 
             result = abi.encode(amount0, amount1);
         } else if (callType == 1) {
-            (uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient) =
-                abi.decode(data[1:], (uint256, PoolKey, Bounds, address));
+            (
+                uint256 id,
+                PoolKey memory poolKey,
+                Bounds memory bounds,
+                uint128 liquidity,
+                address recipient,
+                bool withFees
+            ) = abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128, address, bool));
 
-            (uint128 amount0, uint128 amount1) = core.collectFees(poolKey, bytes32(id), bounds);
+            uint128 amount0;
+            uint128 amount1;
 
-            withdrawFromCore(poolKey.token0, amount0, recipient);
-            withdrawFromCore(poolKey.token1, amount1, recipient);
+            // collect first in case we are withdrawing the entire amount
+            if (withFees) {
+                (amount0, amount1) = core.collectFees(poolKey, bytes32(id), bounds);
+            }
 
-            result = abi.encode(amount0, amount1);
-        } else if (callType == 2) {
-            (uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity, address recipient) =
-                abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128, address));
+            if (liquidity != 0) {
+                (int128 delta0, int128 delta1) = core.updatePosition(
+                    poolKey,
+                    UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: -int128(liquidity)})
+                );
 
-            (int128 delta0, int128 delta1) = core.updatePosition(
-                poolKey,
-                UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: -int128(liquidity)})
-            );
-
-            (uint128 amount0, uint128 amount1) = (uint128(-delta0), uint128(-delta1));
+                // cast and safemath not necessary, -int128 always fits in uint128
+                amount0 += uint128(-delta0);
+                amount1 += uint128(-delta1);
+            }
 
             withdrawFromCore(poolKey.token0, amount0, recipient);
             withdrawFromCore(poolKey.token1, amount1, recipient);

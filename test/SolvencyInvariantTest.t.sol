@@ -104,9 +104,12 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
+
+            // 0x4e487b71 is arithmetic overflow/underflow
             if (
                 sig != Positions.DepositOverflow.selector && sig != MaxLiquidityForToken0Overflow.selector
                     && sig != MaxLiquidityForToken1Overflow.selector && sig != SafeCastLib.Overflow.selector
+                    && sig != 0x4e487b71
             ) {
                 revert UnexpectedError(sig, err);
             }

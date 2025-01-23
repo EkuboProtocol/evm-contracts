@@ -124,6 +124,38 @@ contract PositionsTest is FullTest {
         assertEq(amount1, 61); // 75/2 + 24
     }
 
+    function test_collectFeesOnly(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+
+        token0.approve(address(router), 100);
+        token1.approve(address(router), 50);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100})
+        );
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 50})
+        );
+
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
+
+        assertEq(amount0, 49);
+        assertEq(amount1, 24);
+
+        (uint128 liquidityAfter, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+        assertEq(liquidityAfter, liquidity);
+        assertEq(p0, 124);
+        assertEq(p1, 75);
+        assertEq(f0, 0);
+        assertEq(f1, 0);
+    }
+
     function test_mintAndDeposit_gas() public {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100);
         token0.approve(address(positions), 100);

@@ -102,6 +102,12 @@ contract CoreTest is FullTest {
         }
     }
 
+    function test_cannotReceiveEthOutsideOfLockContext() public {
+        (bool success, bytes memory revertData) = address(core).call{value: 1}("");
+        assertFalse(success);
+        assertEq(revertData, abi.encodePacked(ICore.NotLocked.selector));
+    }
+
     function test_initializePool(
         address token0,
         address token1,

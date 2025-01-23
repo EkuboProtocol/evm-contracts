@@ -10,13 +10,13 @@ import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
-import {Multicallable} from "solady/utils/Multicallable.sol";
+import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
-contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, ERC721 {
+contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLocker, ERC721 {
     error Unauthorized(address caller, uint256 id);
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {Multicallable} from "solady/utils/Multicallable.sol";
+import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/keys.sol";
@@ -31,7 +31,7 @@ struct Delta {
     int128 amount1;
 }
 
-contract Router is Multicallable, SlippageChecker, Permittable, CoreLocker {
+contract Router is PayableMulticallable, SlippageChecker, Permittable, CoreLocker {
     error PartialSwapsDisallowed();
 
     constructor(ICore core) CoreLocker(core) {}

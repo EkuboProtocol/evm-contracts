@@ -32,7 +32,7 @@ abstract contract CoreLocker is UsesCore, ILocker {
     }
 
     // Since payments of ETH to Core happen from this contract, we need to allow users to refund the ETH they sent
-    function refundNativeToken() external {
+    function refundNativeToken() external payable {
         if (address(this).balance > 0) {
             SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
         }

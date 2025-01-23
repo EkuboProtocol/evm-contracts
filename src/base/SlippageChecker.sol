@@ -2,13 +2,12 @@
 pragma solidity =0.8.28;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {Multicallable} from "solady/utils/Multicallable.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
 
 // Has methods that are multicallable for checking deadlines and balance changes
-// Necessarily multicallable, because these methods are expected to be called as part of another transaction that manipulates balances
+// Only useful in multicallable context, because these methods are expected to be called as part of another transaction that manipulates balances
 // All methods are payable in case they are paired with other payable Multicallable calls
-abstract contract SlippageChecker is Multicallable {
+abstract contract SlippageChecker {
     error TransactionExpired(uint256 deadline);
     error MinimumOutputNotReceived(address token, uint256 minimumOutput);
     error MaximumInputExceeded(address token, uint256 maximumInput);

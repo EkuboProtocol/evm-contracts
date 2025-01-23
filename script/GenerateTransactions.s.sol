@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
 import {Positions} from "../src/Positions.sol";
+import {CoreLocker} from "../src/base/CoreLocker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "../test/TestToken.sol";
@@ -17,12 +18,19 @@ contract GenerateTransactions is Script {
     Positions public positions = Positions(vm.envAddress("POSITIONS"));
     Router public router = Router(vm.envAddress("ROUTER"));
 
+    function approveIfNecessary(TestToken t, address a) private {
+        address spender = vm.getWallets()[0];
+        if (t.allowance(spender, a) == 0) {
+            t.approve(a, type(uint256).max);
+        }
+    }
+
     function run() public {
         vm.startBroadcast();
-        token0.approve(address(positions), type(uint256).max);
-        token1.approve(address(positions), type(uint256).max);
-        token0.approve(address(router), type(uint256).max);
-        token1.approve(address(router), type(uint256).max);
+        approveIfNecessary(token0, address(positions));
+        approveIfNecessary(token1, address(positions));
+        approveIfNecessary(token0, address(router));
+        approveIfNecessary(token1, address(router));
 
         PoolKey memory poolKey = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
@@ -35,13 +43,29 @@ contract GenerateTransactions is Script {
         Bounds memory bounds = Bounds(4606140 - 5982 * 33, 4606140 + 5982 * 33);
 
         // ~100 token1/token0
-        positions.maybeInitializePool(poolKey, 4606140);
-        // +/- 10%
-        positions.mintAndDeposit{value: 10000000}(poolKey, bounds, 10000000, 10000000 * 100, 0);
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = abi.encodeWithSelector(Positions.maybeInitializePool.selector, poolKey, int32(4606140));
+        calls[1] = abi.encodeWithSelector(
+            Positions.mintAndDeposit.selector, poolKey, bounds, uint128(10000000), uint128(10000000 * 100), 0
+        );
+        calls[2] = abi.encodeWithSelector(CoreLocker.refundNativeToken.selector);
+
+        positions.multicall{value: 10000000}(calls);
 
         router.swap{value: 1000}(RouteNode(poolKey, 0, 0), TokenAmount(NATIVE_TOKEN_ADDRESS, 1000));
         router.swap(RouteNode(poolKey, 0, 0), TokenAmount(address(token1), 100000));
 
+        calls = new bytes[](3);
+        calls[0] = abi.encodeWithSelector(
+            Router.swap.selector, RouteNode(poolKey, 0, 0), TokenAmount(NATIVE_TOKEN_ADDRESS, 1000)
+        );
+        calls[1] =
+            abi.encodeWithSelector(Router.swap.selector, RouteNode(poolKey, 0, 0), TokenAmount(address(token1), 100000));
+        calls[2] = abi.encodeWithSelector(CoreLocker.refundNativeToken.selector);
+        router.multicall{value: 1000}(calls);
+
         vm.stopBroadcast();
     }
+
+    receive() external payable {}
 }

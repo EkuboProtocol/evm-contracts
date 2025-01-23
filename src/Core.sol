@@ -575,7 +575,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     receive() external payable {
         (uint256 id,) = requireLocker();
 
-        // Assumption that msg.value will never overflow this cast or subtraction
+        // Assumption that msg.value will never overflow this cast
         unchecked {
             accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }

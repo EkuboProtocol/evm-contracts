@@ -8,7 +8,7 @@ struct FeesPerLiquidity {
     uint256 value1;
 }
 
-using {sub, add} for FeesPerLiquidity global;
+using {sub, add, addEq} for FeesPerLiquidity global;
 
 function sub(FeesPerLiquidity memory a, FeesPerLiquidity memory b) pure returns (FeesPerLiquidity memory result) {
     assembly ("memory-safe") {
@@ -21,6 +21,13 @@ function add(FeesPerLiquidity memory a, FeesPerLiquidity memory b) pure returns 
     assembly ("memory-safe") {
         mstore(result, add(mload(a), mload(b)))
         mstore(add(result, 32), add(mload(add(a, 32)), mload(add(b, 32))))
+    }
+}
+
+function addEq(FeesPerLiquidity memory a, FeesPerLiquidity memory b) pure {
+    assembly ("memory-safe") {
+        mstore(a, add(mload(a), mload(b)))
+        mstore(add(a, 32), add(mload(add(a, 32)), mload(add(b, 32))))
     }
 }
 

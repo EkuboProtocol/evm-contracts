@@ -519,7 +519,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
 
                 if (result.feeAmount != 0) {
                     // we know liquidity is non zero if this happens
-                    feesPerLiquidity = feesPerLiquidity.add(
+                    feesPerLiquidity.addEq(
                         increasing
                             ? feesPerLiquidityFromAmounts(0, result.feeAmount, liquidity)
                             : feesPerLiquidityFromAmounts(result.feeAmount, 0, liquidity)

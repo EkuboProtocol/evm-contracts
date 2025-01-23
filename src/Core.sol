@@ -519,11 +519,13 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
 
                 if (result.feeAmount != 0) {
                     // we know liquidity is non zero if this happens
-                    feesPerLiquidity.addEq(
-                        increasing
-                            ? feesPerLiquidityFromAmounts(0, result.feeAmount, liquidity)
-                            : feesPerLiquidityFromAmounts(result.feeAmount, 0, liquidity)
-                    );
+                    unchecked {
+                        uint256 v = (uint256(result.feeAmount) << 128) / liquidity;
+                        feesPerLiquidity.value0 =
+                            FixedPointMathLib.ternary(increasing, feesPerLiquidity.value0, feesPerLiquidity.value0 + v);
+                        feesPerLiquidity.value1 =
+                            FixedPointMathLib.ternary(!increasing, feesPerLiquidity.value1, feesPerLiquidity.value1 + v);
+                    }
                 }
 
                 amountRemaining -= result.consumedAmount;

@@ -48,14 +48,28 @@ contract SwapTest is Test {
         vm.assumeNoRevert();
         SwapResult memory result = this.sr(sqrtRatio, liquidity, sqrtRatioLimit, amount, isToken1, fee);
 
+        bool consumedAll = amount == result.consumedAmount;
+
         if (amount == 0) {
             assertEq(result.sqrtRatioNext, sqrtRatio);
         } else if (increasing) {
             assertGe(result.sqrtRatioNext, sqrtRatio);
             assertLe(result.sqrtRatioNext, sqrtRatioLimit);
+
+            if (consumedAll) {
+                assertLe(result.sqrtRatioNext, sqrtRatioLimit);
+            } else {
+                assertEq(result.sqrtRatioNext, sqrtRatioLimit);
+            }
         } else {
             assertLe(result.sqrtRatioNext, sqrtRatio);
             assertGe(result.sqrtRatioNext, sqrtRatioLimit);
+
+            if (consumedAll) {
+                assertGe(result.sqrtRatioNext, sqrtRatioLimit);
+            } else {
+                assertEq(result.sqrtRatioNext, sqrtRatioLimit);
+            }
         }
 
         if (amount > 0) {

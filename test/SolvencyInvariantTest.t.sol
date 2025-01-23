@@ -14,6 +14,7 @@ import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
 import {TestToken} from "./TestToken.sol";
 import {
@@ -27,6 +28,8 @@ import {
 import {ICore} from "../src/interfaces/ICore.sol";
 
 contract Handler is StdUtils, StdAssertions {
+    using CoreLib for *;
+
     uint256 immutable positionId;
 
     struct ActivePosition {
@@ -40,6 +43,7 @@ contract Handler is StdUtils, StdAssertions {
         int256 amount1;
     }
 
+    ICore immutable core;
     Positions immutable positions;
     Router immutable router;
     TestToken immutable token0;
@@ -49,7 +53,8 @@ contract Handler is StdUtils, StdAssertions {
 
     mapping(bytes32 poolId => Balances balances) poolBalances;
 
-    constructor(Positions _positions, Router _router, TestToken _token0, TestToken _token1) {
+    constructor(ICore _core, Positions _positions, Router _router, TestToken _token0, TestToken _token1) {
+        core = _core;
         positions = _positions;
         router = _router;
         token0 = _token0;
@@ -149,7 +154,7 @@ contract Handler is StdUtils, StdAssertions {
     function swap(uint256 poolKeyIndex, SwapParameters memory params) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        (uint256 price,) = positions.getPoolPrice(poolKey);
+        (uint256 price,) = core.poolPrice(poolKey.toPoolId());
 
         params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
 
@@ -193,11 +198,11 @@ contract Handler is StdUtils, StdAssertions {
         }
     }
 
-    function checkAllPoolsHaveValidPriceAndTick() public {
+    function checkAllPoolsHaveValidPriceAndTick() public view {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
             PoolKey memory poolKey = allPoolKeys[i];
 
-            (uint256 sqrtRatio, int32 tick) = positions.getPoolPrice(poolKey);
+            (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
 
             assertGe(sqrtRatio, MIN_SQRT_RATIO);
             assertLe(sqrtRatio, MAX_SQRT_RATIO);
@@ -212,7 +217,7 @@ contract SolvencyInvariantTest is FullTest {
 
     function setUp() public override {
         FullTest.setUp();
-        handler = new Handler(positions, router, token0, token1);
+        handler = new Handler(core, positions, router, token0, token1);
         token0.transfer(address(handler), type(uint256).max);
         token1.transfer(address(handler), type(uint256).max);
         targetContract(address(handler));

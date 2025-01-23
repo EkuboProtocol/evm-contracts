@@ -78,28 +78,13 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         _mint(msg.sender, id);
     }
 
-    // Gets the pool price of a pool, accounting for any before update position extension behavior
-    //  todo: we should allow specifying bounds and liquidity delta here, in case the extension behavior depends on it,
-    //          and catch reverts to get the price
-    function getPoolPrice(PoolKey memory poolKey) public returns (uint192 sqrtRatio, int32 tick) {
-        if (shouldCallBeforeUpdatePosition(poolKey.extension)) {
-            (sqrtRatio, tick) = abi.decode(lock(abi.encodePacked(uint8(3), abi.encode(poolKey))), (uint192, int32));
-        } else {
-            (sqrtRatio, tick) = core.poolPrice(poolKey.toPoolId());
-        }
-    }
-
-    function getPoolLiquidity(PoolKey memory poolKey) external view returns (uint128 liquidity) {
-        liquidity = core.poolLiquidity(poolKey.toPoolId());
-    }
-
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
         external
+        view
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
     {
-        (uint256 sqrtRatio,) = getPoolPrice(poolKey);
-
         bytes32 poolId = poolKey.toPoolId();
+        (uint256 sqrtRatio,) = core.poolPrice(poolId);
         bytes32 positionId = PositionKey(bytes32(id), address(this), bounds).toPositionId();
         Position memory position = core.poolPositions(poolId, positionId);
 
@@ -126,7 +111,7 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         uint128 maxAmount1,
         uint128 minLiquidity
     ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        (uint256 sqrtRatio,) = getPoolPrice(poolKey);
+        (uint256 sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
 
         liquidity = maxLiquidity(
             sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), maxAmount0, maxAmount1
@@ -272,18 +257,6 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
             withdrawFromCore(poolKey.token1, amount1, recipient);
 
             result = abi.encode(amount0, amount1);
-        } else if (callType == 3) {
-            (PoolKey memory poolKey) = abi.decode(data[1:], (PoolKey));
-
-            // an empty update that we expect to succeed in all cases for well-behaving extensions
-            core.updatePosition(
-                poolKey,
-                UpdatePositionParameters({salt: bytes32(0), bounds: maxBounds(poolKey.tickSpacing), liquidityDelta: 0})
-            );
-
-            (uint256 price, int32 tick) = core.poolPrice(poolKey.toPoolId());
-
-            result = abi.encode(price, tick);
         } else {
             revert UnexpectedCallTypeByte(callType);
         }

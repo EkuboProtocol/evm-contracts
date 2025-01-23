@@ -7,6 +7,10 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/math/ticks.sol";
 
 contract SwapTest is Test {
     function test_isPriceIncreasing() public pure {
+        // zero is assumed to be exact input
+        assertFalse(isPriceIncreasing(0, false));
+        assertTrue(isPriceIncreasing(0, true));
+
         // token1 in, token0 out
         assertTrue(isPriceIncreasing(1, true));
         assertTrue(isPriceIncreasing(-1, false));
@@ -23,6 +27,14 @@ contract SwapTest is Test {
         assertEq(result.sqrtRatioNext, sqrtRatio);
     }
 
+    function sr(uint256 sqrtRatio, uint128 liquidity, uint256 sqrtRatioLimit, int128 amount, bool isToken1, uint128 fee)
+        external
+        pure
+        returns (SwapResult memory)
+    {
+        return swapResult(sqrtRatio, liquidity, sqrtRatioLimit, amount, isToken1, fee);
+    }
+
     function test_swapResult(
         uint256 sqrtRatio,
         uint128 liquidity,
@@ -30,29 +42,28 @@ contract SwapTest is Test {
         int128 amount,
         bool isToken1,
         uint128 fee
-    ) public pure {
-        sqrtRatio = bound(sqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
-        // this prevents overflow
-        liquidity = uint128(bound(liquidity, 1, type(uint112).max));
-
-        uint256 feeMultiplier = type(uint256).max / ((1 << 128) - fee);
-        uint256 maxAmount = uint128(type(uint128).max / feeMultiplier);
-        amount = int128(bound(amount, -int256(maxAmount), int256(maxAmount)));
-
+    ) public view {
         bool increasing = isPriceIncreasing(amount, isToken1);
-        if (isPriceIncreasing(amount, isToken1)) {
-            sqrtRatioLimit = bound(sqrtRatioLimit, sqrtRatio, MAX_SQRT_RATIO);
-        } else {
-            sqrtRatioLimit = bound(sqrtRatioLimit, MIN_SQRT_RATIO, sqrtRatio);
-        }
 
         vm.assumeNoRevert();
-        SwapResult memory result = swapResult(sqrtRatio, liquidity, sqrtRatioLimit, amount, isToken1, fee);
+        SwapResult memory result = this.sr(sqrtRatio, liquidity, sqrtRatioLimit, amount, isToken1, fee);
 
-        if (increasing) {
+        if (amount == 0) {
+            assertEq(result.sqrtRatioNext, sqrtRatio);
+        } else if (increasing) {
             assertGe(result.sqrtRatioNext, sqrtRatio);
+            assertLe(result.sqrtRatioNext, sqrtRatioLimit);
         } else {
             assertLe(result.sqrtRatioNext, sqrtRatio);
+            assertGe(result.sqrtRatioNext, sqrtRatioLimit);
+        }
+
+        if (amount > 0) {
+            assertLe(result.feeAmount, uint128(amount));
+            assertLe(result.consumedAmount, amount);
+        } else {
+            // we may have only received -50 if we wanted -100
+            assertGe(result.consumedAmount, amount);
         }
     }
 }

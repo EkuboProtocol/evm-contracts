@@ -11,6 +11,8 @@ function nextSqrtRatioFromAmount0(uint256 sqrtRatio, uint128 liquidity, int128 a
     pure
     returns (uint256 sqrtRatioNext)
 {
+    assert(sqrtRatio != 0);
+
     if (amount == 0) {
         return sqrtRatio;
     }
@@ -19,45 +21,39 @@ function nextSqrtRatioFromAmount0(uint256 sqrtRatio, uint128 liquidity, int128 a
         revert ZeroLiquidityNextSqrtRatioFromAmount0();
     }
 
-    unchecked {
-        uint256 liquidityX128 = uint256(liquidity) << 128;
-        uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
+    uint256 liquidityX128 = uint256(liquidity) << 128;
+    uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
 
-        bool priceIncreasing = amount < 0;
-        // If amountAbs > type(uint256).max / sqrtRatio => overflow in multiplication
-        // sqrtRatio is never zero
-        // We know if this overflows, the denominator computed below will also always overflow
-        if (amountAbs > type(uint256).max / sqrtRatio) {
-            // Overflow => return the min/max for the type
-            return priceIncreasing ? type(uint256).max : 0;
-        }
+    if (amount < 0) {
+        unchecked {
+            // multiplication will revert on overflow, so we return the maximum value for the type
+            if (amountAbs > type(uint256).max / sqrtRatio) {
+                return type(uint256).max;
+            }
 
-        uint256 product = amountAbs * sqrtRatio;
+            uint256 product = sqrtRatio * amountAbs;
 
-        // If amount < 0 => price is going up => denominator = (liquidityX128 - product)
-        // If amount > 0 => price is going down => denominator = (liquidityX128 + product)
-        if (priceIncreasing) {
-            // “Removing token0” => denominator = liquidityX128 - product
-            // Check underflow or zero denominator
-            // If product >= liquidityX128 => underflow (or denominator=0)
+            // again it will overflow if this is the case, so return the max value
             if (product >= liquidityX128) {
                 return type(uint256).max;
             }
+
             uint256 denominator = liquidityX128 - product;
 
             sqrtRatioNext = FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator);
-        } else {
-            uint256 denominator = liquidityX128 + product;
-            // If denominator addition overflowed...
-            if (denominator < liquidityX128) {
-                return 0;
-            }
-
-            sqrtRatioNext = FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator);
         }
-    }
+    } else {
+        uint256 denominator;
+        unchecked {
+            uint256 denominatorP1 = liquidityX128 / sqrtRatio;
 
-    return sqrtRatioNext;
+            // this can never overflow, amountAbs is limited to 2**128-1 and liquidityX128 / sqrtRatio is limited to (2**128-1 << 128)
+            // adding the 2 values can at most equal type(uint256).max
+            denominator = denominatorP1 + amountAbs;
+        }
+
+        sqrtRatioNext = FixedPointMathLib.divUp(liquidityX128, denominator);
+    }
 }
 
 error ZeroLiquidityNextSqrtRatioFromAmount1();
@@ -66,6 +62,8 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
     pure
     returns (uint256 sqrtRatioNext)
 {
+    assert(sqrtRatio != 0);
+
     if (amount == 0) {
         return sqrtRatio;
     }
@@ -105,6 +103,4 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
             sqrtRatioNext = sum;
         }
     }
-
-    return sqrtRatioNext;
 }

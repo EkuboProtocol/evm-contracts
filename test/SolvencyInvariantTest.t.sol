@@ -7,6 +7,7 @@ import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
+import {MAX_TICK, MIN_TICK, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "../src/math/ticks.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {MaxLiquidityForToken0Overflow, MaxLiquidityForToken1Overflow} from "../src/math/liquidity.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
@@ -191,6 +192,19 @@ contract Handler is StdUtils, StdAssertions {
             assertGe(poolBalances[poolId].amount1, 0);
         }
     }
+
+    function checkAllPoolsHaveValidPriceAndTick() public {
+        for (uint256 i = 0; i < allPoolKeys.length; i++) {
+            PoolKey memory poolKey = allPoolKeys[i];
+
+            (uint256 sqrtRatio, int32 tick) = positions.getPoolPrice(poolKey);
+
+            assertGe(sqrtRatio, MIN_SQRT_RATIO);
+            assertLe(sqrtRatio, MAX_SQRT_RATIO);
+            assertGe(tick, MIN_TICK);
+            assertLe(tick, MAX_TICK);
+        }
+    }
 }
 
 contract SolvencyInvariantTest is FullTest {
@@ -204,7 +218,8 @@ contract SolvencyInvariantTest is FullTest {
         targetContract(address(handler));
     }
 
-    function invariant_allPoolsHavePositiveBalance() public view {
+    function invariant_allPoolsHaveValidStates() public {
         handler.checkAllPoolsHavePositiveBalance();
+        handler.checkAllPoolsHaveValidPriceAndTick();
     }
 }

@@ -5,6 +5,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {computeFee, amountBeforeFee} from "./fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./delta.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 struct SwapResult {
     int128 consumedAmount;
@@ -47,12 +48,18 @@ function swapResult(
         return noOpSwapResult(sqrtRatioLimit);
     }
 
+    bool isExactOut = amount < 0;
+
     // this amount is what moves the price
     int128 priceImpactAmount;
-    if (amount < 0) {
+    if (isExactOut) {
         priceImpactAmount = amount;
     } else {
-        priceImpactAmount = amount - int128(computeFee(uint128(amount), fee));
+        unchecked {
+            // cast is safe because amount is g.t.e. 0
+            // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
+            priceImpactAmount = amount - int128(computeFee(uint128(amount), fee));
+        }
     }
 
     uint256 sqrtRatioNextFromAmount;
@@ -61,8 +68,6 @@ function swapResult(
     } else {
         sqrtRatioNextFromAmount = nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
     }
-
-    bool isExactOut = amount < 0;
 
     int128 consumedAmount;
     uint128 calculatedAmount;
@@ -86,14 +91,14 @@ function swapResult(
 
         if (isExactOut) {
             uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, fee);
-            consumedAmount = -int128(specifiedAmountDelta);
+            consumedAmount = -SafeCastLib.toInt128(specifiedAmountDelta);
             calculatedAmount = beforeFee;
             feeAmount = beforeFee - calculatedAmountDelta;
         } else {
-            uint128 beforeFee = amountBeforeFee(uint128(specifiedAmountDelta), fee);
-            consumedAmount = int128(beforeFee);
+            uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, fee);
+            consumedAmount = SafeCastLib.toInt128(beforeFee);
             calculatedAmount = calculatedAmountDelta;
-            feeAmount = beforeFee - uint128(specifiedAmountDelta);
+            feeAmount = beforeFee - specifiedAmountDelta;
         }
 
         return SwapResult({

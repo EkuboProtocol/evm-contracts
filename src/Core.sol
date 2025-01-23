@@ -517,15 +517,12 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
                     sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
                 );
 
-                if (result.feeAmount != 0) {
-                    // we know liquidity is non zero if this happens
-                    unchecked {
-                        uint256 v = (uint256(result.feeAmount) << 128) / liquidity;
-                        feesPerLiquidity.value0 =
-                            FixedPointMathLib.ternary(increasing, feesPerLiquidity.value0, feesPerLiquidity.value0 + v);
-                        feesPerLiquidity.value1 =
-                            FixedPointMathLib.ternary(!increasing, feesPerLiquidity.value1, feesPerLiquidity.value1 + v);
-                    }
+                // this accounts the fees into the feesPerLiquidity memory struct
+                assembly ("memory-safe") {
+                    // div by 0 returns 0, so it's ok
+                    let v := div(shl(128, mload(add(result, 96))), liquidity)
+                    let s := add(feesPerLiquidity, mul(increasing, 32))
+                    mstore(s, add(mload(s), v))
                 }
 
                 amountRemaining -= result.consumedAmount;

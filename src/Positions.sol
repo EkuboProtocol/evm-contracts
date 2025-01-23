@@ -91,13 +91,15 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
 
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
         external
-        returns (uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
+        returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
     {
         (uint256 sqrtRatio,) = getPoolPrice(poolKey);
 
         bytes32 poolId = poolKey.toPoolId();
         bytes32 positionId = PositionKey(bytes32(id), address(this), bounds).toPositionId();
         Position memory position = core.poolPositions(poolId, positionId);
+
+        liquidity = position.liquidity;
 
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
             sqrtRatio,

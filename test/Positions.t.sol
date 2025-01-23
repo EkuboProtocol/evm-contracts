@@ -112,7 +112,7 @@ contract PositionsTest is FullTest {
             TokenAmount({token: address(token1), amount: 50})
         );
 
-        (uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
             positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
         assertEq(p0, 124);
         assertEq(p1, 75);

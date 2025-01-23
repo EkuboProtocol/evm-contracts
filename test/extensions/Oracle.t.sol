@@ -4,7 +4,14 @@ pragma solidity =0.8.28;
 import {NATIVE_TOKEN_ADDRESS, UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "../../src/types/keys.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../../src/math/ticks.sol";
+import {
+    MIN_TICK,
+    MAX_TICK,
+    MIN_SQRT_RATIO,
+    MAX_SQRT_RATIO,
+    MAX_TICK_SPACING,
+    tickToSqrtRatio
+} from "../../src/math/ticks.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle} from "../../src/extensions/Oracle.sol";
@@ -12,6 +19,7 @@ import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
+import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 
 abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
@@ -88,9 +96,30 @@ abstract contract BaseOracleTest is FullTest {
         poolKey = createPool(t0, t1, tick, 0, MAX_TICK_SPACING, address(oracle));
     }
 
-    function updateOraclePoolLiquidity(address token, uint128 liquidity) internal {
+    function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal {
+        (address t0, address t1) =
+            token < address(oracleToken) ? (token, address(oracleToken)) : (address(oracleToken), token);
+        PoolKey memory pk = PoolKey(t0, t1, 0, MAX_TICK_SPACING, address(oracle));
+        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
         // todo: finish this for the price fetcher tests
-        Bounds(MIN_TICK, MAX_TICK);
+        (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);
+
+        (uint256 sqrtRatio,) = positions.getPoolPrice(pk);
+        if (liquidity < liquidityNext) {
+            (int128 d0, int128 d1) = liquidityDeltaToAmountDelta(
+                sqrtRatio, int128(liquidityNext - liquidity), MIN_SQRT_RATIO, MAX_SQRT_RATIO
+            );
+
+            bool isETH = t0 == NATIVE_TOKEN_ADDRESS;
+            if (!isETH) {
+                TestToken(t0).approve(address(positions), uint128(d0));
+            }
+            TestToken(t1).approve(address(positions), uint128(d1));
+
+            positions.deposit(positionId, pk, bounds, uint128(d0), uint128(d1), liquidityNext - liquidity);
+        } else if (liquidity > liquidityNext) {
+            positions.withdraw(positionId, pk, bounds, liquidity - liquidityNext);
+        }
     }
 }
 

@@ -43,7 +43,7 @@ contract PriceFetcher {
             for (uint256 i = 0; i < baseTokens.length; i++) {
                 address token = baseTokens[i];
                 if (oracleToken == token) {
-                    results[i] = Result(0, 0);
+                    results[i] = Result(1 << 128, type(uint128).max);
                 } else {
                     uint256 maxPeriod = getMaximumObservationPeriod(token);
 

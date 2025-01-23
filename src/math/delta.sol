@@ -17,27 +17,12 @@ function sortSqrtRatios(uint256 sqrtRatioA, uint256 sqrtRatioB)
     if (sqrtRatioLower == 0) revert ZeroSqrtRatio();
 }
 
-/**
- * @notice Computes the difference in amount of token0 between two sqrt ratios,
- *         rounding up if `roundUp = true`.
- * @dev Reverts if `sqrtRatioLower` is zero.
- *      Reverts if the final 256-bit intermediate calculations overflow a uint128.
- * @param sqrtRatioA The first sqrt price ratio as a Q128.128-like number
- * @param sqrtRatioB The second sqrt price ratio as a Q128.128-like number
- * @param liquidity  The amount of usable liquidity, stored as a uint128
- * @param roundUp    If true, the division is rounded up; otherwise truncated
- * @return amount0   The token0 delta amount as a uint128
- */
 function amount0Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount0)
 {
     unchecked {
         (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
-
-        if (liquidity == 0 || sqrtRatioLower == sqrtRatioUpper) {
-            return 0;
-        }
 
         if (roundUp) {
             uint256 result0 = FixedPointMathLib.fullMulDivUp(
@@ -57,30 +42,12 @@ function amount0Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity,
     }
 }
 
-/**
- * @notice Computes the difference in amount of token1 between two sqrt ratios,
- *         rounding up if `roundUp = true`.
- * @dev Reverts if `sqrtRatioLower` is zero.
- *      Reverts if the multiplication of `(sqrtRatioUpper - sqrtRatioLower) * liquidity`
- *      overflows 256 bits.
- * @param sqrtRatioA The first sqrt price ratio as a Q128.128-like number
- * @param sqrtRatioB The second sqrt price ratio as a Q128.128-like number
- * @param liquidity  The amount of usable liquidity, stored as a uint128
- * @param roundUp    If true, the final result is incremented by 1 if there is a remainder
- * @return amount1   The token1 delta amount as a uint128
- */
 function amount1Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount1)
 {
     unchecked {
         (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
-
-        if (sqrtRatioLower == 0) revert ZeroSqrtRatio();
-
-        if (liquidity == 0 || sqrtRatioLower == sqrtRatioUpper) {
-            return 0;
-        }
 
         uint256 difference = sqrtRatioUpper - sqrtRatioLower;
 

@@ -75,11 +75,9 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
     unchecked {
         uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
 
-        bool priceDecreasing = amount < 0;
+        uint256 quotient = shiftedAmountAbs / liquidity;
 
-        (uint256 quotient, uint256 remainder) = (shiftedAmountAbs / liquidity, shiftedAmountAbs % liquidity);
-
-        if (priceDecreasing) {
+        if (amount < 0) {
             if (quotient > sqrtRatio) {
                 // Underflow => return 0
                 return 0;
@@ -89,7 +87,7 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
 
             // If remainder is non-zero, we do one more step down (rounding).
             // If sqrtRatioNext == 0 => can't go lower => return 0
-            if (remainder != 0) {
+            if ((shiftedAmountAbs % liquidity) != 0) {
                 if (sqrtRatioNext == 0) {
                     return 0;
                 }

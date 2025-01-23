@@ -51,14 +51,16 @@ contract TicksTest is Test {
         assertEq(tickToSqrtRatio(MIN_TICK), MIN_SQRT_RATIO);
     }
 
-    function test_tickToSqrtRatio_reverts_magnitude() public {
-        vm.expectRevert(abi.encodeWithSelector(InvalidTick.selector, MAX_TICK + 1));
-        tickToSqrtRatio(MAX_TICK + 1);
+    function test_tickToSqrtRatio_reverts_gt_max_tick(int32 tick) public {
+        tick = int32(bound(tick, MAX_TICK + 1, type(int32).max));
+        vm.expectRevert(abi.encodeWithSelector(InvalidTick.selector, tick));
+        tickToSqrtRatio(tick);
     }
 
-    function test_tickToSqrtRatio_reverts_magnitude_negative() public {
-        vm.expectRevert(abi.encodeWithSelector(InvalidTick.selector, MIN_TICK - 1));
-        tickToSqrtRatio(MIN_TICK - 1);
+    function test_tickToSqrtRatio_reverts_lt_min_tick(int32 tick) public {
+        tick = int32(bound(tick, type(int32).min, MIN_TICK - 1));
+        vm.expectRevert(abi.encodeWithSelector(InvalidTick.selector, tick));
+        tickToSqrtRatio(tick);
     }
 
     function test_tickToSqrtRatio_always_increasing(int32 tick) public pure {
@@ -78,14 +80,16 @@ contract TicksTest is Test {
         assertEq(tickToSqrtRatio(-18129342), 39364507096818414277565165704570072);
     }
 
-    function test_sqrtRatioToTick_invalid_sqrtRatio_min() public {
-        vm.expectRevert(abi.encodeWithSelector(InvalidSqrtRatio.selector, MIN_SQRT_RATIO - 1));
-        sqrtRatioToTick(MIN_SQRT_RATIO - 1);
+    function test_sqrtRatioToTick_invalid_sqrtRatio_lt_min(uint256 sqrtRatio) public {
+        sqrtRatio = bound(sqrtRatio, 0, MIN_SQRT_RATIO - 1);
+        vm.expectRevert(abi.encodeWithSelector(InvalidSqrtRatio.selector, sqrtRatio));
+        sqrtRatioToTick(sqrtRatio);
     }
 
-    function test_sqrtRatioToTick_invalid_sqrtRatio_max() public {
-        vm.expectRevert(abi.encodeWithSelector(InvalidSqrtRatio.selector, MAX_SQRT_RATIO));
-        sqrtRatioToTick(MAX_SQRT_RATIO);
+    function test_sqrtRatioToTick_invalid_sqrtRatio_ge_max(uint256 sqrtRatio) public {
+        sqrtRatio = bound(sqrtRatio, MAX_SQRT_RATIO, type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(InvalidSqrtRatio.selector, sqrtRatio));
+        sqrtRatioToTick(sqrtRatio);
     }
 
     function test_sqrtRatioToTick_min_sqrt_ratio() public pure {

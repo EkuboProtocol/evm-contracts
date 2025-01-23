@@ -8,6 +8,7 @@ import {Router} from "../src/Router.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
+import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
@@ -62,6 +63,7 @@ contract DeployScript is Script {
             )
         }(core, ekuboToken);
         new PriceFetcher(oracle);
+        new CoreDataFetcher(core);
         vm.stopBroadcast();
     }
 }

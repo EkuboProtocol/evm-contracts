@@ -70,8 +70,11 @@ contract SqrtRatioTest is Test {
                 } else {
                     assertLe(uint128(-amount), this.a0d(sqrtRatio, sqrtRatioNext, liquidity, false));
                 }
-            } else {
+            } else if (amount > 0) {
                 assertGe(uint128(amount), this.a0d(sqrtRatio, sqrtRatioNext, liquidity, true));
+            } else {
+                assertEq(amount, 0);
+                assertEq(sqrtRatioNext, sqrtRatio);
             }
         }
     }
@@ -106,8 +109,11 @@ contract SqrtRatioTest is Test {
                 } else {
                     assertLe(uint128(uint256(-int256(amount))), this.a1d(sqrtRatio, sqrtRatioNext, liquidity, false));
                 }
-            } else {
+            } else if (amount > 0) {
                 assertGe(uint128(amount), this.a1d(sqrtRatio, sqrtRatioNext, liquidity, true));
+            } else {
+                assertEq(amount, 0);
+                assertEq(sqrtRatioNext, sqrtRatio);
             }
         }
     }

@@ -17,12 +17,16 @@ contract FeeTest is Test {
         assertLe(computeFee(amount, fee), amount);
     }
 
-    function test_amountBeforeFee_computeFee(uint128 amount, uint128 fee) public pure {
-        // prevents overflow
-        amount = uint128(bound(amount, 0, type(uint128).max >> 1));
-        fee = uint128(bound(fee, 0, 1 << 127));
+    function abf(uint128 afterFee, uint128 fee) external pure returns (uint128 result) {
+        result = amountBeforeFee(afterFee, fee);
+    }
 
-        uint128 before = amountBeforeFee(amount, fee);
+    function test_amountBeforeFee_computeFee(uint128 amount, uint128 fee) public view {
+        vm.assumeNoRevert();
+
+        uint128 before = this.abf(amount, fee);
+        assertGe(before, amount);
+
         uint128 aft = before - computeFee(before, fee);
         assertEq(aft, amount);
     }

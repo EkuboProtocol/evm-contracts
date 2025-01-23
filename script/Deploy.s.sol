@@ -7,6 +7,7 @@ import {Positions} from "../src/Positions.sol";
 import {Router} from "../src/Router.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
+import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
@@ -55,11 +56,12 @@ contract DeployScript is Script {
         BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator(owner, baseUrl);
         new Positions{salt: 0x0}(core, tokenURIGenerator);
         new Router{salt: 0x0}(core);
-        new Oracle{
+        Oracle oracle = new Oracle{
             salt: findExtensionSalt(
                 keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core, ekuboToken))), oracleCallPoints()
             )
         }(core, ekuboToken);
+        new PriceFetcher(oracle);
         vm.stopBroadcast();
     }
 }

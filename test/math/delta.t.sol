@@ -10,6 +10,7 @@ import {
     Amount0DeltaOverflow,
     Amount1DeltaOverflow
 } from "../../src/math/delta.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/math/ticks.sol";
 
@@ -46,6 +47,33 @@ contract DeltaTest is Test {
         assertEq(amount0Delta(339942424496442021441932674757011200255, 1 << 128, 1000000, true), 1001);
     }
 
+    function a0d(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
+        external
+        pure
+        returns (uint128)
+    {
+        return amount0Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+    }
+
+    function test_amount0Delta_fuzz(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
+        public
+        view
+    {
+        vm.assume(sqrtRatioA != 0 && sqrtRatioB != 0);
+        (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+
+        vm.assumeNoRevert();
+        uint128 amount = this.a0d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+
+        uint256 amountA = (uint256(liquidity) << 128) / sqrtRatioA;
+        uint256 amountB = (uint256(liquidity) << 128) / sqrtRatioB;
+        uint256 diff = amountA - amountB;
+
+        // it can only be off by up to 1
+        if (diff != 0) assertGe(amount, diff - 1);
+        if (diff != type(uint256).max) assertLe(amount, diff + 1);
+    }
+
     function test_amount1Delta_examples() public pure {
         assertEq(amount1Delta(1 << 128, MAX_SQRT_RATIO, 1, false), 18446296994052723737);
         assertEq(amount1Delta(MAX_SQRT_RATIO, 1 << 128, 1, false), 18446296994052723737);
@@ -61,5 +89,32 @@ contract DeltaTest is Test {
         assertEq(
             amount1Delta(1 << 128, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 340274119756928397675478831271437331477
         );
+    }
+
+    function a1d(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
+        external
+        pure
+        returns (uint128)
+    {
+        return amount1Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+    }
+
+    function test_amount1Delta_fuzz(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
+        public
+        view
+    {
+        vm.assume(sqrtRatioA != 0 && sqrtRatioB != 0);
+        (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+
+        vm.assumeNoRevert();
+        uint128 amount = this.a1d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+
+        uint256 amountA = FixedPointMathLib.fullMulDivN(liquidity, sqrtRatioA, 128);
+        uint256 amountB = FixedPointMathLib.fullMulDivN(liquidity, sqrtRatioB, 128);
+        uint256 diff = amountB - amountA;
+
+        // it can only be off by up to 1
+        if (diff != 0) assertGe(amount, diff - 1);
+        if (diff != type(uint256).max) assertLe(amount, diff + 1);
     }
 }

@@ -7,7 +7,8 @@ import {
     addLiquidityDelta,
     subLiquidityDelta,
     LiquidityUnderflow,
-    LiquidityOverflow
+    LiquidityOverflow,
+    maxLiquidity
 } from "../../src/math/liquidity.sol";
 
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, tickToSqrtRatio} from "../../src/math/ticks.sol";
@@ -176,5 +177,34 @@ contract LiquidityTest is Test {
             vm.expectRevert(LiquidityOverflow.selector);
         }
         assertEq(int256(uint256(subLiquidityDelta(liquidity, delta))), result);
+    }
+
+    function ml(uint256 sqrtRatio, uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount0, uint128 amount1)
+        external
+        pure
+        returns (uint128)
+    {
+        return maxLiquidity(sqrtRatio, sqrtRatioA, sqrtRatioB, amount0, amount1);
+    }
+
+    function test_maxLiquidity(
+        uint256 sqrtRatio,
+        uint256 sqrtRatioA,
+        uint256 sqrtRatioB,
+        uint128 amount0,
+        uint128 amount1
+    ) public view returns (uint128) {
+        amount0 = uint128(bound(amount0, 0, uint128(type(int128).max)));
+        amount1 = uint128(bound(amount1, 0, uint128(type(int128).max)));
+        sqrtRatioA = bound(sqrtRatioA, 1, type(uint256).max);
+        sqrtRatioB = bound(sqrtRatioB, sqrtRatioA, type(uint256).max);
+        vm.assumeNoRevert();
+        uint128 l = this.ml(sqrtRatio, sqrtRatioA, sqrtRatioB, amount0, amount1);
+        vm.assume(int256(uint256(l)) <= type(int128).max);
+        (int128 a, int128 b) = liquidityDeltaToAmountDelta(sqrtRatio, int128(l), sqrtRatioA, sqrtRatioB);
+        assertGe(a, 0);
+        assertGe(b, 0);
+        assertLe(uint128(a), amount0);
+        assertLe(uint128(b), amount1);
     }
 }

@@ -5,14 +5,17 @@ import {ERC721} from "solady/tokens/ERC721.sol";
 import {CoreLocker} from "./base/CoreLocker.sol";
 import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
-import {PoolKey, Bounds, maxBounds} from "./types/keys.sol";
+import {PoolKey, PositionKey, Bounds, maxBounds} from "./types/keys.sol";
+import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
+import {Position} from "./types/position.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
-import {maxLiquidity} from "./math/liquidity.sol";
+import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {shouldCallBeforeUpdatePosition} from "./types/callPoints.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, ERC721 {
     error Unauthorized(address caller, uint256 id);
@@ -84,6 +87,29 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         } else {
             (sqrtRatio, tick) = core.poolPrice(poolKey.toPoolId());
         }
+    }
+
+    function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
+        external
+        returns (uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
+    {
+        (uint256 sqrtRatio,) = getPoolPrice(poolKey);
+
+        bytes32 poolId = poolKey.toPoolId();
+        bytes32 positionId = PositionKey(bytes32(id), address(this), bounds).toPositionId();
+        Position memory position = core.poolPositions(poolId, positionId);
+
+        (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
+            sqrtRatio,
+            -SafeCastLib.toInt128(position.liquidity),
+            tickToSqrtRatio(bounds.lower),
+            tickToSqrtRatio(bounds.upper)
+        );
+
+        (principal0, principal1) = (uint128(-delta0), uint128(-delta1));
+
+        FeesPerLiquidity memory feesPerLiquidityInside = core.getPoolFeesPerLiquidityInside(poolId, bounds);
+        (fees0, fees1) = position.fees(feesPerLiquidityInside);
     }
 
     function deposit(

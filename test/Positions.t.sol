@@ -112,9 +112,16 @@ contract PositionsTest is FullTest {
             TokenAmount({token: address(token1), amount: 50})
         );
 
+        (uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+        assertEq(p0, 124);
+        assertEq(p1, 75);
+        assertEq(f0, 49);
+        assertEq(f1, 24);
+
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
-        assertEq(amount0, 111);
-        assertEq(amount1, 61);
+        assertEq(amount0, 111); // 124/2 + 49
+        assertEq(amount1, 61); // 75/2 + 24
     }
 
     function test_mintAndDeposit_gas() public {

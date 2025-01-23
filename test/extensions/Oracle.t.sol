@@ -13,13 +13,26 @@ import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 
-contract OracleTest is FullTest {
+abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
 
-    Oracle oracle;
+    Oracle internal oracle;
+    TestToken internal oracleToken;
 
-    function setUp() public override {
+    uint256 positionId;
+
+    function setUp() public virtual override {
         FullTest.setUp();
+        oracleToken = new TestToken(address(this));
+        if (address(token0) < address(oracleToken)) {
+            (oracleToken, token0) = (token0, oracleToken);
+        }
+        if (address(token1) < address(oracleToken)) {
+            (oracleToken, token1) = (token1, oracleToken);
+        }
+        if (address(token1) < address(token0)) {
+            (token0, token1) = (token1, token0);
+        }
         address deployAddress = address(
             uint160(
                 CallPoints({
@@ -34,21 +47,63 @@ contract OracleTest is FullTest {
                 }).toUint8()
             ) << 152
         );
-        deployCodeTo("Oracle.sol", abi.encode(core, NATIVE_TOKEN_ADDRESS), deployAddress);
+        deployCodeTo("Oracle.sol", abi.encode(core, oracleToken), deployAddress);
         oracle = Oracle(deployAddress);
+        positionId = positions.mint();
     }
 
     function advanceTime(uint32 by) internal {
         vm.warp(vm.getBlockTimestamp() + by);
     }
 
+    function movePrice(PoolKey memory poolKey, int32 targetTick) internal {
+        (uint192 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+        uint128 liquidity = core.poolLiquidity(poolKey.toPoolId());
+
+        bool isToken0ETH = poolKey.token0 == NATIVE_TOKEN_ADDRESS;
+        if (!isToken0ETH) {
+            TestToken(poolKey.token0).approve(address(router), type(uint256).max);
+        }
+        TestToken(poolKey.token1).approve(address(router), type(uint256).max);
+
+        if (tick < targetTick) {
+            uint256 targetRatio = tickToSqrtRatio(targetTick);
+            uint128 amount = amount1Delta(sqrtRatio, targetRatio, liquidity, true);
+            router.swap(RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token1, int128(amount)));
+        } else if (tick > targetTick) {
+            uint256 targetRatio = tickToSqrtRatio(targetTick) + 1;
+            uint128 amount = amount0Delta(sqrtRatio, targetRatio, liquidity, true);
+            router.swap{value: isToken0ETH ? amount : 0}(
+                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token0, int128(amount))
+            );
+        }
+    }
+
+    function createOraclePool(address baseToken, int32 tick) internal returns (PoolKey memory poolKey) {
+        address t0;
+        address t1;
+        (t0, t1, tick) = baseToken < address(oracleToken)
+            ? (baseToken, address(oracleToken), tick)
+            : (address(oracleToken), baseToken, -tick);
+        poolKey = createPool(t0, t1, tick, 0, MAX_TICK_SPACING, address(oracle));
+    }
+
+    function updateOraclePoolLiquidity(address token, uint128 liquidity) internal {
+        // todo: finish this for the price fetcher tests
+        Bounds(MIN_TICK, MAX_TICK);
+    }
+}
+
+contract OracleTest is BaseOracleTest {
+    using CoreLib for *;
+
     function test_getImmutables() public view {
-        assertEq(oracle.oracleToken(), NATIVE_TOKEN_ADDRESS);
+        assertEq(oracle.oracleToken(), address(oracleToken));
         assertEq(oracle.timestampOffset(), uint64(block.timestamp));
     }
 
     function test_createPool_beforeInitializePool() public {
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
+        createPool(address(oracleToken), address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
         assertEq(oracle.snapshotCount(address(token1)), 1);
         (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 0);
@@ -62,15 +117,15 @@ contract OracleTest is FullTest {
         createPool(address(token0), address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
 
         vm.expectRevert(Oracle.TickSpacingMustBeMaximum.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING - 1, address(oracle));
+        createPool(address(oracleToken), address(token1), 0, 0, MAX_TICK_SPACING - 1, address(oracle));
 
         vm.expectRevert(Oracle.FeeMustBeZero.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
+        createPool(address(oracleToken), address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
     }
 
     function test_createPosition_failsForPositionsNotWideEnough() public {
         PoolKey memory poolKey =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
         vm.expectRevert(Oracle.BoundsMustBeMaximum.selector);
         positions.mintAndDeposit{value: 100}(
             poolKey, Bounds(-int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING)), 100, 100, 0
@@ -79,7 +134,7 @@ contract OracleTest is FullTest {
 
     function test_createPosition() public {
         PoolKey memory poolKey =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
 
         advanceTime(30);
 
@@ -105,35 +160,12 @@ contract OracleTest is FullTest {
         assertEq(tickCumulative, 75 * -693147);
     }
 
-    function movePrice(PoolKey memory poolKey, int32 targetTick) private {
-        (uint192 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
-        uint128 liquidity = core.poolLiquidity(poolKey.toPoolId());
-
-        bool isToken0ETH = poolKey.token0 == NATIVE_TOKEN_ADDRESS;
-        if (!isToken0ETH) {
-            TestToken(poolKey.token0).approve(address(router), type(uint256).max);
-        }
-        TestToken(poolKey.token1).approve(address(router), type(uint256).max);
-
-        if (tick < targetTick) {
-            uint256 targetRatio = tickToSqrtRatio(targetTick);
-            uint128 amount = amount1Delta(sqrtRatio, targetRatio, liquidity, true);
-            router.swap(RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token1, int128(amount)));
-        } else if (tick > targetTick) {
-            uint256 targetRatio = tickToSqrtRatio(targetTick) + 1;
-            uint128 amount = amount0Delta(sqrtRatio, targetRatio, liquidity, true);
-            router.swap{value: isToken0ETH ? amount : 0}(
-                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token0, int128(amount))
-            );
-        }
-    }
-
     function test_findPreviousSnapshot() public {
         advanceTime(5);
         uint64 poolCreationTime = uint64(block.timestamp);
 
         PoolKey memory poolKey =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
 
@@ -205,10 +237,10 @@ contract OracleTest is FullTest {
         uint64 startTime = uint64(block.timestamp);
         // 2 ETH / token0
         PoolKey memory poolKey0 =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token0), -693147, 0, MAX_TICK_SPACING, address(oracle));
+            createPool(address(oracleToken), address(token0), -693147, 0, MAX_TICK_SPACING, address(oracle));
         // 0.25 ETH / token1
         PoolKey memory poolKey1 =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147 * 2, 0, MAX_TICK_SPACING, address(oracle));
+            createPool(address(oracleToken), address(token1), 693147 * 2, 0, MAX_TICK_SPACING, address(oracle));
 
         createPosition(poolKey0, Bounds(MIN_TICK, MAX_TICK), 2000, 1000); // ~1414
         createPosition(poolKey1, Bounds(MIN_TICK, MAX_TICK), 3000, 12000); // ~6000
@@ -261,7 +293,7 @@ contract OracleTest is FullTest {
         uint64 poolCreationTime = uint64(block.timestamp);
 
         PoolKey memory poolKey =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
 
@@ -327,19 +359,19 @@ contract OracleTest is FullTest {
         assertEq(tickCumulative, (10 * -693147 * 2) + (6 * -693146 / 2) + (5 * -693147));
 
         (uint128 liquidityAverage, int32 tickAverage) =
-            oracle.getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, address(token1), poolCreationTime, poolCreationTime + 21);
+            oracle.getAveragesOverPeriod(address(oracleToken), address(token1), poolCreationTime, poolCreationTime + 21);
         assertEq(liquidityAverage, 927);
         assertEq(tickAverage, -924195);
 
         (liquidityAverage, tickAverage) =
-            oracle.getAveragesOverPeriod(address(token1), NATIVE_TOKEN_ADDRESS, poolCreationTime, poolCreationTime + 21);
+            oracle.getAveragesOverPeriod(address(token1), address(oracleToken), poolCreationTime, poolCreationTime + 21);
         assertEq(liquidityAverage, 927);
         assertEq(tickAverage, 924195);
     }
 
     function test_cannotCallExtensionMethodsDirectly() public {
         PoolKey memory poolKey =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
         oracle.beforeInitializePool(address(0), poolKey, 0);

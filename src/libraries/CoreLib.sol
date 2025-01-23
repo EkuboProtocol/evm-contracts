@@ -3,6 +3,8 @@ pragma solidity =0.8.28;
 
 import {ICore} from "../interfaces/ICore.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
+import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
+import {Position} from "../types/position.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -37,5 +39,26 @@ library CoreLib {
         assembly ("memory-safe") {
             liquidity := and(result, 0xffffffffffffffffffffffffffffffff)
         }
+    }
+
+    function poolPositions(ICore core, bytes32 poolId, bytes32 positionId)
+        internal
+        view
+        returns (Position memory position)
+    {
+        bytes32 key;
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(32, 5)
+            let b := keccak256(0, 64)
+            mstore(0, positionId)
+            mstore(32, b)
+            key := keccak256(0, 64)
+        }
+
+        position.liquidity = uint128(uint256(core.unsafeRead(key)));
+        position.feesPerLiquidityInsideLast = FeesPerLiquidity(
+            uint256(core.unsafeRead(bytes32(uint256(key) + 1))), uint256(core.unsafeRead(bytes32(uint256(key) + 2)))
+        );
     }
 }

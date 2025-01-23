@@ -22,26 +22,25 @@ contract TicksTest is Test {
         assertEq(tickToSqrtRatio(0), 1 << 128);
     }
 
+    function ttsr(int32 tick) external pure returns (uint256) {
+        return tickToSqrtRatio(tick);
+    }
+
     function test_tickToSqrtRatio_gas() public {
-        vm.startSnapshotGas("tickToSqrtRatio(0)");
-        assertEq(tickToSqrtRatio(0), 1 << 128);
-        vm.stopSnapshotGas();
+        this.ttsr(0);
+        vm.snapshotGasLastCall("tickToSqrtRatio(0)");
 
-        vm.startSnapshotGas("tickToSqrtRatio(MIN_TICK)");
-        assertEq(tickToSqrtRatio(MIN_TICK), MIN_SQRT_RATIO);
-        vm.stopSnapshotGas();
+        this.ttsr(MIN_TICK);
+        vm.snapshotGasLastCall("tickToSqrtRatio(MIN_TICK)");
 
-        vm.startSnapshotGas("tickToSqrtRatio(MAX_TICK)");
-        assertEq(tickToSqrtRatio(MAX_TICK), MAX_SQRT_RATIO);
-        vm.stopSnapshotGas();
+        this.ttsr(MAX_TICK);
+        vm.snapshotGasLastCall("tickToSqrtRatio(MAX_TICK)");
 
-        vm.startSnapshotGas("tickToSqrtRatio(-0x3ffffff)");
-        assertEq(tickToSqrtRatio(-0x3ffffff), 910630699668099359672429);
-        vm.stopSnapshotGas();
+        this.ttsr(-0x3ffffff);
+        vm.snapshotGasLastCall("tickToSqrtRatio(-0x3ffffff)");
 
-        vm.startSnapshotGas("tickToSqrtRatio(0x3ffffff)");
-        assertEq(tickToSqrtRatio(0x3ffffff), 127155925315849035681913728261671712973728071711091311);
-        vm.stopSnapshotGas();
+        this.ttsr(0x3ffffff);
+        vm.snapshotGasLastCall("tickToSqrtRatio(0x3ffffff)");
     }
 
     function test_tickToSqrtRatio_max() public pure {
@@ -120,17 +119,18 @@ contract TicksTest is Test {
         assertLt(sqrtRatio, tickToSqrtRatio(tick + 1));
     }
 
+    function srtt(uint256 sqrtRatio) external pure returns (int32) {
+        return sqrtRatioToTick(sqrtRatio);
+    }
+
     function test_sqrtRatioToTick_gas() public {
-        vm.startSnapshotGas("sqrtRatioToTick(1 << 128)");
-        assertEq(sqrtRatioToTick(1 << 128), 0);
-        vm.stopSnapshotGas();
+        this.srtt(1 << 128);
+        vm.snapshotGasLastCall("sqrtRatioToTick(1 << 128)");
 
-        vm.startSnapshotGas("sqrtRatioToTick(MIN_SQRT_RATIO)");
-        assertEq(sqrtRatioToTick(MIN_SQRT_RATIO), MIN_TICK);
-        vm.stopSnapshotGas();
+        this.srtt(MIN_SQRT_RATIO);
+        vm.snapshotGasLastCall("sqrtRatioToTick(MIN_SQRT_RATIO)");
 
-        vm.startSnapshotGas("sqrtRatioToTick(MAX_SQRT_RATIO)");
-        assertEq(sqrtRatioToTick(MAX_SQRT_RATIO - 1), MAX_TICK - 1);
-        vm.stopSnapshotGas();
+        this.srtt(MAX_SQRT_RATIO - 1);
+        vm.snapshotGasLastCall("sqrtRatioToTick(MAX_SQRT_RATIO)");
     }
 }

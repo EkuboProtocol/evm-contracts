@@ -117,6 +117,7 @@ abstract contract BaseOracleTest is FullTest {
             TestToken(t1).approve(address(positions), uint128(d1));
 
             positions.deposit(positionId, pk, bounds, uint128(d0), uint128(d1), liquidityNext - liquidity);
+            assertEq(positions.getPoolLiquidity(pk), liquidityNext);
         } else if (liquidity > liquidityNext) {
             positions.withdraw(positionId, pk, bounds, liquidity - liquidityNext);
         }

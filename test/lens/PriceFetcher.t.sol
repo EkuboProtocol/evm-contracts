@@ -13,8 +13,22 @@ contract PriceFetcherTest is BaseOracleTest {
         pf = new PriceFetcher(oracle);
     }
 
+    function test_fetchPrices_gas_snapshot() public {
+        createOraclePool(address(token0), 0);
+        updateOraclePoolLiquidity(address(token0), 500);
+        advanceTime(30);
+
+        address[] memory baseTokens = new address[](1);
+        baseTokens[0] = address(token0);
+        (address ot, PriceFetcher.Result[] memory results) = pf.getPricesInOracleToken(30, baseTokens);
+        vm.snapshotGasLastCall("getPricesInOracleToken(1 token)");
+    }
+
     function test_canFetchPrices() public {
         createOraclePool(address(token0), 3737671);
+
+        advanceTime(15);
+
         createOraclePool(address(token1), -4234108);
 
         updateOraclePoolLiquidity(address(token0), 500);

@@ -89,7 +89,7 @@ contract Positions is Multicallable, SlippageChecker, Permittable, CoreLocker, E
         }
     }
 
-    function getPoolLiquidity(PoolKey memory poolKey) external returns (uint128 liquidity) {
+    function getPoolLiquidity(PoolKey memory poolKey) external view returns (uint128 liquidity) {
         liquidity = core.poolLiquidity(poolKey.toPoolId());
     }
 

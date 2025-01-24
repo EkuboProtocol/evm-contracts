@@ -5,12 +5,25 @@ import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, Bounds} from "../src/types/keys.sol";
 import {FullTest} from "./FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
+import {Positions} from "../src/Positions.sol";
 
 contract PositionsTest is FullTest {
     function test_metadata() public view {
         assertEq(positions.name(), "Ekubo Positions");
         assertEq(positions.symbol(), "ekuPo");
         assertEq(positions.tokenURI(1), "ekubo://positions/1");
+    }
+
+    function test_saltToId(address minter, bytes32 salt) public {
+        uint256 id = positions.saltToId(minter, salt);
+        assertLe(id, type(uint64).max);
+        unchecked {
+            assertNotEq(id, positions.saltToId(address(uint160(minter) + 1), salt));
+            assertNotEq(id, positions.saltToId(minter, bytes32(uint256(salt) + 1)));
+        }
+        // address is also incorporatedll
+        Positions p2 = new Positions(core, positions.tokenURIGenerator());
+        assertNotEq(id, p2.saltToId(minter, salt));
     }
 
     function test_mintAndDeposit(CallPoints memory callPoints) public {

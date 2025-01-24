@@ -4,12 +4,17 @@ pragma solidity ^0.8.13;
 import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {Router} from "../src/Router.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
+import {TestToken} from "../test/TestToken.sol";
+
+import {CoreLocker} from "../src/base/CoreLocker.sol";
+import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/ICore.sol";
+import {PoolKey, PositionKey, Bounds, maxBounds} from "../src/types/keys.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
     return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)))));
@@ -37,17 +42,81 @@ function findExtensionSalt(bytes32 initCodeHash, CallPoints memory callPoints) p
 contract DeployScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
-    address public owner = vm.envAddress("OWNER");
+    function generateTestData(Positions positions, Router router, Oracle oracle) private {
+        address wallet = vm.getScriptWallets()[0];
+        TestToken token = new TestToken(wallet);
+        token.approve(address(router), type(uint256).max);
+        token.approve(address(positions), type(uint256).max);
+        // it is assumed this address has some quantity of oracle token already
+        TestToken(oracle.oracleToken()).approve(address(positions), type(uint256).max);
+
+        // 30 basis points fee, 0.6% tick spacing, starting price of 5k, 0.01 ETH
+        createPool(
+            positions,
+            NATIVE_TOKEN_ADDRESS,
+            address(token),
+            uint128((uint256(30) << 128) / 10_000),
+            5982,
+            address(0),
+            8517197,
+            10000000000000000,
+            50000000000000000000
+        );
+
+        // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH
+        createPool(
+            positions,
+            NATIVE_TOKEN_ADDRESS,
+            address(token),
+            uint128((uint256(100) << 128) / 10_000),
+            19802,
+            address(0),
+            8517197,
+            30000000000000000,
+            300000000000000000000
+        );
+    }
+
+    function createPool(
+        Positions positions,
+        address tokenA,
+        address tokenB,
+        uint128 fee,
+        uint32 tickSpacing,
+        address extension,
+        int32 startingTick,
+        uint128 maxAmount0,
+        uint128 maxAmount1
+    ) private returns (PoolKey memory poolKey) {
+        (tokenA, tokenB) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        poolKey = PoolKey({token0: tokenA, token1: tokenB, fee: fee, tickSpacing: tickSpacing, extension: extension});
+
+        Bounds memory bounds = maxBounds(tickSpacing);
+
+        bool isETH = tokenA == NATIVE_TOKEN_ADDRESS;
+        bytes[] memory calls = isETH ? new bytes[](3) : new bytes[](2);
+
+        calls[0] = abi.encodeWithSelector(Positions.maybeInitializePool.selector, poolKey, startingTick);
+        calls[1] = abi.encodeWithSelector(Positions.mintAndDeposit.selector, poolKey, bounds, maxAmount0, maxAmount1, 0);
+        if (isETH) {
+            calls[2] = abi.encodeWithSelector(CoreLocker.refundNativeToken.selector);
+        }
+
+        positions.multicall{value: isETH ? maxAmount0 : 0}(calls);
+    }
 
     function run() public {
         string memory baseUrl;
-        address ekuboToken;
+        address oracleToken;
+        address owner;
         if (block.chainid == 1) {
-            baseUrl = "https://eth-mainnet-api.ekubo.org/positions/nft/";
-            ekuboToken = 0x04C46E830Bb56ce22735d5d8Fc9CB90309317d0f;
+            baseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/positions/nft/"));
+            oracleToken = vm.envOr("ORACLE_TOKEN", address(0x04C46E830Bb56ce22735d5d8Fc9CB90309317d0f));
+            owner = vm.envOr("OWNER", address(0x1E0EF4162e42C9bF820c307218c4E41cCcA6E9CC));
         } else if (block.chainid == 11155111) {
-            baseUrl = "https://eth-sepolia-api.ekubo.org/positions/nft/";
-            ekuboToken = 0x618C25b11a5e9B5Ad60B04bb64FcBdfBad7621d1;
+            baseUrl = vm.envOr("BASE_URL", string("https://eth-sepolia-api.ekubo.org/positions/nft/"));
+            oracleToken = vm.envOr("ORACLE_TOKEN", address(0x618C25b11a5e9B5Ad60B04bb64FcBdfBad7621d1));
+            owner = vm.envOr("OWNER", address(0x36e3FDC259A4a8b0775D25b3f9396e0Ea6E110a5));
         } else {
             revert UnrecognizedChainId(block.chainid);
         }
@@ -55,15 +124,21 @@ contract DeployScript is Script {
         vm.startBroadcast();
         Core core = new Core{salt: 0x0}(owner, block.timestamp + 7 days);
         BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator(owner, baseUrl);
-        new Positions{salt: 0x0}(core, tokenURIGenerator);
-        new Router{salt: 0x0}(core);
+        Positions positions = new Positions{salt: 0x0}(core, tokenURIGenerator);
+        Router router = new Router{salt: 0x0}(core);
         Oracle oracle = new Oracle{
             salt: findExtensionSalt(
-                keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core, ekuboToken))), oracleCallPoints()
+                keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core, oracleToken))), oracleCallPoints()
             )
-        }(core, ekuboToken);
+        }(core, oracleToken);
+
         new PriceFetcher(oracle);
         new CoreDataFetcher(core);
+
+        if (vm.envOr("CREATE_TEST_DATA", false)) {
+            generateTestData(positions, router, oracle);
+        }
+
         vm.stopBroadcast();
     }
 }

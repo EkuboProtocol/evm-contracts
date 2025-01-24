@@ -1,4 +1,5 @@
 {
-  "getAveragesOverPeriod": "23665",
-  "getPricesInOracleToken(1 token)": "15699"
+  "getAveragesOverPeriod": "24299",
+  "getOracleTokenAverages(1 token)": "13742",
+  "pf.getBlockInfoAndNativeTokenPrices(30, 100, baseTokens[5])": "73828"
 }

@@ -7,6 +7,7 @@ import {PoolKey} from "../../src/types/keys.sol";
 import {TestToken} from "../TestToken.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/ticks.sol";
 import {Bounds} from "../../src/types/keys.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/ICore.sol";
 
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;
@@ -35,8 +36,8 @@ contract PriceFetcherTest is BaseOracleTest {
 
         address[] memory baseTokens = new address[](1);
         baseTokens[0] = address(token0);
-        pf.getPricesInOracleToken(30, baseTokens);
-        vm.snapshotGasLastCall("getPricesInOracleToken(1 token)");
+        pf.getOracleTokenAverages(30, baseTokens);
+        vm.snapshotGasLastCall("getOracleTokenAverages(1 token)");
     }
 
     function test_canFetchPrices() public {
@@ -55,21 +56,21 @@ contract PriceFetcherTest is BaseOracleTest {
         baseTokens[1] = address(token1);
         baseTokens[2] = address(oracleToken);
         baseTokens[3] = address(0xdeadbeef);
-        (address ot, PriceFetcher.Result[] memory results) = pf.getPricesInOracleToken(30, baseTokens);
+        (address ot, PriceFetcher.PeriodAverage[] memory results) = pf.getOracleTokenAverages(30, baseTokens);
         assertEq(ot, address(oracleToken));
 
         // ~= 42
-        assertEq(results[0].priceX128, 8101965063774199046946818765421275446);
+        assertEq(results[0].tick, -3737671);
         assertEq(results[0].liquidity, 500);
 
         // ~= 69
-        assertEq(results[1].priceX128, 23479468721532054986745577134847629670150);
+        assertEq(results[1].tick, 4234108);
         assertEq(results[1].liquidity, 7500);
 
-        assertEq(results[2].priceX128, 1 << 128);
+        assertEq(results[2].tick, 0);
         assertEq(results[2].liquidity, type(uint128).max);
 
-        assertEq(results[3].priceX128, 0);
+        assertEq(results[3].tick, 0);
         assertEq(results[3].liquidity, 0);
 
         address nt = address(new TestToken(address(this)));
@@ -88,25 +89,58 @@ contract PriceFetcherTest is BaseOracleTest {
         baseTokens[3] = address(0xdeadbeef);
         baseTokens[4] = nt;
 
-        (ot, results) = pf.getPricesInOracleToken(30, baseTokens);
+        (ot, results) = pf.getOracleTokenAverages(30, baseTokens);
         assertEq(ot, address(oracleToken));
 
         // ~= 42
-        assertEq(results[0].priceX128, 8101965063774199046946818765421275446);
+        assertEq(results[0].tick, -3737671);
         // went up by not a lot
         assertEq(results[0].liquidity, 909);
 
         // ~= 69
-        assertEq(results[1].priceX128, 23479468721532054986745577134847629670150);
+        assertEq(results[1].tick, 4234108);
         // went down by half
         assertEq(results[1].liquidity, 3750);
 
-        assertEq(results[2].priceX128, 1 << 128);
+        assertEq(results[2].tick, 0);
         assertEq(results[2].liquidity, type(uint128).max);
 
         // insufficient history
-        assertEq(results[3].priceX128, 0);
+        assertEq(results[3].tick, 0);
         assertEq(results[3].liquidity, 0);
+
+        createOraclePool(NATIVE_TOKEN_ADDRESS, 5000000);
+        updateOraclePoolLiquidity(NATIVE_TOKEN_ADDRESS, 500);
+
+        (uint256 blockTimestamp, uint256 baseFee, uint256[] memory prices) =
+            pf.getBlockInfoAndNativeTokenPrices(30, 0, baseTokens);
+        assertEq(blockTimestamp, vm.getBlockTimestamp());
+        assertEq(baseFee, block.basefee);
+        assertEq(prices.length, 5);
+        assertEq(prices[0], 0);
+        assertEq(prices[1], 0);
+        assertEq(prices[2], 0);
+        assertEq(prices[3], 0);
+        assertEq(prices[4], 0);
+
+        advanceTime(30);
+
+        (blockTimestamp, baseFee, prices) = pf.getBlockInfoAndNativeTokenPrices(30, 0, baseTokens);
+        assertEq(prices.length, 5);
+        assertEq(prices[0], 1202435223963623940478295699765022908704);
+        assertEq(prices[1], 3484653415374087531571067097623750145042899);
+        assertEq(prices[2], 50502254805927926084427918474025309953828);
+        assertEq(prices[3], 0);
+        assertEq(prices[4], 505022659887389344945629989335769579);
+
+        (blockTimestamp, baseFee, prices) = pf.getBlockInfoAndNativeTokenPrices(30, 100, baseTokens);
+        vm.snapshotGasLastCall("pf.getBlockInfoAndNativeTokenPrices(30, 100, baseTokens[5])");
+        assertEq(prices.length, 5);
+        assertEq(prices[0], 1202435223963623940478295699765022908704);
+        assertEq(prices[1], 3484653415374087531571067097623750145042899);
+        assertEq(prices[2], 50502254805927926084427918474025309953828);
+        assertEq(prices[3], 0);
+        assertEq(prices[4], 505022659887389344945629989335769579);
     }
 
     function test_getAverageMultihop() public {
@@ -131,31 +165,31 @@ contract PriceFetcherTest is BaseOracleTest {
         advanceTime(12);
 
         // first 12 seconds the token1/token0 price is 1 token1 / 8 token0
-        (uint128 liquidity, int32 tick) =
+        PriceFetcher.PeriodAverage memory average =
             pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 12);
         // combined should be about sqrt(1000*12000) = ~3464
-        assertEq(liquidity, 3461);
-        assertEq(tick, -2079441); // ~= 1/8
+        assertEq(average.liquidity, 3461);
+        assertEq(average.tick, -2079441); // ~= 1/8
 
         // first half of first period is the same
-        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 6);
-        assertEq(liquidity, 3461);
-        assertEq(tick, -2079441);
+        average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 6);
+        assertEq(average.liquidity, 3461);
+        assertEq(average.tick, -2079441);
 
         // liquidity goes up considerably because token0 and token1 are sold into the pools
-        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 6, startTime + 18);
-        assertEq(liquidity, 6352);
-        assertEq(tick, -3812308); // ~= 0.022097162025342
+        average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 6, startTime + 18);
+        assertEq(average.liquidity, 6352);
+        assertEq(average.tick, -3812308); // ~= 0.022097162025342
 
         // second period
-        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 12, startTime + 24);
-        assertEq(liquidity, 11645);
-        assertEq(tick, -5545176); // ~= 1.000001^(-5545176) ~= 0.003906266472948
+        average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 12, startTime + 24);
+        assertEq(average.liquidity, 11645);
+        assertEq(average.tick, -5545176); // ~= 1.000001^(-5545176) ~= 0.003906266472948
 
         // second half of second period
-        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 18, startTime + 24);
-        assertEq(liquidity, 11645);
-        assertEq(tick, -5545176);
+        average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 18, startTime + 24);
+        assertEq(average.liquidity, 11645);
+        assertEq(average.tick, -5545176);
 
         pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 24);
         vm.snapshotGasLastCall("getAveragesOverPeriod");

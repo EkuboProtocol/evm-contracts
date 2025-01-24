@@ -40,6 +40,7 @@ import {
 contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
+    uint256 internal constant _LOCKER_COUNT_SLOT = 0;
     uint256 internal constant _LOCKER_ADDRESSES_OFFSET = 0x100000000;
     uint256 internal constant _NONZERO_DEBT_COUNT_OFFSET = 0x200000000;
 
@@ -97,7 +98,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
 
     function getLocker() private view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
-            id := sub(tload(0), 1)
+            id := sub(tload(_LOCKER_COUNT_SLOT), 1)
             locker := tload(add(_LOCKER_ADDRESSES_OFFSET, id))
         }
         if (id == type(uint256).max) revert NotLocked();
@@ -136,9 +137,9 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
         uint256 id;
 
         assembly ("memory-safe") {
-            id := tload(0)
+            id := tload(_LOCKER_COUNT_SLOT)
             // store the count
-            tstore(0, add(id, 1))
+            tstore(_LOCKER_COUNT_SLOT, add(id, 1))
             // store the address of the locker
             tstore(add(_LOCKER_ADDRESSES_OFFSET, id), caller())
         }
@@ -152,7 +153,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
         uint256 nonzeroDebtCount;
         assembly ("memory-safe") {
             // reset the locker id
-            tstore(0, id)
+            tstore(_LOCKER_COUNT_SLOT, id)
             // remove the address
             tstore(add(_LOCKER_ADDRESSES_OFFSET, id), 0)
             // load the delta count which should already be reset to zero

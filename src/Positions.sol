@@ -48,12 +48,15 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
         _;
     }
 
-    function saltToId(address minter, bytes32 salt) public pure returns (uint256 result) {
+    function saltToId(address minter, bytes32 salt) public view returns (uint256 result) {
         assembly ("memory-safe") {
             mstore(0, minter)
             mstore(32, salt)
-            // we use 40 bits which supports over a trillion positions and gives us a pretty small chance of collisions
-            result := shr(216, keccak256(0, 64))
+            let h := keccak256(0, 64)
+            mstore(0, h)
+            mstore(32, address())
+            // we use the first 64 bits only
+            result := shr(64, keccak256(0, 64))
         }
     }
 

@@ -40,6 +40,9 @@ import {
 contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
+    uint256 internal constant _LOCKER_ADDRESSES_OFFSET = 0x100000000;
+    uint256 internal constant _NONZERO_DEBT_COUNT_OFFSET = 0x200000000;
+
     // We pack the delta and net.
     struct TickInfo {
         int128 liquidityDelta;
@@ -95,7 +98,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     function getLocker() private view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
             id := sub(tload(0), 1)
-            locker := tload(add(0x100000000, id))
+            locker := tload(add(_LOCKER_ADDRESSES_OFFSET, id))
         }
         if (id == type(uint256).max) revert NotLocked();
     }
@@ -109,7 +112,8 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
     function accountDebt(uint256 id, address token, int256 debtChange) private {
         assembly ("memory-safe") {
             if iszero(iszero(debtChange)) {
-                let deltaSlot := add(add(id, 0x300000000), token)
+                mstore(0, add(shl(160, id), token))
+                let deltaSlot := keccak256(0, 32)
                 let current := tload(deltaSlot)
 
                 // we know this never overflows because debtChange is only ever derived from 128 bit values in this contract
@@ -117,7 +121,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
 
                 let nextZero := iszero(next)
                 if xor(iszero(current), nextZero) {
-                    let nzdCountSlot := add(id, 0x200000000)
+                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
 
                     tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
                 }
@@ -136,7 +140,7 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
             // store the count
             tstore(0, add(id, 1))
             // store the address of the locker
-            tstore(add(0x100000000, id), caller())
+            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), caller())
         }
 
         // We make the assumption that this code can never be called recursively this many times, causing storage slots to overlap
@@ -150,9 +154,9 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
             // reset the locker id
             tstore(0, id)
             // remove the address
-            tstore(add(0x100000000, id), 0)
+            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), 0)
             // load the delta count which should already be reset to zero
-            nonzeroDebtCount := tload(add(0x200000000, id))
+            nonzeroDebtCount := tload(add(_NONZERO_DEBT_COUNT_OFFSET, id))
         }
 
         if (nonzeroDebtCount != 0) revert DebtsNotZeroed();
@@ -164,13 +168,13 @@ contract Core is ICore, ExpiringContract, Ownable, ExposedStorage {
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state
         assembly ("memory-safe") {
-            tstore(add(0x100000000, id), to)
+            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), to)
         }
 
         result = IForwardee(to).forwarded(locker, id, data);
 
         assembly ("memory-safe") {
-            tstore(add(0x100000000, id), locker)
+            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), locker)
         }
     }
 

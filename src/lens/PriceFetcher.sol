@@ -7,8 +7,24 @@ import {amount0Delta} from "../math/delta.sol";
 import {tickToSqrtRatio, MAX_SQRT_RATIO} from "../math/ticks.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+// Gets the timestamps for the shorthand of end time, num intervals and period
+function getTimestampsForPeriod(uint64 endTime, uint32 numIntervals, uint32 period)
+    pure
+    returns (uint64[] memory timestamps)
+{
+    timestamps = new uint64[](numIntervals);
+
+    uint64 t = endTime;
+    while (numIntervals > 0) {
+        timestamps[numIntervals - 1] = t;
+        t -= period;
+        numIntervals--;
+    }
+}
+
 contract PriceFetcher {
     error EndTimeMustBeGreaterThanStartTime();
+    error MinimumOnePeriodRealizedVolatility();
 
     Oracle public immutable oracle;
     // we store a copy here for efficiency

@@ -30,6 +30,9 @@ contract Oracle is ExposedStorage, BaseExtension {
     error BoundsMustBeMaximum();
     error FutureTime();
     error NoPreviousSnapshotExists(address token, uint64 time);
+    error EndTimeLessThanStartTime();
+    error TimestampsNotSorted();
+    error ZeroTimestampsProvided();
 
     event SnapshotEvent(
         address token, uint256 index, uint64 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative
@@ -284,42 +287,49 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     struct Observation {
-        uint64 timestamp;
         uint160 secondsPerLiquidityCumulative;
         int64 tickCumulative;
     }
 
-    // Returns the snapshots of the cumulative values at each of the given times
-    // If you are only querying two snapshots, prefer calling extrapolateSnapshot 2 times
-    // This method is for computing data over many snapshots in a time period << the total time the token was under observation
-    function getExtrapolatedSnapshots(address token, uint64 endTime, uint32 period, uint32 numObservations)
+    // Returns the snapshots of the cumulative values at each of the given timestamps
+    // If you are only querying only 2 snapshots, prefer calling extrapolateSnapshot 2 times
+    // This method is optimized for computing data over many snapshots in a time period << the total time the token was under observation
+    function getExtrapolatedSnapshotsForSortedTimestamps(address token, uint64[] memory timestamps)
         public
         view
         returns (Observation[] memory observations)
     {
-        uint64 startTime = endTime - (uint64(period) * numObservations);
+        unchecked {
+            if (timestamps.length == 0) revert ZeroTimestampsProvided();
+            uint64 startTime = timestamps[0];
+            uint64 endTime = timestamps[timestamps.length - 1];
+            if (endTime < startTime) revert EndTimeLessThanStartTime();
 
-        uint256 count = snapshotCount[token];
-        (uint256 indexFirst,) = searchRangeForPrevious(token, startTime, 0, count);
-        (uint256 indexLast,) = searchRangeForPrevious(token, endTime, indexFirst, count);
+            uint256 count = snapshotCount[token];
+            (uint256 indexFirst,) = searchRangeForPrevious(token, startTime, 0, count);
+            (uint256 indexLast,) = searchRangeForPrevious(token, endTime, indexFirst, count);
 
-        observations = new Observation[](numObservations);
+            observations = new Observation[](timestamps.length);
 
-        for (uint256 i = 0; i < numObservations;) {
-            uint64 timestamp = endTime - (uint64(period) * (numObservations - uint64(i) - 1));
+            uint64 lastTimestamp;
+            for (uint256 i = 0; i < timestamps.length;) {
+                uint64 timestamp = timestamps[i];
+                if (timestamp < lastTimestamp) {
+                    revert TimestampsNotSorted();
+                }
 
-            // we do a search within just the range of [first, last+1)
-            (uint256 index, Snapshot memory snapshot) =
-                searchRangeForPrevious(token, timestamp, indexFirst, indexLast + 1);
+                // we do a search within just the range of [first, last+1)
+                (uint256 index, Snapshot memory snapshot) =
+                    searchRangeForPrevious(token, timestamp, indexFirst, indexLast + 1);
 
-            (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
-                extrapolateSnapshotInternal(token, timestamp, index, count, snapshot);
+                (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
+                    extrapolateSnapshotInternal(token, timestamp, index, count, snapshot);
 
-            observations[i] = Observation(timestamp, secondsPerLiquidityCumulative, tickCumulative);
+                observations[i] = Observation(secondsPerLiquidityCumulative, tickCumulative);
 
-            // bump the indexFirst so we search a smaller range on the next iteration
-            indexFirst = index;
-            unchecked {
+                // bump the indexFirst so we search a smaller range on the next iteration
+                indexFirst = index;
+                lastTimestamp = timestamp;
                 i++;
             }
         }

@@ -43,11 +43,13 @@ function findExtensionSalt(bytes32 initCodeHash, CallPoints memory callPoints) p
 contract DeployScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
-    function generateTestData(Positions positions, Router router, Oracle oracle) private {
+    function generateTestData(Positions positions, Router router, Oracle oracle, address usdc, address eurc) private {
         TestToken token = new TestToken(vm.getWallets()[0]);
-        token.approve(address(router), type(uint256).max);
+
         token.approve(address(positions), type(uint256).max);
-        // it is assumed this address has some quantity of oracle token already
+        // it is assumed this address has some quantity of oracle token and usdc/eurc already
+        TestToken(usdc).approve(address(positions), type(uint256).max);
+        TestToken(eurc).approve(address(positions), type(uint256).max);
         TestToken(oracle.oracleToken()).approve(address(positions), type(uint256).max);
 
         uint256 baseSalt = uint256(keccak256(abi.encode(token)));
@@ -105,6 +107,34 @@ contract DeployScript is Script {
             1e18,
             100e18
         );
+
+        createPool(
+            baseSalt++,
+            positions,
+            oracle.oracleToken(),
+            usdc,
+            0,
+            MAX_TICK_SPACING,
+            address(oracle),
+            // 1 USDC / oracle token == 10**6 / 10**18 = log base 1.000001 of 1e-12 = -27631034
+            -27631034,
+            1e18,
+            1e6
+        );
+
+        createPool(
+            baseSalt++,
+            positions,
+            oracle.oracleToken(),
+            eurc,
+            0,
+            MAX_TICK_SPACING,
+            address(oracle),
+            // 2 EURC / oracle token == 2 * 10**6 / 10**18 = log base 1.000001 of 2e-12 = -26937887
+            -26937887,
+            1e18,
+            2e6
+        );
     }
 
     function createPool(
@@ -144,14 +174,20 @@ contract DeployScript is Script {
         string memory baseUrl;
         address oracleToken;
         address owner;
+        address usdc;
+        address eurc;
         if (block.chainid == 1) {
             baseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/positions/nft/"));
             oracleToken = vm.envOr("ORACLE_TOKEN", address(0x04C46E830Bb56ce22735d5d8Fc9CB90309317d0f));
             owner = vm.envOr("OWNER", address(0x1E0EF4162e42C9bF820c307218c4E41cCcA6E9CC));
+            usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+            eurc = 0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c;
         } else if (block.chainid == 11155111) {
             baseUrl = vm.envOr("BASE_URL", string("https://eth-sepolia-api.ekubo.org/positions/nft/"));
             oracleToken = vm.envOr("ORACLE_TOKEN", address(0x618C25b11a5e9B5Ad60B04bb64FcBdfBad7621d1));
             owner = vm.envOr("OWNER", address(0x36e3FDC259A4a8b0775D25b3f9396e0Ea6E110a5));
+            usdc = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
+            eurc = 0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4;
         } else {
             revert UnrecognizedChainId(block.chainid);
         }
@@ -173,7 +209,7 @@ contract DeployScript is Script {
         new CoreDataFetcher(core);
 
         if (vm.envOr("CREATE_TEST_DATA", false)) {
-            generateTestData(positions, router, oracle);
+            generateTestData(positions, router, oracle, usdc, eurc);
         }
 
         vm.stopBroadcast();

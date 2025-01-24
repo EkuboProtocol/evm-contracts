@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {BaseOracleTest} from "../extensions/Oracle.t.sol";
-import {PriceFetcher} from "../../src/lens/PriceFetcher.sol";
+import {PriceFetcher, getTimestampsForPeriod} from "../../src/lens/PriceFetcher.sol";
 import {PoolKey} from "../../src/types/keys.sol";
 import {TestToken} from "../TestToken.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/ticks.sol";
@@ -14,6 +14,18 @@ contract PriceFetcherTest is BaseOracleTest {
     function setUp() public override {
         BaseOracleTest.setUp();
         pf = new PriceFetcher(oracle);
+    }
+
+    function test_getTimestampsForPeriod() public pure {
+        uint64[] memory result = getTimestampsForPeriod({endTime: 100, numIntervals: 7, period: 5});
+        assertEq(result.length, 7);
+        assertEq(result[0], 70);
+        assertEq(result[1], 75);
+        assertEq(result[2], 80);
+        assertEq(result[3], 85);
+        assertEq(result[4], 90);
+        assertEq(result[5], 95);
+        assertEq(result[6], 100);
     }
 
     function test_fetchPrices_gas_snapshot() public {

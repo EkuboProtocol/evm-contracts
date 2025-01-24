@@ -92,6 +92,10 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
+    function getCallPoints() internal pure override returns (CallPoints memory) {
+        return oracleCallPoints();
+    }
+
     function maybeInsertSnapshot(bytes32 poolId, address token) private {
         unchecked {
             uint256 count = snapshotCount[token];
@@ -129,6 +133,20 @@ contract Oracle is ExposedStorage, BaseExtension {
                 snapshot.tickCumulative
             );
         }
+    }
+
+    function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
+        if (key.token0 != oracleToken && key.token1 != oracleToken) revert PairsWithOracleTokenOnly();
+        if (key.fee != 0) revert FeeMustBeZero();
+        if (key.tickSpacing != MAX_TICK_SPACING) revert TickSpacingMustBeMaximum();
+
+        address token = key.token0 == oracleToken ? key.token1 : key.token0;
+
+        snapshotCount[token] = 1;
+        uint32 sso = secondsSinceOffset();
+        snapshots[token][0] = Snapshot(sso, 0, 0);
+
+        emit SnapshotEvent(token, 0, secondsSinceOffsetToTimestamp(sso), 0, 0);
     }
 
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory params)
@@ -170,6 +188,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             uint32 targetSso = uint32(time - timestampOffset);
 
             uint256 left = minIndex;
+            // safe subtraction because minIndex < maxIndexExclusive which implies maxIndexExclusive != 0
             uint256 right = maxIndexExclusive - 1;
 
             while (left < right) {
@@ -264,21 +283,45 @@ contract Oracle is ExposedStorage, BaseExtension {
             extrapolateSnapshotInternal(token, atTime, index, count, snapshot);
     }
 
-    function getCallPoints() internal pure override returns (CallPoints memory) {
-        return oracleCallPoints();
+    struct Observation {
+        uint64 timestamp;
+        uint160 secondsPerLiquidityCumulative;
+        int64 tickCumulative;
     }
 
-    function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
-        if (key.token0 != oracleToken && key.token1 != oracleToken) revert PairsWithOracleTokenOnly();
-        if (key.fee != 0) revert FeeMustBeZero();
-        if (key.tickSpacing != MAX_TICK_SPACING) revert TickSpacingMustBeMaximum();
+    // Returns the snapshots of the cumulative values at each of the given times
+    // If you are only querying two snapshots, prefer calling extrapolateSnapshot 2 times
+    // This method is for computing data over many snapshots in a time period << the total time the token was under observation
+    function getExtrapolatedSnapshots(address token, uint64 endTime, uint32 period, uint32 numObservations)
+        public
+        view
+        returns (Observation[] memory observations)
+    {
+        uint64 startTime = endTime - (uint64(period) * numObservations);
 
-        address token = key.token0 == oracleToken ? key.token1 : key.token0;
+        uint256 count = snapshotCount[token];
+        (uint256 indexFirst,) = searchRangeForPrevious(token, startTime, 0, count);
+        (uint256 indexLast,) = searchRangeForPrevious(token, endTime, indexFirst, count);
 
-        snapshotCount[token] = 1;
-        uint32 sso = secondsSinceOffset();
-        snapshots[token][0] = Snapshot(sso, 0, 0);
+        observations = new Observation[](numObservations);
 
-        emit SnapshotEvent(token, 0, secondsSinceOffsetToTimestamp(sso), 0, 0);
+        for (uint256 i = 0; i < numObservations;) {
+            uint64 timestamp = endTime - (uint64(period) * (numObservations - uint64(i) - 1));
+
+            // we do a search within just the range of [first, last+1)
+            (uint256 index, Snapshot memory snapshot) =
+                searchRangeForPrevious(token, timestamp, indexFirst, indexLast + 1);
+
+            (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
+                extrapolateSnapshotInternal(token, timestamp, index, count, snapshot);
+
+            observations[i] = Observation(timestamp, secondsPerLiquidityCumulative, tickCumulative);
+
+            // bump the indexFirst so we search a smaller range on the next iteration
+            indexFirst = index;
+            unchecked {
+                i++;
+            }
+        }
     }
 }

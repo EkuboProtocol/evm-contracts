@@ -156,8 +156,10 @@ contract DeployScript is Script {
             revert UnrecognizedChainId(block.chainid);
         }
 
+        uint64 expirationTime = uint64(vm.envOr("EXPIRATION_EPOCH_TIMESTAMP", block.timestamp + 7 days));
+
         vm.startBroadcast();
-        Core core = new Core{salt: 0x0}(owner, block.timestamp + 7 days);
+        Core core = new Core{salt: 0x0}(owner, expirationTime);
         BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator(owner, baseUrl);
         Positions positions = new Positions{salt: 0x0}(core, tokenURIGenerator);
         Router router = new Router{salt: 0x0}(core);

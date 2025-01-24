@@ -60,8 +60,9 @@ abstract contract BaseOracleTest is FullTest {
         positionId = positions.mint();
     }
 
-    function advanceTime(uint32 by) internal {
-        vm.warp(vm.getBlockTimestamp() + by);
+    function advanceTime(uint32 by) internal returns (uint64 next) {
+        next = uint64(vm.getBlockTimestamp() + by);
+        vm.warp(next);
     }
 
     function movePrice(PoolKey memory poolKey, int32 targetTick) internal {
@@ -192,7 +193,7 @@ contract OracleTest is BaseOracleTest {
 
     function test_findPreviousSnapshot() public {
         advanceTime(5);
-        uint64 poolCreationTime = uint64(block.timestamp);
+        uint64 poolCreationTime = uint64(vm.getBlockTimestamp());
 
         PoolKey memory poolKey =
             createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
@@ -334,12 +335,86 @@ contract OracleTest is BaseOracleTest {
         assertEq(tickCumulative, (10 * -693147 * 2) + (6 * -693146 / 2) + (5 * -693147));
     }
 
+    function test_getExtrapolatedSnapshots() public {
+        uint64 poolCreationTime = advanceTime(5);
+
+        PoolKey memory poolKey =
+            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
+
+        // immediately moved after initialization
+        movePrice(poolKey, 693147 * 2);
+
+        advanceTime(10);
+
+        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2);
+
+        uint128 liquidity2 = liquidity - (liquidity / 2);
+
+        movePrice(poolKey, 693146 / 2);
+
+        advanceTime(6);
+
+        movePrice(poolKey, 693147);
+
+        advanceTime(5);
+
+        Oracle.Observation[] memory observations =
+            oracle.getExtrapolatedSnapshots(address(token1), poolCreationTime + 21, 3, 7);
+
+        vm.snapshotGasLastCall("oracle.getExtrapolatedSnapshots(address(token1), 21, 3, 8)");
+
+        // gets +3,+6,+9,+12,+15,+18,+21
+        assertEq(observations.length, 7);
+        // we cannot go further back because these timestamps refer to the end time of the price period
+        assertEq(observations[0].timestamp, poolCreationTime + 3);
+        assertEq(observations[1].timestamp, poolCreationTime + 6);
+        assertEq(observations[2].timestamp, poolCreationTime + 9);
+        assertEq(observations[3].timestamp, poolCreationTime + 12);
+        assertEq(observations[4].timestamp, poolCreationTime + 15);
+        assertEq(observations[5].timestamp, poolCreationTime + 18);
+        assertEq(observations[6].timestamp, poolCreationTime + 21);
+
+        // liquidity
+        assertEq(observations[0].secondsPerLiquidityCumulative, (uint256(3) << 128) / liquidity);
+        assertEq(observations[1].secondsPerLiquidityCumulative, (uint256(6) << 128) / liquidity);
+        assertEq(observations[2].secondsPerLiquidityCumulative, (uint256(9) << 128) / liquidity);
+        assertEq(
+            observations[3].secondsPerLiquidityCumulative,
+            ((uint256(10) << 128) / liquidity) + ((uint256(2) << 128) / liquidity2)
+        );
+        assertEq(
+            observations[4].secondsPerLiquidityCumulative,
+            ((uint256(10) << 128) / liquidity) + ((uint256(5) << 128) / liquidity2)
+        );
+        assertEq(
+            observations[5].secondsPerLiquidityCumulative,
+            // rounded down
+            ((uint256(10) << 128) / liquidity) + ((uint256(8) << 128) / liquidity2) - 1
+        );
+        assertEq(
+            observations[6].secondsPerLiquidityCumulative,
+            // rounded down
+            ((uint256(10) << 128) / liquidity) + ((uint256(11) << 128) / liquidity2) - 1
+        );
+
+        // ticks always expressed in oracle token / token
+        assertEq(observations[0].tickCumulative, (-693147 * 2) * 3);
+        assertEq(observations[1].tickCumulative, (-693147 * 2) * 6);
+        assertEq(observations[2].tickCumulative, (-693147 * 2) * 9);
+        assertEq(observations[3].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 2));
+        assertEq(observations[4].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 5));
+        assertEq(observations[5].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 6) + (-693147 * 2));
+        assertEq(observations[6].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 6) + (-693147 * 5));
+    }
+
     function test_cannotCallExtensionMethodsDirectly() public {
         PoolKey memory poolKey =
             createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeInitializePool(address(0), poolKey, 0);
+        oracle.beforeInitializePool(address(0), poolKey, 15);
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
         oracle.beforeUpdatePosition(address(0), poolKey, UpdatePositionParameters(bytes32(0x0), Bounds(-100, 100), 0));

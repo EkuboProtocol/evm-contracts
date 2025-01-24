@@ -5,6 +5,8 @@ import {BaseOracleTest} from "../extensions/Oracle.t.sol";
 import {PriceFetcher} from "../../src/lens/PriceFetcher.sol";
 import {PoolKey} from "../../src/types/keys.sol";
 import {TestToken} from "../TestToken.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/ticks.sol";
+import {Bounds} from "../../src/types/keys.sol";
 
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;
@@ -93,5 +95,57 @@ contract PriceFetcherTest is BaseOracleTest {
         // insufficient history
         assertEq(results[3].priceX128, 0);
         assertEq(results[3].liquidity, 0);
+    }
+
+    function test_getAverageMultihop() public {
+        uint64 startTime = uint64(block.timestamp);
+        // 2 ETH / token0
+        PoolKey memory poolKey0 =
+            createPool(address(oracleToken), address(token0), -693147, 0, MAX_TICK_SPACING, address(oracle));
+        // 0.25 ETH / token1
+        PoolKey memory poolKey1 =
+            createPool(address(oracleToken), address(token1), 693147 * 2, 0, MAX_TICK_SPACING, address(oracle));
+
+        createPosition(poolKey0, Bounds(MIN_TICK, MAX_TICK), 2000, 1000); // ~1414
+        createPosition(poolKey1, Bounds(MIN_TICK, MAX_TICK), 3000, 12000); // ~6000
+
+        advanceTime(12);
+
+        // to 1 ETH / token0, meaning more token0 is sold into the pool
+        movePrice(poolKey0, 0);
+        // to 0.004 ETH / token1, meaning much more token1 is sold into the pool
+        movePrice(poolKey1, 693147 * 8);
+
+        advanceTime(12);
+
+        // first 12 seconds the token1/token0 price is 1 token1 / 8 token0
+        (uint128 liquidity, int32 tick) =
+            pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 12);
+        // combined should be about sqrt(1000*12000) = ~3464
+        assertEq(liquidity, 3461);
+        assertEq(tick, -2079441); // ~= 1/8
+
+        // first half of first period is the same
+        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 6);
+        assertEq(liquidity, 3461);
+        assertEq(tick, -2079441);
+
+        // liquidity goes up considerably because token0 and token1 are sold into the pools
+        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 6, startTime + 18);
+        assertEq(liquidity, 6352);
+        assertEq(tick, -3812308); // ~= 0.022097162025342
+
+        // second period
+        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 12, startTime + 24);
+        assertEq(liquidity, 11645);
+        assertEq(tick, -5545176); // ~= 1.000001^(-5545176) ~= 0.003906266472948
+
+        // second half of second period
+        (liquidity, tick) = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 18, startTime + 24);
+        assertEq(liquidity, 11645);
+        assertEq(tick, -5545176);
+
+        pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 24);
+        vm.snapshotGasLastCall("getAveragesOverPeriod");
     }
 }

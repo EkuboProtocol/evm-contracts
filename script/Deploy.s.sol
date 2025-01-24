@@ -10,6 +10,7 @@ import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "../test/TestToken.sol";
+import {MAX_TICK_SPACING} from "../src/math/ticks.sol";
 
 import {CoreLocker} from "../src/base/CoreLocker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
@@ -43,15 +44,17 @@ contract DeployScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
     function generateTestData(Positions positions, Router router, Oracle oracle) private {
-        address wallet = vm.getScriptWallets()[0];
-        TestToken token = new TestToken(wallet);
+        TestToken token = new TestToken(vm.getWallets()[0]);
         token.approve(address(router), type(uint256).max);
         token.approve(address(positions), type(uint256).max);
         // it is assumed this address has some quantity of oracle token already
         TestToken(oracle.oracleToken()).approve(address(positions), type(uint256).max);
 
+        uint256 baseSalt = uint256(keccak256(abi.encode(token)));
+
         // 30 basis points fee, 0.6% tick spacing, starting price of 5k, 0.01 ETH
         createPool(
+            baseSalt++,
             positions,
             NATIVE_TOKEN_ADDRESS,
             address(token),
@@ -65,6 +68,7 @@ contract DeployScript is Script {
 
         // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH
         createPool(
+            baseSalt++,
             positions,
             NATIVE_TOKEN_ADDRESS,
             address(token),
@@ -75,9 +79,36 @@ contract DeployScript is Script {
             30000000000000000,
             300000000000000000000
         );
+
+        createPool(
+            baseSalt++,
+            positions,
+            NATIVE_TOKEN_ADDRESS,
+            oracle.oracleToken(),
+            0,
+            MAX_TICK_SPACING,
+            address(oracle),
+            4605172,
+            0.01e18,
+            1e18
+        );
+
+        createPool(
+            baseSalt++,
+            positions,
+            oracle.oracleToken(),
+            address(token),
+            0,
+            MAX_TICK_SPACING,
+            address(oracle),
+            4605172,
+            1e18,
+            100e18
+        );
     }
 
     function createPool(
+        uint256 salt,
         Positions positions,
         address tokenA,
         address tokenB,
@@ -88,7 +119,9 @@ contract DeployScript is Script {
         uint128 maxAmount0,
         uint128 maxAmount1
     ) private returns (PoolKey memory poolKey) {
-        (tokenA, tokenB) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        (tokenA, tokenB, startingTick, maxAmount0, maxAmount1) = tokenA < tokenB
+            ? (tokenA, tokenB, startingTick, maxAmount0, maxAmount1)
+            : (tokenB, tokenA, -startingTick, maxAmount1, maxAmount0);
         poolKey = PoolKey({token0: tokenA, token1: tokenB, fee: fee, tickSpacing: tickSpacing, extension: extension});
 
         Bounds memory bounds = maxBounds(tickSpacing);
@@ -97,7 +130,9 @@ contract DeployScript is Script {
         bytes[] memory calls = isETH ? new bytes[](3) : new bytes[](2);
 
         calls[0] = abi.encodeWithSelector(Positions.maybeInitializePool.selector, poolKey, startingTick);
-        calls[1] = abi.encodeWithSelector(Positions.mintAndDeposit.selector, poolKey, bounds, maxAmount0, maxAmount1, 0);
+        calls[1] = abi.encodeWithSelector(
+            Positions.mintAndDepositWithSalt.selector, salt, poolKey, bounds, maxAmount0, maxAmount1, 0
+        );
         if (isETH) {
             calls[2] = abi.encodeWithSelector(CoreLocker.refundNativeToken.selector);
         }

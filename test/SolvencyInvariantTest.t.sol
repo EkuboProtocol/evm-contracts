@@ -223,7 +223,7 @@ contract SolvencyInvariantTest is FullTest {
         targetContract(address(handler));
     }
 
-    function invariant_allPoolsHaveValidStates() public {
+    function invariant_allPoolsHaveValidStates() public view {
         handler.checkAllPoolsHavePositiveBalance();
         handler.checkAllPoolsHaveValidPriceAndTick();
     }

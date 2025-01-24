@@ -199,6 +199,18 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
         (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
     }
 
+    function mintAndDepositWithSalt(
+        bytes32 salt,
+        PoolKey memory poolKey,
+        Bounds memory bounds,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        uint128 minLiquidity
+    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+        id = mint(salt);
+        (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
+    }
+
     error UnexpectedCallTypeByte(uint8 b);
 
     function handleLockData(bytes calldata data) internal override returns (bytes memory result) {

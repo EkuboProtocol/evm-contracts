@@ -8,24 +8,30 @@ import {tickToSqrtRatio, MAX_SQRT_RATIO} from "../math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-// Gets the timestamps for the shorthand of end time, num intervals and period
+error InvalidNumIntervals();
+error InvalidPeriod();
+
+// Gets the timestamps for the snapshots that must be fetched for the given period [endTime - (numIntervals * period), endTime]
 function getTimestampsForPeriod(uint64 endTime, uint32 numIntervals, uint32 period)
     pure
     returns (uint64[] memory timestamps)
 {
-    timestamps = new uint64[](numIntervals);
+    if (numIntervals == 0 || numIntervals == type(uint32).max) revert InvalidNumIntervals();
+    if (period == 0) revert InvalidPeriod();
 
-    uint64 t = endTime;
-    while (numIntervals > 0) {
-        timestamps[numIntervals - 1] = t;
-        t -= period;
-        numIntervals--;
+    timestamps = new uint64[](numIntervals + 1);
+    for (uint256 i = 0; i <= numIntervals;) {
+        timestamps[i] = uint64(endTime - ((numIntervals - i) * period));
+        unchecked {
+            i++;
+        }
     }
 }
 
 contract PriceFetcher {
     error EndTimeMustBeGreaterThanStartTime();
     error MinimumOnePeriodRealizedVolatility();
+    error VolatilityRequiresMoreIntervals();
 
     Oracle public immutable oracle;
     // we store a copy here for efficiency
@@ -98,6 +104,89 @@ contract PriceFetcher {
                 );
             }
         }
+    }
+
+    function getHistoricalPeriodAverages(
+        address baseToken,
+        address quoteToken,
+        uint64 endTime,
+        uint32 numIntervals,
+        uint32 period
+    ) public view returns (PeriodAverage[] memory averages) {
+        unchecked {
+            bool baseIsOracleToken = baseToken == _oracleToken;
+            if (baseIsOracleToken || quoteToken == _oracleToken) {
+                (int32 tickSign, address otherToken) =
+                    baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
+
+                uint64[] memory timestamps = getTimestampsForPeriod(endTime, numIntervals, period);
+                averages = new PeriodAverage[](numIntervals);
+
+                Oracle.Observation[] memory observations =
+                    oracle.getExtrapolatedSnapshotsForSortedTimestamps(otherToken, timestamps);
+
+                // for each but the last observation, populate the period
+                for (uint256 i = 0; i < numIntervals; i++) {
+                    Oracle.Observation memory start = observations[i];
+                    Oracle.Observation memory end = observations[i + 1];
+
+                    averages[i] = PeriodAverage(
+                        uint128(
+                            (uint160(period) << 128)
+                                / (end.secondsPerLiquidityCumulative - start.secondsPerLiquidityCumulative)
+                        ),
+                        tickSign * int32((end.tickCumulative - start.tickCumulative) / int64(uint64(period)))
+                    );
+                }
+            } else {
+                PeriodAverage[] memory bases =
+                    getHistoricalPeriodAverages(_oracleToken, baseToken, endTime, numIntervals, period);
+                PeriodAverage[] memory quotes =
+                    getHistoricalPeriodAverages(_oracleToken, quoteToken, endTime, numIntervals, period);
+
+                averages = new PeriodAverage[](numIntervals);
+
+                for (uint256 i = 0; i < bases.length; i++) {
+                    PeriodAverage memory base = bases[i];
+                    PeriodAverage memory quote = quotes[i];
+
+                    uint128 amountBase = amount0Delta(tickToSqrtRatio(base.tick), MAX_SQRT_RATIO, base.liquidity, false);
+                    uint128 amountQuote =
+                        amount0Delta(tickToSqrtRatio(quote.tick), MAX_SQRT_RATIO, quote.liquidity, false);
+
+                    averages[i] = PeriodAverage(
+                        uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote))),
+                        quote.tick - base.tick
+                    );
+                }
+            }
+        }
+    }
+
+    function getRealizedVolatilityOverPeriod(
+        address baseToken,
+        address quoteToken,
+        uint64 endTime,
+        uint32 numIntervals,
+        uint32 period,
+        uint32 extrapolatedTo
+    ) public view returns (uint256 realizedVolatilityInTicks) {
+        if (numIntervals < 2) revert VolatilityRequiresMoreIntervals();
+        PeriodAverage[] memory averages =
+            getHistoricalPeriodAverages(baseToken, quoteToken, endTime, numIntervals, period);
+
+        uint256 sum;
+        for (uint256 i = 1; i < averages.length;) {
+            unchecked {
+                uint256 difference = FixedPointMathLib.abs(int256(averages[i].tick) - int256(averages[i - 1].tick));
+                sum += difference * difference;
+                i++;
+            }
+        }
+
+        uint256 extrapolated = (sum * extrapolatedTo) / ((numIntervals - 1) * period);
+
+        return FixedPointMathLib.sqrt(extrapolated);
     }
 
     function getOracleTokenAverages(uint64 observationPeriod, address[] memory baseTokens)

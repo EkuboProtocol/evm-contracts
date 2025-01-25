@@ -86,6 +86,11 @@ abstract contract BaseOracleTest is FullTest {
                 RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token0, int128(amount))
             );
         }
+
+        (, tick) = core.poolPrice(poolKey.toPoolId());
+
+        // this can happen because of rounding, we may fall just short
+        assertEq(tick, targetTick, "failed to move price");
     }
 
     function createOraclePool(address baseToken, int32 tick) internal returns (PoolKey memory poolKey) {
@@ -124,6 +129,104 @@ abstract contract BaseOracleTest is FullTest {
         } else if (liquidity > liquidityNext) {
             positions.withdraw(positionId, pk, bounds, liquidity - liquidityNext);
         }
+    }
+}
+
+contract ManyObservationsOracleTest is BaseOracleTest {
+    PoolKey poolKey;
+
+    uint64 startTime;
+    address token;
+
+    function setUp() public override {
+        BaseOracleTest.setUp();
+        startTime = uint64(vm.getBlockTimestamp());
+        token = address(token1);
+        poolKey = createOraclePool(token, -693129);
+
+        // t = startTime + 0
+        updateOraclePoolLiquidity(token, 100_000);
+        movePrice(poolKey, -1386256);
+
+        advanceTime(12);
+
+        // t = startTime + 12
+        movePrice(poolKey, 693129);
+        updateOraclePoolLiquidity(token, 5_000);
+
+        advanceTime(12);
+
+        // t = startTime + 24
+        movePrice(poolKey, -693129);
+        updateOraclePoolLiquidity(token, 75_000);
+
+        // t = startTime + 36
+        advanceTime(12);
+        movePrice(poolKey, -1386256);
+        updateOraclePoolLiquidity(token, 50_000);
+
+        // t = startTime + 44
+        advanceTime(8);
+    }
+
+    function test_gas_getSnapshots() public {
+        uint64[] memory timestamps = new uint64[](6);
+        timestamps[0] = startTime;
+        timestamps[1] = startTime + 6;
+        timestamps[2] = startTime + 18;
+        timestamps[3] = startTime + 36;
+        timestamps[4] = startTime + 40;
+        timestamps[5] = startTime + 44;
+        oracle.getExtrapolatedSnapshotsForSortedTimestamps(token, timestamps);
+        vm.snapshotGasLastCall("getExtrapolatedSnapshotsForSortedTimestamps(6 timestamps)");
+    }
+
+    function test_values() public view {
+        uint64[] memory timestamps = new uint64[](6);
+        timestamps[0] = startTime;
+        timestamps[1] = startTime + 6;
+        timestamps[2] = startTime + 18;
+        timestamps[3] = startTime + 36;
+        timestamps[4] = startTime + 40;
+        timestamps[5] = startTime + 44;
+        Oracle.Observation[] memory observations = oracle.getExtrapolatedSnapshotsForSortedTimestamps(token, timestamps);
+        // startTime
+        assertEq(observations[0].secondsPerLiquidityCumulative, 0);
+        assertEq(observations[0].tickCumulative, 0);
+
+        // startTime + 6
+        assertEq(observations[1].secondsPerLiquidityCumulative, (uint160(6) << 128) / 100_000);
+        assertEq(observations[1].tickCumulative, int64(6) * 1386256);
+
+        // startTime + 18
+        assertEq(
+            observations[2].secondsPerLiquidityCumulative,
+            ((uint160(12) << 128) / 100_000) + ((uint160(6) << 128) / 5_000)
+        );
+        assertEq(observations[2].tickCumulative, (int64(12) * 1386256) + (-693129 * 6));
+
+        // startTime + 36
+        assertEq(
+            observations[3].secondsPerLiquidityCumulative,
+            ((uint160(12) << 128) / 100_000) + ((uint160(12) << 128) / 5_000) + ((uint160(12) << 128) / 75_000)
+        );
+        assertEq(observations[3].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12));
+
+        // startTime + 40
+        assertEq(
+            observations[4].secondsPerLiquidityCumulative,
+            ((uint160(12) << 128) / 100_000) + ((uint160(12) << 128) / 5_000) + ((uint160(12) << 128) / 75_000)
+                + ((uint160(4) << 128) / 50_000)
+        );
+        assertEq(observations[4].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 4));
+
+        // startTime + 44
+        assertEq(
+            observations[5].secondsPerLiquidityCumulative,
+            ((uint160(12) << 128) / 100_000) + ((uint160(12) << 128) / 5_000) + ((uint160(12) << 128) / 75_000)
+                + ((uint160(8) << 128) / 50_000)
+        );
+        assertEq(observations[5].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 8));
     }
 }
 

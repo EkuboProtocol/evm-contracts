@@ -2,7 +2,9 @@
 pragma solidity =0.8.28;
 
 import {BaseOracleTest} from "../extensions/Oracle.t.sol";
-import {PriceFetcher, getTimestampsForPeriod} from "../../src/lens/PriceFetcher.sol";
+import {
+    PriceFetcher, getTimestampsForPeriod, InvalidNumIntervals, InvalidPeriod
+} from "../../src/lens/PriceFetcher.sol";
 import {PoolKey} from "../../src/types/keys.sol";
 import {TestToken} from "../TestToken.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/ticks.sol";
@@ -19,14 +21,24 @@ contract PriceFetcherTest is BaseOracleTest {
 
     function test_getTimestampsForPeriod() public pure {
         uint64[] memory result = getTimestampsForPeriod({endTime: 100, numIntervals: 7, period: 5});
-        assertEq(result.length, 7);
-        assertEq(result[0], 70);
-        assertEq(result[1], 75);
-        assertEq(result[2], 80);
-        assertEq(result[3], 85);
-        assertEq(result[4], 90);
-        assertEq(result[5], 95);
-        assertEq(result[6], 100);
+        assertEq(result.length, 8);
+        assertEq(result[0], 65);
+        assertEq(result[1], 70);
+        assertEq(result[2], 75);
+        assertEq(result[3], 80);
+        assertEq(result[4], 85);
+        assertEq(result[5], 90);
+        assertEq(result[6], 95);
+        assertEq(result[7], 100);
+    }
+
+    function test_getTimestampsForPeriod_reverts_invalid() public {
+        vm.expectRevert(InvalidPeriod.selector);
+        getTimestampsForPeriod({endTime: 100, numIntervals: 7, period: 0});
+        vm.expectRevert(InvalidNumIntervals.selector);
+        getTimestampsForPeriod({endTime: 100, numIntervals: type(uint32).max, period: 5});
+        vm.expectRevert(InvalidNumIntervals.selector);
+        getTimestampsForPeriod({endTime: 100, numIntervals: 0, period: 5});
     }
 
     function test_fetchPrices_gas_snapshot() public {
@@ -193,5 +205,24 @@ contract PriceFetcherTest is BaseOracleTest {
 
         pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 24);
         vm.snapshotGasLastCall("getAveragesOverPeriod");
+
+        PriceFetcher.PeriodAverage[] memory averages =
+            pf.getHistoricalPeriodAverages(address(token0), address(token1), startTime + 24, 3, 5);
+        vm.snapshotGasLastCall("getHistoricalPeriodAverages");
+        assertEq(averages.length, 3);
+        assertEq(averages[0].tick, -3465734);
+        assertEq(averages[1].tick, -5545176);
+        assertEq(averages[2].tick, -5545176);
+
+        assertEq(averages[0].liquidity, 5625);
+        assertEq(averages[1].liquidity, 11640);
+        assertEq(averages[2].liquidity, 11645);
+
+        assertEq(
+            // high because the price did >10x
+            pf.getRealizedVolatilityOverPeriod(address(token0), address(token1), startTime + 24, 3, 5, 15),
+            2546785
+        );
+        vm.snapshotGasLastCall("getRealizedVolatilityOverPeriod");
     }
 }

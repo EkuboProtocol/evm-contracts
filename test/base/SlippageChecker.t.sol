@@ -25,6 +25,14 @@ contract SlippageCheckerTest is Test {
         target.checkDeadline(deadline);
     }
 
+    function test_allFunctionsPayable() public {
+        target.checkDeadline{value: 1}(type(uint256).max);
+        target.recordBalanceForSlippageCheck{value: 1}(NATIVE_TOKEN_ADDRESS);
+        target.checkMaximumInputNotExceeded{value: 1}(NATIVE_TOKEN_ADDRESS, type(uint256).max);
+        vm.deal(address(this), address(this).balance + 2);
+        target.checkMinimumOutputReceived{value: 1}(NATIVE_TOKEN_ADDRESS, 0);
+    }
+
     function test_checkMinimumOutputReceived(uint256 actualOutput, uint256 minimumOutput, bool isETH) public {
         address tokenAddress = isETH ? NATIVE_TOKEN_ADDRESS : address(token);
         address recipient = payable(address(0xdeadbeefdeadbeef));

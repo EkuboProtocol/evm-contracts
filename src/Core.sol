@@ -142,7 +142,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
     // Token must not be the NATIVE_TOKEN_ADDRESS.
     // If you want to pay in the native token, simply transfer it to this contract.
     function pay(address token, bytes memory data) external returns (uint256 payment) {
-        (uint256 id, address caller) = requireLocker();
+        (uint256 id, address caller) = _requireLocker();
 
         uint256 tokenBalanceBefore = SafeTransferLib.balanceOf(token, address(this));
 
@@ -161,12 +161,12 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             require(payment < PAYMENT_LIMIT);
 
             // The unary negative operator never fails because payment is less than max int256
-            accountDebt(id, token, -int256(payment));
+            _accountDebt(id, token, -int256(payment));
         }
     }
 
     function load(address token, bytes32 salt, uint128 amount) external {
-        (uint256 id,) = getLocker();
+        (uint256 id,) = _getLocker();
 
         unchecked {
             uint256 balance = savedBalances[msg.sender][token][salt];
@@ -176,15 +176,15 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             savedBalances[msg.sender][token][salt] = balance - amount;
         }
 
-        accountDebt(id, token, -int256(uint256(amount)));
+        _accountDebt(id, token, -int256(uint256(amount)));
 
         emit LoadedBalance(msg.sender, token, salt, amount);
     }
 
     function withdraw(address token, address recipient, uint128 amount) external {
-        (uint256 id,) = requireLocker();
+        (uint256 id,) = _requireLocker();
 
-        accountDebt(id, token, int256(uint256(amount)));
+        _accountDebt(id, token, int256(uint256(amount)));
 
         if (token == NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeTransferETH(recipient, amount);
@@ -194,10 +194,10 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
     }
 
     function save(address owner, address token, bytes32 salt, uint128 amount) external {
-        (uint256 id,) = requireLocker();
+        (uint256 id,) = _requireLocker();
 
         savedBalances[owner][token][salt] += amount;
-        accountDebt(id, token, int256(uint256(amount)));
+        _accountDebt(id, token, int256(uint256(amount)));
 
         emit SavedBalance(owner, token, salt, amount);
     }
@@ -228,7 +228,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
     // key, i.e. the current locker _must_ be the extension.
     // The extension must call this function within a lock callback.
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external expires {
-        (uint256 id, address locker) = requireLocker();
+        (uint256 id, address locker) = _requireLocker();
         require(locker == poolKey.extension);
         bytes32 poolId = poolKey.toPoolId();
         uint128 liquidity = poolLiquidity[poolId];
@@ -237,8 +237,8 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         poolFeesPerLiquidity[poolKey.toPoolId()] =
             poolFeesPerLiquidity[poolId].add(feesPerLiquidityFromAmounts(amount0, amount1, liquidity));
 
-        accountDebt(id, poolKey.token0, int256(uint256(amount0)));
-        accountDebt(id, poolKey.token1, int256(uint256(amount1)));
+        _accountDebt(id, poolKey.token0, int256(uint256(amount0)));
+        _accountDebt(id, poolKey.token1, int256(uint256(amount1)));
 
         emit FeesAccumulated(poolKey, amount0, amount1);
     }
@@ -264,7 +264,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         expiresIff(params.liquidityDelta > 0)
         returns (int128 delta0, int128 delta1)
     {
-        (uint256 id, address locker) = requireLocker();
+        (uint256 id, address locker) = _requireLocker();
 
         if (shouldCallBeforeUpdatePosition(poolKey.extension) && locker != poolKey.extension) {
             IExtension(poolKey.extension).beforeUpdatePosition(locker, poolKey, params);
@@ -334,8 +334,8 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
                 poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
             }
 
-            accountDebt(id, poolKey.token0, delta0);
-            accountDebt(id, poolKey.token1, delta1);
+            _accountDebt(id, poolKey.token0, delta0);
+            _accountDebt(id, poolKey.token1, delta1);
 
             emit PositionUpdated(locker, poolKey, params, delta0, delta1);
         }
@@ -349,7 +349,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         external
         returns (uint128 amount0, uint128 amount1)
     {
-        (uint256 id, address locker) = requireLocker();
+        (uint256 id, address locker) = _requireLocker();
 
         if (shouldCallBeforeCollectFees(poolKey.extension) && locker != poolKey.extension) {
             IExtension(poolKey.extension).beforeCollectFees(locker, poolKey, salt, bounds);
@@ -367,8 +367,8 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         poolPositions[poolId][positionId] =
             Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
 
-        accountDebt(id, poolKey.token0, -int256(uint256(amount0)));
-        accountDebt(id, poolKey.token1, -int256(uint256(amount1)));
+        _accountDebt(id, poolKey.token0, -int256(uint256(amount0)));
+        _accountDebt(id, poolKey.token1, -int256(uint256(amount1)));
 
         emit PositionFeesCollected(poolKey, positionKey, amount0, amount1);
 
@@ -382,7 +382,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         expires
         returns (int128 delta0, int128 delta1)
     {
-        (uint256 id, address locker) = requireLocker();
+        (uint256 id, address locker) = _requireLocker();
 
         if (shouldCallBeforeSwap(poolKey.extension) && locker != poolKey.extension) {
             IExtension(poolKey.extension).beforeSwap(locker, poolKey, params);
@@ -478,8 +478,8 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             poolLiquidity[poolId] = liquidity;
             poolFeesPerLiquidity[poolId] = feesPerLiquidity;
 
-            accountDebt(id, poolKey.token0, delta0);
-            accountDebt(id, poolKey.token1, delta1);
+            _accountDebt(id, poolKey.token0, delta0);
+            _accountDebt(id, poolKey.token1, delta1);
 
             emit Swapped(locker, poolKey, params, delta0, delta1, sqrtRatio, tick, liquidity);
         }
@@ -491,11 +491,11 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
     // Used to pay native tokens owed
     receive() external payable {
-        (uint256 id,) = requireLocker();
+        (uint256 id,) = _requireLocker();
 
         // Assumption that msg.value will never overflow this cast
         unchecked {
-            accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+            _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }
 }

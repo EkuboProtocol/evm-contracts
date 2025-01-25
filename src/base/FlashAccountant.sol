@@ -8,7 +8,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     uint256 private constant _LOCKER_ADDRESSES_OFFSET = 0x100000000;
     uint256 private constant _NONZERO_DEBT_COUNT_OFFSET = 0x200000000;
 
-    function getLocker() internal view returns (uint256 id, address locker) {
+    function _getLocker() internal view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
             id := sub(tload(_LOCKER_COUNT_SLOT), 1)
             locker := tload(add(_LOCKER_ADDRESSES_OFFSET, id))
@@ -16,13 +16,13 @@ abstract contract FlashAccountant is IFlashAccountant {
         if (id == type(uint256).max) revert NotLocked();
     }
 
-    function requireLocker() internal view returns (uint256 id, address locker) {
-        (id, locker) = getLocker();
+    function _requireLocker() internal view returns (uint256 id, address locker) {
+        (id, locker) = _getLocker();
         if (locker != msg.sender) revert LockerOnly();
     }
 
     // Negative means erasing debt, positive means adding debt
-    function accountDebt(uint256 id, address token, int256 debtChange) internal {
+    function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
             if iszero(iszero(debtChange)) {
                 mstore(0, add(shl(160, id), token))
@@ -41,6 +41,14 @@ abstract contract FlashAccountant is IFlashAccountant {
 
                 tstore(deltaSlot, next)
             }
+        }
+    }
+
+    function _getDebt(uint256 id, address token) internal view returns (int256 debt) {
+        assembly ("memory-safe") {
+            mstore(0, add(shl(160, id), token))
+            let deltaSlot := keccak256(0, 32)
+            debt := tload(deltaSlot)
         }
     }
 
@@ -77,7 +85,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     // Allows forwarding the lock context to another actor, allowing them to act on the original locker's debt
     function forward(address to, bytes calldata data) external returns (bytes memory result) {
-        (uint256 id, address locker) = requireLocker();
+        (uint256 id, address locker) = _requireLocker();
 
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state

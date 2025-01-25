@@ -4,9 +4,18 @@ pragma solidity =0.8.28;
 import {ILocker, IForwardee, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 
 abstract contract FlashAccountant is IFlashAccountant {
-    uint256 private constant _LOCKER_COUNT_SLOT = 0;
-    uint256 private constant _LOCKER_ADDRESSES_OFFSET = 0x100000000;
-    uint256 private constant _NONZERO_DEBT_COUNT_OFFSET = 0x200000000;
+    // These are randomly selected offsets so that they do not accidentally overlap with any other base contract's use of transient storage
+
+    // cast keccak "FlashAccountant#LOCKER_COUNT"
+    uint256 private constant _LOCKER_COUNT_SLOT = 0xdfe868523f8ede687139be83247bb2178878f1f7e5f4163159d5efcacd490ee8;
+    // cast keccak "FlashAccountant#LOCKER_ADDRESS_OFFSET"
+    uint256 private constant _LOCKER_ADDRESSES_OFFSET =
+        0x62f1193cf979f3b3e5310bfcb479bd02c801c390b7d4b953d62823a220c07066;
+    // cast keccak "FlashAccountant#NONZERO_DEBT_COUNT_OFFSET"
+    uint256 private constant _NONZERO_DEBT_COUNT_OFFSET =
+        0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d;
+    // cast keccak "FlashAccountant#DEBT_HASH_OFFSET"
+    uint256 private constant _DEBT_HASH_OFFSET = 0x3fee1dc3ade45aa30d633b5b8645760533723e46597841ef1126c6577a091742;
 
     function _getLocker() internal view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
@@ -25,7 +34,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
             if iszero(iszero(debtChange)) {
-                mstore(0, add(shl(160, id), token))
+                mstore(0, add(add(shl(160, id), token), _DEBT_HASH_OFFSET))
                 let deltaSlot := keccak256(0, 32)
                 let current := tload(deltaSlot)
 
@@ -41,14 +50,6 @@ abstract contract FlashAccountant is IFlashAccountant {
 
                 tstore(deltaSlot, next)
             }
-        }
-    }
-
-    function _getDebt(uint256 id, address token) internal view returns (int256 debt) {
-        assembly ("memory-safe") {
-            mstore(0, add(shl(160, id), token))
-            let deltaSlot := keccak256(0, 32)
-            debt := tload(deltaSlot)
         }
     }
 

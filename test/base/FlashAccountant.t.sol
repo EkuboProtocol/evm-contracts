@@ -6,10 +6,39 @@ import {Test} from "forge-std/Test.sol";
 import {FlashAccountant} from "../../src/base/FlashAccountant.sol";
 import {ILocker, IForwardee, IFlashAccountant} from "../../src/interfaces/IFlashAccountant.sol";
 
-// ---------------------
-// Supporting Contracts
-// ---------------------
+// --------------------------------------------------
+//                 Base Testing Target
+// --------------------------------------------------
 
+/**
+ * @notice A simple contract that extends FlashAccountant and exposes
+ * `borrow` / `pay` to manipulate debt within the current lock context.
+ */
+contract TestTarget is FlashAccountant {
+    function borrow(address token, uint128 amount) external {
+        // reverts if not currently locked
+        _requireLocker();
+        _accountDebt(_lockerId(), token, int256(uint256(amount)));
+    }
+
+    function pay(address token, uint128 amount) external {
+        _requireLocker();
+        _accountDebt(_lockerId(), token, -int256(uint256(amount)));
+    }
+
+    function _lockerId() internal view returns (uint256) {
+        (uint256 id,) = _getLocker();
+        return id;
+    }
+}
+
+// --------------------------------------------------
+//     Single-Level Locker & Forwarder Test Setup
+// --------------------------------------------------
+
+/**
+ * @dev LockerTester base that does nothing by default, just to silence warnings.
+ */
 abstract contract LockerTester is ILocker {
     address public target;
     address public forwardee;
@@ -19,12 +48,15 @@ abstract contract LockerTester is ILocker {
         forwardee = _forwardee;
     }
 
-    // Silence compiler warnings by omitting unused params.
+    // Unused parameters => name them with underscores or remove them
     function locked(uint256, /*id*/ bytes calldata /*data*/ ) external virtual override returns (bytes memory) {
         return bytes("");
     }
 }
 
+/**
+ * @dev ForwardeeTester base that does nothing by default, just to silence warnings.
+ */
 abstract contract ForwardeeTester is IForwardee {
     address public target;
 
@@ -32,7 +64,7 @@ abstract contract ForwardeeTester is IForwardee {
         target = _target;
     }
 
-    // Silence compiler warnings by omitting unused params.
+    // Unused parameters => name them with underscores or remove them
     function forwarded(address, /*locker*/ uint256, /*id*/ bytes calldata /*data*/ )
         external
         virtual
@@ -43,46 +75,16 @@ abstract contract ForwardeeTester is IForwardee {
     }
 }
 
-// ---------------------
-// Actual Test Target
-// ---------------------
-
-contract TestTarget is FlashAccountant {
-    function borrow(address token, uint128 amount) external {
-        _requireLocker(); // we don't need the return values here
-        _accountDebt(_lockerId(), token, int256(uint256(amount)));
-    }
-
-    function pay(address token, uint128 amount) external {
-        _requireLocker();
-        _accountDebt(_lockerId(), token, -int256(uint256(amount)));
-    }
-
-    // Provide an internal helper to get the current lock id without re-checking the locker
-    function _lockerId() internal view returns (uint256) {
-        (uint256 id,) = _getLocker();
-        return id;
-    }
-
-    function getDebt(uint256 id, address token) external view returns (int256) {
-        return _getDebt(id, token);
-    }
-
-    function getLocker() external view returns (uint256, address) {
-        return _getLocker();
-    }
-}
-
-// ---------------------
-// Concrete Tester Impl
-// ---------------------
-
-// Encodes: (bool runForward, address token, uint128 borrowAmount, uint128 payAmount)
+/**
+ * @notice LockerTesterImpl: performs a borrow, an optional forward,
+ * and then a pay in the locked(...) callback. Data encodes:
+ *   (bool runForward, address token, uint128 borrowAmount, uint128 payAmount)
+ */
 contract LockerTesterImpl is LockerTester {
     constructor(address _target, address _forwardee) LockerTester(_target, _forwardee) {}
 
     function locked(uint256, /*id*/ bytes calldata data) external override returns (bytes memory) {
-        require(msg.sender == target, "LockerTesterImpl: caller not target");
+        require(msg.sender == target);
 
         (bool runForward, address token, uint128 borrowAmount, uint128 payAmount) =
             abi.decode(data, (bool, address, uint128, uint128));
@@ -90,7 +92,7 @@ contract LockerTesterImpl is LockerTester {
         // Borrow
         TestTarget(target).borrow(token, borrowAmount);
 
-        // Optional forward
+        // Optionally forward
         if (runForward) {
             IFlashAccountant(target).forward(forwardee, abi.encode(token, borrowAmount, payAmount));
         }
@@ -104,7 +106,10 @@ contract LockerTesterImpl is LockerTester {
     }
 }
 
-// Encodes: (address token, uint128 borrowAmount, uint128 payAmount)
+/**
+ * @notice ForwardeeTesterImpl: in the forwarded(...) callback, does a partial borrow/pay.
+ * Data encodes: (address token, uint128 borrowAmount, uint128 payAmount)
+ */
 contract ForwardeeTesterImpl is ForwardeeTester {
     constructor(address _target) ForwardeeTester(_target) {}
 
@@ -113,14 +118,15 @@ contract ForwardeeTesterImpl is ForwardeeTester {
         override
         returns (bytes memory)
     {
-        require(msg.sender == target, "ForwardeeTesterImpl: caller not target");
+        require(msg.sender == target, "ForwardeeTesterImpl: not called by target");
+
         (address token, uint128 borrowAmount, uint128 payAmount) = abi.decode(data, (address, uint128, uint128));
 
-        // Additional partial borrow
+        // extra partial borrow
         if (borrowAmount > 0) {
             TestTarget(target).borrow(token, borrowAmount / 2);
         }
-        // Additional partial pay
+        // extra partial pay
         if (payAmount > 0) {
             TestTarget(target).pay(token, payAmount / 2);
         }
@@ -129,9 +135,9 @@ contract ForwardeeTesterImpl is ForwardeeTester {
     }
 }
 
-// ---------------------
-// The Test Suite
-// ---------------------
+// --------------------------------------------------
+// Single-Level Usage Test Suite (no recursion)
+// --------------------------------------------------
 
 contract FlashAccountantTest is Test {
     TestTarget public target;
@@ -176,63 +182,223 @@ contract FlashAccountantTest is Test {
         target.borrow(someToken, 1);
     }
 
-    // 5) Fuzz test: single lock with optional forward must revert if final net != 0
+    // 5) Single-level fuzz test: if final net debt != 0, revert with DebtsNotZeroed
     function testFuzz_lockZeroDebt(bool runForward, uint128 borrowAmount, uint128 payAmount) public {
         /*
-         We do:
-           - borrow(borrowAmount)
-           - if runForward: forward => borrow(borrowAmount/2), pay(payAmount/2)
-           - pay(payAmount)
+         Borrow: borrowAmount
+         Optional forward => partial borrow/partial pay:
+           (borrowAmount/2, payAmount/2)
+         Pay: payAmount
+         
+         final net = borrowAmount + (runForward ? borrowAmount/2 : 0)
+                   - [payAmount + (runForward ? payAmount/2 : 0)]
 
-         The final net = borrowAmount + (borrowAmount/2 if runForward) - (payAmount + (payAmount/2 if runForward))
-
-         To avoid overflow in the test, do everything as uint256.
+         We do all arithmetic in uint256 to avoid 128 overflow.
         */
-        uint256 bigBorrow = uint256(borrowAmount);
-        uint256 bigPay = uint256(payAmount);
+        uint256 b = borrowAmount;
+        uint256 p = payAmount;
 
         uint256 finalBorrow;
         uint256 finalPay;
 
         if (!runForward) {
-            finalBorrow = bigBorrow;
-            finalPay = bigPay;
+            finalBorrow = b;
+            finalPay = p;
         } else {
-            // cast to uint256 first to avoid overflow in expressions
-            finalBorrow = bigBorrow + (bigBorrow / 2);
-            finalPay = bigPay + (bigPay / 2);
+            finalBorrow = b + (b / 2);
+            finalPay = p + (p / 2);
         }
 
-        // Prepare data
         bytes memory data = abi.encode(runForward, someToken, borrowAmount, payAmount);
 
         vm.prank(address(lockerImpl));
         if (finalBorrow != finalPay) {
-            // Nonzero net => expect revert with DebtsNotZeroed
             vm.expectRevert(IFlashAccountant.DebtsNotZeroed.selector);
             target.lock(data);
         } else {
-            // Zero net => no revert
             target.lock(data);
         }
     }
 
-    // 6) Nested locking test in sequence
+    // 6) Nested locking in the sense of multiple consecutive locks (but not recursion).
     function test_nestedLockingAndForwarding() public {
-        // Lock #0 => net zero => success
+        // #0 => net zero => success
         bytes memory data = abi.encode(true, someToken, uint128(100), uint128(100));
         vm.prank(address(lockerImpl));
         target.lock(data);
 
-        // Lock #1 => mismatch => revert
+        // #1 => mismatch => revert
         data = abi.encode(true, someToken, uint128(200), uint128(100));
         vm.prank(address(lockerImpl));
         vm.expectRevert(IFlashAccountant.DebtsNotZeroed.selector);
         target.lock(data);
 
-        // Lock #2 => net zero => success
+        // #2 => net zero => success
         data = abi.encode(true, someToken, uint128(300), uint128(300));
         vm.prank(address(lockerImpl));
+        target.lock(data);
+    }
+}
+
+// --------------------------------------------------
+//    Multi-Level (Recursive) Locking Test Setup
+// --------------------------------------------------
+
+/**
+ * @notice A nested locker that, inside its `locked` callback, can call
+ * `lock(...)` again for deeper levels. This demonstrates recursion with
+ * multiple lock IDs in a single outer call stack.
+ */
+contract NestedLocker is ILocker {
+    address public target;
+    address public token;
+    address public forwardee;
+
+    struct NestParams {
+        uint8 maxDepth; // how many times we can nest
+        uint128 borrowAmount; // how much to borrow at each level
+        uint128 payAmount; // how much to pay at each level
+        bool doForward; // if we also forward at each level
+    }
+
+    constructor(address _target, address _forwardee, address _token) {
+        target = _target;
+        forwardee = _forwardee;
+        token = _token;
+    }
+
+    /**
+     * @dev Data encodes (NestParams params, uint8 currentDepth).
+     */
+    function locked(uint256, /*id*/ bytes calldata data) external override returns (bytes memory) {
+        require(msg.sender == target);
+
+        (NestParams memory params, uint8 currentDepth) = abi.decode(data, (NestParams, uint8));
+
+        // Borrow at this level
+        TestTarget(target).borrow(token, params.borrowAmount);
+
+        // Optionally forward
+        if (params.doForward) {
+            IFlashAccountant(target).forward(forwardee, "");
+        }
+
+        // If we can still go deeper, call lock(...) again
+        if (currentDepth < params.maxDepth) {
+            NestParams memory nextParams = params; // same settings
+            uint8 nextDepth = currentDepth + 1;
+
+            bytes memory nextData = abi.encode(nextParams, nextDepth);
+            IFlashAccountant(target).lock(nextData);
+        }
+
+        // Pay at this level
+        if (params.payAmount > 0) {
+            TestTarget(target).pay(token, params.payAmount);
+        }
+
+        return "";
+    }
+}
+
+/**
+ * @notice A simple forwardee that doesn't do further borrowing/paying
+ * (or you could expand to do partial manipulations if you want).
+ */
+contract SimpleForwardee is IForwardee {
+    address public target;
+
+    constructor(address _target) {
+        target = _target;
+    }
+
+    function forwarded(address, /*locker*/ uint256, /*id*/ bytes calldata /*data*/ )
+        external
+        view
+        override
+        returns (bytes memory)
+    {
+        require(msg.sender == target);
+        // No extra borrow/pay here, but you could add it to stress test further.
+        return "";
+    }
+}
+
+// --------------------------------------------------
+// Recursive (Deep) Locking Test Suite
+// --------------------------------------------------
+
+contract FlashAccountantNestedLockTest is Test {
+    TestTarget public target;
+    NestedLocker public nestedLocker;
+    SimpleForwardee public forwardee;
+
+    // We'll use a different token for clarity, but it's arbitrary
+    address public someToken = address(0xABCD);
+
+    function setUp() public {
+        target = new TestTarget();
+        forwardee = new SimpleForwardee(address(target));
+        nestedLocker = new NestedLocker(address(target), address(forwardee), someToken);
+    }
+
+    /**
+     * @notice Fuzz test: recursively lock up to `maxDepth` times, each time
+     * borrow/pay the same amounts. If the final net is not zero, revert.
+     *
+     * We'll interpret final net as (borrow - pay) * (maxDepth+1), ignoring
+     * forward overhead here (since our forwardee is a no-op).
+     */
+    function testFuzz_nestedLocking(uint8 maxDepth, uint128 borrowAmount, uint128 payAmount, bool doForward) public {
+        // clamp maxDepth to keep recursion feasible
+        if (maxDepth > 5) {
+            maxDepth = 5;
+        }
+
+        // We'll rely on the final net debt check from FlashAccountant
+        // If net != 0, revert with DebtsNotZeroed.
+
+        // Prepare the data
+        NestedLocker.NestParams memory params = NestedLocker.NestParams({
+            maxDepth: maxDepth,
+            borrowAmount: borrowAmount,
+            payAmount: payAmount,
+            doForward: doForward
+        });
+
+        bytes memory data = abi.encode(params, uint8(0));
+
+        // Start the lock from nestedLocker
+        vm.prank(address(nestedLocker));
+
+        // If finalBorrow != finalPay => revert, else no revert
+        uint256 finalBorrow = uint256(borrowAmount) * (maxDepth + 1);
+        uint256 finalPay = uint256(payAmount) * (maxDepth + 1);
+
+        if (finalBorrow != finalPay) {
+            vm.expectRevert(IFlashAccountant.DebtsNotZeroed.selector);
+            target.lock(data);
+        } else {
+            target.lock(data);
+        }
+    }
+
+    /**
+     * @notice A deterministic test for deeper nesting (no fuzz), ensuring
+     * we can nest multiple times and come out with zero or non-zero net debt.
+     */
+    function test_nestedLockFixedDepth() public {
+        // We'll do a 3-level nest
+        //   Depth 0 => borrow 100, pay 100
+        //   Depth 1 => borrow 100, pay 100
+        //   Depth 2 => borrow 100, pay 100
+        // Net = 0 => success
+
+        NestedLocker.NestParams memory params =
+            NestedLocker.NestParams({maxDepth: 2, borrowAmount: 100, payAmount: 100, doForward: false});
+
+        bytes memory data = abi.encode(params, uint8(0));
+        vm.prank(address(nestedLocker));
         target.lock(data);
     }
 }

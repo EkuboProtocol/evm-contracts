@@ -5,15 +5,7 @@ import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "../types/keys.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
-
-interface ILocker {
-    function locked(uint256 id, bytes calldata data) external returns (bytes memory);
-    function payCallback(uint256 id, address token, bytes calldata data) external returns (bytes memory);
-}
-
-interface IForwardee {
-    function forwarded(address locker, uint256 id, bytes calldata data) external returns (bytes memory);
-}
+import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 
 struct UpdatePositionParameters {
     bytes32 salt;
@@ -26,6 +18,10 @@ struct SwapParameters {
     bool isToken1;
     uint256 sqrtRatioLimit;
     uint256 skipAhead;
+}
+
+interface IPayer {
+    function payCallback(uint256 id, address token, bytes calldata data) external returns (bytes memory);
 }
 
 interface IExtension {
@@ -66,7 +62,7 @@ interface IExtension {
 // We also know this address will always be token0
 address constant NATIVE_TOKEN_ADDRESS = address(0x0000000000000000000000000000eeEEee000000);
 
-interface ICore is IExposedStorage {
+interface ICore is IFlashAccountant, IExposedStorage {
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
     event PoolInitialized(PoolKey poolKey, int32 tick, uint256 sqrtRatio);
@@ -91,10 +87,7 @@ interface ICore is IExposedStorage {
 
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
     error FailedRegisterInvalidCallPoints();
-    error NotLocked();
-    error LockerOnly();
     error InsufficientSavedBalance();
-    error DebtsNotZeroed();
     error PoolAlreadyInitialized();
     error ExtensionNotRegistered();
     error PoolNotInitialized();
@@ -109,13 +102,6 @@ interface ICore is IExposedStorage {
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external;
-
-    // The entrypoint for all operations on the core contract
-    function lock(bytes calldata data) external returns (bytes memory result);
-
-    // Allows the holder of a lock to forward the context to another address, where the forwardee can perform any actions
-    // and the original locker must pay for it.
-    function forward(address to, bytes calldata data) external returns (bytes memory result);
 
     // Sets the initial price for a new pool in terms of tick.
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (uint256 sqrtRatio);

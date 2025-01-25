@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {FullTest, MockExtension} from "./FullTest.sol";
+import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
@@ -21,8 +22,9 @@ contract CoreTest is FullTest {
         Core c = new Core(address(0), block.timestamp);
         vm.warp(block.timestamp + 1);
 
-        // does not need to be within a lock or even valid to trigger this error
+        // modifier executes first, so does not need to be within a lock or even valid to trigger this error
 
+        /////////////// not allowed
         vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
         c.initializePool(
             PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}), 0
@@ -40,22 +42,23 @@ contract CoreTest is FullTest {
             UpdatePositionParameters(0, Bounds(0, 0), 1)
         );
 
-        vm.expectRevert(ICore.NotLocked.selector);
+        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
+        c.accumulateAsFees(
+            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}), 0, 0
+        );
+
+        /////////////// allowed
+        vm.expectRevert(IFlashAccountant.NotLocked.selector);
         c.updatePosition(
             PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
             UpdatePositionParameters(0, Bounds(0, 0), 0)
         );
 
-        vm.expectRevert(ICore.NotLocked.selector);
+        vm.expectRevert(IFlashAccountant.NotLocked.selector);
         c.collectFees(
             PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
             bytes32(0),
             Bounds(0, 0)
-        );
-
-        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
-        c.accumulateAsFees(
-            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}), 0, 0
         );
     }
 
@@ -105,7 +108,7 @@ contract CoreTest is FullTest {
     function test_cannotReceiveEthOutsideOfLockContext() public {
         (bool success, bytes memory revertData) = address(core).call{value: 1}("");
         assertFalse(success);
-        assertEq(revertData, abi.encodePacked(ICore.NotLocked.selector));
+        assertEq(revertData, abi.encodePacked(IFlashAccountant.NotLocked.selector));
     }
 
     function test_initializePool(

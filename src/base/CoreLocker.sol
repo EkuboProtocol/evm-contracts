@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {ICore, ILocker, NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
+import {ILocker} from "../interfaces/IFlashAccountant.sol";
+import {ICore, NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {UsesCore} from "./UsesCore.sol";
 

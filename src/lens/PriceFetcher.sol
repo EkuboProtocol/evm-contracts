@@ -70,6 +70,7 @@ contract PriceFetcher {
     // The returned tick always represents quoteToken / baseToken
     function getAveragesOverPeriod(address baseToken, address quoteToken, uint64 startTime, uint64 endTime)
         public
+        view
         returns (PeriodAverage memory)
     {
         if (endTime <= startTime) revert EndTimeMustBeGreaterThanStartTime();
@@ -191,6 +192,7 @@ contract PriceFetcher {
 
     function getOracleTokenAverages(uint64 observationPeriod, address[] memory baseTokens)
         public
+        view
         returns (address oracleToken, PeriodAverage[] memory results)
     {
         oracleToken = _oracleToken;
@@ -218,7 +220,7 @@ contract PriceFetcher {
         uint64 observationPeriod,
         uint128 minOracleTokenLiquidity,
         address[] memory baseTokens
-    ) public returns (uint256 blockTimestamp, uint256 baseFee, uint256[] memory prices) {
+    ) public view returns (uint256 blockTimestamp, uint256 baseFee, uint256[] memory prices) {
         blockTimestamp = block.timestamp;
         baseFee = block.basefee;
 

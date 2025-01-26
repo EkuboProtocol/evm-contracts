@@ -1,7 +1,7 @@
 {
-  "getAveragesOverPeriod": "24352",
-  "getHistoricalPeriodAverages": "78202",
-  "getOracleTokenAverages(1 token)": "13741",
-  "getRealizedVolatilityOverPeriod": "78864",
-  "pf.getBlockInfoAndNativeTokenPrices(30, 100, baseTokens[5])": "73451"
+  "getAveragesOverPeriod": "24132",
+  "getHistoricalPeriodAverages": "77542",
+  "getOracleTokenAverages(1 token)": "13631",
+  "getRealizedVolatilityOverPeriod": "78204",
+  "pf.getBlockInfoAndNativeTokenPrices(30, 100, baseTokens[5])": "72681"
 }

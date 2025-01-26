@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {BaseForwardee} from "../../src/base/BaseForwardee.sol";
-import {IFlashAccountant, NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
+import {IFlashAccountant, IForwardee, NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "../../src/base/FlashAccountant.sol";
 
 struct Action {
@@ -32,8 +32,16 @@ function lockAgainAction(Action[] memory actions) pure returns (Action memory) {
     return Action(4, abi.encode(actions));
 }
 
-contract ExampleLocker is BaseLocker {
-    constructor(Target accountant) BaseLocker(accountant) {}
+function emitEventAction(bytes memory data) pure returns (Action memory) {
+    return Action(5, data);
+}
+
+function forwardActions(IForwardee forwardee, Action[] memory actions) pure returns (Action memory) {
+    return Action(6, abi.encode(forwardee, actions));
+}
+
+contract Actor is BaseLocker, BaseForwardee {
+    constructor(Accountant accountant) BaseLocker(accountant) BaseForwardee(accountant) {}
 
     function doStuff(Action[] calldata actions) external returns (bytes[] memory results) {
         results = abi.decode(lock(abi.encode(msg.sender, actions)), (bytes[]));
@@ -42,21 +50,20 @@ contract ExampleLocker is BaseLocker {
     error IdMismatch(uint256 id, uint256 expected);
     error SenderMismatch(address sender, address expected);
 
-    function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
-        (uint256 lockerId, address locker) = Target(payable(accountant)).getLocker();
-        assert(lockerId == id);
-        assert(locker == address(this));
+    event EventAction(bytes data);
 
-        (address sender, Action[] memory actions) = abi.decode(data, (address, Action[]));
-
-        bytes[] memory results = new bytes[](actions.length);
+    function execute(uint256 lockerId, address sender, Action[] memory actions)
+        internal
+        returns (bytes[] memory results)
+    {
+        results = new bytes[](actions.length);
 
         for (uint256 i = 0; i < actions.length; i++) {
             Action memory a = actions[i];
             // asserts the id
             if (a.kind == 0) {
                 uint256 expected = abi.decode(a.data, (uint256));
-                if (id != expected) revert IdMismatch(id, expected);
+                if (lockerId != expected) revert IdMismatch(lockerId, expected);
             } else if (a.kind == 1) {
                 address expected = abi.decode(a.data, (address));
                 if (sender != expected) revert SenderMismatch(sender, expected);
@@ -69,97 +76,167 @@ contract ExampleLocker is BaseLocker {
             } else if (a.kind == 4) {
                 Action[] memory nestedActions = abi.decode(a.data, (Action[]));
                 results[i] = abi.encode(this.doStuff(nestedActions));
+            } else if (a.kind == 5) {
+                emit EventAction(a.data);
+            } else if (a.kind == 6) {
+                (address forwardee, Action[] memory nestedActions) = abi.decode(a.data, (address, Action[]));
+                results[i] = forward(forwardee, abi.encode(nestedActions));
             } else {
                 revert("unrecognized");
             }
         }
-
-        result = abi.encode(results);
     }
 
-    receive() external payable {}
-}
+    function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
+        (uint256 lockerId, address locker) = Accountant(payable(accountant)).getLocker();
+        assert(lockerId == id);
+        assert(locker == address(this));
 
-contract ExampleForwardee is BaseForwardee {
-    constructor(Target accountant) BaseForwardee(accountant) {}
+        (address sender, Action[] memory actions) = abi.decode(data, (address, Action[]));
+
+        result = abi.encode(execute(id, sender, actions));
+    }
 
     function handleForwardData(uint256 id, address originalLocker, bytes memory data)
         internal
         override
         returns (bytes memory result)
-    {}
+    {
+        // forwardee is the locker now
+        (uint256 lockerId, address locker) = Accountant(payable(accountant)).getLocker();
+        assert(lockerId == id);
+        assert(locker == address(this));
+
+        Action[] memory actions = abi.decode(data, (Action[]));
+
+        result = abi.encode(execute(id, originalLocker, actions));
+    }
+
+    receive() external payable {}
 }
 
-contract Target is FlashAccountant {
+contract Accountant is FlashAccountant {
     function getLocker() external view returns (uint256 id, address locker) {
         (id, locker) = _getLocker();
     }
 }
 
 contract FlashAccountantTest is Test {
-    Target public target;
-    ExampleLocker public locker;
+    Accountant public accountant;
+    Actor public actor;
 
     function setUp() public {
-        target = new Target();
-        locker = new ExampleLocker(target);
+        accountant = new Accountant();
+        actor = new Actor(accountant);
+    }
+
+    function test_callbacksByAccountantOnly() public {
+        vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
+        actor.locked(0);
+        vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
+        actor.payCallback(0, NATIVE_TOKEN_ADDRESS);
+        vm.expectRevert(BaseForwardee.BaseForwardeeAccountantOnly.selector);
+        actor.forwarded(0, address(0));
     }
 
     function test_assertIdStartsAtZero() public {
         Action[] memory actions = new Action[](1);
         actions[0] = assertIdAction(0);
-        locker.doStuff(actions);
+        actor.doStuff(actions);
         actions[0] = assertIdAction(1);
-        vm.expectRevert(abi.encodeWithSelector(ExampleLocker.IdMismatch.selector, 0, 1), address(locker));
-        locker.doStuff(actions);
+        vm.expectRevert(abi.encodeWithSelector(Actor.IdMismatch.selector, 0, 1), address(actor));
+        actor.doStuff(actions);
     }
 
     function test_assertSenderIsEncoded() public {
         Action[] memory actions = new Action[](1);
         actions[0] = assertSender(address(this));
-        locker.doStuff(actions);
+        actor.doStuff(actions);
         actions[0] = assertSender(address(0xdeadbeef));
         vm.expectRevert(
-            abi.encodeWithSelector(ExampleLocker.SenderMismatch.selector, address(this), address(0xdeadbeef)),
-            address(locker)
+            abi.encodeWithSelector(Actor.SenderMismatch.selector, address(this), address(0xdeadbeef)), address(actor)
         );
-        locker.doStuff(actions);
+        actor.doStuff(actions);
     }
 
     function test_flashLoan_revertsIfNotPaidBack() public {
-        vm.deal(address(target), 100);
+        vm.deal(address(accountant), 100);
         Action[] memory actions = new Action[](1);
         actions[0] = withdrawAction(NATIVE_TOKEN_ADDRESS, 50, address(0xdeadbeef));
-        vm.expectRevert(abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector), address(target));
-        locker.doStuff(actions);
+        vm.expectRevert(abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector, 0), address(accountant));
+        actor.doStuff(actions);
+    }
+
+    function test_flashLoan_in_forward_reverts_if_not_paid_back() public {
+        vm.deal(address(accountant), 100);
+        Action[] memory inner = new Action[](1);
+        inner[0] = withdrawAction(NATIVE_TOKEN_ADDRESS, 1, address(0xdeadbeef));
+        Action[] memory outer = new Action[](1);
+        outer[0] = forwardActions(actor, inner);
+        vm.expectRevert(abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector, 0), address(accountant));
+        actor.doStuff(outer);
+    }
+
+    function test_flashLoan_in_forward_succeeds_if_paid_back() public {
+        vm.deal(address(accountant), 100);
+        Action[] memory inner = new Action[](1);
+        inner[0] = withdrawAction(NATIVE_TOKEN_ADDRESS, 1, address(0xdeadbeef));
+        Action[] memory outer = new Action[](2);
+        outer[0] = forwardActions(actor, inner);
+        outer[1] = payAction(address(0), NATIVE_TOKEN_ADDRESS, 1);
+        vm.deal(address(actor), 1);
+        actor.doStuff(outer);
     }
 
     function test_flashLoan_succeedsIfPaidBack() public {
-        vm.deal(address(target), 100);
+        vm.deal(address(accountant), 100);
 
         Action[] memory actions = new Action[](3);
-        actions[0] = withdrawAction(NATIVE_TOKEN_ADDRESS, 50, address(locker));
+        actions[0] = withdrawAction(NATIVE_TOKEN_ADDRESS, 50, address(actor));
         actions[1] = payAction(address(0), NATIVE_TOKEN_ADDRESS, 30);
         actions[2] = payAction(address(0), NATIVE_TOKEN_ADDRESS, 20);
-        locker.doStuff(actions);
+        actor.doStuff(actions);
     }
 
-    function test_arbitraryNesting(uint8 depth) public {
+    function test_arbitraryNesting(uint256 depth, uint256 underpayAtDepth) public {
+        vm.deal(address(accountant), type(uint64).max);
+        depth = bound(depth, 0, 32);
+        underpayAtDepth = bound(underpayAtDepth, 0, depth * 2);
+
+        vm.expectEmit(address(actor));
+
         Action[] memory actions = new Action[](0);
         while (true) {
-            Action[] memory temp = new Action[](5);
+            Action[] memory temp = new Action[](6);
             temp[0] = assertIdAction(depth);
-            temp[1] = assertSender(address(locker));
+            temp[1] = assertSender(depth == 0 ? address(this) : address(actor));
 
-            uint128 randomFlashLoanAmount = uint128(bound(uint256(keccak256(abi.encode(depth))), 0, type(uint32).max));
-            temp[2] = withdrawAction(NATIVE_TOKEN_ADDRESS, randomFlashLoanAmount, address(locker));
-            temp[3] = payAction(address(0), NATIVE_TOKEN_ADDRESS, randomFlashLoanAmount);
+            uint128 randomFlashLoanAmount = uint128(bound(uint256(keccak256(abi.encode(depth))), 1, type(uint32).max));
+            temp[2] = withdrawAction(NATIVE_TOKEN_ADDRESS, randomFlashLoanAmount, address(actor));
 
-            temp[4] = lockAgainAction(actions);
+            temp[3] = lockAgainAction(actions);
+
+            if (underpayAtDepth == depth) {
+                vm.expectRevert(
+                    abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector, underpayAtDepth),
+                    address(accountant)
+                );
+                uint128 randomUnderpayAmount =
+                    uint128(bound(uint256(keccak256(abi.encode(depth + 1))), 0, randomFlashLoanAmount - 1));
+                temp[4] = payAction(address(0), NATIVE_TOKEN_ADDRESS, randomUnderpayAmount);
+            } else {
+                temp[4] = payAction(address(0), NATIVE_TOKEN_ADDRESS, randomFlashLoanAmount);
+            }
+
+            temp[5] = emitEventAction(abi.encode(depth));
+            emit Actor.EventAction(abi.encode(depth));
+
+            actions = temp;
 
             if (depth == 0) break;
             depth -= 1;
         }
-        locker.doStuff(actions);
+
+        actor.doStuff(actions);
     }
 }

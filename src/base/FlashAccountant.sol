@@ -90,9 +90,10 @@ abstract contract FlashAccountant is IFlashAccountant {
             // Check if something is nonzero
             let nonzeroDebtCount := tload(add(_NONZERO_DEBT_COUNT_OFFSET, id))
             if nonzeroDebtCount {
-                // DebtsNotZeroed()
-                mstore(0x00, 0xb7da3998)
-                revert(0x1c, 0x04)
+                // DebtsNotZeroed(uint256)
+                mstore(0x00, 0x9731ba37)
+                mstore(0x20, id)
+                revert(0x1c, 0x24)
             }
 
             // Directly return whatever the subcall returned

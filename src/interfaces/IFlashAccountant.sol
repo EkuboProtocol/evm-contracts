@@ -19,9 +19,9 @@ address constant NATIVE_TOKEN_ADDRESS = address(0x0000000000000000000000000000ee
 
 interface IFlashAccountant {
     error NotLocked();
-    error DebtsNotZeroed();
     error LockerOnly();
     error NoPaymentMade();
+    error DebtsNotZeroed(uint256 id);
 
     // Create a lock context
     // Any data passed after the function signature is passed through back to the caller after the locked function signature and data, with no additional encoding

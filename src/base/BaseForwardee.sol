@@ -6,6 +6,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {UsesCore} from "./UsesCore.sol";
 
 abstract contract BaseForwardee is IForwardee {
+    error BaseForwardeeAccountantOnly();
+
     IFlashAccountant private immutable accountant;
 
     constructor(IFlashAccountant _accountant) {
@@ -13,9 +15,9 @@ abstract contract BaseForwardee is IForwardee {
     }
 
     function forwarded(uint256 id, address originalLocker) external {
-        require(msg.sender == address(accountant));
+        if (msg.sender != address(accountant)) revert BaseForwardeeAccountantOnly();
 
-        bytes memory data = msg.data[36:];
+        bytes memory data = msg.data[68:];
 
         bytes memory result = handleForwardData(id, originalLocker, data);
 

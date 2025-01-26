@@ -6,6 +6,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {UsesCore} from "./UsesCore.sol";
 
 abstract contract BaseLocker is ILocker, IPayer {
+    error BaseLockerAccountantOnly();
+
     IFlashAccountant internal immutable accountant;
 
     constructor(IFlashAccountant _accountant) {
@@ -15,7 +17,7 @@ abstract contract BaseLocker is ILocker, IPayer {
     /// CALLBACK HANDLERS
 
     function locked(uint256 id) external {
-        require(msg.sender == address(accountant));
+        if (msg.sender != address(accountant)) revert BaseLockerAccountantOnly();
 
         bytes memory data = msg.data[36:];
 
@@ -28,7 +30,7 @@ abstract contract BaseLocker is ILocker, IPayer {
     }
 
     function payCallback(uint256, address token) external {
-        require(msg.sender == address(accountant));
+        if (msg.sender != address(accountant)) revert BaseLockerAccountantOnly();
 
         address from;
         uint256 amount;
@@ -116,7 +118,7 @@ abstract contract BaseLocker is ILocker, IPayer {
             mcopy(add(result, 36), add(data, 32), len)
 
             // If the call failed, pass through the revert
-            if iszero(call(gas(), target, 0, result, add(68, len), 0, 0)) {
+            if iszero(call(gas(), target, 0, result, add(36, len), 0, 0)) {
                 returndatacopy(0, 0, returndatasize())
                 revert(0, returndatasize())
             }

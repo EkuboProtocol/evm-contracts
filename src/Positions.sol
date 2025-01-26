@@ -215,7 +215,7 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
 
     error UnexpectedCallTypeByte(bytes1 b);
 
-    function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
 
         if (callType == 0xdd) {
@@ -258,7 +258,6 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
                     UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: -int128(liquidity)})
                 );
 
-                // cast and safemath not necessary, -int128 always fits in uint128
                 amount0 += uint128(-delta0);
                 amount1 += uint128(-delta1);
             }

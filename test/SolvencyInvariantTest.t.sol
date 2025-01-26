@@ -144,7 +144,8 @@ contract Handler is StdUtils, StdAssertions {
 
             if (
                 sig != ICore.MustCollectFeesBeforeWithdrawingAllLiquidity.selector
-                    && sig != SafeCastLib.Overflow.selector
+                    && sig != SafeCastLib.Overflow.selector && sig != Amount1DeltaOverflow.selector
+                    && sig != Amount0DeltaOverflow.selector
             ) {
                 revert UnexpectedError(sig, err);
             }

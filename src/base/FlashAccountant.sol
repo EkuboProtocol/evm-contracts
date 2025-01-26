@@ -4,7 +4,11 @@ pragma solidity =0.8.28;
 import {IPayer, IFlashAccountant, NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
+// todo: should anyone be able to pay for any lock?
 abstract contract FlashAccountant is IFlashAccountant {
+    // Thrown if the contract receives too much payment in the payment callback or from a direct transfer
+    error PaymentOverflow();
+
     // These are randomly selected offsets so that they do not accidentally overlap with any other base contract's use of transient storage
 
     // cast keccak "FlashAccountant#LOCKER_COUNT"
@@ -133,7 +137,6 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     function pay(address token) external {
-        // todo: allow anyone to call pay?
         (uint256 id,) = _requireLocker();
 
         uint256 tokenBalanceBefore = SafeTransferLib.balanceOf(token, address(this));
@@ -168,8 +171,8 @@ abstract contract FlashAccountant is IFlashAccountant {
         unchecked {
             uint256 payment = tokenBalanceAfter - tokenBalanceBefore;
 
-            // No custom error because we never expect tokens to have this much total supply
-            if (payment > type(uint128).max) revert();
+            // We never expect tokens to have this much total supply
+            if (payment > type(uint128).max) revert PaymentOverflow();
 
             // The unary negative operator never fails because payment is less than max uint128
             _accountDebt(id, token, -int256(payment));
@@ -191,10 +194,12 @@ abstract contract FlashAccountant is IFlashAccountant {
     receive() external payable {
         (uint256 id,) = _requireLocker();
 
-        // Assumption that msg.value will never overflow this cast
-        // Note also because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
+        // Note because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
         //      to delegatecall itself more than once in a single call
         unchecked {
+            // We never expect the native token to exceed this supply
+            if (msg.value > type(uint128).max) revert PaymentOverflow();
+
             _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }

@@ -116,7 +116,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
         view
         returns (int32 tick, bool isInitialized);
 
-    // Token must not be the NATIVE_TOKEN_ADDRESS.
+    // Token must not be the NATIVE_TOKEN_ADDRESS, as the `balanceOf` calls will fail.
     // If you want to pay in the chain's native token, simply transfer it to this contract using a call.
     // The payer must implement payCallback in which they must transfer the token to Core.
     function pay(address token, bytes memory data) external returns (uint256 payment);

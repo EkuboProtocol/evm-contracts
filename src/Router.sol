@@ -36,7 +36,7 @@ contract Router is PayableMulticallable, SlippageChecker, Permittable, CoreLocke
 
     constructor(ICore core) CoreLocker(core) {}
 
-    function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
+    function handleLockData(bytes memory data) internal override returns (bytes memory result) {
         (address swapper, Swap[] memory swaps) = abi.decode(data, (address, Swap[]));
         Delta[][] memory results = new Delta[][](swaps.length);
         unchecked {
@@ -98,7 +98,7 @@ contract Router is PayableMulticallable, SlippageChecker, Permittable, CoreLocke
                 }
             }
         }
-        return abi.encode(results);
+        result = abi.encode(results);
     }
 
     function swap(RouteNode calldata node, TokenAmount calldata tokenAmount)

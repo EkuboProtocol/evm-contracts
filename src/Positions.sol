@@ -127,9 +127,8 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
             revert DepositOverflow();
         }
 
-        (amount0, amount1) = abi.decode(
-            lock(abi.encodePacked(uint8(0), abi.encode(msg.sender, id, poolKey, bounds, liquidity))), (uint128, uint128)
-        );
+        (amount0, amount1) =
+            abi.decode(lock(abi.encode(bytes1(0xdd), msg.sender, id, poolKey, bounds, liquidity)), (uint128, uint128));
     }
 
     function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
@@ -159,8 +158,7 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
         bool withFees
     ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
         (amount0, amount1) = abi.decode(
-            lock(abi.encodePacked(uint8(1), abi.encode(id, poolKey, bounds, liquidity, recipient, withFees))),
-            (uint128, uint128)
+            lock(abi.encode(bytes1(0xff), id, poolKey, bounds, liquidity, recipient, withFees)), (uint128, uint128)
         );
     }
 
@@ -214,18 +212,14 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
         (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
     }
 
-    error UnexpectedCallTypeByte(uint8 b);
+    error UnexpectedCallTypeByte(bytes1 b);
 
-    function handleLockData(bytes calldata data) internal override returns (bytes memory result) {
-        uint8 callType;
+    function handleLockData(bytes memory data) internal override returns (bytes memory result) {
+        bytes1 callType = data[0];
 
-        assembly ("memory-safe") {
-            callType := byte(0, calldataload(data.offset))
-        }
-
-        if (callType == 0) {
-            (address caller, uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
-                abi.decode(data[1:], (address, uint256, PoolKey, Bounds, uint128));
+        if (callType == 0xdd) {
+            (, address caller, uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
+                abi.decode(data, (bytes1, address, uint256, PoolKey, Bounds, uint128));
 
             (int128 delta0, int128 delta1) = core.updatePosition(
                 poolKey,
@@ -238,15 +232,16 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
             payCore(caller, poolKey.token1, amount1);
 
             result = abi.encode(amount0, amount1);
-        } else if (callType == 1) {
+        } else if (callType == 0xff) {
             (
+                ,
                 uint256 id,
                 PoolKey memory poolKey,
                 Bounds memory bounds,
                 uint128 liquidity,
                 address recipient,
                 bool withFees
-            ) = abi.decode(data[1:], (uint256, PoolKey, Bounds, uint128, address, bool));
+            ) = abi.decode(data, (bytes1, uint256, PoolKey, Bounds, uint128, address, bool));
 
             uint128 amount0;
             uint128 amount1;

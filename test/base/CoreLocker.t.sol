@@ -11,7 +11,7 @@ contract Target is CoreLocker {
 
     constructor(ICore core) CoreLocker(core) {}
 
-    function handleLockData(bytes calldata) internal pure override returns (bytes memory) {
+    function handleLockData(bytes memory) internal pure override returns (bytes memory) {
         revert();
     }
 }

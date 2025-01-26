@@ -54,34 +54,46 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     // The entrypoint for all operations on the core contract
-    function lock(bytes calldata data) external returns (bytes memory result) {
-        uint256 id;
-
+    function lock() external {
         assembly ("memory-safe") {
-            id := tload(_LOCKER_COUNT_SLOT)
+            let id := tload(_LOCKER_COUNT_SLOT)
             // store the count
             tstore(_LOCKER_COUNT_SLOT, add(id, 1))
             // store the address of the locker
             tstore(add(_LOCKER_ADDRESSES_OFFSET, id), caller())
-        }
 
-        // We make the assumption that this code can never be called recursively this many times, causing storage slots to overlap
-        // This is just the codified assumption
-        assert(id < type(uint32).max);
+            let free := mload(0x40)
+            // Prepare call to locked(uint256) -> selector 0xb45a3c0e
+            mstore(free, shl(224, 0xb45a3c0e))
+            mstore(add(free, 4), id) // ID argument
 
-        result = ILocker(msg.sender).locked(id, data);
+            calldatacopy(add(free, 36), 4, sub(calldatasize(), 4))
 
-        uint256 nonzeroDebtCount;
-        assembly ("memory-safe") {
-            // reset the locker id
+            // Call the original caller with the packed data
+            let success := call(gas(), caller(), 0, free, calldatasize(), 0, 0)
+
+            // Pass through the error on failure
+            if iszero(success) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+
+            // Undo the "locker" state changes
             tstore(_LOCKER_COUNT_SLOT, id)
-            // remove the address
             tstore(add(_LOCKER_ADDRESSES_OFFSET, id), 0)
-            // load the delta count which should already be reset to zero
-            nonzeroDebtCount := tload(add(_NONZERO_DEBT_COUNT_OFFSET, id))
-        }
 
-        if (nonzeroDebtCount != 0) revert DebtsNotZeroed();
+            // Check if something is nonzero
+            let nonzeroDebtCount := tload(add(_NONZERO_DEBT_COUNT_OFFSET, id))
+            if nonzeroDebtCount {
+                // DebtsNotZeroed()
+                mstore(0x00, 0xb7da3998)
+                revert(0x1c, 0x04)
+            }
+
+            // Directly return whatever the subcall returned
+            returndatacopy(free, 0, returndatasize())
+            return(free, returndatasize())
+        }
     }
 
     // Allows forwarding the lock context to another actor, allowing them to act on the original locker's debt

@@ -139,8 +139,6 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
     uint256 constant PAYMENT_LIMIT = 1 << 255;
 
-    // Token must not be the NATIVE_TOKEN_ADDRESS.
-    // If you want to pay in the native token, simply transfer it to this contract.
     function pay(address token, bytes memory data) external returns (uint256 payment) {
         (uint256 id, address caller) = _requireLocker();
 
@@ -489,11 +487,12 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         }
     }
 
-    // Used to pay native tokens owed
     receive() external payable {
         (uint256 id,) = _requireLocker();
 
         // Assumption that msg.value will never overflow this cast
+        // Note also because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
+        //      to delegatecall itself more than once in a single call
         unchecked {
             _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }

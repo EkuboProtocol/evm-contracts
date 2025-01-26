@@ -6,7 +6,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {UsesCore} from "./UsesCore.sol";
 
 abstract contract BaseLocker is ILocker, IPayer {
-    IFlashAccountant private immutable accountant;
+    IFlashAccountant internal immutable accountant;
 
     constructor(IFlashAccountant _accountant) {
         accountant = _accountant;

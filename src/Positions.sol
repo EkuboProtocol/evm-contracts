@@ -215,7 +215,7 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
 
     error UnexpectedCallTypeByte(bytes1 b);
 
-    function handleLockData(bytes memory data) internal override returns (bytes memory result) {
+    function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
 
         if (callType == 0xdd) {

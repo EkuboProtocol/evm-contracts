@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
+import {BaseForwardee} from "../../src/base/BaseForwardee.sol";
 import {IFlashAccountant, NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "../../src/base/FlashAccountant.sol";
 
@@ -41,8 +42,9 @@ contract ExampleLocker is BaseLocker {
     error IdMismatch(uint256 id, uint256 expected);
     error SenderMismatch(address sender, address expected);
 
-    function handleLockData(bytes memory data) internal override returns (bytes memory result) {
-        (uint256 id, address locker) = Target(payable(accountant)).getLocker();
+    function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
+        (uint256 lockerId, address locker) = Target(payable(accountant)).getLocker();
+        assert(lockerId == id);
         assert(locker == address(this));
 
         (address sender, Action[] memory actions) = abi.decode(data, (address, Action[]));
@@ -76,6 +78,16 @@ contract ExampleLocker is BaseLocker {
     }
 
     receive() external payable {}
+}
+
+contract ExampleForwardee is BaseForwardee {
+    constructor(Target accountant) BaseForwardee(accountant) {}
+
+    function handleForwardData(uint256 id, address originalLocker, bytes memory data)
+        internal
+        override
+        returns (bytes memory result)
+    {}
 }
 
 contract Target is FlashAccountant {

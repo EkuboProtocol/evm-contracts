@@ -37,7 +37,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
-    function handleLockData(bytes memory data) internal override returns (bytes memory result) {
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         (address swapper, Swap[] memory swaps) = abi.decode(data, (address, Swap[]));
         Delta[][] memory results = new Delta[][](swaps.length);
         unchecked {

@@ -14,12 +14,12 @@ abstract contract BaseLocker is ILocker, IPayer {
 
     /// CALLBACK HANDLERS
 
-    function locked(uint256) external {
+    function locked(uint256 id) external {
         require(msg.sender == address(accountant));
 
         bytes memory data = msg.data[36:];
 
-        bytes memory result = handleLockData(data);
+        bytes memory result = handleLockData(id, data);
 
         assembly ("memory-safe") {
             // raw return whatever the handler sent
@@ -136,5 +136,5 @@ abstract contract BaseLocker is ILocker, IPayer {
         }
     }
 
-    function handleLockData(bytes memory data) internal virtual returns (bytes memory result);
+    function handleLockData(uint256 id, bytes memory data) internal virtual returns (bytes memory result);
 }

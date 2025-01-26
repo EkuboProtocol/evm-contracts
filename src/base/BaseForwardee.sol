@@ -17,7 +17,7 @@ abstract contract BaseForwardee is IForwardee {
 
         bytes memory data = msg.data[36:];
 
-        bytes memory result = handleForwardData(data);
+        bytes memory result = handleForwardData(id, originalLocker, data);
 
         assembly ("memory-safe") {
             // raw return whatever the handler sent
@@ -25,5 +25,8 @@ abstract contract BaseForwardee is IForwardee {
         }
     }
 
-    function handleForwardData(bytes memory data) internal virtual returns (bytes memory result);
+    function handleForwardData(uint256 id, address originalLocker, bytes memory data)
+        internal
+        virtual
+        returns (bytes memory result);
 }

@@ -12,9 +12,9 @@ import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "../test/TestToken.sol";
 import {MAX_TICK_SPACING} from "../src/math/ticks.sol";
 
-import {CoreLocker} from "../src/base/CoreLocker.sol";
+import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/ICore.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
 import {PoolKey, PositionKey, Bounds, maxBounds} from "../src/types/keys.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
@@ -164,7 +164,7 @@ contract DeployScript is Script {
             Positions.mintAndDepositWithSalt.selector, salt, poolKey, bounds, maxAmount0, maxAmount1, 0
         );
         if (isETH) {
-            calls[2] = abi.encodeWithSelector(CoreLocker.refundNativeToken.selector);
+            calls[2] = abi.encodeWithSelector(SlippageChecker.refundNativeToken.selector);
         }
 
         positions.multicall{value: isETH ? maxAmount0 : 0}(calls);

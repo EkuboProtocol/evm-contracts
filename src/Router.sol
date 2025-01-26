@@ -2,7 +2,8 @@
 pragma solidity =0.8.28;
 
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
-import {CoreLocker} from "./base/CoreLocker.sol";
+import {BaseLocker} from "./base/BaseLocker.sol";
+import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/keys.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./math/ticks.sol";
@@ -31,10 +32,10 @@ struct Delta {
     int128 amount1;
 }
 
-contract Router is PayableMulticallable, SlippageChecker, Permittable, CoreLocker {
+contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker {
     error PartialSwapsDisallowed();
 
-    constructor(ICore core) CoreLocker(core) {}
+    constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
     function handleLockData(bytes memory data) internal override returns (bytes memory result) {
         (address swapper, Swap[] memory swaps) = abi.decode(data, (address, Swap[]));
@@ -86,15 +87,15 @@ contract Router is PayableMulticallable, SlippageChecker, Permittable, CoreLocke
                 }
 
                 if (firstSwapAmount.amount < 0) {
-                    withdrawFromCore(firstSwapAmount.token, uint128(-firstSwapAmount.amount), swapper);
+                    withdraw(firstSwapAmount.token, uint128(-firstSwapAmount.amount), swapper);
                 } else {
-                    payCore(swapper, firstSwapAmount.token, uint128(firstSwapAmount.amount));
+                    pay(swapper, firstSwapAmount.token, uint128(firstSwapAmount.amount));
                 }
 
                 if (tokenAmount.amount > 0) {
-                    withdrawFromCore(tokenAmount.token, uint128(tokenAmount.amount), swapper);
+                    withdraw(tokenAmount.token, uint128(tokenAmount.amount), swapper);
                 } else {
-                    payCore(swapper, tokenAmount.token, uint128(-tokenAmount.amount));
+                    pay(swapper, tokenAmount.token, uint128(-tokenAmount.amount));
                 }
             }
         }

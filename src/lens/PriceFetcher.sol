@@ -5,7 +5,7 @@ import {Oracle} from "../extensions/Oracle.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 import {amount0Delta} from "../math/delta.sol";
 import {tickToSqrtRatio, MAX_SQRT_RATIO} from "../math/ticks.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 error InvalidNumIntervals();

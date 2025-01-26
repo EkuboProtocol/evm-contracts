@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../interfaces/ICore.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
 
 // Has methods that are multicallable for checking deadlines and balance changes
 // Only useful in multicallable context, because these methods are expected to be called as part of another transaction that manipulates balances
@@ -65,6 +65,13 @@ abstract contract SlippageChecker {
             if (bal < prev && (prev - bal) > maximumInput) {
                 revert MaximumInputExceeded(token, maximumInput);
             }
+        }
+    }
+
+    // Allows a caller to refund any ETH sent to this contract for purpose of transient payments
+    function refundNativeToken() external payable {
+        if (address(this).balance > 0) {
+            SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
         }
     }
 }

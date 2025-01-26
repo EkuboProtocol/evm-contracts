@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {ILocker, IForwardee, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {IPayer, IFlashAccountant, NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 abstract contract FlashAccountant is IFlashAccountant {
     // These are randomly selected offsets so that they do not accidentally overlap with any other base contract's use of transient storage
@@ -97,19 +98,104 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     // Allows forwarding the lock context to another actor, allowing them to act on the original locker's debt
-    function forward(address to, bytes calldata data) external returns (bytes memory result) {
+    function forward(address to) external {
         (uint256 id, address locker) = _requireLocker();
 
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state
         assembly ("memory-safe") {
             tstore(add(_LOCKER_ADDRESSES_OFFSET, id), to)
-        }
 
-        result = IForwardee(to).forwarded(locker, id, data);
+            let free := mload(0x40)
+
+            // Prepare call to forwarded(uint256,address) -> selector 0x64919dea
+            mstore(free, shl(224, 0x64919dea))
+            mstore(add(free, 4), id)
+            mstore(add(free, 36), locker)
+
+            calldatacopy(add(free, 68), 36, sub(calldatasize(), 36))
+
+            // Call the forwardee with the packed data
+            let success := call(gas(), to, 0, free, add(32, calldatasize()), 0, 0)
+
+            // Pass through the error on failure
+            if iszero(success) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+
+            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), locker)
+
+            // Directly return whatever the subcall returned
+            returndatacopy(free, 0, returndatasize())
+            return(free, returndatasize())
+        }
+    }
+
+    function pay(address token) external {
+        // todo: allow anyone to call pay?
+        (uint256 id,) = _requireLocker();
+
+        uint256 tokenBalanceBefore = SafeTransferLib.balanceOf(token, address(this));
 
         assembly ("memory-safe") {
-            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), locker)
+            let free := mload(0x40)
+
+            // Prepare call to "payCallback(uint256,address)"
+            mstore(free, shl(224, 0x599d0714))
+            mstore(add(free, 4), id)
+            mstore(add(free, 36), token)
+
+            // copy the token, plus anything else that they wanted to forward
+            calldatacopy(add(free, 68), 36, sub(calldatasize(), 36))
+
+            // Call the forwardee with the packed data
+            let success := call(gas(), caller(), 0, free, add(32, calldatasize()), 0, 0)
+
+            // Pass through the error on failure
+            if iszero(success) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+        }
+
+        uint256 tokenBalanceAfter = SafeTransferLib.balanceOf(token, address(this));
+
+        if (tokenBalanceAfter <= tokenBalanceBefore) {
+            revert NoPaymentMade();
+        }
+
+        unchecked {
+            uint256 payment = tokenBalanceAfter - tokenBalanceBefore;
+
+            // No custom error because we never expect tokens to have this much total supply
+            if (payment > type(uint128).max) revert();
+
+            // The unary negative operator never fails because payment is less than max uint128
+            _accountDebt(id, token, -int256(payment));
+        }
+    }
+
+    function withdraw(address token, address recipient, uint128 amount) external {
+        (uint256 id,) = _requireLocker();
+
+        _accountDebt(id, token, int256(uint256(amount)));
+
+        if (token == NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeTransferETH(recipient, amount);
+        } else {
+            SafeTransferLib.safeTransfer(token, recipient, amount);
+        }
+    }
+
+    receive() external payable {
+        (uint256 id,) = _requireLocker();
+
+        // Assumption that msg.value will never overflow this cast
+        // Note also because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
+        //      to delegatecall itself more than once in a single call
+        unchecked {
+            _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }
 }

@@ -27,14 +27,8 @@ import {ExpiringContract} from "./base/ExpiringContract.sol";
 import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
-import {
-    ICore,
-    IPayer,
-    UpdatePositionParameters,
-    SwapParameters,
-    IExtension,
-    NATIVE_TOKEN_ADDRESS
-} from "./interfaces/ICore.sol";
+import {ICore, UpdatePositionParameters, SwapParameters, IExtension} from "./interfaces/ICore.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
 
 contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStorage {
@@ -137,32 +131,6 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    uint256 constant PAYMENT_LIMIT = 1 << 255;
-
-    function pay(address token, bytes memory data) external returns (uint256 payment) {
-        (uint256 id, address caller) = _requireLocker();
-
-        uint256 tokenBalanceBefore = SafeTransferLib.balanceOf(token, address(this));
-
-        IPayer(caller).payCallback(id, token, data);
-
-        uint256 tokenBalanceAfter = SafeTransferLib.balanceOf(token, address(this));
-
-        if (tokenBalanceAfter <= tokenBalanceBefore) {
-            revert NoPaymentMade();
-        }
-
-        unchecked {
-            payment = tokenBalanceAfter - tokenBalanceBefore;
-
-            // no custom error because this is not possible under the assumption tokens have total supplies l.t. 2**128
-            require(payment < PAYMENT_LIMIT);
-
-            // The unary negative operator never fails because payment is less than max int256
-            _accountDebt(id, token, -int256(payment));
-        }
-    }
-
     function load(address token, bytes32 salt, uint128 amount) external {
         (uint256 id,) = _getLocker();
 
@@ -177,18 +145,6 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         _accountDebt(id, token, -int256(uint256(amount)));
 
         emit LoadedBalance(msg.sender, token, salt, amount);
-    }
-
-    function withdraw(address token, address recipient, uint128 amount) external {
-        (uint256 id,) = _requireLocker();
-
-        _accountDebt(id, token, int256(uint256(amount)));
-
-        if (token == NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeTransferETH(recipient, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, amount);
-        }
     }
 
     function save(address owner, address token, bytes32 salt, uint128 amount) external {
@@ -484,17 +440,6 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
         if (shouldCallAfterSwap(poolKey.extension) && locker != poolKey.extension) {
             IExtension(poolKey.extension).afterSwap(locker, poolKey, params, delta0, delta1);
-        }
-    }
-
-    receive() external payable {
-        (uint256 id,) = _requireLocker();
-
-        // Assumption that msg.value will never overflow this cast
-        // Note also because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
-        //      to delegatecall itself more than once in a single call
-        unchecked {
-            _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }
 }

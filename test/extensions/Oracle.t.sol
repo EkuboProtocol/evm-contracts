@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {NATIVE_TOKEN_ADDRESS, UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
+import {UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey, PositionKey, Bounds} from "../../src/types/keys.sol";
 import {

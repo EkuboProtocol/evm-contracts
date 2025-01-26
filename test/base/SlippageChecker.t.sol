@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {SlippageChecker} from "../../src/base/SlippageChecker.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/ICore.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
 import {TestToken} from "../TestToken.sol";
 
 contract TestTarget is SlippageChecker {}
@@ -31,6 +31,7 @@ contract SlippageCheckerTest is Test {
         target.checkMaximumInputNotExceeded{value: 1}(NATIVE_TOKEN_ADDRESS, type(uint256).max);
         vm.deal(address(this), address(this).balance + 2);
         target.checkMinimumOutputReceived{value: 1}(NATIVE_TOKEN_ADDRESS, 0);
+        target.refundNativeToken{value: 1}();
     }
 
     function test_checkMinimumOutputReceived(uint256 actualOutput, uint256 minimumOutput, bool isETH) public {
@@ -96,4 +97,13 @@ contract SlippageCheckerTest is Test {
         vm.prank(spender);
         target.checkMaximumInputNotExceeded(tokenAddress, maximumInput);
     }
+
+    function test_refundNativeToken(uint128 amount) public {
+        vm.deal(address(target), amount);
+        uint256 b0 = address(this).balance;
+        target.refundNativeToken();
+        assertEq(address(this).balance - b0, amount);
+    }
+
+    receive() external payable {}
 }

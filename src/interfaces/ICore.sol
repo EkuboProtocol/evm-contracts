@@ -20,10 +20,6 @@ struct SwapParameters {
     uint256 skipAhead;
 }
 
-interface IPayer {
-    function payCallback(uint256 id, address token, bytes calldata data) external returns (bytes memory);
-}
-
 interface IExtension {
     function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
     function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
@@ -58,10 +54,6 @@ interface IExtension {
     ) external;
 }
 
-// This address should never be used by any other chain but also has lots of zeroes so it still works well with calldata compression
-// We also know this address will always be token0
-address constant NATIVE_TOKEN_ADDRESS = address(0x0000000000000000000000000000eeEEee000000);
-
 interface ICore is IFlashAccountant, IExposedStorage {
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
@@ -94,7 +86,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
     error SqrtRatioLimitWrongDirection();
     error SqrtRatioLimitOutOfRange();
-    error NoPaymentMade();
 
     // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
     // To withdraw the native token protocol fees, call with token = NATIVE_TOKEN_ADDRESS
@@ -116,16 +107,8 @@ interface ICore is IFlashAccountant, IExposedStorage {
         view
         returns (int32 tick, bool isInitialized);
 
-    // Token must not be the NATIVE_TOKEN_ADDRESS, as the `balanceOf` calls will fail.
-    // If you want to pay in the chain's native token, simply transfer it to this contract using a call.
-    // The payer must implement payCallback in which they must transfer the token to Core.
-    function pay(address token, bytes memory data) external returns (uint256 payment);
-
     // Loads from the saved balance of the contract to pay in the current lock context.
     function load(address token, bytes32 salt, uint128 amount) external;
-
-    // Withdraws a token amount from the core contract to the given recipient.
-    function withdraw(address token, address recipient, uint128 amount) external;
 
     // Saves an amount of a token to be used later.
     function save(address owner, address token, bytes32 salt, uint128 amount) external;
@@ -152,7 +135,4 @@ interface ICore is IFlashAccountant, IExposedStorage {
     function swap(PoolKey memory poolKey, SwapParameters memory params)
         external
         returns (int128 delta0, int128 delta1);
-
-    // Used to pay native tokens owed
-    receive() external payable;
 }

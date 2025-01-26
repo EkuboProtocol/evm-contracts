@@ -5,11 +5,11 @@ import {BaseOracleTest} from "../extensions/Oracle.t.sol";
 import {
     PriceFetcher, getTimestampsForPeriod, InvalidNumIntervals, InvalidPeriod
 } from "../../src/lens/PriceFetcher.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
 import {PoolKey} from "../../src/types/keys.sol";
 import {TestToken} from "../TestToken.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/ticks.sol";
 import {Bounds} from "../../src/types/keys.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/ICore.sol";
 
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;

@@ -2,7 +2,8 @@
 pragma solidity =0.8.28;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {CoreLocker} from "./base/CoreLocker.sol";
+import {BaseLocker} from "./base/BaseLocker.sol";
+import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolKey, PositionKey, Bounds, maxBounds} from "./types/keys.sol";
@@ -16,7 +17,7 @@ import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
-contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLocker, ERC721 {
+contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, ERC721 {
     error Unauthorized(address caller, uint256 id);
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();
@@ -25,7 +26,7 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
 
     ITokenURIGenerator public immutable tokenURIGenerator;
 
-    constructor(ICore core, ITokenURIGenerator _tokenURIGenerator) CoreLocker(core) {
+    constructor(ICore core, ITokenURIGenerator _tokenURIGenerator) BaseLocker(core) UsesCore(core) {
         tokenURIGenerator = _tokenURIGenerator;
     }
 
@@ -228,8 +229,8 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
 
             uint128 amount0 = uint128(delta0);
             uint128 amount1 = uint128(delta1);
-            payCore(caller, poolKey.token0, amount0);
-            payCore(caller, poolKey.token1, amount1);
+            pay(caller, poolKey.token0, amount0);
+            pay(caller, poolKey.token1, amount1);
 
             result = abi.encode(amount0, amount1);
         } else if (callType == 0xff) {
@@ -262,8 +263,8 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
                 amount1 += uint128(-delta1);
             }
 
-            withdrawFromCore(poolKey.token0, amount0, recipient);
-            withdrawFromCore(poolKey.token1, amount1, recipient);
+            withdraw(poolKey.token0, amount0, recipient);
+            withdraw(poolKey.token1, amount1, recipient);
 
             result = abi.encode(amount0, amount1);
         } else {

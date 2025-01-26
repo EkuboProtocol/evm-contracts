@@ -28,8 +28,8 @@ function payAction(address from, address token, uint256 amount) pure returns (Ac
     return Action(3, abi.encode(from, token, amount));
 }
 
-function lockAgainAction(Action[] memory actions) pure returns (Action memory) {
-    return Action(4, abi.encode(actions));
+function lockAgainAction(Actor actor, Action[] memory actions) pure returns (Action memory) {
+    return Action(4, abi.encode(actor, actions));
 }
 
 function emitEventAction(bytes memory data) pure returns (Action memory) {
@@ -74,8 +74,8 @@ contract Actor is BaseLocker, BaseForwardee {
                 (address from, address token, uint256 amount) = abi.decode(a.data, (address, address, uint256));
                 pay(from, token, amount);
             } else if (a.kind == 4) {
-                Action[] memory nestedActions = abi.decode(a.data, (Action[]));
-                results[i] = abi.encode(this.doStuff(nestedActions));
+                (Actor actor, Action[] memory nestedActions) = abi.decode(a.data, (Actor, Action[]));
+                results[i] = abi.encode(actor.doStuff(nestedActions));
             } else if (a.kind == 5) {
                 emit EventAction(a.data);
             } else if (a.kind == 6) {
@@ -198,6 +198,35 @@ contract FlashAccountantTest is Test {
         actor.doStuff(actions);
     }
 
+    function test_nested_locks_correctSender() public {
+        vm.deal(address(accountant), 100);
+
+        Actor actor0 = actor;
+        Actor actor1 = new Actor(accountant);
+        Actor actor2 = new Actor(accountant);
+
+        Action[] memory actions2 = new Action[](3);
+        // forwarded lock, same id
+        actions2[0] = assertIdAction(1);
+        actions2[1] = assertSender(address(actor1));
+        actions2[2] = emitEventAction("hello");
+
+        Action[] memory actions1 = new Action[](3);
+        actions1[0] = assertIdAction(1);
+        actions1[1] = assertSender(address(actor0));
+        actions1[2] = forwardActions(actor2, actions2);
+
+        Action[] memory actions0 = new Action[](3);
+        actions0[0] = assertIdAction(0);
+        actions0[1] = assertSender(address(this));
+        actions0[2] = lockAgainAction(actor1, actions1);
+
+        vm.expectEmit(address(actor2));
+        emit Actor.EventAction("hello");
+
+        actor.doStuff(actions0);
+    }
+
     function test_arbitraryNesting(uint256 depth, uint256 underpayAtDepth) public {
         vm.deal(address(accountant), type(uint64).max);
         depth = bound(depth, 0, 32);
@@ -214,7 +243,7 @@ contract FlashAccountantTest is Test {
             uint128 randomFlashLoanAmount = uint128(bound(uint256(keccak256(abi.encode(depth))), 1, type(uint32).max));
             temp[2] = withdrawAction(NATIVE_TOKEN_ADDRESS, randomFlashLoanAmount, address(actor));
 
-            temp[3] = lockAgainAction(actions);
+            temp[3] = lockAgainAction(actor, actions);
 
             if (underpayAtDepth == depth) {
                 vm.expectRevert(

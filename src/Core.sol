@@ -139,10 +139,12 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             if (balance < amount) {
                 revert InsufficientSavedBalance();
             }
-            savedBalances[msg.sender][token][salt] = balance - amount;
-        }
 
-        _accountDebt(id, token, -int256(uint256(amount)));
+            // safe because we reverted if balance < amount
+            savedBalances[msg.sender][token][salt] = balance - amount;
+
+            _accountDebt(id, token, -int256(uint256(amount)));
+        }
 
         emit LoadedBalance(msg.sender, token, salt, amount);
     }
@@ -150,8 +152,11 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
     function save(address owner, address token, bytes32 salt, uint128 amount) external {
         (uint256 id,) = _requireLocker();
 
-        savedBalances[owner][token][salt] += amount;
-        _accountDebt(id, token, int256(uint256(amount)));
+        unchecked {
+            // safe because amount is a uint128 and the only way to change is via save/load
+            savedBalances[owner][token][salt] += amount;
+            _accountDebt(id, token, int256(uint256(amount)));
+        }
 
         emit SavedBalance(owner, token, salt, amount);
     }

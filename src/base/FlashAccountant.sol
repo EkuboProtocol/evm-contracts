@@ -35,6 +35,8 @@ abstract contract FlashAccountant is IFlashAccountant {
         if (locker != msg.sender) revert LockerOnly();
     }
 
+    // We assume debtChange cannot exceed a 128 bits value, even though it uses a int256 container
+    // This must be enforced at the places it is called for this contract's safety
     // Negative means erasing debt, positive means adding debt
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {

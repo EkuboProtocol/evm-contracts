@@ -55,8 +55,8 @@ contract Positions is PayableMulticallable, SlippageChecker, Permittable, CoreLo
             let h := keccak256(0, 64)
             mstore(0, h)
             mstore(32, address())
-            // we use the first 64 bits only
-            result := shr(200, keccak256(0, 64))
+            // we use the first 48 bits only
+            result := shr(208, keccak256(0, 64))
         }
     }
 

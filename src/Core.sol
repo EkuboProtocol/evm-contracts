@@ -378,7 +378,19 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
             uint128 calculatedAmount = 0;
 
-            FeesPerLiquidity memory feesPerLiquidity = poolFeesPerLiquidity[poolId];
+            // the slot where inputTokenFeesPerLiquidity is stored, reused later
+            bytes32 inputTokenFeesPerLiquiditySlot;
+
+            // fees per liquidity only for the input token
+            uint256 inputTokenFeesPerLiquidity;
+
+            // this loads only the input token fees per liquidity
+            assembly ("memory-safe") {
+                mstore(0, poolId)
+                mstore(32, 4)
+                inputTokenFeesPerLiquiditySlot := add(keccak256(0, 64), increasing)
+                inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
+            }
 
             while (amountRemaining != 0 && sqrtRatio != params.sqrtRatioLimit) {
                 (int32 nextTick, bool isInitialized) = increasing
@@ -398,8 +410,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
                 assembly ("memory-safe") {
                     // div by 0 returns 0, so it's ok
                     let v := div(shl(128, mload(add(result, 96))), liquidity)
-                    let s := add(feesPerLiquidity, mul(increasing, 32))
-                    mstore(s, add(mload(s), v))
+                    inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
                 }
 
                 amountRemaining -= result.consumedAmount;
@@ -414,8 +425,20 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
                             : subLiquidityDelta(liquidity, liquidityDelta);
-                        tickFeesPerLiquidityOutside[nextTick] =
-                            feesPerLiquidity.sub(tickFeesPerLiquidityOutside[nextTick]);
+                        FeesPerLiquidity memory tickFpl = tickFeesPerLiquidityOutside[nextTick];
+
+                        FeesPerLiquidity memory totalFpl;
+
+                        // load only the slot we didn't load before into totalFpl
+                        assembly ("memory-safe") {
+                            mstore(add(totalFpl, mul(32, increasing)), inputTokenFeesPerLiquidity)
+
+                            let outputTokenFeesPerLiquidity :=
+                                sload(add(sub(inputTokenFeesPerLiquiditySlot, increasing), iszero(increasing)))
+                            mstore(add(totalFpl, mul(32, iszero(increasing))), outputTokenFeesPerLiquidity)
+                        }
+
+                        tickFeesPerLiquidityOutside[nextTick] = totalFpl.sub(tickFpl);
                     }
                 } else if (sqrtRatio != result.sqrtRatioNext) {
                     sqrtRatio = result.sqrtRatioNext;
@@ -435,7 +458,11 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
             poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
             poolLiquidity[poolId] = liquidity;
-            poolFeesPerLiquidity[poolId] = feesPerLiquidity;
+
+            // this loads only the input token fees per liquidity
+            assembly ("memory-safe") {
+                sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)
+            }
 
             _accountDebt(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);

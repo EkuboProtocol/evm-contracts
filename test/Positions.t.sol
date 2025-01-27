@@ -6,6 +6,7 @@ import {PoolKey, Bounds} from "../src/types/keys.sol";
 import {FullTest} from "./FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
 import {Positions} from "../src/Positions.sol";
+import {tickToSqrtRatio} from "../src/math/ticks.sol";
 
 contract PositionsTest is FullTest {
     function test_metadata() public view {
@@ -135,6 +136,84 @@ contract PositionsTest is FullTest {
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
         assertEq(amount0, 111); // 124/2 + 49
         assertEq(amount1, 61); // 75/2 + 24
+    }
+
+    function test_collectFeesAndWithdraw_above_range(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+
+        token0.approve(address(router), 100);
+        token1.approve(address(router), 50);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100})
+        );
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 50})
+        );
+
+        token1.approve(address(swapper), type(uint256).max);
+        swapper.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: type(int128).max,
+            sqrtRatioLimit: tickToSqrtRatio(100),
+            skipAhead: 0
+        });
+
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+        assertEq(p0, 0);
+        assertEq(p1, 200);
+        assertEq(f0, 49);
+        assertEq(f1, 150);
+
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        assertEq(amount0, 49);
+        assertEq(amount1, 250);
+    }
+
+    function test_collectFeesAndWithdraw_below_range(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+
+        token0.approve(address(router), 100);
+        token1.approve(address(router), 50);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100})
+        );
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 50})
+        );
+
+        token0.approve(address(swapper), type(uint256).max);
+        swapper.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: type(int128).max,
+            sqrtRatioLimit: tickToSqrtRatio(-100),
+            skipAhead: 0
+        });
+
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+        assertEq(p0, 200);
+        assertEq(p1, 0);
+        assertEq(f0, 125);
+        assertEq(f1, 24);
+
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        assertEq(amount0, 225);
+        assertEq(amount1, 24);
     }
 
     function test_collectFeesOnly(CallPoints memory callPoints) public {

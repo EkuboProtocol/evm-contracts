@@ -1,0 +1,10 @@
+{
+  "sqrtRatioToTick(1 << 128)": "2601",
+  "sqrtRatioToTick(MAX_SQRT_RATIO)": "3793",
+  "sqrtRatioToTick(MIN_SQRT_RATIO)": "3765",
+  "tickToSqrtRatio(-0x3ffffff)": "2034",
+  "tickToSqrtRatio(0)": "1243",
+  "tickToSqrtRatio(0x3ffffff)": "2062",
+  "tickToSqrtRatio(MAX_TICK)": "1678",
+  "tickToSqrtRatio(MIN_TICK)": "1650"
+}

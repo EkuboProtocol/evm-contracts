@@ -27,6 +27,7 @@ import {
 } from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {TestSimpleSwapper} from "./FullTest.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract Handler is StdUtils, StdAssertions {
     using CoreLib for *;
@@ -116,7 +117,7 @@ contract Handler is StdUtils, StdAssertions {
             if (
                 sig != Positions.DepositOverflow.selector && sig != MaxLiquidityForToken0Overflow.selector
                     && sig != MaxLiquidityForToken1Overflow.selector && sig != SafeCastLib.Overflow.selector
-                    && sig != 0x4e487b71
+                    && sig != 0x4e487b71 && sig != FixedPointMathLib.FullMulDivFailed.selector
             ) {
                 revert UnexpectedError(sig, err);
             }

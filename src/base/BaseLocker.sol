@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {ILocker, IPayer, IForwardee, IFlashAccountant, NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
+import {ILocker, IPayer, IFlashAccountant, NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {UsesCore} from "./UsesCore.sol";
 
 abstract contract BaseLocker is ILocker, IPayer {
     error BaseLockerAccountantOnly();

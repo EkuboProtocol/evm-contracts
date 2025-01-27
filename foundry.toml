@@ -24,7 +24,17 @@ verbosity = 3
 
 [profile.ci.fuzz]
 runs = 100000
-max_test_rejects = 500000
+max_test_rejects = 50000
 
 [profile.ci.invariant]
 runs = 128
+
+[profile.superfuzz]
+verbosity = 3
+
+[profile.superfuzz.fuzz]
+runs = 1000000
+max_test_rejects = 500000
+
+[profile.superfuzz.invariant]
+runs = 1024

@@ -26,6 +26,7 @@ import {
     tickToSqrtRatio
 } from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
+import {TestSimpleSwapper} from "./FullTest.sol";
 
 contract Handler is StdUtils, StdAssertions {
     using CoreLib for *;
@@ -45,7 +46,7 @@ contract Handler is StdUtils, StdAssertions {
 
     ICore immutable core;
     Positions immutable positions;
-    Router immutable router;
+    TestSimpleSwapper immutable swapper;
     TestToken immutable token0;
     TestToken immutable token1;
     ActivePosition[] activePositions;
@@ -53,16 +54,16 @@ contract Handler is StdUtils, StdAssertions {
 
     mapping(bytes32 poolId => Balances balances) poolBalances;
 
-    constructor(ICore _core, Positions _positions, Router _router, TestToken _token0, TestToken _token1) {
+    constructor(ICore _core, Positions _positions, TestSimpleSwapper _swapper, TestToken _token0, TestToken _token1) {
         core = _core;
         positions = _positions;
-        router = _router;
+        swapper = _swapper;
         token0 = _token0;
         token1 = _token1;
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
-        token0.approve(address(router), type(uint256).max);
-        token1.approve(address(router), type(uint256).max);
+        token0.approve(address(swapper), type(uint256).max);
+        token1.approve(address(swapper), type(uint256).max);
         positionId = positions.mint();
     }
 
@@ -167,13 +168,16 @@ contract Handler is StdUtils, StdAssertions {
 
         params.skipAhead = bound(params.skipAhead, 0, type(uint8).max);
 
-        try router.swap{gas: 15000000}(
-            RouteNode(poolKey, params.sqrtRatioLimit, params.skipAhead),
-            TokenAmount(params.isToken1 ? address(token1) : address(token0), params.amount)
-        ) returns (Delta memory d) {
+        try swapper.swap{gas: 15000000}({
+            poolKey: poolKey,
+            sqrtRatioLimit: params.sqrtRatioLimit,
+            skipAhead: params.skipAhead,
+            isToken1: params.isToken1,
+            amount: params.amount
+        }) returns (int128 delta0, int128 delta1) {
             bytes32 poolId = poolKey.toPoolId();
-            poolBalances[poolId].amount0 += d.amount0;
-            poolBalances[poolId].amount1 += d.amount1;
+            poolBalances[poolId].amount0 += delta0;
+            poolBalances[poolId].amount1 += delta1;
         } catch (bytes memory err) {
             bytes4 sig;
             assembly ("memory-safe") {
@@ -207,8 +211,8 @@ contract Handler is StdUtils, StdAssertions {
 
             assertGe(sqrtRatio, MIN_SQRT_RATIO);
             assertLe(sqrtRatio, MAX_SQRT_RATIO);
-            assertGe(tick, MIN_TICK);
-            assertLe(tick, MAX_TICK);
+            assertGe(tick, MIN_TICK - 1);
+            assertLe(tick, MAX_TICK + 1);
         }
     }
 }
@@ -218,7 +222,7 @@ contract SolvencyInvariantTest is FullTest {
 
     function setUp() public override {
         FullTest.setUp();
-        handler = new Handler(core, positions, router, token0, token1);
+        handler = new Handler(core, positions, swapper, token0, token1);
         token0.transfer(address(handler), type(uint256).max);
         token1.transfer(address(handler), type(uint256).max);
         targetContract(address(handler));

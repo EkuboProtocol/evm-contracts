@@ -96,29 +96,24 @@ function maxLiquidity(uint256 sqrtRatio, uint256 sqrtRatioA, uint256 sqrtRatioB,
     }
 }
 
-error LiquidityUnderflow();
-error LiquidityOverflow();
+error LiquidityDeltaOverflow();
 
-function addLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure returns (uint128) {
-    unchecked {
-        int256 l = int256(uint256(liquidity));
-        int256 lNext = l + liquidityDelta;
-
-        if (lNext < 0) revert LiquidityUnderflow();
-        if (lNext > 0xffffffffffffffffffffffffffffffff) revert LiquidityOverflow();
-
-        return uint128(uint256(lNext));
+function addLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure returns (uint128 result) {
+    assembly ("memory-safe") {
+        result := add(liquidity, liquidityDelta)
+        if and(result, shl(128, 0xffffffffffffffffffffffffffffffff)) {
+            mstore(0, shl(224, 0x6d862c50))
+            revert(0, 4)
+        }
     }
 }
 
-function subLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure returns (uint128) {
-    unchecked {
-        int256 l = int256(uint256(liquidity));
-        int256 lNext = l - liquidityDelta;
-
-        if (lNext < 0) revert LiquidityUnderflow();
-        if (lNext > 0xffffffffffffffffffffffffffffffff) revert LiquidityOverflow();
-
-        return uint128(uint256(lNext));
+function subLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure returns (uint128 result) {
+    assembly ("memory-safe") {
+        result := sub(liquidity, liquidityDelta)
+        if and(result, shl(128, 0xffffffffffffffffffffffffffffffff)) {
+            mstore(0, shl(224, 0x6d862c50))
+            revert(0, 4)
+        }
     }
 }

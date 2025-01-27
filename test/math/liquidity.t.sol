@@ -4,10 +4,9 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {
     liquidityDeltaToAmountDelta,
+    LiquidityDeltaOverflow,
     addLiquidityDelta,
     subLiquidityDelta,
-    LiquidityUnderflow,
-    LiquidityOverflow,
     maxLiquidity
 } from "../../src/math/liquidity.sol";
 
@@ -136,18 +135,18 @@ contract LiquidityTest is Test {
     }
 
     function test_addLiquidityDelta() public {
-        vm.expectRevert(LiquidityOverflow.selector);
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
         addLiquidityDelta(type(uint128).max, 1);
-        vm.expectRevert(LiquidityUnderflow.selector);
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
         addLiquidityDelta(0, -1);
     }
 
     function test_addLiquidityDeltaInvariants(uint128 liquidity, int128 delta) public {
         int256 result = int256(uint256(liquidity)) + delta;
         if (result < 0) {
-            vm.expectRevert(LiquidityUnderflow.selector);
+            vm.expectRevert(LiquidityDeltaOverflow.selector);
         } else if (result > int256(uint256(type(uint128).max))) {
-            vm.expectRevert(LiquidityOverflow.selector);
+            vm.expectRevert(LiquidityDeltaOverflow.selector);
         }
         assertEq(int256(uint256(addLiquidityDelta(liquidity, delta))), result);
     }
@@ -163,18 +162,18 @@ contract LiquidityTest is Test {
     }
 
     function test_subLiquidityDelta() public {
-        vm.expectRevert(LiquidityOverflow.selector);
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
         subLiquidityDelta(type(uint128).max, -1);
-        vm.expectRevert(LiquidityUnderflow.selector);
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
         subLiquidityDelta(0, 1);
     }
 
     function test_subLiquidityDeltaInvariants(uint128 liquidity, int128 delta) public {
         int256 result = int256(uint256(liquidity)) - delta;
         if (result < 0) {
-            vm.expectRevert(LiquidityUnderflow.selector);
+            vm.expectRevert(LiquidityDeltaOverflow.selector);
         } else if (result > int256(uint256(type(uint128).max))) {
-            vm.expectRevert(LiquidityOverflow.selector);
+            vm.expectRevert(LiquidityDeltaOverflow.selector);
         }
         assertEq(int256(uint256(subLiquidityDelta(liquidity, delta))), result);
     }
@@ -193,7 +192,7 @@ contract LiquidityTest is Test {
         uint256 sqrtRatioB,
         uint128 amount0,
         uint128 amount1
-    ) public view returns (uint128) {
+    ) public view {
         amount0 = uint128(bound(amount0, 0, uint128(type(int128).max)));
         amount1 = uint128(bound(amount1, 0, uint128(type(int128).max)));
         sqrtRatioA = bound(sqrtRatioA, 1, type(uint256).max);

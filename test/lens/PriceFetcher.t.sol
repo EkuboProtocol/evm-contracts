@@ -224,5 +224,20 @@ contract PriceFetcherTest is BaseOracleTest {
             2546785
         );
         vm.snapshotGasLastCall("getRealizedVolatilityOverPeriod");
+
+        uint64 queryStartTime;
+        (queryStartTime, averages) =
+            pf.getAvailableHistoricalPeriodAverages(address(token0), address(token1), startTime + 24, 5, 5);
+        assertEq(queryStartTime, startTime + 4);
+        assertEq(averages.length, 4);
+        assertEq(averages[0].tick, -2079441); // +9
+        assertEq(averages[1].tick, -3465734); // +14
+        assertEq(averages[2].tick, -5545176); // +19
+        assertEq(averages[3].tick, -5545176); // +24
+
+        assertEq(averages[0].liquidity, 3461);
+        assertEq(averages[1].liquidity, 5625);
+        assertEq(averages[2].liquidity, 11640);
+        assertEq(averages[3].liquidity, 11645);
     }
 }

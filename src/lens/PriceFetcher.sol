@@ -163,6 +163,37 @@ contract PriceFetcher {
         }
     }
 
+    function getAvailableHistoricalPeriodAverages(
+        address baseToken,
+        address quoteToken,
+        uint64 endTime,
+        uint32 numIntervals,
+        uint32 period
+    ) public view returns (uint64 startTime, PeriodAverage[] memory averages) {
+        uint256 earliestObservationTime =
+            FixedPointMathLib.max(getEarliestSnapshotTimestamp(baseToken), getEarliestSnapshotTimestamp(quoteToken));
+
+        // no observations available for the period, return an empty array
+        if (earliestObservationTime >= endTime) {
+            return (endTime, new PeriodAverage[](0));
+        }
+
+        uint256 queryStartTime = uint256(endTime) - (uint256(numIntervals) * period);
+
+        if (queryStartTime >= earliestObservationTime) {
+            return (
+                uint64(queryStartTime),
+                getHistoricalPeriodAverages(baseToken, quoteToken, endTime, numIntervals, period)
+            );
+        } else {
+            startTime = uint64(((earliestObservationTime + (period - 1)) / period) * period);
+
+            numIntervals = uint32((endTime - startTime) / period);
+
+            averages = getHistoricalPeriodAverages(baseToken, quoteToken, endTime, numIntervals, period);
+        }
+    }
+
     function getRealizedVolatilityOverPeriod(
         address baseToken,
         address quoteToken,

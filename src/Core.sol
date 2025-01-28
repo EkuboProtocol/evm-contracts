@@ -244,14 +244,12 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
             PositionKey memory positionKey = PositionKey({salt: params.salt, owner: locker, bounds: params.bounds});
 
-            uint128 protocolFees0;
-            uint128 protocolFees1;
             if (params.liquidityDelta < 0) {
                 if (poolKey.fee != 0) {
                     unchecked {
                         // uint128(-delta0) is ok in unchecked block
-                        protocolFees0 = computeFee(uint128(-delta0), poolKey.fee);
-                        protocolFees1 = computeFee(uint128(-delta1), poolKey.fee);
+                        uint128 protocolFees0 = computeFee(uint128(-delta0), poolKey.fee);
+                        uint128 protocolFees1 = computeFee(uint128(-delta1), poolKey.fee);
 
                         if (protocolFees0 > 0) {
                             // this will never overflow for a well behaved token since protocol fees are stored as uint256
@@ -301,7 +299,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             _accountDebt(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
-            emit PositionUpdated(locker, poolKey, params, delta0, delta1, protocolFees0, protocolFees1);
+            emit PositionUpdated(locker, poolKey, params, delta0, delta1);
         }
 
         if (shouldCallAfterUpdatePosition(poolKey.extension) && locker != poolKey.extension) {
@@ -464,7 +462,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
             poolLiquidity[poolId] = liquidity;
 
-            // this loads only the input token fees per liquidity
+            // this stores only the input token fees per liquidity
             assembly ("memory-safe") {
                 sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)
             }

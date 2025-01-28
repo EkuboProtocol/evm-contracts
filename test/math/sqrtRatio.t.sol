@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "../../src/math/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/math/ticks.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract SqrtRatioTest is Test {
     // wrapper for the purpose of vm.assumeNoRevert
@@ -55,26 +56,28 @@ contract SqrtRatioTest is Test {
         view
     {
         vm.assumeNoRevert();
+        sqrtRatio = bound(sqrtRatio, 1, type(uint256).max - 1);
 
         uint256 sqrtRatioNext = this.nsrfa0(sqrtRatio, liquidity, amount);
-
-        vm.assumeNoRevert();
 
         unchecked {
             // this assertion ensures that the next sqrt ratio we compute is either sufficient to produce the requested amount0,
             // or more than the amount required to move to that price
             if (amount < 0) {
+                assertGt(sqrtRatioNext, sqrtRatio);
                 if (sqrtRatioNext == type(uint256).max) {
                     // if we overflowed, the amount in the pool is not enough to support the trade
-                    assertLe(this.a0d(sqrtRatio, sqrtRatioNext, liquidity, false), uint128(-amount));
+                    assertLe((uint256(liquidity) << 128) / sqrtRatio, uint128(-amount));
                 } else {
+                    vm.assumeNoRevert();
                     assertLe(uint128(-amount), this.a0d(sqrtRatio, sqrtRatioNext, liquidity, false));
                 }
             } else if (amount > 0) {
+                assertLe(sqrtRatioNext, sqrtRatio);
                 assertGe(uint128(amount), this.a0d(sqrtRatio, sqrtRatioNext, liquidity, true));
             } else {
-                assertEq(amount, 0);
                 assertEq(sqrtRatioNext, sqrtRatio);
+                assertEq(amount, 0);
             }
         }
     }
@@ -94,26 +97,28 @@ contract SqrtRatioTest is Test {
         view
     {
         vm.assumeNoRevert();
+        sqrtRatio = bound(sqrtRatio, 1, type(uint256).max - 1);
 
         uint256 sqrtRatioNext = this.nsrfa1(sqrtRatio, liquidity, amount);
-
-        vm.assumeNoRevert();
 
         // this assertion ensures that the next sqrt ratio we compute is either sufficient to produce the requested amount0,
         // or more than the amount required to move to that price
         unchecked {
             if (amount < 0) {
+                assertLt(sqrtRatioNext, sqrtRatio);
                 // if we overflowed, the amount in the pool is not enough to support the trade
                 if (sqrtRatioNext == 0) {
-                    assertLe(this.a1d(sqrtRatio, sqrtRatioNext, liquidity, false), uint128(-amount));
+                    assertLe(FixedPointMathLib.fullMulDivN(sqrtRatio, liquidity, 128), uint128(-amount));
                 } else {
+                    vm.assumeNoRevert();
                     assertLe(uint128(uint256(-int256(amount))), this.a1d(sqrtRatio, sqrtRatioNext, liquidity, false));
                 }
             } else if (amount > 0) {
+                assertGe(sqrtRatioNext, sqrtRatio);
                 assertGe(uint128(amount), this.a1d(sqrtRatio, sqrtRatioNext, liquidity, true));
             } else {
-                assertEq(amount, 0);
                 assertEq(sqrtRatioNext, sqrtRatio);
+                assertEq(amount, 0);
             }
         }
     }

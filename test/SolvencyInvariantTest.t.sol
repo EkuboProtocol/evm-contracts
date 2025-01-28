@@ -26,6 +26,7 @@ import {
 } from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {TestSimpleSwapper} from "./FullTest.sol";
+import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract Handler is StdUtils, StdAssertions {
@@ -115,7 +116,7 @@ contract Handler is StdUtils, StdAssertions {
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
                 sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
-                    && sig != FixedPointMathLib.FullMulDivFailed.selector
+                    && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
             ) {
                 revert UnexpectedError(sig, err);
             }

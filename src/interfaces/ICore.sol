@@ -73,9 +73,14 @@ interface ICore is IFlashAccountant, IExposedStorage {
     );
     event FeesAccumulated(PoolKey poolKey, uint128 amount0, uint128 amount1);
     event PositionUpdated(
-        address locker, PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1
+        address locker,
+        PoolKey poolKey,
+        UpdatePositionParameters params,
+        int128 delta0,
+        int128 delta1,
+        uint128 fees0,
+        uint128 fees1
     );
-    event ProtocolFeesPaid(PoolKey poolKey, PositionKey positionKey, uint128 amount0, uint128 amount1);
 
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
     error FailedRegisterInvalidCallPoints();

@@ -244,24 +244,29 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
             PositionKey memory positionKey = PositionKey({salt: params.salt, owner: locker, bounds: params.bounds});
 
+            uint128 protocolFees0;
+            uint128 protocolFees1;
             if (params.liquidityDelta < 0) {
                 if (poolKey.fee != 0) {
                     unchecked {
                         // uint128(-delta0) is ok in unchecked block
-                        uint128 amount0Fee = computeFee(uint128(-delta0), poolKey.fee);
-                        uint128 amount1Fee = computeFee(uint128(-delta1), poolKey.fee);
-                        // this will never overflow for a well behaved token since protocol fees are stored as uint256
-                        if (amount0Fee > 0) {
-                            protocolFeesCollected[poolKey.token0] += amount0Fee;
+                        protocolFees0 = computeFee(uint128(-delta0), poolKey.fee);
+                        protocolFees1 = computeFee(uint128(-delta1), poolKey.fee);
+
+                        if (protocolFees0 > 0) {
+                            // this will never overflow for a well behaved token since protocol fees are stored as uint256
+                            protocolFeesCollected[poolKey.token0] += protocolFees0;
+
+                            // protocolFees0 is at most equal to delta0, so this will maximally reach 0 and no overflow/underflow check is needed
+                            // in addition, casting is safe because computed fee is never g.t. the input amount, which is an int128
+                            delta0 += int128(protocolFees0);
                         }
-                        if (amount1Fee > 0) {
-                            protocolFeesCollected[poolKey.token1] += amount1Fee;
+
+                        // same reasoning applies for the unchecked safety here
+                        if (protocolFees1 > 0) {
+                            protocolFeesCollected[poolKey.token1] += protocolFees1;
+                            delta1 += int128(protocolFees1);
                         }
-                        // delta is at most equal to -(amount fee), so this will maximally reach 0 and no overflow/underflow check is needed
-                        // in addition, casting is safe because computed fee is never g.t. the input amount
-                        delta0 += int128(amount0Fee);
-                        delta1 += int128(amount1Fee);
-                        emit ProtocolFeesPaid(poolKey, positionKey, amount0Fee, amount1Fee);
                     }
                 }
             }
@@ -296,7 +301,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
             _accountDebt(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
-            emit PositionUpdated(locker, poolKey, params, delta0, delta1);
+            emit PositionUpdated(locker, poolKey, params, delta0, delta1, protocolFees0, protocolFees1);
         }
 
         if (shouldCallAfterUpdatePosition(poolKey.extension) && locker != poolKey.extension) {

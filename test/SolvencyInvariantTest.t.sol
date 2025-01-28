@@ -25,7 +25,7 @@ import {
     tickToSqrtRatio
 } from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
-import {TestSimpleSwapper} from "./FullTest.sol";
+import {SimpleSwapper} from "../src/SimpleSwapper.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -47,7 +47,7 @@ contract Handler is StdUtils, StdAssertions {
 
     ICore immutable core;
     Positions immutable positions;
-    TestSimpleSwapper immutable swapper;
+    SimpleSwapper immutable swapper;
     TestToken immutable token0;
     TestToken immutable token1;
     ActivePosition[] activePositions;
@@ -55,7 +55,7 @@ contract Handler is StdUtils, StdAssertions {
 
     mapping(bytes32 poolId => Balances balances) poolBalances;
 
-    constructor(ICore _core, Positions _positions, TestSimpleSwapper _swapper, TestToken _token0, TestToken _token1) {
+    constructor(ICore _core, Positions _positions, SimpleSwapper _swapper, TestToken _token0, TestToken _token1) {
         core = _core;
         positions = _positions;
         swapper = _swapper;

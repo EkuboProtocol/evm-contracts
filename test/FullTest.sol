@@ -11,45 +11,9 @@ import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
+import {SimpleSwapper} from "../src/SimpleSwapper.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
-
-contract TestSimpleSwapper is BaseLocker {
-    constructor(ICore core) BaseLocker(core) {}
-
-    function swap(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
-        external
-        returns (int128 delta0, int128 delta1)
-    {
-        (delta0, delta1) = abi.decode(
-            lock(abi.encode(msg.sender, poolKey, isToken1, amount, sqrtRatioLimit, skipAhead)), (int128, int128)
-        );
-    }
-
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        (
-            address swapper,
-            PoolKey memory poolKey,
-            bool isToken1,
-            int128 amount,
-            uint256 sqrtRatioLimit,
-            uint256 skipAhead
-        ) = abi.decode(data, (address, PoolKey, bool, int128, uint256, uint256));
-
-        (int128 delta0, int128 delta1) =
-            ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
-
-        if (isPriceIncreasing(amount, isToken1)) {
-            withdraw(poolKey.token0, uint128(-delta0), swapper);
-            pay(swapper, poolKey.token1, uint128(delta1));
-        } else {
-            withdraw(poolKey.token1, uint128(-delta1), swapper);
-            pay(swapper, poolKey.token0, uint128(delta0));
-        }
-
-        result = abi.encode(delta0, delta1);
-    }
-}
 
 contract MockExtension is IExtension {
     function register(ICore core, CallPoints calldata expectedCallPoints) external {
@@ -136,7 +100,7 @@ abstract contract FullTest is Test {
     Core core;
     Positions positions;
     Router router;
-    TestSimpleSwapper swapper;
+    SimpleSwapper swapper;
 
     TestToken token0;
     TestToken token1;
@@ -148,7 +112,7 @@ abstract contract FullTest is Test {
         router = new Router(core);
         TestToken tokenA = new TestToken(address(this));
         TestToken tokenB = new TestToken(address(this));
-        swapper = new TestSimpleSwapper(core);
+        swapper = new SimpleSwapper(core);
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
     }
 

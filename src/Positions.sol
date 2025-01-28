@@ -166,7 +166,6 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
     function withdraw(uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity)
         public
         payable
-        authorizedForNft(id)
         returns (uint128 amount0, uint128 amount1)
     {
         (amount0, amount1) = withdraw(id, poolKey, bounds, liquidity, address(msg.sender), true);

@@ -9,7 +9,6 @@ import {isPriceIncreasing} from "../src/math/swap.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
 import {MAX_TICK, MIN_TICK, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "../src/math/ticks.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
-import {MaxLiquidityForToken0Overflow, MaxLiquidityForToken1Overflow} from "../src/math/liquidity.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
@@ -115,9 +114,8 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != Positions.DepositOverflow.selector && sig != MaxLiquidityForToken0Overflow.selector
-                    && sig != MaxLiquidityForToken1Overflow.selector && sig != SafeCastLib.Overflow.selector
-                    && sig != 0x4e487b71 && sig != FixedPointMathLib.FullMulDivFailed.selector
+                sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                    && sig != FixedPointMathLib.FullMulDivFailed.selector
             ) {
                 revert UnexpectedError(sig, err);
             }

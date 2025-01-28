@@ -9,27 +9,17 @@ import {
     subLiquidityDelta,
     maxLiquidity
 } from "../../src/math/liquidity.sol";
-
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, tickToSqrtRatio} from "../../src/math/ticks.sol";
 
 int32 constant TICKS_IN_ONE_PERCENT = 9950;
 
-// we need this for vm.assumeNoRevert to work
-contract TestTarget {
+contract LiquidityTest is Test {
     function amountDeltas(uint256 sqrtRatio, int128 liquidityDelta, uint256 sqrtRatioLower, uint256 sqrtRatioUpper)
         external
         pure
         returns (int128 delta0, int128 delta1)
     {
         (delta0, delta1) = liquidityDeltaToAmountDelta(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
-    }
-}
-
-contract LiquidityTest is Test {
-    TestTarget tt;
-
-    function setUp() public {
-        tt = new TestTarget();
     }
 
     function test_liquidityDeltaToAmountDelta_full_range_mid_price() public pure {
@@ -54,7 +44,7 @@ contract LiquidityTest is Test {
         sqrtRatioUpper = bound(sqrtRatioUpper, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
 
         vm.assumeNoRevert();
-        (int128 delta0, int128 delta1) = tt.amountDeltas(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
+        (int128 delta0, int128 delta1) = this.amountDeltas(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
         if (sqrtRatioLower == sqrtRatioUpper || liquidityDelta == 0) {
             assertEq(delta0, 0);
@@ -188,22 +178,35 @@ contract LiquidityTest is Test {
 
     function test_maxLiquidity(
         uint256 sqrtRatio,
-        uint256 sqrtRatioA,
-        uint256 sqrtRatioB,
+        uint256 sqrtRatioLower,
+        uint256 sqrtRatioUpper,
         uint128 amount0,
         uint128 amount1
     ) public view {
-        amount0 = uint128(bound(amount0, 0, uint128(type(int128).max)));
-        amount1 = uint128(bound(amount1, 0, uint128(type(int128).max)));
-        sqrtRatioA = bound(sqrtRatioA, 1, type(uint256).max);
-        sqrtRatioB = bound(sqrtRatioB, sqrtRatioA, type(uint256).max);
+        amount0 = uint128(bound(amount0, 0, type(uint8).max));
+        amount1 = uint128(bound(amount1, 0, type(uint8).max));
+        // creates a minimum separation of .0001%, which causes it to overflow liquidity less often
+        sqrtRatioLower = bound(sqrtRatioLower, MIN_SQRT_RATIO, MAX_SQRT_RATIO - 1);
+        sqrtRatioUpper = bound(sqrtRatioUpper, sqrtRatioLower + 1, MAX_SQRT_RATIO);
+
+        // this can overflow in some cases
         vm.assumeNoRevert();
-        uint128 l = this.ml(sqrtRatio, sqrtRatioA, sqrtRatioB, amount0, amount1);
-        vm.assume(int256(uint256(l)) <= type(int128).max);
-        (int128 a, int128 b) = liquidityDeltaToAmountDelta(sqrtRatio, int128(l), sqrtRatioA, sqrtRatioB);
-        assertGe(a, 0);
-        assertGe(b, 0);
-        assertLe(uint128(a), amount0);
-        assertLe(uint128(b), amount1);
+        uint128 liquidity = this.ml(sqrtRatio, sqrtRatioLower, sqrtRatioUpper, amount0, amount1);
+
+        if (sqrtRatio <= sqrtRatioLower && amount0 == 0) {
+            assertEq(liquidity, 0);
+        } else if (sqrtRatio >= sqrtRatioUpper && amount1 == 0) {
+            assertEq(liquidity, 0);
+        }
+
+        // if we were capped at max liquidity, there isn't much we can assert, except maybe that the amount deltas likely overflow
+        if (liquidity <= uint128(type(int128).max)) {
+            (int128 a, int128 b) = this.amountDeltas(sqrtRatio, int128(liquidity), sqrtRatioLower, sqrtRatioUpper);
+
+            assertGe(a, 0);
+            assertGe(b, 0);
+            assertLe(uint128(a), amount0);
+            assertLe(uint128(b), amount1);
+        }
     }
 }

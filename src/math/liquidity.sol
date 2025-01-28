@@ -47,34 +47,20 @@ function liquidityDeltaToAmountDelta(
     }
 }
 
-error MaxLiquidityForToken0Overflow();
-
-function maxLiquidityForToken0(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount) pure returns (uint128) {
+function maxLiquidityForToken0(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount) pure returns (uint256) {
     unchecked {
         (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
         uint256 numerator_1 = FixedPointMathLib.fullMulDivN(sqrtRatioA, sqrtRatioB, 128);
 
-        uint256 result = FixedPointMathLib.fullMulDiv(amount, numerator_1, (sqrtRatioB - sqrtRatioA));
-
-        if (result > type(uint128).max) {
-            revert MaxLiquidityForToken1Overflow();
-        }
-
-        return uint128(result);
+        return FixedPointMathLib.fullMulDiv(amount, numerator_1, (sqrtRatioB - sqrtRatioA));
     }
 }
 
-error MaxLiquidityForToken1Overflow();
-
-function maxLiquidityForToken1(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount) pure returns (uint128) {
+function maxLiquidityForToken1(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount) pure returns (uint256) {
     unchecked {
         (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
-        uint256 result = (uint256(amount) << 128) / (sqrtRatioB - sqrtRatioA);
-        if (result > type(uint128).max) {
-            revert MaxLiquidityForToken1Overflow();
-        }
-        return uint128(result);
+        return (uint256(amount) << 128) / (sqrtRatioB - sqrtRatioA);
     }
 }
 
@@ -85,14 +71,23 @@ function maxLiquidity(uint256 sqrtRatio, uint256 sqrtRatioA, uint256 sqrtRatioB,
     (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
     if (sqrtRatio <= sqrtRatioLower) {
-        return maxLiquidityForToken0(sqrtRatioLower, sqrtRatioUpper, amount0);
+        return uint128(
+            FixedPointMathLib.min(type(uint128).max, maxLiquidityForToken0(sqrtRatioLower, sqrtRatioUpper, amount0))
+        );
     } else if (sqrtRatio < sqrtRatioUpper) {
-        uint128 maxFromToken0 = maxLiquidityForToken0(sqrtRatio, sqrtRatioUpper, amount0);
-        uint128 maxFromToken1 = maxLiquidityForToken1(sqrtRatioLower, sqrtRatio, amount1);
-
-        return uint128(FixedPointMathLib.min(maxFromToken0, maxFromToken1));
+        return uint128(
+            FixedPointMathLib.min(
+                type(uint128).max,
+                FixedPointMathLib.min(
+                    maxLiquidityForToken0(sqrtRatio, sqrtRatioUpper, amount0),
+                    maxLiquidityForToken1(sqrtRatioLower, sqrtRatio, amount1)
+                )
+            )
+        );
     } else {
-        return maxLiquidityForToken1(sqrtRatioLower, sqrtRatioUpper, amount1);
+        return uint128(
+            FixedPointMathLib.min(type(uint128).max, maxLiquidityForToken1(sqrtRatioLower, sqrtRatioUpper, amount1))
+        );
     }
 }
 

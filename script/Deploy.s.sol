@@ -8,6 +8,7 @@ import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
+import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "../test/TestToken.sol";
 import {MAX_TICK_SPACING} from "../src/math/ticks.sol";
@@ -207,6 +208,7 @@ contract DeployScript is Script {
 
         new PriceFetcher(oracle);
         new CoreDataFetcher(core);
+        new TokenDataFetcher();
 
         if (vm.envOr("CREATE_TEST_DATA", false)) {
             generateTestData(positions, router, oracle, usdc, eurc);

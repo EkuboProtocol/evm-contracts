@@ -48,6 +48,7 @@ contract DeployScript is Script {
     function generateTestData(Positions positions, Router router, Oracle oracle, address usdc, address eurc) private {
         TestToken token = new TestToken(vm.getWallets()[0]);
 
+        token.approve(address(router), type(uint256).max);
         token.approve(address(positions), type(uint256).max);
         // it is assumed this address has some quantity of oracle token and usdc/eurc already
         TestToken(usdc).approve(address(positions), type(uint256).max);
@@ -57,7 +58,7 @@ contract DeployScript is Script {
         uint256 baseSalt = uint256(keccak256(abi.encode(token)));
 
         // 30 basis points fee, 0.6% tick spacing, starting price of 5k, 0.01 ETH
-        createPool(
+        PoolKey memory poolKey = createPool(
             baseSalt++,
             positions,
             NATIVE_TOKEN_ADDRESS,
@@ -69,6 +70,32 @@ contract DeployScript is Script {
             10000000000000000,
             50000000000000000000
         );
+
+        // 2 example swaps, back and forth, twice, to demonstrate gas usage
+        for (uint256 i = 0; i < 2; i++) {
+            bytes[] memory swapCalls = new bytes[](4);
+            swapCalls[0] =
+                abi.encodeWithSelector(SlippageChecker.recordBalanceForSlippageCheck.selector, address(poolKey.token1));
+            swapCalls[1] = abi.encodeWithSelector(
+                Router.swap.selector, RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token0), 100000)
+            );
+            swapCalls[2] = abi.encodeWithSelector(SlippageChecker.refundNativeToken.selector);
+            swapCalls[3] = abi.encodeWithSelector(
+                SlippageChecker.checkMinimumOutputReceived.selector, address(poolKey.token1), (100000 * 5000) / 2
+            );
+            router.multicall{value: 100000}(swapCalls);
+
+            swapCalls = new bytes[](3);
+            swapCalls[0] =
+                abi.encodeWithSelector(SlippageChecker.recordBalanceForSlippageCheck.selector, address(poolKey.token0));
+            swapCalls[1] = abi.encodeWithSelector(
+                Router.swap.selector, RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token1), 100000 * 5000)
+            );
+            swapCalls[2] = abi.encodeWithSelector(
+                SlippageChecker.checkMinimumOutputReceived.selector, address(poolKey.token0), 100000 / 2
+            );
+            router.multicall(swapCalls);
+        }
 
         // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH
         createPool(
@@ -209,7 +236,7 @@ contract DeployScript is Script {
 
         new PriceFetcher(oracle);
         new CoreDataFetcher(core);
-        new SimpleSwapper(core);
+        // new SimpleSwapper(core);
         new TokenDataFetcher();
 
         if (vm.envOr("CREATE_TEST_DATA", false)) {

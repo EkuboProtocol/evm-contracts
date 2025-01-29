@@ -459,11 +459,16 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
                     : (params.amount - amountRemaining, calculatedAmountDelta);
             }
 
-            poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
-            poolLiquidity[poolId] = liquidity;
-
-            // this stores only the input token fees per liquidity
             assembly ("memory-safe") {
+                mstore(0, poolId)
+                mstore(32, 2)
+                sstore(keccak256(0, 64), or(shl(192, tick), sqrtRatio))
+
+                mstore(0, poolId)
+                mstore(32, 3)
+                sstore(keccak256(0, 64), liquidity)
+
+                // this stores only the input token fees per liquidity
                 sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)
             }
 

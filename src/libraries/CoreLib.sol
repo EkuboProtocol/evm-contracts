@@ -10,6 +10,17 @@ import {Position} from "../types/position.sol";
 library CoreLib {
     using ExposedStorageLib for *;
 
+    function protocolFeesCollected(ICore core, address token) internal view returns (uint256 amountCollected) {
+        bytes32 key;
+        assembly ("memory-safe") {
+            mstore(0, token)
+            mstore(32, 1)
+            key := keccak256(0, 64)
+        }
+
+        amountCollected = uint256(core.unsafeRead(key));
+    }
+
     function poolPrice(ICore core, bytes32 poolId) internal view returns (uint192 sqrtRatio, int32 tick) {
         bytes32 key;
         assembly ("memory-safe") {

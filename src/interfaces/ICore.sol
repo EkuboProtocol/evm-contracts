@@ -78,6 +78,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
 
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
     error FailedRegisterInvalidCallPoints();
+    error ExtensionAlreadyRegistered();
     error InsufficientSavedBalance();
     error PoolAlreadyInitialized();
     error ExtensionNotRegistered();

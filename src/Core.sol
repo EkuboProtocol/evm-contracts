@@ -80,10 +80,9 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
     function registerExtension(CallPoints memory expectedCallPoints) external {
         CallPoints memory computed = addressToCallPoints(msg.sender);
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) revert FailedRegisterInvalidCallPoints();
-        if (!isExtensionRegistered[msg.sender]) {
-            isExtensionRegistered[msg.sender] = true;
-            emit ExtensionRegistered(msg.sender);
-        }
+        if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
+        isExtensionRegistered[msg.sender] = true;
+        emit ExtensionRegistered(msg.sender);
     }
 
     function initializePool(PoolKey memory poolKey, int32 tick) external expires returns (uint256 sqrtRatio) {

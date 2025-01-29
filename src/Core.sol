@@ -152,7 +152,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
         (uint256 id,) = _requireLocker();
 
         unchecked {
-            // safe because amount is a uint128 and the only way to change is via save/load
+            // this is always safe because amount is a uint128 and savedBalances a uint256
             savedBalances[owner][token][salt] += amount;
             _accountDebt(id, token, int256(uint256(amount)));
         }

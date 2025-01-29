@@ -15,10 +15,8 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
         uint256 t = FixedPointMathLib.abs(tick);
         if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
-        if ((t & 0x1) != 0) {
-            ratio = 0xfffff79c8499329c7cbb2510d893283b;
-        } else {
-            ratio = 0x100000000000000000000000000000000;
+        assembly ("memory-safe") {
+            ratio := sub(0x100000000000000000000000000000000, mul(and(t, 0x1), 170141055854687974526380422256581))
         }
 
         if ((t & 0x2) != 0) {
@@ -100,8 +98,8 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
             ratio = (ratio * 0xc0d55d4d7152c25fb139) >> 128;
         }
 
-        if (tick > 0) {
-            ratio = type(uint256).max / ratio;
+        assembly ("memory-safe") {
+            if sgt(tick, 0) { ratio := div(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff, ratio) }
         }
 
         return ratio;

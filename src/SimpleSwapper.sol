@@ -8,6 +8,39 @@ import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/keys.sol";
 import {isPriceIncreasing} from "./math/swap.sol";
 
+contract SimpleQuoter is BaseLocker {
+    constructor(ICore core) BaseLocker(core) {}
+
+    function quote(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
+        external
+        returns (int128 delta0, int128 delta1)
+    {
+        bytes memory revertData = lockAndExpectRevert(abi.encode(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead));
+
+        // check that the sig matches the error data
+
+        bytes4 sig;
+        assembly ("memory-safe") {
+            sig := mload(add(revertData, 32))
+        }
+        if (sig == QuoteReturnValue.selector && revertData.length == 68) {
+            (delta0, delta1) = abi.decode(revertData, (int128, int128));
+        }
+    }
+
+    error QuoteReturnValue(int128 delta0, int128 delta1);
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead) =
+            abi.decode(data, (PoolKey, bool, int128, uint256, uint256));
+
+        (int128 delta0, int128 delta1) =
+            ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
+
+        revert QuoteReturnValue(delta0, delta1);
+    }
+}
+
 contract SimpleSwapper is BaseLocker, SlippageChecker, PayableMulticallable {
     constructor(ICore core) BaseLocker(core) {}
 
@@ -17,39 +50,22 @@ contract SimpleSwapper is BaseLocker, SlippageChecker, PayableMulticallable {
         returns (int128 delta0, int128 delta1)
     {
         (delta0, delta1) = abi.decode(
-            lock(abi.encode(false, msg.sender, poolKey, isToken1, amount, sqrtRatioLimit, skipAhead)), (int128, int128)
+            lock(abi.encode(msg.sender, poolKey, isToken1, amount, sqrtRatioLimit, skipAhead)), (int128, int128)
         );
     }
-
-    function quote(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
-        external
-        returns (int128 delta0, int128 delta1)
-    {
-        // todo: this doesn't work, we need to catch the revert internally
-        (delta0, delta1) = abi.decode(
-            lock(abi.encode(true, msg.sender, poolKey, isToken1, amount, sqrtRatioLimit, skipAhead)), (int128, int128)
-        );
-    }
-
-    error QuoteReturnValue(int128 delta0, int128 delta1);
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         (
-            bool revertWithResult,
             address swapper,
             PoolKey memory poolKey,
             bool isToken1,
             int128 amount,
             uint256 sqrtRatioLimit,
             uint256 skipAhead
-        ) = abi.decode(data, (bool, address, PoolKey, bool, int128, uint256, uint256));
+        ) = abi.decode(data, (address, PoolKey, bool, int128, uint256, uint256));
 
         (int128 delta0, int128 delta1) =
             ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
-
-        if (revertWithResult) {
-            revert QuoteReturnValue(delta0, delta1);
-        }
 
         if (isPriceIncreasing(amount, isToken1)) {
             withdraw(poolKey.token0, uint128(-delta0), swapper);

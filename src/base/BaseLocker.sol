@@ -74,6 +74,39 @@ abstract contract BaseLocker is ILocker, IPayer {
         }
     }
 
+    error ExpectedRevertWithinLock();
+
+    function lockAndExpectRevert(bytes memory data) internal returns (bytes memory result) {
+        address target = address(accountant);
+
+        assembly ("memory-safe") {
+            // We will store result where the free memory pointer is now, ...
+            result := mload(0x40)
+
+            // But first use it to store the calldata
+
+            // Selector of lock()
+            mstore(result, shl(224, 0xf83d08ba))
+
+            // We only copy the data, not the length, because the length is read from the calldata size
+            let len := mload(data)
+            mcopy(add(result, 4), add(data, 32), len)
+
+            // If the call succeeded, revert with ExpectedRevertWithinLock.selector
+            if call(gas(), target, 0, result, add(len, 36), 0, 0) {
+                mstore(0, shl(224, 0x4c816e2b))
+                revert(0, 0)
+            }
+
+            // Copy the entire revert data into the space where the result is pointing
+            mstore(result, returndatasize())
+            returndatacopy(add(result, 32), 0, returndatasize())
+
+            // Update the free memory pointer to be after the end of the data, aligned to the next 32 byte word
+            mstore(0x40, and(add(add(result, add(32, returndatasize())), 31), not(31)))
+        }
+    }
+
     function pay(address from, address token, uint256 amount) internal {
         address target = address(accountant);
 

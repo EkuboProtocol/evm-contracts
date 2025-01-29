@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {SimpleSwapper} from "../src/SimpleSwapper.sol";
+import {SimpleSwapper, SimpleQuoter} from "../src/SimpleSwapper.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
@@ -236,7 +236,8 @@ contract DeployScript is Script {
 
         new PriceFetcher(oracle);
         new CoreDataFetcher(core);
-        // new SimpleSwapper(core);
+        new SimpleSwapper(core);
+        new SimpleQuoter(core);
         new TokenDataFetcher();
 
         if (vm.envOr("CREATE_TEST_DATA", false)) {

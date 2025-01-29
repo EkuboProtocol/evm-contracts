@@ -11,7 +11,7 @@ import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
-import {SimpleSwapper} from "../src/SimpleSwapper.sol";
+import {SimpleQuoter, SimpleSwapper} from "../src/SimpleSwapper.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 
@@ -101,6 +101,7 @@ abstract contract FullTest is Test {
     Positions positions;
     Router router;
     SimpleSwapper swapper;
+    SimpleQuoter quoter;
 
     TestToken token0;
     TestToken token1;
@@ -113,6 +114,7 @@ abstract contract FullTest is Test {
         TestToken tokenA = new TestToken(address(this));
         TestToken tokenB = new TestToken(address(this));
         swapper = new SimpleSwapper(core);
+        quoter = new SimpleQuoter(core);
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
     }
 

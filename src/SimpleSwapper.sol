@@ -24,7 +24,14 @@ contract SimpleQuoter is BaseLocker {
             sig := mload(add(revertData, 32))
         }
         if (sig == QuoteReturnValue.selector && revertData.length == 68) {
-            (delta0, delta1) = abi.decode(revertData, (int128, int128));
+            assembly ("memory-safe") {
+                delta0 := mload(add(revertData, 36))
+                delta1 := mload(add(revertData, 68))
+            }
+        } else {
+            assembly ("memory-safe") {
+                revert(add(revertData, 32), mload(revertData))
+            }
         }
     }
 

@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, Bounds} from "../src/types/keys.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 
@@ -12,6 +13,11 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
         token0.approve(address(router), 100);
+
+        (int128 delta0, int128 delta1) =
+            quoter.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: false, amount: 100, skipAhead: 0});
+        assertEq(delta0, 100);
+        assertEq(delta1, -49);
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
@@ -27,6 +33,16 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
+        (int128 delta0, int128 delta1) = quoter.quote({
+            poolKey: poolKey,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            isToken1: false,
+            amount: -100,
+            skipAhead: 0
+        });
+        assertEq(delta0, -100);
+        assertEq(delta1, 202);
+
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100})
@@ -41,6 +57,11 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 100);
 
+        (int128 delta0, int128 delta1) =
+            quoter.quote({poolKey: poolKey, sqrtRatioLimit: MAX_SQRT_RATIO, isToken1: true, amount: 100, skipAhead: 0});
+        assertEq(delta0, -49);
+        assertEq(delta1, 100);
+
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100})
@@ -54,6 +75,11 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
         token0.approve(address(router), 202);
+
+        (int128 delta0, int128 delta1) =
+            quoter.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: true, amount: -100, skipAhead: 0});
+        assertEq(delta0, 202);
+        assertEq(delta1, -100);
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),

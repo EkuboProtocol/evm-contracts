@@ -189,12 +189,29 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external expires {
         (uint256 id, address locker) = _requireLocker();
         require(locker == poolKey.extension);
-        bytes32 poolId = poolKey.toPoolId();
-        uint128 liquidity = poolLiquidity[poolId];
-        require(liquidity != 0);
 
-        poolFeesPerLiquidity[poolKey.toPoolId()] =
-            poolFeesPerLiquidity[poolId].add(feesPerLiquidityFromAmounts(amount0, amount1, liquidity));
+        bytes32 poolId = poolKey.toPoolId();
+
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(32, 3)
+            let liquidity := sload(keccak256(0, 64))
+
+            if or(amount0, amount1) {
+                mstore(0, poolId)
+                mstore(32, 4)
+                let slot0 := keccak256(0, 64)
+
+                if amount0 {
+                    let v := div(shl(128, amount0), liquidity)
+                    sstore(slot0, add(sload(slot0), v))
+                }
+                if amount1 {
+                    let v := div(shl(128, amount1), liquidity)
+                    sstore(add(slot0, 1), add(sload(add(slot0, 1)), v))
+                }
+            }
+        }
 
         _accountDebt(id, poolKey.token0, int256(uint256(amount0)));
         _accountDebt(id, poolKey.token1, int256(uint256(amount1)));

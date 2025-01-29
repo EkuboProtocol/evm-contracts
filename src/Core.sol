@@ -362,6 +362,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
 
         // 0 swap amount is no-op
         if (params.amount != 0) {
+            bool hasCrossed;
             bool increasing = isPriceIncreasing(params.amount, params.isToken1);
             if (increasing) {
                 if (params.sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
@@ -424,6 +425,7 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
                     tick = increasing ? nextTick : nextTick - 1;
 
                     if (isInitialized) {
+                        hasCrossed = true;
                         int128 liquidityDelta = ticks[nextTick].liquidityDelta;
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
@@ -464,9 +466,11 @@ contract Core is ICore, FlashAccountant, ExpiringContract, Ownable, ExposedStora
                 mstore(32, 2)
                 sstore(keccak256(0, 64), or(shl(192, tick), sqrtRatio))
 
-                mstore(0, poolId)
-                mstore(32, 3)
-                sstore(keccak256(0, 64), liquidity)
+                if hasCrossed {
+                    mstore(0, poolId)
+                    mstore(32, 3)
+                    sstore(keccak256(0, 64), liquidity)
+                }
 
                 // this stores only the input token fees per liquidity
                 sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)

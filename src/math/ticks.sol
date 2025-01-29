@@ -98,8 +98,8 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
             ratio = (ratio * 0xc0d55d4d7152c25fb139) >> 128;
         }
 
-        assembly ("memory-safe") {
-            if sgt(tick, 0) { ratio := div(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff, ratio) }
+        if (tick > 0) {
+            ratio = type(uint256).max / ratio;
         }
 
         return ratio;

@@ -199,9 +199,10 @@ contract Handler is StdUtils, StdAssertions {
             }
 
             if (
+                // arithmetic overflow can definitely happen in positions contract if liquidity + fees > uint128
                 sig != ICore.MustCollectFeesBeforeWithdrawingAllLiquidity.selector
                     && sig != SafeCastLib.Overflow.selector && sig != Amount1DeltaOverflow.selector
-                    && sig != Amount0DeltaOverflow.selector
+                    && sig != Amount0DeltaOverflow.selector && sig != 0x4e487b71
             ) {
                 revert UnexpectedError(sig, err);
             }

@@ -139,4 +139,26 @@ contract KeysTest is Test {
         }
         assertNotEq(positionKey.toPositionId(), id);
     }
+
+    function test_toPoolId_aligns_with_eq(PoolKey memory pk0, PoolKey memory pk1) public pure {
+        bytes32 pk0Id = pk0.toPoolId();
+        bytes32 pk1Id = pk1.toPoolId();
+
+        assertEq(
+            pk0.token0 == pk1.token0 && pk0.token1 == pk1.token1 && pk0.fee == pk1.fee
+                && pk0.tickSpacing == pk1.tickSpacing && pk0.extension == pk1.extension,
+            pk0Id == pk1Id
+        );
+    }
+
+    function test_toPositionId_aligns_with_eq(PositionKey memory p0, PositionKey memory p1) public pure {
+        bytes32 p0Id = p0.toPositionId();
+        bytes32 p1Id = p1.toPositionId();
+
+        assertEq(
+            p0.salt == p1.salt && p0.owner == p1.owner && p0.bounds.lower == p1.bounds.lower
+                && p0.bounds.upper == p1.bounds.upper,
+            p0Id == p1Id
+        );
+    }
 }

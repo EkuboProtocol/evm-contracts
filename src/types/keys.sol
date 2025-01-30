@@ -64,8 +64,10 @@ struct PositionKey {
 function toPositionId(PositionKey memory key) pure returns (bytes32 result) {
     assembly ("memory-safe") {
         // salt and owner
-        result := keccak256(key, 64)
-        // then bounds.lower and bounds.upper
-        result := xor(result, keccak256(mload(add(key, 64)), 64))
+        mstore(0, keccak256(key, 64))
+        // bounds
+        mstore(32, keccak256(mload(add(key, 64)), 64))
+
+        result := keccak256(0, 64)
     }
 }

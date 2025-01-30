@@ -140,7 +140,7 @@ contract KeysTest is Test {
         assertNotEq(positionKey.toPositionId(), id);
     }
 
-    function test_toPoolId_aligns_with_eq(PoolKey memory pk0, PoolKey memory pk1) public pure {
+    function check_toPoolId_aligns_with_eq(PoolKey memory pk0, PoolKey memory pk1) public pure {
         bytes32 pk0Id = pk0.toPoolId();
         bytes32 pk1Id = pk1.toPoolId();
 
@@ -151,7 +151,7 @@ contract KeysTest is Test {
         );
     }
 
-    function test_toPositionId_aligns_with_eq(PositionKey memory p0, PositionKey memory p1) public pure {
+    function check_toPositionId_aligns_with_eq(PositionKey memory p0, PositionKey memory p1) public pure {
         bytes32 p0Id = p0.toPositionId();
         bytes32 p1Id = p1.toPositionId();
 

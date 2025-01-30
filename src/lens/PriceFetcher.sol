@@ -2,8 +2,8 @@
 pragma solidity =0.8.28;
 
 import {Oracle} from "../extensions/Oracle.sol";
-import {amount0Delta} from "../math/delta.sol";
-import {tickToSqrtRatio, MAX_SQRT_RATIO} from "../math/ticks.sol";
+import {amount1Delta} from "../math/delta.sol";
+import {tickToSqrtRatio, MIN_SQRT_RATIO} from "../math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -78,7 +78,7 @@ contract PriceFetcher {
             bool baseIsOracleToken = baseToken == _oracleToken;
             if (baseIsOracleToken || quoteToken == _oracleToken) {
                 (int32 tickSign, address otherToken) =
-                    baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
+                    baseIsOracleToken ? (int32(-1), quoteToken) : (int32(1), baseToken);
 
                 (uint160 secondsPerLiquidityCumulativeEnd, int64 tickCumulativeEnd) =
                     oracle.extrapolateSnapshot(otherToken, endTime);
@@ -96,8 +96,8 @@ contract PriceFetcher {
                 PeriodAverage memory base = getAveragesOverPeriod(_oracleToken, baseToken, startTime, endTime);
                 PeriodAverage memory quote = getAveragesOverPeriod(_oracleToken, quoteToken, startTime, endTime);
 
-                uint128 amountBase = amount0Delta(tickToSqrtRatio(base.tick), MAX_SQRT_RATIO, base.liquidity, false);
-                uint128 amountQuote = amount0Delta(tickToSqrtRatio(quote.tick), MAX_SQRT_RATIO, quote.liquidity, false);
+                uint128 amountBase = amount1Delta(tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, base.liquidity, false);
+                uint128 amountQuote = amount1Delta(tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, quote.liquidity, false);
 
                 return PeriodAverage(
                     uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote))), quote.tick - base.tick
@@ -117,7 +117,7 @@ contract PriceFetcher {
             bool baseIsOracleToken = baseToken == _oracleToken;
             if (baseIsOracleToken || quoteToken == _oracleToken) {
                 (int32 tickSign, address otherToken) =
-                    baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
+                    baseIsOracleToken ? (int32(-1), quoteToken) : (int32(1), baseToken);
 
                 uint64[] memory timestamps = getTimestampsForPeriod(endTime, numIntervals, period);
                 averages = new PeriodAverage[](numIntervals);
@@ -150,9 +150,9 @@ contract PriceFetcher {
                     PeriodAverage memory base = bases[i];
                     PeriodAverage memory quote = quotes[i];
 
-                    uint128 amountBase = amount0Delta(tickToSqrtRatio(base.tick), MAX_SQRT_RATIO, base.liquidity, false);
+                    uint128 amountBase = amount1Delta(tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, base.liquidity, false);
                     uint128 amountQuote =
-                        amount0Delta(tickToSqrtRatio(quote.tick), MAX_SQRT_RATIO, quote.liquidity, false);
+                        amount1Delta(tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, quote.liquidity, false);
 
                     averages[i] = PeriodAverage(
                         uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote))),
@@ -266,14 +266,9 @@ contract PriceFetcher {
             );
 
             if (nativeAverage.liquidity > minOracleTokenLiquidity) {
-                uint256 sqrtRatioOracleTokenPerNativeToken = tickToSqrtRatio(nativeAverage.tick);
                 for (uint256 i = 0; i < results.length; i++) {
                     if (results[i].liquidity > minOracleTokenLiquidity) {
-                        uint256 sqrtRatioOracleTokenPerBaseToken = tickToSqrtRatio(results[i].tick);
-                        // we want native token per base token, so we divide by oracle token / native token
-                        uint256 sqrtRatio = FixedPointMathLib.fullMulDiv(
-                            sqrtRatioOracleTokenPerBaseToken, uint256(1) << 128, sqrtRatioOracleTokenPerNativeToken
-                        );
+                        uint256 sqrtRatio = tickToSqrtRatio(results[i].tick - nativeAverage.tick);
                         prices[i] = FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128);
                     }
                 }

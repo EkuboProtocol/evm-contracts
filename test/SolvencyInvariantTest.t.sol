@@ -290,8 +290,12 @@ contract SolvencyInvariantTest is FullTest {
         core.transferOwnership(address(handler));
         vm.stopPrank();
 
-        token0.transfer(address(handler), type(uint256).max);
-        token1.transfer(address(handler), type(uint256).max);
+        // funding core makes it easier for pools to become insolvent randomly if there is a bug
+        token0.transfer(address(core), type(uint128).max);
+        token1.transfer(address(core), type(uint128).max);
+        token0.transfer(address(handler), type(uint256).max - type(uint128).max);
+        token1.transfer(address(handler), type(uint256).max - type(uint128).max);
+
         targetContract(address(handler));
     }
 

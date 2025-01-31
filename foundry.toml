@@ -4,6 +4,10 @@ out = "out"
 libs = ["lib"]
 verbosity = 3
 
+# to run the test that checks the ticks invariant for all possible tick values, uncomment these two lines
+# gas_limit = "18446744073709551615"
+# memory_limit = 10000000000
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
 solc = '0.8.28'

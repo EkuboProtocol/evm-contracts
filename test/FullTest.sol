@@ -107,7 +107,7 @@ abstract contract FullTest is Test {
     TestToken token1;
 
     function setUp() public virtual {
-        core = new Core(owner, type(uint256).max);
+        core = new Core(owner, type(uint256).max - 1);
         tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
         positions = new Positions(core, tokenURIGenerator);
         router = new Router(core);

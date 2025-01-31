@@ -123,6 +123,21 @@ contract TicksTest is Test {
         assertLt(sqrtRatio, tickToSqrtRatio(tick + 1));
     }
 
+    // this takes about 1 hour to run
+    function skip_test_all_tick_values() public pure {
+        uint256 fmp;
+        assembly ("memory-safe") {
+            fmp := mload(0x40)
+        }
+        for (int32 i = MIN_TICK; i <= MAX_TICK; i++) {
+            if (i != MAX_TICK) test_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(i);
+            if (i != MIN_TICK) test_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(i);
+            assembly ("memory-safe") {
+                mstore(0x40, fmp)
+            }
+        }
+    }
+
     function srtt(uint256 sqrtRatio) external pure returns (int32) {
         return sqrtRatioToTick(sqrtRatio);
     }

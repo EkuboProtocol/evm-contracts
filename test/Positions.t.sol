@@ -7,6 +7,7 @@ import {FullTest} from "./FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {ExpiringContract} from "../src/base/ExpiringContract.sol";
 
 contract PositionsTest is FullTest {
     function test_metadata() public view {
@@ -46,6 +47,14 @@ contract PositionsTest is FullTest {
         // original 100, rounded down, minus the 50% fee
         assertEq(amount0, 49);
         assertEq(amount1, 49);
+    }
+
+    function test_mintAndDeposit_fails_after_expiration(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+
+        vm.warp(type(uint256).max);
+        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
+        positions.mintAndDeposit(poolKey, Bounds(-100, 100), 100, 100, 0);
     }
 
     function test_collectFees_amount0(CallPoints memory callPoints) public {
@@ -132,6 +141,38 @@ contract PositionsTest is FullTest {
         assertEq(p1, 75);
         assertEq(f0, 49);
         assertEq(f1, 24);
+
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        assertEq(amount0, 111); // 124/2 + 49
+        assertEq(amount1, 61); // 75/2 + 24
+    }
+
+    function test_collectFeesAndWithdraw_after_expiration(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+
+        token0.approve(address(router), 100);
+        token1.approve(address(router), 50);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100})
+        );
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 50})
+        );
+
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+        assertEq(p0, 124);
+        assertEq(p1, 75);
+        assertEq(f0, 49);
+        assertEq(f1, 24);
+
+        vm.warp(type(uint256).max);
 
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
         assertEq(amount0, 111); // 124/2 + 49

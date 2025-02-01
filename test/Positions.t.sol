@@ -70,7 +70,8 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
         );
 
         (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
@@ -100,7 +101,8 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100})
+            TokenAmount({token: address(token1), amount: 100}),
+            type(int256).min
         );
 
         (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
@@ -127,12 +129,14 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50})
+            TokenAmount({token: address(token1), amount: 50}),
+            type(int256).min
         );
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
@@ -157,12 +161,14 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50})
+            TokenAmount({token: address(token1), amount: 50}),
+            type(int256).min
         );
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
@@ -189,12 +195,14 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50})
+            TokenAmount({token: address(token1), amount: 50}),
+            type(int256).min
         );
 
         token1.approve(address(swapper), type(uint256).max);
@@ -228,12 +236,14 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50})
+            TokenAmount({token: address(token1), amount: 50}),
+            type(int256).min
         );
 
         token0.approve(address(swapper), type(uint256).max);
@@ -267,12 +277,14 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100})
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50})
+            TokenAmount({token: address(token1), amount: 50}),
+            type(int256).min
         );
 
         (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));

@@ -25,6 +25,7 @@ struct TokenAmount {
 struct Swap {
     RouteNode[] route;
     TokenAmount tokenAmount;
+    int256 calculatedAmountThreshold;
 }
 
 struct Delta {
@@ -34,6 +35,7 @@ struct Delta {
 
 contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker {
     error PartialSwapsDisallowed();
+    error SlippageCheckFailed(uint256 index, int256 expectedAmount, int256 calculatedAmount);
 
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
@@ -86,6 +88,10 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                     }
                 }
 
+                if (tokenAmount.amount < s.calculatedAmountThreshold) {
+                    revert SlippageCheckFailed(i, s.calculatedAmountThreshold, tokenAmount.amount);
+                }
+
                 if (firstSwapAmount.amount < 0) {
                     withdraw(firstSwapAmount.token, uint128(-firstSwapAmount.amount), swapper);
                 } else {
@@ -102,7 +108,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         result = abi.encode(results);
     }
 
-    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount)
+    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount, int256 calculatedAmountThreshold)
         external
         payable
         returns (Delta memory result)
@@ -110,7 +116,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         Swap[] memory swaps = new Swap[](1);
         RouteNode[] memory nodes = new RouteNode[](1);
         nodes[0] = node;
-        swaps[0] = Swap(nodes, tokenAmount);
+        swaps[0] = Swap(nodes, tokenAmount, calculatedAmountThreshold);
         result = abi.decode(lock(abi.encode(msg.sender, swaps)), (Delta[][]))[0][0];
     }
 

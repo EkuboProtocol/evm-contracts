@@ -79,12 +79,14 @@ abstract contract BaseOracleTest is FullTest {
         if (tick < targetTick) {
             uint256 targetRatio = tickToSqrtRatio(targetTick);
             uint128 amount = amount1Delta(sqrtRatio, targetRatio, liquidity, true);
-            router.swap(RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token1, int128(amount)));
+            router.swap(
+                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token1, int128(amount)), type(int256).min
+            );
         } else if (tick > targetTick) {
             uint256 targetRatio = tickToSqrtRatio(targetTick) + 1;
             uint128 amount = amount0Delta(sqrtRatio, targetRatio, liquidity, true);
             router.swap{value: isToken0ETH ? amount : 0}(
-                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token0, int128(amount))
+                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token0, int128(amount)), type(int256).min
             );
         }
 

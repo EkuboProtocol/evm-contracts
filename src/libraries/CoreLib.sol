@@ -72,4 +72,25 @@ library CoreLib {
             uint256(core.unsafeRead(bytes32(uint256(key) + 1))), uint256(core.unsafeRead(bytes32(uint256(key) + 2)))
         );
     }
+
+    function savedBalances(ICore core, address owner, address token, bytes32 salt)
+        internal
+        view
+        returns (uint256 savedBalance)
+    {
+        bytes32 key;
+        assembly ("memory-safe") {
+            mstore(0, owner)
+            mstore(32, 9)
+            key := keccak256(0, 64)
+            mstore(0, token)
+            mstore(32, key)
+            key := keccak256(0, 64)
+            mstore(0, salt)
+            mstore(32, key)
+            key := keccak256(0, 64)
+        }
+
+        savedBalance = uint256(core.unsafeRead(key));
+    }
 }

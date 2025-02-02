@@ -6,7 +6,7 @@ import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PositionKey, Bounds} from "../src/types/keys.sol";
+import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";

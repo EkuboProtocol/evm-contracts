@@ -3,10 +3,9 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolKey, TokensMustBeSorted, InvalidTickSpacing} from "../../src/types/poolKey.sol";
-import {PositionKey, Bounds, BoundsOrder, MinMaxBounds, BoundsTickSpacing} from "../../src/types/keys.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
-contract KeysTest is Test {
+contract PoolKeyTest is Test {
     function test_poolKey_validateTokens_zero_token0() public pure {
         PoolKey({token0: address(0), token1: address(1), fee: 0, tickSpacing: 1, extension: address(0)}).validatePoolKey(
         );
@@ -39,29 +38,6 @@ contract KeysTest is Test {
             tickSpacing: MAX_TICK_SPACING + 1,
             extension: address(0)
         }).validatePoolKey();
-    }
-
-    function test_validateBounds() public {
-        Bounds({lower: -1, upper: 1}).validateBounds(1);
-        Bounds({lower: -2, upper: 2}).validateBounds(2);
-
-        vm.expectRevert(BoundsOrder.selector);
-        Bounds({lower: -1, upper: -1}).validateBounds(1);
-
-        vm.expectRevert(BoundsOrder.selector);
-        Bounds({lower: 1, upper: -1}).validateBounds(1);
-
-        vm.expectRevert(MinMaxBounds.selector);
-        Bounds({lower: MIN_TICK - 1, upper: MAX_TICK}).validateBounds(1);
-
-        vm.expectRevert(MinMaxBounds.selector);
-        Bounds({lower: MIN_TICK, upper: MAX_TICK + 1}).validateBounds(1);
-
-        vm.expectRevert(BoundsTickSpacing.selector);
-        Bounds({lower: 1, upper: 0}).validateBounds(2);
-
-        vm.expectRevert(BoundsTickSpacing.selector);
-        Bounds({lower: 0, upper: 1}).validateBounds(2);
     }
 
     function test_toPoolId_changesWithToken0(PoolKey memory poolKey) public pure {
@@ -104,44 +80,6 @@ contract KeysTest is Test {
         assertNotEq(poolKey.toPoolId(), id);
     }
 
-    function test_toPositionId_changesWithSalt(PositionKey memory positionKey) public pure {
-        bytes32 id = positionKey.toPositionId();
-        unchecked {
-            positionKey.salt = bytes32(uint256(positionKey.salt) + 1);
-        }
-        assertNotEq(positionKey.toPositionId(), id);
-    }
-
-    function test_toPositionId_changesWithOwner(PositionKey memory positionKey) public pure {
-        bytes32 id = positionKey.toPositionId();
-        unchecked {
-            positionKey.owner = address(uint160(positionKey.owner) + 1);
-        }
-        assertNotEq(positionKey.toPositionId(), id);
-    }
-
-    function test_toPositionId_doesNotChangeWithBoundsValue(PositionKey memory positionKey) public pure {
-        bytes32 id = positionKey.toPositionId();
-        positionKey.bounds = Bounds(positionKey.bounds.lower, positionKey.bounds.upper);
-        assertEq(positionKey.toPositionId(), id);
-    }
-
-    function test_toPositionId_changesWithDifferentLowerBounds(PositionKey memory positionKey) public pure {
-        bytes32 id = positionKey.toPositionId();
-        unchecked {
-            positionKey.bounds.lower += 1;
-        }
-        assertNotEq(positionKey.toPositionId(), id);
-    }
-
-    function test_toPositionId_changesWithDifferentUpperBounds(PositionKey memory positionKey) public pure {
-        bytes32 id = positionKey.toPositionId();
-        unchecked {
-            positionKey.bounds.upper += 1;
-        }
-        assertNotEq(positionKey.toPositionId(), id);
-    }
-
     function check_toPoolId_aligns_with_eq(PoolKey memory pk0, PoolKey memory pk1) public pure {
         bytes32 pk0Id = pk0.toPoolId();
         bytes32 pk1Id = pk1.toPoolId();
@@ -156,28 +94,5 @@ contract KeysTest is Test {
     function test_toPoolId_hash_matches_abi_encode(PoolKey memory pk) public pure {
         bytes32 id = pk.toPoolId();
         assertEq(id, keccak256(abi.encode(pk)));
-    }
-
-    function check_toPositionId_aligns_with_eq(PositionKey memory p0, PositionKey memory p1) public pure {
-        bytes32 p0Id = p0.toPositionId();
-        bytes32 p1Id = p1.toPositionId();
-
-        assertEq(
-            p0.salt == p1.salt && p0.owner == p1.owner && p0.bounds.lower == p1.bounds.lower
-                && p0.bounds.upper == p1.bounds.upper,
-            p0Id == p1Id
-        );
-    }
-
-    function test_toPoolId_hash_matches_abi_encode(PositionKey memory pk) public pure {
-        bytes32 id = pk.toPositionId();
-        assertEq(
-            id,
-            keccak256(
-                abi.encode(
-                    keccak256(abi.encode(pk.salt, pk.owner)), keccak256(abi.encode(pk.bounds.lower, pk.bounds.upper))
-                )
-            )
-        );
     }
 }

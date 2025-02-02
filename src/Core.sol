@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {PositionKey, Bounds} from "./types/keys.sol";
+import {PositionKey, Bounds} from "./types/positionKey.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {isPriceIncreasing, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";

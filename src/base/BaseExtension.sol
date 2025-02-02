@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {Bounds} from "../types/keys.sol";
+import {Bounds} from "../types/positionKey.sol";
 import {UsesCore} from "./UsesCore.sol";
 
 abstract contract BaseExtension is UsesCore, IExtension {

@@ -17,7 +17,7 @@ import {MAX_TICK_SPACING} from "../src/math/ticks.sol";
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
-import {PositionKey, Bounds, maxBounds} from "../src/types/keys.sol";
+import {PositionKey, Bounds, maxBounds} from "../src/types/positionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {

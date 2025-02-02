@@ -9,7 +9,7 @@ import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
-import {Bounds} from "../../src/types/keys.sol";
+import {Bounds} from "../../src/types/positionKey.sol";
 
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;

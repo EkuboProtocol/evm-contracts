@@ -8,7 +8,7 @@ import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PositionKey, Bounds} from "../src/types/keys.sol";
+import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";

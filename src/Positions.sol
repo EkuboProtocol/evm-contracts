@@ -7,7 +7,7 @@ import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {PositionKey, Bounds, maxBounds} from "./types/keys.sol";
+import {PositionKey, Bounds, maxBounds} from "./types/positionKey.sol";
 import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";

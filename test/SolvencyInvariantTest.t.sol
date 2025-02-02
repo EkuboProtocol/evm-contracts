@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {Bounds, maxBounds} from "../src/types/keys.sol";
+import {Bounds, maxBounds} from "../src/types/positionKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";

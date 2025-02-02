@@ -5,7 +5,7 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/keys.sol";
+import {PositionKey} from "../types/positionKey.sol";
 import {Position} from "../types/position.sol";
 
 contract CoreDataFetcher is UsesCore {

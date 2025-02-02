@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey, Bounds} from "../types/keys.sol";
+import {PositionKey, Bounds} from "../types/positionKey.sol";
 import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";

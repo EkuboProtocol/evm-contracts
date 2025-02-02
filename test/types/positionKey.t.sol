@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PositionKey, Bounds, BoundsOrder, MinMaxBounds, BoundsTickSpacing} from "../../src/types/positionKey.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 
 contract PositionKeyTest is Test {
     function test_validateBounds() public {

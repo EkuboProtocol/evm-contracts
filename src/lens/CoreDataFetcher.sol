@@ -4,7 +4,8 @@ pragma solidity =0.8.28;
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
-import {PoolKey, PositionKey} from "../types/keys.sol";
+import {PoolKey} from "../types/poolKey.sol";
+import {PositionKey} from "../types/keys.sol";
 import {Position} from "../types/position.sol";
 
 contract CoreDataFetcher is UsesCore {

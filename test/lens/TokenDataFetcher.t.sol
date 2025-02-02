@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {TokenDataFetcher} from "../../src/lens/TokenDataFetcher.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
-import {PoolKey} from "../../src/types/keys.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
 
 contract TokenDataFetcherTest is Test {

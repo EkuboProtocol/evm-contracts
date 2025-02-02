@@ -4,15 +4,10 @@ pragma solidity =0.8.28;
 import {UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
-import {PoolKey, PositionKey, Bounds} from "../../src/types/keys.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
-    MAX_TICK_SPACING,
-    tickToSqrtRatio
-} from "../../src/math/ticks.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {PositionKey, Bounds} from "../../src/types/keys.sol";
+import {tickToSqrtRatio} from "../../src/math/ticks.sol";
+import {MIN_TICK, MAX_TICK, MIN_SQRT_RATIO, MAX_SQRT_RATIO, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle} from "../../src/extensions/Oracle.sol";

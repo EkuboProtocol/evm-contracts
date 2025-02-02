@@ -2,16 +2,8 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    sqrtRatioToTick,
-    tickToSqrtRatio,
-    MIN_TICK,
-    MAX_TICK,
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
-    InvalidTick,
-    InvalidSqrtRatio
-} from "../../src/math/ticks.sol";
+import {sqrtRatioToTick, tickToSqrtRatio, InvalidTick, InvalidSqrtRatio} from "../../src/math/ticks.sol";
+import {MIN_TICK, MAX_TICK, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/math/constants.sol";
 
 contract TicksTest is Test {
     function boundTick(int32 tick) internal pure returns (int32) {

@@ -2,7 +2,8 @@
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey, PositionKey, Bounds} from "../types/keys.sol";
+import {PoolKey} from "../types/poolKey.sol";
+import {PositionKey, Bounds} from "../types/keys.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";

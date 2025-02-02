@@ -2,12 +2,13 @@
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey, PositionKey, Bounds} from "../types/keys.sol";
+import {PoolKey} from "../types/poolKey.sol";
+import {PositionKey, Bounds} from "../types/keys.sol";
 import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/ticks.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 function oracleCallPoints() pure returns (CallPoints memory) {

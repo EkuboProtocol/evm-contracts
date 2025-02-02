@@ -2,12 +2,13 @@
 pragma solidity =0.8.28;
 
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
-import {PoolKey, Bounds, maxBounds} from "../src/types/keys.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {Bounds, maxBounds} from "../src/types/keys.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "../src/math/ticks.sol";
+import {MAX_TICK, MIN_TICK, MAX_SQRT_RATIO, MIN_SQRT_RATIO, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -16,14 +17,7 @@ import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
 import {TestToken} from "./TestToken.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
-    MAX_TICK_SPACING,
-    tickToSqrtRatio
-} from "../src/math/ticks.sol";
+import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {SimpleSwapper} from "../src/SimpleSwapper.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";

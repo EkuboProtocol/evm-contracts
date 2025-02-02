@@ -2,20 +2,12 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    PoolKey,
-    PositionKey,
-    TokensMustBeSorted,
-    InvalidTickSpacing,
-    Bounds,
-    BoundsOrder,
-    MinMaxBounds,
-    BoundsTickSpacing
-} from "../../src/types/keys.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/ticks.sol";
+import {PoolKey, TokensMustBeSorted, InvalidTickSpacing} from "../../src/types/poolKey.sol";
+import {PositionKey, Bounds, BoundsOrder, MinMaxBounds, BoundsTickSpacing} from "../../src/types/keys.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract KeysTest is Test {
-    function test_poolKey_validateTokens_zero_token0() public {
+    function test_poolKey_validateTokens_zero_token0() public pure {
         PoolKey({token0: address(0), token1: address(1), fee: 0, tickSpacing: 1, extension: address(0)}).validatePoolKey(
         );
     }

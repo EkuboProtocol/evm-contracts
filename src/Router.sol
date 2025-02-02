@@ -5,7 +5,7 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
-import {PoolKey} from "./types/keys.sol";
+import {PoolKey} from "./types/poolKey.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./math/ticks.sol";
 import {isPriceIncreasing} from "./math/swap.sol";
 import {Permittable} from "./base/Permittable.sol";

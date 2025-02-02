@@ -3,7 +3,8 @@ pragma solidity =0.8.28;
 
 import {Oracle} from "../extensions/Oracle.sol";
 import {amount1Delta} from "../math/delta.sol";
-import {tickToSqrtRatio, MIN_SQRT_RATIO} from "../math/ticks.sol";
+import {tickToSqrtRatio} from "../math/ticks.sol";
+import {MIN_SQRT_RATIO} from "../math/constants.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 

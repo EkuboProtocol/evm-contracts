@@ -9,57 +9,12 @@ import {PoolKey, PositionKey, Bounds} from "../src/types/keys.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, tickToSqrtRatio} from "../src/math/ticks.sol";
 import {Core} from "../src/Core.sol";
-import {ExpiringContract} from "../src/base/ExpiringContract.sol";
 
 contract CoreTest is FullTest {
     using CoreLib for *;
 
     function test_owner() public view {
         assertEq(core.owner(), owner);
-    }
-
-    function test_expiration() public {
-        Core c = new Core(address(0), block.timestamp);
-        vm.warp(block.timestamp + 1);
-
-        // modifier executes first, so does not need to be within a lock or even valid to trigger this error
-
-        /////////////// not allowed
-        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
-        c.initializePool(
-            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}), 0
-        );
-
-        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
-        c.swap(
-            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
-            SwapParameters(0, true, 0, 0)
-        );
-
-        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
-        c.updatePosition(
-            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
-            UpdatePositionParameters(0, Bounds(0, 0), 1)
-        );
-
-        vm.expectRevert(ExpiringContract.ContractHasExpired.selector);
-        c.accumulateAsFees(
-            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}), 0, 0
-        );
-
-        /////////////// allowed
-        vm.expectRevert(IFlashAccountant.NotLocked.selector);
-        c.updatePosition(
-            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
-            UpdatePositionParameters(0, Bounds(0, 0), 0)
-        );
-
-        vm.expectRevert(IFlashAccountant.NotLocked.selector);
-        c.collectFees(
-            PoolKey({token0: address(0), token1: address(0), fee: 0, tickSpacing: 0, extension: address(0)}),
-            bytes32(0),
-            Bounds(0, 0)
-        );
     }
 
     function test_castingAssumption() public pure {

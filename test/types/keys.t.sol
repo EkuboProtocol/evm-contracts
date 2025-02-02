@@ -161,6 +161,11 @@ contract KeysTest is Test {
         );
     }
 
+    function test_toPoolId_hash_matches_abi_encode(PoolKey memory pk) public pure {
+        bytes32 id = pk.toPoolId();
+        assertEq(id, keccak256(abi.encode(pk)));
+    }
+
     function check_toPositionId_aligns_with_eq(PositionKey memory p0, PositionKey memory p1) public pure {
         bytes32 p0Id = p0.toPositionId();
         bytes32 p1Id = p1.toPositionId();
@@ -169,6 +174,18 @@ contract KeysTest is Test {
             p0.salt == p1.salt && p0.owner == p1.owner && p0.bounds.lower == p1.bounds.lower
                 && p0.bounds.upper == p1.bounds.upper,
             p0Id == p1Id
+        );
+    }
+
+    function test_toPoolId_hash_matches_abi_encode(PositionKey memory pk) public pure {
+        bytes32 id = pk.toPositionId();
+        assertEq(
+            id,
+            keccak256(
+                abi.encode(
+                    keccak256(abi.encode(pk.salt, pk.owner)), keccak256(abi.encode(pk.bounds.lower, pk.bounds.upper))
+                )
+            )
         );
     }
 }

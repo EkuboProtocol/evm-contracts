@@ -97,7 +97,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, uint256(0), int256(50), int256(49)));
+        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
@@ -109,9 +109,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(Router.SlippageCheckFailed.selector, uint256(0), int256(-200), int256(-202))
-        );
+        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
@@ -123,7 +121,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, uint256(0), int256(50), int256(49)));
+        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
@@ -135,9 +133,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(Router.SlippageCheckFailed.selector, uint256(0), int256(-200), int256(-202))
-        );
+        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token1), amount: -100}),
@@ -171,7 +167,7 @@ contract RouterTest is FullTest {
         route[1] = RouteNode(poolKey, 0, 0);
 
         Delta[] memory d =
-            router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: 100}), type(int256).min));
+            router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: 100})), type(int256).min);
         assertEq(d[0].amount0, 100);
         assertEq(d[0].amount1, -49);
         assertEq(d[1].amount0, -24);
@@ -189,7 +185,7 @@ contract RouterTest is FullTest {
         route[1] = RouteNode(poolKey, 0, 0);
 
         Delta[] memory d =
-            router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: -100}), type(int256).min));
+            router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: -100})), type(int256).min);
         assertEq(d[0].amount0, -100);
         assertEq(d[0].amount1, 202);
         assertEq(d[1].amount0, 406);
@@ -212,10 +208,10 @@ contract RouterTest is FullTest {
         route1[0] = RouteNode(poolKey, 0, 0);
         route1[1] = RouteNode(poolKey, 0, 0);
 
-        swaps[0] = Swap(route0, TokenAmount({token: address(token0), amount: 100}), type(int256).min);
-        swaps[1] = Swap(route1, TokenAmount({token: address(token0), amount: -100}), type(int256).min);
+        swaps[0] = Swap(route0, TokenAmount({token: address(token0), amount: 100}));
+        swaps[1] = Swap(route1, TokenAmount({token: address(token0), amount: -100}));
 
-        Delta[][] memory d = router.multiMultihopSwap(swaps);
+        Delta[][] memory d = router.multiMultihopSwap(swaps, type(int256).min);
         assertEq(d[0][0].amount0, 100);
         assertEq(d[0][0].amount1, -49);
         assertEq(d[0][1].amount0, -24);

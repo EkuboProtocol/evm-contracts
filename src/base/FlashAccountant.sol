@@ -195,7 +195,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     receive() external payable {
-        (uint256 id,) = _requireLocker();
+        (uint256 id,) = _getLocker();
 
         // Note because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
         //      to delegatecall itself more than once in a single call

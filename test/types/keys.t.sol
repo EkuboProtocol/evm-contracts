@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {
     PoolKey,
     PositionKey,
-    InvalidTokens,
+    TokensMustBeSorted,
     InvalidTickSpacing,
     Bounds,
     BoundsOrder,
@@ -15,28 +15,38 @@ import {
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/ticks.sol";
 
 contract KeysTest is Test {
-    function test_poolKey_validateTokens_zero() public {
-        vm.expectRevert(InvalidTokens.selector);
-        PoolKey({token0: address(0), token1: address(1), fee: 0, tickSpacing: 0, extension: address(0)}).validatePoolKey(
+    function test_poolKey_validateTokens_zero_token0() public {
+        PoolKey({token0: address(0), token1: address(1), fee: 0, tickSpacing: 1, extension: address(0)}).validatePoolKey(
         );
     }
 
     function test_poolKey_validateTokens_order() public {
-        vm.expectRevert(InvalidTokens.selector);
-        PoolKey({token0: address(2), token1: address(1), fee: 0, tickSpacing: 0, extension: address(0)}).validatePoolKey(
+        vm.expectRevert(TokensMustBeSorted.selector);
+        PoolKey({token0: address(2), token1: address(1), fee: 0, tickSpacing: 1, extension: address(0)}).validatePoolKey(
         );
     }
 
     function test_poolKey_validateTokens_equal() public {
-        vm.expectRevert(InvalidTokens.selector);
-        PoolKey({token0: address(2), token1: address(2), fee: 0, tickSpacing: 0, extension: address(0)}).validatePoolKey(
+        vm.expectRevert(TokensMustBeSorted.selector);
+        PoolKey({token0: address(2), token1: address(2), fee: 0, tickSpacing: 1, extension: address(0)}).validatePoolKey(
         );
     }
 
-    function test_poolKey_validateTickSpacing() public {
+    function test_poolKey_validateTickSpacing_zero() public {
         vm.expectRevert(InvalidTickSpacing.selector);
         PoolKey({token0: address(1), token1: address(2), fee: 0, tickSpacing: 0, extension: address(0)}).validatePoolKey(
         );
+    }
+
+    function test_poolKey_validateTickSpacing_max() public {
+        vm.expectRevert(InvalidTickSpacing.selector);
+        PoolKey({
+            token0: address(1),
+            token1: address(2),
+            fee: 0,
+            tickSpacing: MAX_TICK_SPACING + 1,
+            extension: address(0)
+        }).validatePoolKey();
     }
 
     function test_validateBounds() public {

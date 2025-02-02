@@ -13,9 +13,8 @@ interface IPayer {
     function payCallback(uint256 id, address token) external;
 }
 
-// This address should never be used by any other chain but also has lots of zeroes so it still works well with calldata compression
-// We also know this address will always be token0
-address constant NATIVE_TOKEN_ADDRESS = address(0x0000000000000000000000000000eeEEee000000);
+// We use this address to represent the native token on whatever chain Ekubo Protocol is deployed
+address constant NATIVE_TOKEN_ADDRESS = address(0);
 
 interface IFlashAccountant {
     error NotLocked();

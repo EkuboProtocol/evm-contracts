@@ -2,46 +2,17 @@
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
-import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {SimpleSwapper, SimpleQuoter} from "../src/SimpleSwapper.sol";
-import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
-import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
-import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
-import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
-import {CallPoints} from "../src/types/callPoints.sol";
+import {Oracle} from "../src/extensions/Oracle.sol";
 import {TestToken} from "../test/TestToken.sol";
 import {MAX_TICK_SPACING} from "../src/math/ticks.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
-import {PositionKey, Bounds, maxBounds} from "../src/types/positionKey.sol";
+import {Bounds, maxBounds} from "../src/types/positionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-
-function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
-    return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)))));
-}
-
-address constant DETERMINISTIC_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-
-function findExtensionSalt(bytes32 initCodeHash, CallPoints memory callPoints) pure returns (bytes32 salt) {
-    uint8 startingByte = callPoints.toUint8();
-
-    unchecked {
-        while (true) {
-            uint8 predictedStartingByte =
-                uint8(uint160(getCreate2Address(DETERMINISTIC_DEPLOYER, salt, initCodeHash)) >> 152);
-
-            if (predictedStartingByte == startingByte) {
-                break;
-            }
-
-            salt = bytes32(uint256(salt) + 1);
-        }
-    }
-}
 
 contract DeployScript is Script {
     error UnrecognizedChainId(uint256 chainId);
@@ -52,9 +23,9 @@ contract DeployScript is Script {
         token.approve(address(router), type(uint256).max);
         token.approve(address(positions), type(uint256).max);
         // it is assumed this address has some quantity of oracle token and usdc/eurc already
-        TestToken(usdc).approve(address(positions), type(uint256).max);
-        TestToken(eurc).approve(address(positions), type(uint256).max);
-        TestToken(oracle.oracleToken()).approve(address(positions), type(uint256).max);
+        IERC20(usdc).approve(address(positions), type(uint256).max);
+        IERC20(eurc).approve(address(positions), type(uint256).max);
+        IERC20(oracle.oracleToken()).approve(address(positions), type(uint256).max);
 
         uint256 baseSalt = uint256(keccak256(abi.encode(token)));
 
@@ -201,47 +172,19 @@ contract DeployScript is Script {
     }
 
     function run() public {
-        string memory baseUrl;
-        address oracleToken;
-        address owner;
-        address usdc;
-        address eurc;
-        if (block.chainid == 1) {
-            baseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/positions/nft/"));
-            oracleToken = vm.envOr("ORACLE_TOKEN", address(0x04C46E830Bb56ce22735d5d8Fc9CB90309317d0f));
-            owner = vm.envOr("OWNER", address(0x1E0EF4162e42C9bF820c307218c4E41cCcA6E9CC));
-            usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-            eurc = 0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c;
-        } else if (block.chainid == 11155111) {
-            baseUrl = vm.envOr("BASE_URL", string("https://eth-sepolia-api.ekubo.org/positions/nft/"));
-            oracleToken = vm.envOr("ORACLE_TOKEN", address(0x618C25b11a5e9B5Ad60B04bb64FcBdfBad7621d1));
-            owner = vm.envOr("OWNER", address(0x36e3FDC259A4a8b0775D25b3f9396e0Ea6E110a5));
-            usdc = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
-            eurc = 0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4;
-        } else {
-            revert UnrecognizedChainId(block.chainid);
-        }
-
         vm.startBroadcast();
-        Core core = new Core{salt: 0x0}(owner);
-        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator(owner, baseUrl);
-        Positions positions = new Positions{salt: 0x0}(core, tokenURIGenerator);
-        Router router = new Router{salt: 0x0}(core);
-        Oracle oracle = new Oracle{
-            salt: findExtensionSalt(
-                keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core, oracleToken))), oracleCallPoints()
-            )
-        }(core, oracleToken);
 
-        new PriceFetcher(oracle);
-        new CoreDataFetcher(core);
-        new SimpleSwapper(core);
-        new SimpleQuoter(core);
-        new TokenDataFetcher();
+        address payable positions = payable(vm.envAddress("POSITIONS_ADDRESS"));
+        address payable router = payable(vm.envAddress("ROUTER_ADDRESS"));
+        address oracle = vm.envAddress("ORACLE_ADDRESS");
 
-        if (vm.envOr("CREATE_TEST_DATA", false)) {
-            generateTestData(positions, router, oracle, usdc, eurc);
-        }
+        generateTestData(
+            Positions(positions),
+            Router(router),
+            Oracle(oracle),
+            vm.envAddress("USDC_ADDRESS"),
+            vm.envAddress("EURC_ADDRESS")
+        );
 
         vm.stopBroadcast();
     }

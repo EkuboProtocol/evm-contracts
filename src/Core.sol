@@ -105,7 +105,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         sqrtRatio = tickToSqrtRatio(tick);
         poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
 
-        emit PoolInitialized(poolKey, tick, sqrtRatio);
+        emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 
         if (shouldCallAfterInitializePool(poolKey.extension) && poolKey.extension != msg.sender) {
             IExtension(poolKey.extension).afterInitializePool(msg.sender, poolKey, tick, sqrtRatio);
@@ -215,7 +215,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         _accountDebt(id, poolKey.token0, int256(uint256(amount0)));
         _accountDebt(id, poolKey.token1, int256(uint256(amount1)));
 
-        emit FeesAccumulated(poolKey, amount0, amount1);
+        emit FeesAccumulated(poolId, amount0, amount1);
     }
 
     function updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
@@ -314,7 +314,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             _accountDebt(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
-            emit PositionUpdated(locker, poolKey, params, delta0, delta1);
+            emit PositionUpdated(locker, poolId, params, delta0, delta1);
         }
 
         if (shouldCallAfterUpdatePosition(poolKey.extension) && locker != poolKey.extension) {
@@ -347,7 +347,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         _accountDebt(id, poolKey.token0, -int256(uint256(amount0)));
         _accountDebt(id, poolKey.token1, -int256(uint256(amount1)));
 
-        emit PositionFeesCollected(poolKey, positionKey, amount0, amount1);
+        emit PositionFeesCollected(poolId, positionKey, amount0, amount1);
 
         if (shouldCallAfterCollectFees(poolKey.extension) && locker != poolKey.extension) {
             IExtension(poolKey.extension).afterCollectFees(locker, poolKey, salt, bounds, amount0, amount1);
@@ -493,7 +493,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             _accountDebt(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
-            emit Swapped(locker, poolKey, params, delta0, delta1, sqrtRatio, tick, liquidity);
+            emit Swapped(locker, poolId, delta0, delta1, sqrtRatio, tick, liquidity);
         }
 
         if (shouldCallAfterSwap(poolKey.extension) && locker != poolKey.extension) {

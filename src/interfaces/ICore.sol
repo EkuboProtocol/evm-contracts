@@ -58,23 +58,22 @@ interface IExtension {
 interface ICore is IFlashAccountant, IExposedStorage {
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
-    event PoolInitialized(PoolKey poolKey, int32 tick, uint256 sqrtRatio);
+    event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, uint256 sqrtRatio);
     event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
     event SavedBalance(address owner, address token, bytes32 salt, uint128 amount);
-    event PositionFeesCollected(PoolKey poolKey, PositionKey positionKey, uint128 amount0, uint128 amount1);
+    event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
     event Swapped(
         address locker,
-        PoolKey poolKey,
-        SwapParameters params,
+        bytes32 poolId,
         int128 delta0,
         int128 delta1,
         uint256 sqrtRatioAfter,
         int32 tickAfter,
         uint128 liquidityAfter
     );
-    event FeesAccumulated(PoolKey poolKey, uint128 amount0, uint128 amount1);
+    event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
     event PositionUpdated(
-        address locker, PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1
+        address locker, bytes32 poolId, UpdatePositionParameters params, int128 delta0, int128 delta1
     );
 
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.

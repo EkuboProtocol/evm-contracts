@@ -91,7 +91,7 @@ contract CoreTest is FullTest {
             emit MockExtension.BeforeInitializePoolCalled(address(this), key, tick);
         }
         vm.expectEmit(address(core));
-        emit ICore.PoolInitialized(key, tick, tickToSqrtRatio(tick));
+        emit ICore.PoolInitialized(key.toPoolId(), key, tick, tickToSqrtRatio(tick));
 
         if (callPoints.afterInitializePool) {
             vm.expectEmit(extension);

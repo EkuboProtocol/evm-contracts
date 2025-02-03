@@ -95,7 +95,7 @@ abstract contract BaseLocker is ILocker, IPayer {
             // If the call succeeded, revert with ExpectedRevertWithinLock.selector
             if call(gas(), target, 0, result, add(len, 36), 0, 0) {
                 mstore(0, shl(224, 0x4c816e2b))
-                revert(0, 0)
+                revert(0, 4)
             }
 
             // Copy the entire revert data into the space where the result is pointing
@@ -110,7 +110,7 @@ abstract contract BaseLocker is ILocker, IPayer {
     function pay(address from, address token, uint256 amount) internal {
         address target = address(accountant);
 
-        if (amount > 0) {
+        if (amount != 0) {
             if (token == NATIVE_TOKEN_ADDRESS) {
                 SafeTransferLib.safeTransferETH(address(accountant), amount);
             } else {

@@ -224,6 +224,48 @@ contract RouterTest is FullTest {
         assertEq(d[1][1].amount1, -202);
     }
 
+    function test_multiMultihopSwap_slippage_input(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        token0.approve(address(router), type(uint256).max);
+
+        Swap[] memory swaps = new Swap[](2);
+
+        RouteNode[] memory route = new RouteNode[](2);
+        route[0] = RouteNode(poolKey, 0, 0);
+        route[1] = RouteNode(poolKey, 0, 0);
+
+        swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
+        swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
+
+        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, 49, 48));
+        router.multiMultihopSwap(swaps, 49);
+        // 48 works
+        router.multiMultihopSwap(swaps, 48);
+    }
+
+    function test_multiMultihopSwap_slippage_output(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        token0.approve(address(router), type(uint256).max);
+
+        Swap[] memory swaps = new Swap[](2);
+
+        RouteNode[] memory route = new RouteNode[](2);
+        route[0] = RouteNode(poolKey, 0, 0);
+        route[1] = RouteNode(poolKey, 0, 0);
+
+        swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
+        swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
+
+        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, -807, -808));
+        router.multiMultihopSwap(swaps, -807);
+        // -808 works
+        router.multiMultihopSwap(swaps, -808);
+    }
+
     function test_basicSwap_price_2x(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(693147, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(693100, 693200), 1000, 1000);

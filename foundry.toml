@@ -4,8 +4,8 @@ out = "out"
 libs = ["lib"]
 verbosity = 3
 
-# cbor_metadata = false
-# bytecode_hash = "none"
+cbor_metadata = false
+bytecode_hash = "none"
 
 # to run the test that checks the ticks invariant for all possible tick values, uncomment these two lines
 # gas_limit = "18446744073709551615"

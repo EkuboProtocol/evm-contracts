@@ -493,7 +493,16 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             _accountDebt(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
-            emit Swapped(locker, poolId, delta0, delta1, sqrtRatio, tick, liquidity);
+            assembly ("memory-safe") {
+                let o := mload(0x40)
+                mstore(o, locker)
+                mstore(add(o, 32), poolId)
+                mstore(add(o, 64), add(shl(128, delta0), delta1))
+                // upper 128 bits are 0, overwritten by next mstore
+                mstore(add(o, 112), liquidity)
+                mstore(add(o, 96), add(shl(160, tick), sqrtRatio))
+                log0(o, 144)
+            }
         }
 
         if (shouldCallAfterSwap(poolKey.extension) && locker != poolKey.extension) {

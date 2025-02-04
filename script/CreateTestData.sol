@@ -2,23 +2,23 @@
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle} from "../src/extensions/Oracle.sol";
 import {TestToken} from "../test/TestToken.sol";
-import {MAX_TICK_SPACING} from "../src/math/ticks.sol";
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
-
+import {MAX_TICK_SPACING, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "../src/math/constants.sol";
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
+import {SimpleSwapper} from "../src/SimpleSwapper.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
 import {Bounds, maxBounds} from "../src/types/positionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 
 contract CreateTestDataScript is Script {
-    function generateTestData(Positions positions, Router router, Oracle oracle) private {
+    function generateTestData(Positions positions, SimpleSwapper swapper, Oracle oracle) private {
         TestToken token = new TestToken(vm.getWallets()[0]);
 
-        token.approve(address(router), type(uint256).max);
+        token.approve(address(swapper), type(uint256).max);
         token.approve(address(positions), type(uint256).max);
 
         uint256 baseSalt = uint256(keccak256(abi.encode(token)));
@@ -39,13 +39,9 @@ contract CreateTestDataScript is Script {
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(
-                RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token0), 100000), (100000 * 5000) / 2
-            );
+            swapper.swap{value: 100000}(poolKey, false, 100000, MIN_SQRT_RATIO, 0);
 
-            router.swap{value: 100000}(
-                RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token1), 100000 * 5000), 100000 / 2
-            );
+            swapper.swap(poolKey, true, 100000 * 5000, MAX_SQRT_RATIO, 0);
         }
 
         // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH
@@ -113,10 +109,10 @@ contract CreateTestDataScript is Script {
         vm.startBroadcast();
 
         address payable positions = payable(vm.envAddress("POSITIONS_ADDRESS"));
-        address payable router = payable(vm.envAddress("ROUTER_ADDRESS"));
+        address payable simpleSwapper = payable(vm.envAddress("SIMPLE_SWAPPER_ADDRESS"));
         address oracle = vm.envAddress("ORACLE_ADDRESS");
 
-        generateTestData(Positions(positions), Router(router), Oracle(oracle));
+        generateTestData(Positions(positions), SimpleSwapper(simpleSwapper), Oracle(oracle));
 
         vm.stopBroadcast();
     }

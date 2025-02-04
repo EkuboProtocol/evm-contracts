@@ -15,14 +15,11 @@ import {Bounds, maxBounds} from "../src/types/positionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 
 contract CreateTestDataScript is Script {
-    function generateTestData(Positions positions, Router router, Oracle oracle, address usdc, address eurc) private {
+    function generateTestData(Positions positions, Router router, Oracle oracle) private {
         TestToken token = new TestToken(vm.getWallets()[0]);
 
         token.approve(address(router), type(uint256).max);
         token.approve(address(positions), type(uint256).max);
-        // it is assumed this address has some quantity of oracle token and usdc/eurc already
-        IERC20(usdc).approve(address(positions), type(uint256).max);
-        IERC20(eurc).approve(address(positions), type(uint256).max);
 
         uint256 baseSalt = uint256(keccak256(abi.encode(token)));
 
@@ -42,28 +39,13 @@ contract CreateTestDataScript is Script {
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            bytes[] memory swapCalls = new bytes[](4);
-            swapCalls[0] =
-                abi.encodeWithSelector(SlippageChecker.recordBalanceForSlippageCheck.selector, address(poolKey.token1));
-            swapCalls[1] = abi.encodeWithSelector(
-                Router.swap.selector, RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token0), 100000)
+            router.swap{value: 100000}(
+                RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token0), 100000), (100000 * 5000) / 2
             );
-            swapCalls[2] = abi.encodeWithSelector(SlippageChecker.refundNativeToken.selector);
-            swapCalls[3] = abi.encodeWithSelector(
-                SlippageChecker.checkMinimumOutputReceived.selector, address(poolKey.token1), (100000 * 5000) / 2
-            );
-            router.multicall{value: 100000}(swapCalls);
 
-            swapCalls = new bytes[](3);
-            swapCalls[0] =
-                abi.encodeWithSelector(SlippageChecker.recordBalanceForSlippageCheck.selector, address(poolKey.token0));
-            swapCalls[1] = abi.encodeWithSelector(
-                Router.swap.selector, RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token1), 100000 * 5000)
+            router.swap{value: 100000}(
+                RouteNode(poolKey, 0, 0), TokenAmount(address(poolKey.token1), 100000 * 5000), 100000 / 2
             );
-            swapCalls[2] = abi.encodeWithSelector(
-                SlippageChecker.checkMinimumOutputReceived.selector, address(poolKey.token0), 100000 / 2
-            );
-            router.multicall(swapCalls);
         }
 
         // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH
@@ -91,34 +73,6 @@ contract CreateTestDataScript is Script {
             4605172,
             1e18,
             100e18
-        );
-
-        createPool(
-            baseSalt++,
-            positions,
-            NATIVE_TOKEN_ADDRESS,
-            usdc,
-            0,
-            MAX_TICK_SPACING,
-            address(oracle),
-            // 1 USDC / oracle token == 10**6 / 10**18 = log base 1.000001 of 1e-12 = -27631034
-            -27631034,
-            1e18,
-            1e6
-        );
-
-        createPool(
-            baseSalt++,
-            positions,
-            NATIVE_TOKEN_ADDRESS,
-            eurc,
-            0,
-            MAX_TICK_SPACING,
-            address(oracle),
-            // 2 EURC / oracle token == 2 * 10**6 / 10**18 = log base 1.000001 of 2e-12 = -26937887
-            -26937887,
-            1e18,
-            2e6
         );
     }
 
@@ -162,13 +116,7 @@ contract CreateTestDataScript is Script {
         address payable router = payable(vm.envAddress("ROUTER_ADDRESS"));
         address oracle = vm.envAddress("ORACLE_ADDRESS");
 
-        generateTestData(
-            Positions(positions),
-            Router(router),
-            Oracle(oracle),
-            vm.envAddress("USDC_ADDRESS"),
-            vm.envAddress("EURC_ADDRESS")
-        );
+        generateTestData(Positions(positions), Router(router), Oracle(oracle));
 
         vm.stopBroadcast();
     }

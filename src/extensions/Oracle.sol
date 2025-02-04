@@ -58,10 +58,10 @@ contract Oracle is ExposedStorage, BaseExtension {
     struct Counts {
         // The index of the last snapshot that was written
         uint64 index;
-        // The total count of snapshots that are stored for the pool
+        // The number of snapshots that have been written for the pool
         uint64 count;
-        // The count that the array should expand to the next time the `index` pointer reaches the end of the list
-        uint64 nextCount;
+        // The maximum number of snapshots that will be stored
+        uint64 capacity;
     }
 
     mapping(address token => Counts) public counts;
@@ -116,7 +116,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             (, int32 tick) = core.poolPrice(poolId);
 
             if (c.index == c.count - 1) {
-                if (c.nextCount != c.count) {
+                if (c.capacity > c.count) {
                     c.index = c.count;
                     c.count++;
                 } else {
@@ -152,7 +152,9 @@ contract Oracle is ExposedStorage, BaseExtension {
 
         address token = key.token1;
 
-        counts[token] = Counts({index: 0, count: 1, nextCount: 1});
+        // in case expandCapacity is called before the pool is initialized:
+        //  remember we have the capacity since the snapshot storage has been initialized
+        counts[token] = Counts({index: 0, count: 1, capacity: uint64(FixedPointMathLib.max(1, counts[token].capacity))});
         uint32 sso = secondsSinceOffset();
         snapshots[token][0] = Snapshot(sso, 0, 0);
 
@@ -180,53 +182,63 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     // Expands the capacity of the list of snapshots for the given token
-    function expandCapacity(address token, uint64 minSize) external returns (uint64 size) {
+    function expandCapacity(address token, uint64 minCapacity) external returns (uint64 capacity) {
         Counts memory c = counts[token];
-        if (c.nextCount < minSize) {
-            for (uint256 i = c.nextCount; i < minSize; i++) {
+
+        if (c.capacity < minCapacity) {
+            for (uint256 i = c.capacity; i < minCapacity; i++) {
+                // Simply initialize the slot, it will be overwritten
                 snapshots[token][i] = Snapshot(1, 0, 0);
             }
-            c.nextCount = minSize;
+            c.capacity = minCapacity;
+            counts[token] = c;
         }
-        size = c.nextCount;
+
+        capacity = c.capacity;
     }
 
-    // Efficient view methods that expose the data
+    // Minimal set of efficient view methods that expose the data
 
-    // Searches the given range of snapshots for the snapshot that has a timestamp <= the given time
-    function searchRangeForPrevious(address token, uint64 time, uint256 minIndex, uint256 maxIndexExclusive)
+    // returns the physical index of the oldest snapshot in the circular array
+    function _firstIndex(address token) internal view returns (uint256) {
+        Counts memory c = counts[token];
+        return (c.index + c.capacity - (c.count - 1)) % c.capacity;
+    }
+
+    // given a logical index [0, count), returns the snapshot from storage
+    function _getSnapshotLogical(address token, uint256 logicalIndex) internal view returns (Snapshot memory) {
+        uint256 capacity = counts[token].capacity;
+        uint256 first = _firstIndex(token);
+        uint256 physicalIndex = (first + logicalIndex) % capacity;
+        return snapshots[token][physicalIndex];
+    }
+
+    // Searches the logical range [min, maxExclusive) for the snapshot with secondsSinceOffset <= target.
+    function searchRangeForPrevious(address token, uint64 time, uint256 logicalMin, uint256 logicalMaxExclusive)
         private
         view
-        returns (uint256 index, Snapshot memory snapshot)
+        returns (uint256 logicalIndex, Snapshot memory snapshot)
     {
         unchecked {
-            if (time < timestampOffset || minIndex >= maxIndexExclusive) revert NoPreviousSnapshotExists(token, time);
-            // you cannot query this contract for times that are beyond the maximum lifetime of this contract
-            // but since 136 years is such a long time, we simply use an assert
+            if (time < timestampOffset || logicalMin >= logicalMaxExclusive) {
+                revert NoPreviousSnapshotExists(token, time);
+            }
+            // Our snapshot times are stored as uint32 relative to timestampOffset.
             assert(time < timestampOffset + type(uint32).max);
-
-            mapping(uint256 => Snapshot) storage tokenSnapshots = snapshots[token];
-
             uint32 targetSso = uint32(time - timestampOffset);
 
-            // todo: fix this search to handle a rotating list
-
-            uint256 left = minIndex;
-            // safe subtraction because minIndex < maxIndexExclusive which implies maxIndexExclusive != 0
-            uint256 right = maxIndexExclusive - 1;
-
+            uint256 left = logicalMin;
+            uint256 right = logicalMaxExclusive - 1;
             while (left < right) {
                 uint256 mid = (left + right + 1) >> 1;
-                snapshot = tokenSnapshots[mid];
-                if (snapshot.secondsSinceOffset <= targetSso) {
+                Snapshot memory midSnapshot = _getSnapshotLogical(token, mid);
+                if (midSnapshot.secondsSinceOffset <= targetSso) {
                     left = mid;
                 } else {
                     right = mid - 1;
                 }
             }
-
-            // snap may not contain the last one, if we last checked the one to its right
-            snapshot = tokenSnapshots[left];
+            snapshot = _getSnapshotLogical(token, left);
             if (snapshot.secondsSinceOffset > targetSso) {
                 revert NoPreviousSnapshotExists(token, time);
             }
@@ -234,52 +246,45 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
-    // Returns the snapshot with the greatest secondsSinceOffset such that secondsSinceOffsetToTimestamp(secondsSinceOffset) is less than or equal to the given time
+    // Returns the snapshot with greatest timestamp ≤ the given time.
     function findPreviousSnapshot(address token, uint64 time)
         public
         view
-        returns (uint256 count, uint256 index, Snapshot memory snapshot)
+        returns (uint256 count, uint256 logicalIndex, Snapshot memory snapshot)
     {
-        count = snapshotCount[token];
-        (index, snapshot) = searchRangeForPrevious(token, time, 0, count);
+        Counts memory c = counts[token];
+        count = c.count;
+        (logicalIndex, snapshot) = searchRangeForPrevious(token, time, 0, count);
     }
 
+    // Computes cumulative values at a given time by extrapolating from a previous snapshot.
     function extrapolateSnapshotInternal(
         address token,
         uint64 atTime,
-        uint256 index,
+        uint256 logicalIndex,
         uint256 count,
         Snapshot memory snapshot
     ) private view returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) {
         if (atTime > block.timestamp) revert FutureTime();
-
         unchecked {
-            (secondsPerLiquidityCumulative, tickCumulative) =
-                (snapshot.secondsPerLiquidityCumulative, snapshot.tickCumulative);
-
-            // we know this subtraction will not underflow due to checks in findPreviousSnapshot
+            secondsPerLiquidityCumulative = snapshot.secondsPerLiquidityCumulative;
+            tickCumulative = snapshot.tickCumulative;
             uint32 timePassed = uint32(atTime - timestampOffset - snapshot.secondsSinceOffset);
-
             if (timePassed != 0) {
                 int32 tick;
                 uint128 liquidity;
-                if (index == count - 1) {
-                    // last snapshot, read current price and liquidity
+                if (logicalIndex == count - 1) {
+                    // Use current pool state.
                     bytes32 poolId = getPoolKey(token).toPoolId();
                     (, tick) = core.poolPrice(poolId);
-                    if (token > NATIVE_TOKEN_ADDRESS) {
-                        tick = -tick;
-                    }
                     liquidity = core.poolLiquidity(poolId);
                 } else {
-                    // otherwise take the difference between 2 snapshots to get the last value of the tick/liquidity
-                    // at the time of the previous snapshot
-                    Snapshot memory next = snapshots[token][index + 1];
+                    // Use the next snapshot.
+                    Snapshot memory next = _getSnapshotLogical(token, logicalIndex + 1);
                     tick = int32(
                         (next.tickCumulative - snapshot.tickCumulative)
                             / int64(uint64(next.secondsSinceOffset - snapshot.secondsSinceOffset))
                     );
-
                     liquidity = uint128(
                         (type(uint128).max)
                             / (
@@ -288,7 +293,6 @@ contract Oracle is ExposedStorage, BaseExtension {
                             )
                     );
                 }
-
                 tickCumulative += int64(tick) * int64(uint64(timePassed));
                 secondsPerLiquidityCumulative +=
                     (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
@@ -296,15 +300,16 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
+    // Returns cumulative snapshot values at time `atTime`.
     function extrapolateSnapshot(address token, uint64 atTime)
         public
         view
         returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative)
     {
-        uint256 count = snapshotCount[token];
-        (uint256 index, Snapshot memory snapshot) = searchRangeForPrevious(token, atTime, 0, count);
+        uint256 count = counts[token].count;
+        (uint256 logicalIndex, Snapshot memory snapshot) = searchRangeForPrevious(token, atTime, 0, count);
         (secondsPerLiquidityCumulative, tickCumulative) =
-            extrapolateSnapshotInternal(token, atTime, index, count, snapshot);
+            extrapolateSnapshotInternal(token, atTime, logicalIndex, count, snapshot);
     }
 
     struct Observation {
@@ -312,9 +317,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         int64 tickCumulative;
     }
 
-    // Returns the snapshots of the cumulative values at each of the given timestamps
-    // If you are only querying only 2 snapshots, prefer calling extrapolateSnapshot 2 times
-    // This method is optimized for computing data over many snapshots in a time period << the total time the token was under observation
+    // Returns extrapolated snapshots at each of the provided sorted timestamps.
     function getExtrapolatedSnapshotsForSortedTimestamps(address token, uint64[] memory timestamps)
         public
         view
@@ -326,32 +329,25 @@ contract Oracle is ExposedStorage, BaseExtension {
             uint64 endTime = timestamps[timestamps.length - 1];
             if (endTime < startTime) revert EndTimeLessThanStartTime();
 
-            uint256 count = snapshotCount[token];
+            uint256 count = counts[token].count;
             (uint256 indexFirst,) = searchRangeForPrevious(token, startTime, 0, count);
             (uint256 indexLast,) = searchRangeForPrevious(token, endTime, indexFirst, count);
 
             observations = new Observation[](timestamps.length);
-
             uint64 lastTimestamp;
             for (uint256 i = 0; i < timestamps.length;) {
                 uint64 timestamp = timestamps[i];
                 if (timestamp < lastTimestamp) {
                     revert TimestampsNotSorted();
                 }
-
-                // we do a search within just the range of [first, last+1)
-                (uint256 index, Snapshot memory snapshot) =
+                (uint256 logicalIndex, Snapshot memory snapshot) =
                     searchRangeForPrevious(token, timestamp, indexFirst, indexLast + 1);
-
-                (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
-                    extrapolateSnapshotInternal(token, timestamp, index, count, snapshot);
-
-                observations[i] = Observation(secondsPerLiquidityCumulative, tickCumulative);
-
-                // bump the indexFirst so we search a smaller range on the next iteration
-                indexFirst = index;
+                (uint160 spcCumulative, int64 tcCumulative) =
+                    extrapolateSnapshotInternal(token, timestamp, logicalIndex, count, snapshot);
+                observations[i] = Observation(spcCumulative, tcCumulative);
+                indexFirst = logicalIndex;
                 lastTimestamp = timestamp;
-                i++;
+                ++i;
             }
         }
     }

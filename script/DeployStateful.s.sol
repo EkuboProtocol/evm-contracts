@@ -16,7 +16,11 @@ function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash)
 
 address constant DETERMINISTIC_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-function findExtensionSalt(bytes32 initCodeHash, CallPoints memory callPoints) pure returns (bytes32 salt) {
+function findExtensionSalt(bytes32 startingSalt, bytes32 initCodeHash, CallPoints memory callPoints)
+    pure
+    returns (bytes32 salt)
+{
+    salt = startingSalt;
     uint8 startingByte = callPoints.toUint8();
 
     unchecked {
@@ -49,19 +53,20 @@ contract DeployScript is Script {
             revert UnrecognizedChainId(block.chainid);
         }
 
+        bytes32 salt = vm.envOr("SALT", bytes32(0x0));
+
         vm.startBroadcast();
 
-        Core core = new Core{salt: 0x0}(owner);
+        Core core = new Core{salt: salt}(owner);
         // we deploy with empty url so it has the same address
-        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: 0x0}(owner, "");
+        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: salt}(owner, "");
         tokenURIGenerator.setBaseURL(baseUrl);
-        new Positions{salt: 0x0}(core, tokenURIGenerator);
+        new Positions{salt: salt}(core, tokenURIGenerator);
         new Oracle{
             salt: findExtensionSalt(
-                keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core, NATIVE_TOKEN_ADDRESS))),
-                oracleCallPoints()
+                salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()
             )
-        }(core, NATIVE_TOKEN_ADDRESS);
+        }(core);
 
         vm.stopBroadcast();
     }

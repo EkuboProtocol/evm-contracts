@@ -25,7 +25,6 @@ contract DeployScript is Script {
         // it is assumed this address has some quantity of oracle token and usdc/eurc already
         IERC20(usdc).approve(address(positions), type(uint256).max);
         IERC20(eurc).approve(address(positions), type(uint256).max);
-        IERC20(oracle.oracleToken()).approve(address(positions), type(uint256).max);
 
         uint256 baseSalt = uint256(keccak256(abi.encode(token)));
 
@@ -87,19 +86,6 @@ contract DeployScript is Script {
             baseSalt++,
             positions,
             NATIVE_TOKEN_ADDRESS,
-            oracle.oracleToken(),
-            0,
-            MAX_TICK_SPACING,
-            address(oracle),
-            4605172,
-            0.01e18,
-            1e18
-        );
-
-        createPool(
-            baseSalt++,
-            positions,
-            oracle.oracleToken(),
             address(token),
             0,
             MAX_TICK_SPACING,
@@ -112,7 +98,7 @@ contract DeployScript is Script {
         createPool(
             baseSalt++,
             positions,
-            oracle.oracleToken(),
+            NATIVE_TOKEN_ADDRESS,
             usdc,
             0,
             MAX_TICK_SPACING,
@@ -126,7 +112,7 @@ contract DeployScript is Script {
         createPool(
             baseSalt++,
             positions,
-            oracle.oracleToken(),
+            NATIVE_TOKEN_ADDRESS,
             eurc,
             0,
             MAX_TICK_SPACING,

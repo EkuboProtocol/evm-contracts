@@ -21,22 +21,11 @@ abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
 
     Oracle internal oracle;
-    TestToken internal oracleToken;
 
     uint256 positionId;
 
     function setUp() public virtual override {
         FullTest.setUp();
-        oracleToken = new TestToken(address(this));
-        if (address(token0) < address(oracleToken)) {
-            (oracleToken, token0) = (token0, oracleToken);
-        }
-        if (address(token1) < address(oracleToken)) {
-            (oracleToken, token1) = (token1, oracleToken);
-        }
-        if (address(token1) < address(token0)) {
-            (token0, token1) = (token1, token0);
-        }
         address deployAddress = address(
             uint160(
                 CallPoints({
@@ -51,7 +40,7 @@ abstract contract BaseOracleTest is FullTest {
                 }).toUint8()
             ) << 152
         );
-        deployCodeTo("Oracle.sol", abi.encode(core, oracleToken), deployAddress);
+        deployCodeTo("Oracle.sol", abi.encode(core), deployAddress);
         oracle = Oracle(deployAddress);
         positionId = positions.mint();
     }
@@ -65,24 +54,14 @@ abstract contract BaseOracleTest is FullTest {
         (uint192 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
         uint128 liquidity = core.poolLiquidity(poolKey.toPoolId());
 
-        bool isToken0ETH = poolKey.token0 == NATIVE_TOKEN_ADDRESS;
-        if (!isToken0ETH) {
-            TestToken(poolKey.token0).approve(address(router), type(uint256).max);
-        }
-        TestToken(poolKey.token1).approve(address(router), type(uint256).max);
-
         if (tick < targetTick) {
             uint256 targetRatio = tickToSqrtRatio(targetTick);
-            uint128 amount = amount1Delta(sqrtRatio, targetRatio, liquidity, true);
-            router.swap(
-                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token1, int128(amount)), type(int256).min
-            );
+            TestToken(poolKey.token1).approve(address(swapper), type(uint256).max);
+            swapper.swap(poolKey, false, type(int128).min, targetRatio, 0);
         } else if (tick > targetTick) {
             uint256 targetRatio = tickToSqrtRatio(targetTick) + 1;
-            uint128 amount = amount0Delta(sqrtRatio, targetRatio, liquidity, true);
-            router.swap{value: isToken0ETH ? amount : 0}(
-                RouteNode(poolKey, targetRatio, 0), TokenAmount(poolKey.token0, int128(amount)), type(int256).min
-            );
+            vm.deal(address(swapper), amount0Delta(sqrtRatio, targetRatio, liquidity, true));
+            swapper.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }
 
         (, tick) = core.poolPrice(poolKey.toPoolId());
@@ -91,19 +70,12 @@ abstract contract BaseOracleTest is FullTest {
         assertEq(tick, targetTick, "failed to move price");
     }
 
-    function createOraclePool(address baseToken, int32 tick) internal returns (PoolKey memory poolKey) {
-        address t0;
-        address t1;
-        (t0, t1, tick) = baseToken < address(oracleToken)
-            ? (baseToken, address(oracleToken), tick)
-            : (address(oracleToken), baseToken, -tick);
-        poolKey = createPool(t0, t1, tick, 0, MAX_TICK_SPACING, address(oracle));
+    function createOraclePool(address quoteToken, int32 tick) internal returns (PoolKey memory poolKey) {
+        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, 0, MAX_TICK_SPACING, address(oracle));
     }
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal {
-        (address t0, address t1) =
-            token < address(oracleToken) ? (token, address(oracleToken)) : (address(oracleToken), token);
-        PoolKey memory pk = PoolKey(t0, t1, 0, MAX_TICK_SPACING, address(oracle));
+        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, 0, MAX_TICK_SPACING, address(oracle));
         Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
         // todo: finish this for the price fetcher tests
         (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);
@@ -114,15 +86,10 @@ abstract contract BaseOracleTest is FullTest {
                 sqrtRatio, int128(liquidityNext - liquidity), MIN_SQRT_RATIO, MAX_SQRT_RATIO
             );
 
-            bool isETH = t0 == NATIVE_TOKEN_ADDRESS;
-            if (!isETH) {
-                TestToken(t0).approve(address(positions), uint128(d0));
-            }
-            TestToken(t1).approve(address(positions), uint128(d1));
+            TestToken(token).approve(address(positions), type(uint256).max);
 
-            positions.deposit{value: isETH ? uint128(d0) : 0}(
-                positionId, pk, bounds, uint128(d0), uint128(d1), liquidityNext - liquidity
-            );
+            vm.deal(address(positions), uint128(d0));
+            positions.deposit(positionId, pk, bounds, uint128(d0), uint128(d1), liquidityNext - liquidity);
             assertEq(core.poolLiquidity(pk.toPoolId()), liquidityNext);
         } else if (liquidity > liquidityNext) {
             positions.withdraw(positionId, pk, bounds, liquidity - liquidityNext);
@@ -140,27 +107,28 @@ contract ManyObservationsOracleTest is BaseOracleTest {
         BaseOracleTest.setUp();
         startTime = uint64(vm.getBlockTimestamp());
         token = address(token1);
-        poolKey = createOraclePool(token, -693129);
+        poolKey = createOraclePool(token, 693129);
+        oracle.expandCapacity(token, 50);
 
         // t = startTime + 0
         updateOraclePoolLiquidity(token, 100_000);
-        movePrice(poolKey, -1386256);
+        movePrice(poolKey, 1386256);
 
         advanceTime(12);
 
         // t = startTime + 12
-        movePrice(poolKey, 693129);
+        movePrice(poolKey, -693129);
         updateOraclePoolLiquidity(token, 5_000);
 
         advanceTime(12);
 
         // t = startTime + 24
-        movePrice(poolKey, -693129);
+        movePrice(poolKey, 693129);
         updateOraclePoolLiquidity(token, 75_000);
 
         // t = startTime + 36
         advanceTime(12);
-        movePrice(poolKey, -1386256);
+        movePrice(poolKey, 1386256);
         updateOraclePoolLiquidity(token, 50_000);
 
         // t = startTime + 44
@@ -226,19 +194,23 @@ contract ManyObservationsOracleTest is BaseOracleTest {
         );
         assertEq(observations[5].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 8));
     }
+
+    receive() external payable {}
 }
 
 contract OracleTest is BaseOracleTest {
     using CoreLib for *;
 
     function test_getImmutables() public view {
-        assertEq(oracle.oracleToken(), address(oracleToken));
         assertEq(oracle.timestampOffset(), uint64(block.timestamp));
     }
 
     function test_createPool_beforeInitializePool() public {
-        createPool(address(oracleToken), address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
-        assertEq(oracle.snapshotCount(address(token1)), 1);
+        createOraclePool(address(token1), 0);
+        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        assertEq(index, 0);
+        assertEq(count, 1);
+        assertEq(capacity, 1);
         (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 0);
         assertEq(secondsSinceOffset, 0);
@@ -246,20 +218,90 @@ contract OracleTest is BaseOracleTest {
         assertEq(tickCumulative, 0);
     }
 
+    function test_createPool_beforeInitializePool_first_expandCapacity() public {
+        oracle.expandCapacity(address(token1), 10);
+        createOraclePool(address(token1), 0);
+        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        assertEq(index, 0);
+        assertEq(count, 1);
+        assertEq(capacity, 10);
+    }
+
+    function test_createPool_beforeInitializePool_then_expandCapacity() public {
+        createOraclePool(address(token1), 0);
+        oracle.expandCapacity(address(token1), 10);
+        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        assertEq(index, 0);
+        assertEq(count, 1);
+        assertEq(capacity, 10);
+    }
+
+    function test_expandCapacity_doesNotOverwrite() public {
+        PoolKey memory pk = createOraclePool(address(token1), 2000);
+        advanceTime(12);
+        movePrice(pk, -500);
+        advanceTime(6);
+        movePrice(pk, 1000);
+        oracle.expandCapacity(address(token1), 2);
+
+        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        assertEq(index, 0);
+        assertEq(count, 1);
+        assertEq(capacity, 2);
+        (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
+            oracle.snapshots(address(token1), 0);
+        assertEq(secondsSinceOffset, 18);
+        assertEq(secondsPerLiquidityCumulative, uint256(18) << 128);
+        assertEq(tickCumulative, (2000 * 12) + (-500 * 6));
+
+        // empty snapshot initialized
+        (secondsSinceOffset, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 1);
+        assertEq(secondsSinceOffset, 1);
+        assertEq(secondsPerLiquidityCumulative, 0);
+        assertEq(tickCumulative, 0);
+    }
+
+    function test_snapshots_circularWriteAtCapacity() public {
+        PoolKey memory pk = createOraclePool(address(token1), 2000);
+        // writes 0
+        advanceTime(2);
+        movePrice(pk, -500);
+        oracle.expandCapacity(address(token1), 3);
+        // writes 1
+        advanceTime(3);
+        movePrice(pk, 700);
+        // writes 2
+        advanceTime(6);
+        movePrice(pk, -5000);
+        // writes 0
+        advanceTime(4);
+        movePrice(pk, 0);
+
+        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        assertEq(index, 0, "index");
+        assertEq(count, 3, "count");
+        assertEq(capacity, 3, "capacity");
+
+        (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
+            oracle.snapshots(address(token1), 0);
+        assertEq(secondsSinceOffset, 4 + 6 + 3 + 2);
+        assertEq(secondsPerLiquidityCumulative, uint256(4 + 6 + 3 + 2) << 128);
+        assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000 * 4));
+    }
+
     function test_createPool_beforeInitializePool_reverts() public {
-        vm.expectRevert(Oracle.PairsWithOracleTokenOnly.selector);
+        vm.expectRevert(Oracle.PairsWithNativeTokenOnly.selector);
         createPool(address(token0), address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
 
         vm.expectRevert(Oracle.TickSpacingMustBeMaximum.selector);
-        createPool(address(oracleToken), address(token1), 0, 0, MAX_TICK_SPACING - 1, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING - 1, address(oracle));
 
         vm.expectRevert(Oracle.FeeMustBeZero.selector);
-        createPool(address(oracleToken), address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
     }
 
     function test_createPosition_failsForPositionsNotWideEnough() public {
-        PoolKey memory poolKey =
-            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
         vm.expectRevert(Oracle.BoundsMustBeMaximum.selector);
         positions.mintAndDeposit{value: 100}(
             poolKey, Bounds(-int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING)), 100, 100, 0
@@ -267,39 +309,45 @@ contract OracleTest is BaseOracleTest {
     }
 
     function test_createPosition() public {
-        PoolKey memory poolKey =
-            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
         advanceTime(30);
 
         Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
         (uint256 id, uint128 liquidity) = createPosition(poolKey, bounds, 100, 200);
-        assertEq(oracle.snapshotCount(address(token1)), 2);
+        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+
+        assertEq(count, 1);
+        assertEq(index, 0);
+        assertEq(capacity, 1);
         (uint32 secondsSinceOffset, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
-            oracle.snapshots(address(token1), 1);
+            oracle.snapshots(address(token1), 0);
         assertEq(secondsSinceOffset, 30);
         assertEq(secondsPerLiquidityCumulative, uint160(30) << 128);
         // the tick is flipped so that the price is always oracleToken/token
-        assertEq(tickCumulative, 30 * -693147);
+        assertEq(tickCumulative, 30 * 693147);
 
         advanceTime(45);
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity);
         assertEq(amount0, 99);
         assertEq(amount1, 199);
 
-        assertEq(oracle.snapshotCount(address(token1)), 3);
-        (secondsSinceOffset, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 2);
+        (index, count, capacity) = oracle.counts(address(token1));
+        assertEq(count, 1);
+        assertEq(index, 0);
+        assertEq(capacity, 1);
+        (secondsSinceOffset, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 0);
         assertEq(secondsSinceOffset, 75);
         assertEq(secondsPerLiquidityCumulative, (uint160(30) << 128) + ((uint160(45) << 128) / liquidity));
-        assertEq(tickCumulative, 75 * -693147);
+        assertEq(tickCumulative, 75 * 693147);
     }
 
     function test_findPreviousSnapshot() public {
         advanceTime(5);
         uint64 poolCreationTime = uint64(vm.getBlockTimestamp());
 
-        PoolKey memory poolKey =
-            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        oracle.expandCapacity(address(token1), 10);
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
 
@@ -342,19 +390,19 @@ contract OracleTest is BaseOracleTest {
         assertEq(i, 1);
         assertEq(s.secondsSinceOffset, 15);
         assertEq(s.secondsPerLiquidityCumulative, (uint160(10) << 128) / liquidity);
-        assertEq(s.tickCumulative, 10 * 2 * -693147);
+        assertEq(s.tickCumulative, 10 * 2 * 693147);
 
         (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 11);
         assertEq(i, 1);
         assertEq(s.secondsSinceOffset, 15);
         assertEq(s.secondsPerLiquidityCumulative, (uint160(10) << 128) / liquidity);
-        assertEq(s.tickCumulative, 10 * 2 * -693147);
+        assertEq(s.tickCumulative, 10 * 2 * 693147);
 
         (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 15);
         assertEq(i, 1);
         assertEq(s.secondsSinceOffset, 15);
         assertEq(s.secondsPerLiquidityCumulative, (uint160(10) << 128) / liquidity);
-        assertEq(s.tickCumulative, 10 * 2 * -693147);
+        assertEq(s.tickCumulative, 10 * 2 * 693147);
 
         // if we pass in a future time it works fine
         (, i, s) = oracle.findPreviousSnapshot(address(token1), poolCreationTime + 100);
@@ -364,15 +412,15 @@ contract OracleTest is BaseOracleTest {
             s.secondsPerLiquidityCumulative,
             ((uint160(10) << 128) / liquidity) + ((uint160(6) << 128) / (liquidity / 2))
         );
-        assertEq(s.tickCumulative, (10 * 2 * -693147) + (-693146 / 2 * 6));
+        assertEq(s.tickCumulative, (10 * 2 * 693147) + (693146 / 2 * 6));
     }
 
     function test_extrapolateSnapshot() public {
         advanceTime(5);
         uint64 poolCreationTime = uint64(block.timestamp);
 
-        PoolKey memory poolKey =
-            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        oracle.expandCapacity(address(token1), 10);
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
 
@@ -409,24 +457,24 @@ contract OracleTest is BaseOracleTest {
         (secondsPerLiquidityCumulative, tickCumulative) =
             oracle.extrapolateSnapshot(address(token1), poolCreationTime + 1);
         assertEq(secondsPerLiquidityCumulative, (uint160(1) << 128) / liquidity);
-        assertEq(tickCumulative, -693147 * 2);
+        assertEq(tickCumulative, 693147 * 2, "t=1");
 
         (secondsPerLiquidityCumulative, tickCumulative) =
             oracle.extrapolateSnapshot(address(token1), poolCreationTime + 9);
         assertEq(secondsPerLiquidityCumulative, (uint160(9) << 128) / liquidity);
-        assertEq(tickCumulative, 9 * -693147 * 2);
+        assertEq(tickCumulative, 9 * 693147 * 2, "t=9");
 
         (secondsPerLiquidityCumulative, tickCumulative) =
             oracle.extrapolateSnapshot(address(token1), poolCreationTime + 10);
         assertEq(secondsPerLiquidityCumulative, (uint160(10) << 128) / liquidity);
-        assertEq(tickCumulative, 10 * -693147 * 2);
+        assertEq(tickCumulative, 10 * 693147 * 2, "t=10");
 
         (secondsPerLiquidityCumulative, tickCumulative) =
             oracle.extrapolateSnapshot(address(token1), poolCreationTime + 11);
         assertEq(
             secondsPerLiquidityCumulative, ((uint160(10) << 128) / liquidity) + (uint160(1) << 128) / (liquidity / 2)
         );
-        assertEq(tickCumulative, 10 * -693147 * 2 + (-693146 / 2));
+        assertEq(tickCumulative, 10 * 693147 * 2 + (693146 / 2), "t=11");
 
         (secondsPerLiquidityCumulative, tickCumulative) =
             oracle.extrapolateSnapshot(address(token1), poolCreationTime + 21);
@@ -435,14 +483,14 @@ contract OracleTest is BaseOracleTest {
             // it underestimates slightly
             ((uint160(10) << 128) / liquidity) + (uint160(11) << 128) / (liquidity / 2) - 1
         );
-        assertEq(tickCumulative, (10 * -693147 * 2) + (6 * -693146 / 2) + (5 * -693147));
+        assertEq(tickCumulative, (10 * 693147 * 2) + (6 * 693146 / 2) + (5 * 693147), "t=21");
     }
 
     function test_getExtrapolatedSnapshots() public {
         uint64 poolCreationTime = advanceTime(5);
 
-        PoolKey memory poolKey =
-            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        oracle.expandCapacity(address(token1), 5);
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
 
@@ -505,18 +553,17 @@ contract OracleTest is BaseOracleTest {
 
         // ticks always expressed in oracle token / token
         assertEq(observations[0].tickCumulative, 0);
-        assertEq(observations[1].tickCumulative, (-693147 * 2) * 3);
-        assertEq(observations[2].tickCumulative, (-693147 * 2) * 6);
-        assertEq(observations[3].tickCumulative, (-693147 * 2) * 9);
-        assertEq(observations[4].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 2));
-        assertEq(observations[5].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 5));
-        assertEq(observations[6].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 6) + (-693147 * 2));
-        assertEq(observations[7].tickCumulative, (-693147 * 2) * 10 + ((-346573) * 6) + (-693147 * 5));
+        assertEq(observations[1].tickCumulative, (693147 * 2) * 3);
+        assertEq(observations[2].tickCumulative, (693147 * 2) * 6);
+        assertEq(observations[3].tickCumulative, (693147 * 2) * 9);
+        assertEq(observations[4].tickCumulative, (693147 * 2) * 10 + ((346573) * 2));
+        assertEq(observations[5].tickCumulative, (693147 * 2) * 10 + ((346573) * 5));
+        assertEq(observations[6].tickCumulative, (693147 * 2) * 10 + ((346573) * 6) + (693147 * 2));
+        assertEq(observations[7].tickCumulative, (693147 * 2) * 10 + ((346573) * 6) + (693147 * 5));
     }
 
     function test_cannotCallExtensionMethodsDirectly() public {
-        PoolKey memory poolKey =
-            createPool(address(oracleToken), address(token1), 693147, 0, MAX_TICK_SPACING, address(oracle));
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
         oracle.beforeInitializePool(address(0), poolKey, 15);

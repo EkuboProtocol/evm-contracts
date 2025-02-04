@@ -14,9 +14,7 @@ import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
 import {Bounds, maxBounds} from "../src/types/positionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 
-contract DeployScript is Script {
-    error UnrecognizedChainId(uint256 chainId);
-
+contract CreateTestDataScript is Script {
     function generateTestData(Positions positions, Router router, Oracle oracle, address usdc, address eurc) private {
         TestToken token = new TestToken(vm.getWallets()[0]);
 

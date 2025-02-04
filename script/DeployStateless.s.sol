@@ -10,19 +10,21 @@ import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {Router} from "../src/Router.sol";
 import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
 
-contract DeployScript is Script {
+contract DeployStatelessScript is Script {
     function run() public {
         ICore core = ICore(payable(vm.envAddress("CORE_ADDRESS")));
         Oracle oracle = Oracle(vm.envAddress("ORACLE_ADDRESS"));
 
+        bytes32 salt = vm.envOr("SALT", bytes32(0x0));
+
         vm.startBroadcast();
 
-        new Router{salt: 0x0}(core);
-        new PriceFetcher{salt: 0x0}(oracle);
-        new CoreDataFetcher{salt: 0x0}(core);
-        new SimpleSwapper{salt: 0x0}(core);
-        new SimpleQuoter{salt: 0x0}(core);
-        new TokenDataFetcher{salt: 0x0}();
+        new Router{salt: salt}(core);
+        new PriceFetcher{salt: salt}(oracle);
+        new CoreDataFetcher{salt: salt}(core);
+        new SimpleSwapper{salt: salt}(core);
+        new SimpleQuoter{salt: salt}(core);
+        new TokenDataFetcher{salt: salt}();
 
         vm.stopBroadcast();
     }

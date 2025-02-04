@@ -37,14 +37,13 @@ function findExtensionSalt(bytes32 startingSalt, bytes32 initCodeHash, CallPoint
     }
 }
 
-contract DeployScript is Script {
+contract DeployStatefulScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
     function run() public {
         address owner = vm.getWallets()[0];
 
         string memory baseUrl;
-        address oracleToken;
         if (block.chainid == 1) {
             baseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/positions/nft/"));
         } else if (block.chainid == 11155111) {

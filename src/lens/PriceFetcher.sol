@@ -34,20 +34,17 @@ contract PriceFetcher {
     error VolatilityRequiresMoreIntervals();
 
     Oracle public immutable oracle;
-    // we store a copy here for efficiency
-    address private immutable _oracleToken;
     uint64 private immutable _timestampOffset;
 
     constructor(Oracle _oracle) {
         oracle = _oracle;
-        _oracleToken = oracle.oracleToken();
         _timestampOffset = oracle.timestampOffset();
     }
 
     function getEarliestSnapshotTimestamp(address token) private view returns (uint256) {
-        if (token == _oracleToken) return _timestampOffset;
+        if (token == NATIVE_TOKEN_ADDRESS) return _timestampOffset;
 
-        uint256 count = oracle.snapshotCount(token);
+        (, uint64 count,) = oracle.counts(token);
         if (count == 0) {
             // if there are no snapshots, return a timestamp that will never be considered valid
             return type(uint256).max;
@@ -76,10 +73,10 @@ contract PriceFetcher {
         if (endTime <= startTime) revert EndTimeMustBeGreaterThanStartTime();
 
         unchecked {
-            bool baseIsOracleToken = baseToken == _oracleToken;
-            if (baseIsOracleToken || quoteToken == _oracleToken) {
+            bool baseIsOracleToken = baseToken == NATIVE_TOKEN_ADDRESS;
+            if (baseIsOracleToken || quoteToken == NATIVE_TOKEN_ADDRESS) {
                 (int32 tickSign, address otherToken) =
-                    baseIsOracleToken ? (int32(-1), quoteToken) : (int32(1), baseToken);
+                    baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
 
                 (uint160 secondsPerLiquidityCumulativeEnd, int64 tickCumulativeEnd) =
                     oracle.extrapolateSnapshot(otherToken, endTime);
@@ -94,8 +91,8 @@ contract PriceFetcher {
                     tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / int64(endTime - startTime))
                 );
             } else {
-                PeriodAverage memory base = getAveragesOverPeriod(_oracleToken, baseToken, startTime, endTime);
-                PeriodAverage memory quote = getAveragesOverPeriod(_oracleToken, quoteToken, startTime, endTime);
+                PeriodAverage memory base = getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, baseToken, startTime, endTime);
+                PeriodAverage memory quote = getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, quoteToken, startTime, endTime);
 
                 uint128 amountBase = amount1Delta(tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, base.liquidity, false);
                 uint128 amountQuote = amount1Delta(tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, quote.liquidity, false);
@@ -115,10 +112,10 @@ contract PriceFetcher {
         uint32 period
     ) public view returns (PeriodAverage[] memory averages) {
         unchecked {
-            bool baseIsOracleToken = baseToken == _oracleToken;
-            if (baseIsOracleToken || quoteToken == _oracleToken) {
+            bool baseIsOracleToken = baseToken == NATIVE_TOKEN_ADDRESS;
+            if (baseIsOracleToken || quoteToken == NATIVE_TOKEN_ADDRESS) {
                 (int32 tickSign, address otherToken) =
-                    baseIsOracleToken ? (int32(-1), quoteToken) : (int32(1), baseToken);
+                    baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
 
                 uint64[] memory timestamps = getTimestampsForPeriod(endTime, numIntervals, period);
                 averages = new PeriodAverage[](numIntervals);
@@ -141,9 +138,9 @@ contract PriceFetcher {
                 }
             } else {
                 PeriodAverage[] memory bases =
-                    getHistoricalPeriodAverages(_oracleToken, baseToken, endTime, numIntervals, period);
+                    getHistoricalPeriodAverages(NATIVE_TOKEN_ADDRESS, baseToken, endTime, numIntervals, period);
                 PeriodAverage[] memory quotes =
-                    getHistoricalPeriodAverages(_oracleToken, quoteToken, endTime, numIntervals, period);
+                    getHistoricalPeriodAverages(NATIVE_TOKEN_ADDRESS, quoteToken, endTime, numIntervals, period);
 
                 averages = new PeriodAverage[](numIntervals);
 
@@ -224,53 +221,21 @@ contract PriceFetcher {
     function getOracleTokenAverages(uint64 observationPeriod, address[] memory baseTokens)
         public
         view
-        returns (address oracleToken, PeriodAverage[] memory results)
+        returns (uint64 endTime, PeriodAverage[] memory results)
     {
-        oracleToken = _oracleToken;
+        endTime = uint64(block.timestamp);
+        uint64 startTime = endTime - observationPeriod;
         results = new PeriodAverage[](baseTokens.length);
         unchecked {
             for (uint256 i = 0; i < baseTokens.length; i++) {
                 address token = baseTokens[i];
-                if (token == _oracleToken) {
+                if (token == NATIVE_TOKEN_ADDRESS) {
                     results[i] = PeriodAverage(type(uint128).max, 0);
                 } else {
                     uint256 maxPeriodForToken = getMaximumObservationPeriod(token);
 
                     if (maxPeriodForToken >= observationPeriod) {
-                        results[i] = getAveragesOverPeriod(
-                            token, oracleToken, uint64(block.timestamp - observationPeriod), uint64(block.timestamp)
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // Useful information for routing bundled into a single call
-    function getBlockInfoAndNativeTokenPrices(
-        uint64 observationPeriod,
-        uint128 minOracleTokenLiquidity,
-        address[] memory baseTokens
-    ) public view returns (uint256 blockTimestamp, uint256 baseFee, uint256[] memory prices) {
-        blockTimestamp = block.timestamp;
-        baseFee = block.basefee;
-
-        (address oracleToken, PeriodAverage[] memory results) = getOracleTokenAverages(observationPeriod, baseTokens);
-
-        prices = new uint256[](results.length);
-
-        // now we populate the resulting prices it if we have all the necessary data
-        uint256 maxForNative = getMaximumObservationPeriod(NATIVE_TOKEN_ADDRESS);
-        if (maxForNative >= observationPeriod) {
-            PeriodAverage memory nativeAverage = getAveragesOverPeriod(
-                NATIVE_TOKEN_ADDRESS, oracleToken, uint64(blockTimestamp - observationPeriod), uint64(blockTimestamp)
-            );
-
-            if (nativeAverage.liquidity > minOracleTokenLiquidity) {
-                for (uint256 i = 0; i < results.length; i++) {
-                    if (results[i].liquidity > minOracleTokenLiquidity) {
-                        uint256 sqrtRatio = tickToSqrtRatio(results[i].tick - nativeAverage.tick);
-                        prices[i] = FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128);
+                        results[i] = getAveragesOverPeriod(token, NATIVE_TOKEN_ADDRESS, startTime, endTime);
                     }
                 }
             }

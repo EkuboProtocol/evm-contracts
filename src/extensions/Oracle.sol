@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionKey, Bounds} from "../types/positionKey.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
 import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -25,7 +26,7 @@ function oracleCallPoints() pure returns (CallPoints memory) {
 }
 
 contract Oracle is ExposedStorage, BaseExtension {
-    error PairsWithOracleTokenOnly();
+    error PairsWithNativeTokenOnly();
     error FeeMustBeZero();
     error TickSpacingMustBeMaximum();
     error BoundsMustBeMaximum();
@@ -35,13 +36,12 @@ contract Oracle is ExposedStorage, BaseExtension {
     error TimestampsNotSorted();
     error ZeroTimestampsProvided();
 
-    event SnapshotEvent(
-        address token, uint256 index, uint64 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative
+    event SnapshotInserted(
+        address indexed token, uint64 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative
     );
 
     using CoreLib for ICore;
 
-    address public immutable oracleToken;
     // all snapshots are taken with respect to this snapshot.
     // this allows the contract to function for 2^32-1 seconds from the time it is deployed before it must be redeployed
     // that is equivalent to 136.102208 years, so if it is deployed in 2025, it must be redeployed in the year 2161
@@ -55,33 +55,33 @@ contract Oracle is ExposedStorage, BaseExtension {
         int64 tickCumulative;
     }
 
-    mapping(address token => uint256 count) public snapshotCount;
+    struct Counts {
+        // The index of the last snapshot that was written
+        uint64 index;
+        // The total count of snapshots that are stored for the pool
+        uint64 count;
+        // The count that the array should expand to the next time the `index` pointer reaches the end of the list
+        uint64 nextCount;
+    }
+
+    mapping(address token => Counts) public counts;
     mapping(address token => mapping(uint256 index => Snapshot snapshot)) public snapshots;
 
-    constructor(ICore core, address _oracleToken) BaseExtension(core) {
+    constructor(ICore core) BaseExtension(core) {
+        // This assumption is used throughout the code, so we assert it in the constructor so that everything fails if it isn't held
+        assert(NATIVE_TOKEN_ADDRESS == address(0));
         timestampOffset = uint64(block.timestamp);
-        oracleToken = _oracleToken;
     }
 
     // The only allowed pool key for the given token
     function getPoolKey(address token) public view returns (PoolKey memory) {
-        if (token < oracleToken) {
-            return PoolKey({
-                token0: token,
-                token1: oracleToken,
-                fee: 0,
-                tickSpacing: MAX_TICK_SPACING,
-                extension: address(this)
-            });
-        } else {
-            return PoolKey({
-                token0: oracleToken,
-                token1: token,
-                fee: 0,
-                tickSpacing: MAX_TICK_SPACING,
-                extension: address(this)
-            });
-        }
+        return PoolKey({
+            token0: NATIVE_TOKEN_ADDRESS,
+            token1: token,
+            fee: 0,
+            tickSpacing: MAX_TICK_SPACING,
+            extension: address(this)
+        });
     }
 
     function secondsSinceOffset() public view returns (uint32) {
@@ -102,9 +102,9 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     function maybeInsertSnapshot(bytes32 poolId, address token) private {
         unchecked {
-            uint256 count = snapshotCount[token];
+            Counts memory c = counts[token];
             // we know count is always g.t. 0 in the places this is called
-            Snapshot memory last = snapshots[token][count - 1];
+            Snapshot memory last = snapshots[token][c.index];
 
             uint32 sso = secondsSinceOffset();
             uint32 lastSso = last.secondsSinceOffset;
@@ -115,12 +115,17 @@ contract Oracle is ExposedStorage, BaseExtension {
             uint128 liquidity = core.poolLiquidity(poolId);
             (, int32 tick) = core.poolPrice(poolId);
 
-            // we always make the price as if it's oracleToken/token
-            if (token > oracleToken) {
-                tick = -tick;
+            if (c.index == c.count - 1) {
+                if (c.nextCount != c.count) {
+                    c.index = c.count;
+                    c.count++;
+                } else {
+                    c.index = 0;
+                }
+            } else {
+                c.index++;
             }
 
-            snapshotCount[token] = count + 1;
             Snapshot memory snapshot = Snapshot({
                 secondsSinceOffset: sso,
                 secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative
@@ -128,10 +133,11 @@ contract Oracle is ExposedStorage, BaseExtension {
                 tickCumulative: last.tickCumulative + int64(uint64(timePassed)) * tick
             });
 
-            snapshots[token][count] = snapshot;
-            emit SnapshotEvent(
+            snapshots[token][c.index] = snapshot;
+            counts[token] = c;
+
+            emit SnapshotInserted(
                 token,
-                count,
                 secondsSinceOffsetToTimestamp(snapshot.secondsSinceOffset),
                 snapshot.secondsPerLiquidityCumulative,
                 snapshot.tickCumulative
@@ -140,17 +146,17 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
-        if (key.token0 != oracleToken && key.token1 != oracleToken) revert PairsWithOracleTokenOnly();
+        if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
         if (key.fee != 0) revert FeeMustBeZero();
         if (key.tickSpacing != MAX_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
-        address token = key.token0 == oracleToken ? key.token1 : key.token0;
+        address token = key.token1;
 
-        snapshotCount[token] = 1;
+        counts[token] = Counts({index: 0, count: 1, nextCount: 1});
         uint32 sso = secondsSinceOffset();
         snapshots[token][0] = Snapshot(sso, 0, 0);
 
-        emit SnapshotEvent(token, 0, secondsSinceOffsetToTimestamp(sso), 0, 0);
+        emit SnapshotInserted(token, secondsSinceOffsetToTimestamp(sso), 0, 0);
     }
 
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory params)
@@ -163,14 +169,26 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
 
         if (params.liquidityDelta != 0) {
-            maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token0 == oracleToken ? poolKey.token1 : poolKey.token0);
+            maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token1);
         }
     }
 
     function beforeSwap(address, PoolKey memory poolKey, SwapParameters memory params) external override onlyCore {
         if (params.amount != 0) {
-            maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token0 == oracleToken ? poolKey.token1 : poolKey.token0);
+            maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token1);
         }
+    }
+
+    // Expands the capacity of the list of snapshots for the given token
+    function expandCapacity(address token, uint64 minSize) external returns (uint64 size) {
+        Counts memory c = counts[token];
+        if (c.nextCount < minSize) {
+            for (uint256 i = c.nextCount; i < minSize; i++) {
+                snapshots[token][i] = Snapshot(1, 0, 0);
+            }
+            c.nextCount = minSize;
+        }
+        size = c.nextCount;
     }
 
     // Efficient view methods that expose the data
@@ -190,6 +208,8 @@ contract Oracle is ExposedStorage, BaseExtension {
             mapping(uint256 => Snapshot) storage tokenSnapshots = snapshots[token];
 
             uint32 targetSso = uint32(time - timestampOffset);
+
+            // todo: fix this search to handle a rotating list
 
             uint256 left = minIndex;
             // safe subtraction because minIndex < maxIndexExclusive which implies maxIndexExclusive != 0
@@ -247,7 +267,7 @@ contract Oracle is ExposedStorage, BaseExtension {
                     // last snapshot, read current price and liquidity
                     bytes32 poolId = getPoolKey(token).toPoolId();
                     (, tick) = core.poolPrice(poolId);
-                    if (token > oracleToken) {
+                    if (token > NATIVE_TOKEN_ADDRESS) {
                         tick = -tick;
                     }
                     liquidity = core.poolLiquidity(poolId);

@@ -8,8 +8,8 @@ out/
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
-/broadcast/*/11155111/
-/broadcast/*/1/
+!/broadcast/*/1/run-latest.json
+!/broadcast/*/11155111/run-latest.json
 /broadcast/**/dry-run/
 
 # Docs

@@ -495,13 +495,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
             assembly ("memory-safe") {
                 let o := mload(0x40)
-                mstore(o, locker)
-                mstore(add(o, 32), poolId)
-                mstore(add(o, 64), add(shl(128, delta0), delta1))
-                // upper 128 bits are 0, overwritten by next mstore
-                mstore(add(o, 112), liquidity)
-                mstore(add(o, 96), add(shl(160, tick), sqrtRatio))
-                log0(o, 144)
+                mstore(o, shl(96, locker))
+                mstore(add(o, 20), poolId)
+                mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
+                mstore(add(o, 84), shl(128, liquidity))
+                mstore(add(o, 100), shl(96, sqrtRatio))
+                mstore(add(o, 120), shl(224, tick))
+                log0(o, 124)
             }
         }
 

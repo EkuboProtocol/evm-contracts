@@ -62,15 +62,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
     event SavedBalance(address owner, address token, bytes32 salt, uint128 amount);
     event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
-    event Swapped(
-        address locker,
-        bytes32 poolId,
-        int128 delta0,
-        int128 delta1,
-        uint256 sqrtRatioAfter,
-        int32 tickAfter,
-        uint128 liquidityAfter
-    );
     event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
     event PositionUpdated(
         address locker, bytes32 poolId, UpdatePositionParameters params, int128 delta0, int128 delta1

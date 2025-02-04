@@ -289,6 +289,60 @@ contract OracleTest is BaseOracleTest {
         assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000 * 4));
     }
 
+    function test_snapshots_extrapolateWorksAfterRotate() public {
+        uint64 start = uint64(vm.getBlockTimestamp());
+        PoolKey memory pk = createOraclePool(address(token1), 2000);
+        // writes 0
+        advanceTime(2);
+        movePrice(pk, -500);
+        oracle.expandCapacity(address(token1), 3);
+        // writes 1
+        advanceTime(3);
+        movePrice(pk, 700);
+        // writes 2
+        advanceTime(6);
+        movePrice(pk, -5000);
+        // writes 0
+        advanceTime(4);
+        movePrice(pk, 0);
+
+        // end time is start+18
+        advanceTime(3);
+
+        vm.expectRevert(abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), start));
+        oracle.extrapolateSnapshot(address(token1), start);
+
+        vm.expectRevert(abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), start + 2));
+        oracle.extrapolateSnapshot(address(token1), start + 2);
+
+        vm.expectRevert(abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), start + 4));
+        oracle.extrapolateSnapshot(address(token1), start + 4);
+
+        (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
+            oracle.extrapolateSnapshot(address(token1), start + 5);
+        assertEq(secondsPerLiquidityCumulative, uint256(5) << 128);
+        assertEq(tickCumulative, (2000 * 2) + (-500 * 3));
+
+        (secondsPerLiquidityCumulative, tickCumulative) = oracle.extrapolateSnapshot(address(token1), start + 6);
+        assertEq(secondsPerLiquidityCumulative, uint256(6) << 128);
+        assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700));
+
+        (secondsPerLiquidityCumulative, tickCumulative) = oracle.extrapolateSnapshot(address(token1), start + 12);
+        assertEq(secondsPerLiquidityCumulative, uint256(12) << 128);
+        assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000));
+
+        (secondsPerLiquidityCumulative, tickCumulative) = oracle.extrapolateSnapshot(address(token1), start + 16);
+        assertEq(secondsPerLiquidityCumulative, uint256(16) << 128);
+        assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000 * 4));
+
+        (secondsPerLiquidityCumulative, tickCumulative) = oracle.extrapolateSnapshot(address(token1), start + 18);
+        assertEq(secondsPerLiquidityCumulative, uint256(18) << 128);
+        assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000 * 4));
+
+        vm.expectRevert(Oracle.FutureTime.selector);
+        oracle.extrapolateSnapshot(address(token1), start + 19);
+    }
+
     function test_createPool_beforeInitializePool_reverts() public {
         vm.expectRevert(Oracle.PairsWithNativeTokenOnly.selector);
         createPool(address(token0), address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));

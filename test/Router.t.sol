@@ -10,8 +10,12 @@ import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 
 contract RouterTest is FullTest {
+    using CoreLib for *;
+
     function test_basicSwap_token0_in(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
@@ -288,11 +292,13 @@ contract RouterTest is FullTest {
         Delta[][] memory deltas = router.multiMultihopSwap(swaps, -808);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(logs.length, 6);
+        uint256 sqrtRatio;
+        int32 tick;
         // swap events emit have 0 topics and come from core
         for (uint256 i = 0; i < 4; i++) {
             assertEq(logs[i].emitter, address(core));
             assertEq(logs[i].topics.length, 0);
-            assertEq(logs[i].data.length, 124);
+            assertEq(logs[i].data.length, 128);
             address locker = address(bytes20(LibBytes.load(logs[i].data, 0)));
             assertEq(locker, address(router));
             bytes32 poolId = LibBytes.load(logs[i].data, 20);
@@ -300,16 +306,20 @@ contract RouterTest is FullTest {
 
             assertEq(uint256(LibBytes.load(logs[i].data, 84)) >> 128, liquidity);
 
-            uint256 sqrtRatio = uint256(LibBytes.load(logs[i].data, 100)) >> 96;
+            sqrtRatio = uint256(LibBytes.load(logs[i].data, 100)) >> 64;
             // sqrt ratio between the bounds since we didn't go out of range
             assertLe(sqrtRatio, tickToSqrtRatio(100));
             assertGe(sqrtRatio, tickToSqrtRatio(-100));
 
-            int32 tick = int32(uint32(bytes4(LibBytes.load(logs[i].data, 120))));
+            tick = int32(uint32(bytes4(LibBytes.load(logs[i].data, 124))));
             assertLe(tick, 100);
             assertGe(tick, -100);
             assertNotEq(tick, 0);
         }
+
+        (uint256 sr, int32 t) = core.poolPrice(poolKey.toPoolId());
+        assertEq(sr, sqrtRatio);
+        assertEq(t, tick);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 52)))), deltas[0][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 68)))), deltas[0][0].amount1);

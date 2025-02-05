@@ -10,6 +10,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/swap.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 struct RouteNode {
     PoolKey poolKey;
@@ -61,8 +62,9 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
                     uint256 sqrtRatioLimit = node.sqrtRatioLimit;
                     if (sqrtRatioLimit == 0) {
-                        sqrtRatioLimit =
-                            isPriceIncreasing(tokenAmount.amount, isToken1) ? MAX_SQRT_RATIO : MIN_SQRT_RATIO;
+                        sqrtRatioLimit = FixedPointMathLib.ternary(
+                            isPriceIncreasing(tokenAmount.amount, isToken1), MAX_SQRT_RATIO, MIN_SQRT_RATIO
+                        );
                     }
 
                     (int128 delta0, int128 delta1) = core.swap(

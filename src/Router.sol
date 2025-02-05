@@ -60,12 +60,13 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
                     bool isToken1 = tokenAmount.token == node.poolKey.token1;
 
-                    uint256 sqrtRatioLimit = node.sqrtRatioLimit;
-                    if (sqrtRatioLimit == 0) {
-                        sqrtRatioLimit = FixedPointMathLib.ternary(
+                    uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
+                        node.sqrtRatioLimit == 0,
+                        FixedPointMathLib.ternary(
                             isPriceIncreasing(tokenAmount.amount, isToken1), MAX_SQRT_RATIO, MIN_SQRT_RATIO
-                        );
-                    }
+                        ),
+                        node.sqrtRatioLimit
+                    );
 
                     (int128 delta0, int128 delta1) = core.swap(
                         node.poolKey,

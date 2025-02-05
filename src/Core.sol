@@ -416,9 +416,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                     : initializedTickBitmaps.findPrevInitializedTick(tick, poolKey.tickSpacing, params.skipAhead);
 
                 uint256 nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                uint256 limitedNextSqrtRatio = increasing
-                    ? FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit)
-                    : FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit);
+                uint256 limitedNextSqrtRatio = FixedPointMathLib.ternary(
+                    increasing,
+                    FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit),
+                    FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit)
+                );
 
                 SwapResult memory result = swapResult(
                     sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee

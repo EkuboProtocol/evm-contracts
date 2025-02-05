@@ -11,7 +11,6 @@ import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {ICore} from "../src/interfaces/ICore.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;

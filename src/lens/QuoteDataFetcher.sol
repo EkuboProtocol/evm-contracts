@@ -7,6 +7,8 @@ import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionKey} from "../types/positionKey.sol";
 import {Position} from "../types/position.sol";
+import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
+import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
 
 struct TickDelta {
     int32 number;
@@ -17,20 +19,20 @@ struct QuoteData {
     int32 tick;
     uint256 sqrtRatio;
     uint128 liquidity;
-    // all initialized ticks that are <= the current tick up to minTickSpacings
-    TickDelta[] prevTicks;
-    // all initialized ticks that are > the current tick up to minTickSpacings
-    TickDelta[] nextTicks;
+    // all the initialized ticks within minTickSpacings of the current tick
+    TickDelta[] ticks;
 }
 
 // Returns useful data for a pool for computing off-chain quotes
 contract QuoteDataFetcher is UsesCore {
     using CoreLib for *;
+    using DynamicArrayLib for *;
 
     constructor(ICore core) UsesCore(core) {}
 
     function getQuoteData(PoolKey[] calldata poolKeys, uint32 minTickSpacings)
         external
+        view
         returns (QuoteData[] memory results)
     {
         unchecked {
@@ -39,41 +41,74 @@ contract QuoteDataFetcher is UsesCore {
                 bytes32 poolId = poolKeys[i].toPoolId();
                 (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolId);
                 uint128 liquidity = core.poolLiquidity(poolId);
-                TickDelta[] memory prevTicks = _prevInitializedTicks(poolId, tick, minTickSpacings);
-                TickDelta[] memory nextTicks = _nextInitializedTicks(poolId, tick, minTickSpacings);
 
-                results[i] = QuoteData({
-                    tick: tick,
-                    sqrtRatio: sqrtRatio,
-                    liquidity: liquidity,
-                    prevTicks: prevTicks,
-                    nextTicks: nextTicks
-                });
+                int256 rangeSize = int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].tickSpacing)) * 256;
+                int256 minTick = int256(tick) - rangeSize;
+                int256 maxTick = int256(tick) + rangeSize;
+
+                if (minTick < MIN_TICK) {
+                    minTick = MIN_TICK;
+                }
+                if (maxTick > MAX_TICK) {
+                    maxTick = MAX_TICK;
+                }
+
+                TickDelta[] memory ticks =
+                    _getInitializedTicksInRange(poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing);
+
+                results[i] = QuoteData({tick: tick, sqrtRatio: sqrtRatio, liquidity: liquidity, ticks: ticks});
             }
         }
     }
 
-    function _prevInitializedTicks(bytes32 poolId, int32 fromTick, uint32 minTickSpacings)
+    // Returns all the initialized ticks and the liquidity delta of each tick in the given range
+    function _getInitializedTicksInRange(bytes32 poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
         internal
-        returns (TickDelta[] memory ticks)
-    {}
-
-    function prevInitializedTicks(PoolKey calldata poolKey, int32 fromTick, uint32 minTickSpacings)
-        public
+        view
         returns (TickDelta[] memory ticks)
     {
-        ticks = _prevInitializedTicks(poolKey.toPoolId(), fromTick, minTickSpacings);
+        assert(toTick >= fromTick);
+
+        DynamicArrayLib.DynamicArray memory tickTuples;
+
+        while (toTick >= fromTick) {
+            (int32 tick, bool initialized) = core.prevInitializedTick(
+                poolId, toTick, tickSpacing, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
+            );
+
+            if (initialized) {
+                (int128 liquidityDelta,) = core.poolTicks(poolId, tick);
+                uint256 v;
+                assembly ("memory-safe") {
+                    v := or(shl(128, tick), and(liquidityDelta, 0xffffffffffffffffffffffffffffffff))
+                }
+                tickTuples.p(v);
+            }
+
+            toTick = tick - 1;
+        }
+
+        ticks = new TickDelta[](tickTuples.length());
+
+        uint256 index = 0;
+
+        while (tickTuples.length() > 0) {
+            uint256 tPacked = tickTuples.pop();
+            int32 tickNumber;
+            int128 liquidityDelta;
+            assembly ("memory-safe") {
+                tickNumber := shr(128, tPacked)
+                liquidityDelta := and(tPacked, 0xffffffffffffffffffffffffffffffff)
+            }
+            ticks[index++] = TickDelta(tickNumber, liquidityDelta);
+        }
     }
 
-    function _nextInitializedTicks(bytes32 poolId, int32 fromTick, uint32 minTickSpacings)
-        internal
-        returns (TickDelta[] memory ticks)
-    {}
-
-    function nextInitializedTicks(PoolKey calldata poolKey, int32 fromTick, uint32 minTickSpacings)
-        public
+    function getInitializedTicksInRange(PoolKey memory poolKey, int32 fromTick, int32 toTick)
+        external
+        view
         returns (TickDelta[] memory ticks)
     {
-        ticks = _nextInitializedTicks(poolKey.toPoolId(), fromTick, minTickSpacings);
+        return _getInitializedTicksInRange(poolKey.toPoolId(), fromTick, toTick, poolKey.tickSpacing);
     }
 }

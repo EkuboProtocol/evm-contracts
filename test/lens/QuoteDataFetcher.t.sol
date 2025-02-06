@@ -31,5 +31,17 @@ contract QuoteDataFetcherTest is FullTest {
         assertEq(qd[0].liquidity, liqA + liqB);
         assertEq(qd[0].sqrtRatio, uint256(1) << 128);
         assertEq(qd[0].tick, 0);
+        assertEq(qd[0].ticks.length, 5);
+        assertEq(qd[0].ticks[0].number, -400);
+        assertEq(qd[0].ticks[1].number, -200);
+        assertEq(qd[0].ticks[2].number, -50);
+        assertEq(qd[0].ticks[3].number, 50);
+        assertEq(qd[0].ticks[4].number, 250);
+
+        assertEq(qd[0].ticks[0].liquidityDelta, int128(liqC));
+        assertEq(qd[0].ticks[1].liquidityDelta, -int128(liqC));
+        assertEq(qd[0].ticks[2].liquidityDelta, int128(liqA));
+        assertEq(qd[0].ticks[3].liquidityDelta, -int128(liqA));
+        assertEq(qd[0].ticks[4].liquidityDelta, int128(liqD));
     }
 }

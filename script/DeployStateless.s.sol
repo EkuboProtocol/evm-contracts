@@ -9,6 +9,7 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {Router} from "../src/Router.sol";
 import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
+import {QuoteDataFetcher} from "../src/lens/QuoteDataFetcher.sol";
 
 contract DeployStatelessScript is Script {
     function run() public {
@@ -24,6 +25,7 @@ contract DeployStatelessScript is Script {
         new CoreDataFetcher{salt: salt}(core);
         new SimpleSwapper{salt: salt}(core);
         new SimpleQuoter{salt: salt}(core);
+        new QuoteDataFetcher{salt: salt}(core);
         new TokenDataFetcher{salt: salt}();
 
         vm.stopBroadcast();

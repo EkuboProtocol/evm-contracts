@@ -93,4 +93,27 @@ library CoreLib {
 
         savedBalance = uint256(core.unsafeRead(key));
     }
+
+    function poolTicks(ICore core, bytes32 poolId, int32 tick)
+        internal
+        view
+        returns (int128 liquidityDelta, uint128 liquidityNet)
+    {
+        bytes32 key;
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(32, 6)
+            let b := keccak256(0, 64)
+            mstore(0, tick)
+            mstore(32, b)
+            key := keccak256(0, 64)
+        }
+
+        bytes32 data = core.unsafeRead(key);
+
+        // takes only least significant 128 bits
+        liquidityDelta = int128(uint128(uint256(data)));
+        // takes only most significant 128 bits
+        liquidityNet = uint128(bytes16(data));
+    }
 }

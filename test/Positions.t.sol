@@ -8,8 +8,11 @@ import {FullTest} from "./FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 
 contract PositionsTest is FullTest {
+    using CoreLib for *;
+
     function test_metadata() public view {
         assertEq(positions.name(), "Ekubo Positions");
         assertEq(positions.symbol(), "ekuPo");
@@ -42,11 +45,43 @@ contract PositionsTest is FullTest {
         assertEq(token0.balanceOf(address(core)), 100);
         assertEq(token1.balanceOf(address(core)), 100);
 
+        (int128 liquidityDeltaLower, uint128 liquidityNetLower) = core.poolTicks(poolKey.toPoolId(), -100);
+        assertEq(liquidityDeltaLower, int128(liquidity), "lower.liquidityDelta");
+        assertEq(liquidityNetLower, liquidity, "lower.liquidityNet");
+        (int128 liquidityDeltaUpper, uint128 liquidityNetUpper) = core.poolTicks(poolKey.toPoolId(), 100);
+        assertEq(liquidityNetUpper, liquidity, "upper.liquidityNet");
+        assertEq(liquidityDeltaUpper, -int128(liquidity), "upper.liquidityDelta");
+
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity);
 
         // original 100, rounded down, minus the 50% fee
         assertEq(amount0, 49);
         assertEq(amount1, 49);
+    }
+
+    function test_mintAndDeposit_shared_tick_boundary(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        Bounds memory boundsA = Bounds({lower: -100, upper: 100});
+        Bounds memory boundsB = Bounds({lower: -300, upper: -100});
+
+        (, uint128 liquidityA,,) = positions.mintAndDeposit(poolKey, boundsA, 100, 100, 0);
+        (, uint128 liquidityB,,) = positions.mintAndDeposit(poolKey, boundsB, 100, 100, 0);
+
+        (int128 liquidityDelta, uint128 liquidityNet) = core.poolTicks(poolKey.toPoolId(), -300);
+        assertEq(liquidityDelta, int128(liquidityB));
+        assertEq(liquidityNet, liquidityB);
+
+        (liquidityDelta, liquidityNet) = core.poolTicks(poolKey.toPoolId(), -100);
+        assertEq(liquidityDelta, int128(liquidityA) - int128(liquidityB));
+        assertEq(liquidityNet, liquidityB + liquidityA);
+
+        (liquidityDelta, liquidityNet) = core.poolTicks(poolKey.toPoolId(), 100);
+        assertEq(liquidityDelta, -int128(liquidityA));
+        assertEq(liquidityNet, liquidityA);
     }
 
     function test_collectFees_amount0(CallPoints memory callPoints) public {

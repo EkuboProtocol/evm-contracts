@@ -33,11 +33,15 @@ contract CoreDataFetcher is UsesCore {
         position = core.poolPositions(poolKey.toPoolId(), positionKey.toPositionId());
     }
 
-    function savedBalances(ICore core, address owner, address token, bytes32 salt)
+    function savedBalances(address owner, address token, bytes32 salt) external view returns (uint256 savedBalance) {
+        savedBalance = core.savedBalances(owner, token, salt);
+    }
+
+    function poolTicks(bytes32 poolId, int32 tick)
         external
         view
-        returns (uint256 savedBalance)
+        returns (int128 liquidityDelta, uint128 liquidityNet)
     {
-        savedBalance = core.savedBalances(owner, token, salt);
+        (liquidityDelta, liquidityNet) = core.poolTicks(poolId, tick);
     }
 }

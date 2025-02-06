@@ -291,8 +291,6 @@ contract RouterTest is FullTest {
         Delta[][] memory deltas = router.multiMultihopSwap(swaps, -808);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(logs.length, 6);
-        uint256 sqrtRatio;
-        int32 tick;
         // swap events emit have 0 topics and come from core
         for (uint256 i = 0; i < 4; i++) {
             assertEq(logs[i].emitter, address(core));
@@ -304,33 +302,27 @@ contract RouterTest is FullTest {
             assertEq(poolId, poolKey.toPoolId());
 
             assertEq(uint256(LibBytes.load(logs[i].data, 84)) >> 128, liquidity);
-
-            sqrtRatio = uint256(LibBytes.load(logs[i].data, 100)) >> 64;
-            // sqrt ratio between the bounds since we didn't go out of range
-            assertLe(sqrtRatio, tickToSqrtRatio(100));
-            assertGe(sqrtRatio, tickToSqrtRatio(-100));
-
-            tick = int32(uint32(bytes4(LibBytes.load(logs[i].data, 124))));
-            assertLe(tick, 100);
-            assertGe(tick, -100);
-            assertNotEq(tick, 0);
         }
-
-        (uint256 sr, int32 t) = core.poolPrice(poolKey.toPoolId());
-        assertEq(sr, sqrtRatio);
-        assertEq(t, tick);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 52)))), deltas[0][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 68)))), deltas[0][0].amount1);
+        assertEq(uint256(LibBytes.load(logs[0].data, 100)) >> 64, 340284068297894840549961649270447677369);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[0].data, 124)))), 9);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 52)))), deltas[0][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 68)))), deltas[0][1].amount1);
+        assertEq(uint256(LibBytes.load(logs[1].data, 100)) >> 64, 340280631533626427916002835136673027763);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[1].data, 124)))), -11);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 52)))), deltas[1][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 68)))), deltas[1][0].amount1);
+        assertEq(uint256(LibBytes.load(logs[2].data, 100)) >> 64, 340282332893229288497002972529139644052);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[2].data, 124)))), -1);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 52)))), deltas[1][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 68)))), deltas[1][1].amount1);
+        assertEq(uint256(LibBytes.load(logs[3].data, 100)) >> 64, 340278930156329870047538800119461773155);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[3].data, 124)))), -21);
     }
 
     function test_basicSwap_price_2x(CallPoints memory callPoints) public {

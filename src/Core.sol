@@ -285,7 +285,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             }
 
             bytes32 positionId = positionKey.toPositionId();
-            Position memory position = poolPositions[poolId][positionId];
+            Position storage position = poolPositions[poolId][positionId];
 
             FeesPerLiquidity memory feesPerLiquidityInside = getPoolFeesPerLiquidityInside(poolId, params.bounds);
 
@@ -294,14 +294,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             uint128 liquidityNext = addLiquidityDelta(position.liquidity, params.liquidityDelta);
 
             if (liquidityNext != 0) {
+                position.liquidity = liquidityNext;
                 position.feesPerLiquidityInsideLast =
                     feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
-                position.liquidity = liquidityNext;
-                poolPositions[poolId][positionId] = position;
             } else {
                 if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
-                poolPositions[poolId][positionId] =
-                    Position({liquidity: 0, feesPerLiquidityInsideLast: FeesPerLiquidity(0, 0)});
+                position.liquidity = 0;
+                position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
             }
 
             updateTick(poolId, params.bounds.lower, poolKey.tickSpacing, params.liquidityDelta, false);

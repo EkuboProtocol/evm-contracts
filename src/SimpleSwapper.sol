@@ -6,6 +6,7 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./interfaces/IFlashAccountant.sol";
 import {isPriceIncreasing} from "./math/swap.sol";
 
 contract SimpleQuoter is BaseLocker {
@@ -71,15 +72,25 @@ contract SimpleSwapper is BaseLocker, SlippageChecker, PayableMulticallable {
             uint256 skipAhead
         ) = abi.decode(data, (address, PoolKey, bool, int128, uint256, uint256));
 
-        (int128 delta0, int128 delta1) =
-            ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
+        bool increasing = isPriceIncreasing(amount, isToken1);
 
-        if (isPriceIncreasing(amount, isToken1)) {
+        uint128 value = poolKey.token0 == NATIVE_TOKEN_ADDRESS && !increasing && amount > 0 ? uint128(amount) : 0;
+
+        (int128 delta0, int128 delta1) = ICore(payable(accountant)).swap{value: value}(
+            poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead)
+        );
+
+        if (increasing) {
             withdraw(poolKey.token0, uint128(-delta0), swapper);
             pay(swapper, poolKey.token1, uint128(delta1));
         } else {
             withdraw(poolKey.token1, uint128(-delta1), swapper);
-            pay(swapper, poolKey.token0, uint128(delta0));
+            // we already paid in the swap call, so refund it
+            if (value != 0) {
+                withdraw(poolKey.token0, uint128(value) - uint128(delta0), swapper);
+            } else {
+                pay(swapper, poolKey.token0, uint128(delta0) - uint128(value));
+            }
         }
 
         result = abi.encode(delta0, delta1);

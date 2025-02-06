@@ -148,13 +148,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         emit LoadedBalance(msg.sender, token, salt, amount);
     }
 
-    function save(address owner, address token, bytes32 salt, uint128 amount) external {
+    function save(address owner, address token, bytes32 salt, uint128 amount) external payable {
         (uint256 id,) = _requireLocker();
 
         unchecked {
             // this is always safe because amount is a uint128 and savedBalances a uint256
             savedBalances[owner][token][salt] += amount;
-            _accountDebt(id, token, int256(uint256(amount)));
+            _maybeAccountDebtToken0(id, token, int256(uint256(amount)));
         }
 
         emit SavedBalance(owner, token, salt, amount);
@@ -185,7 +185,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
     // key, i.e. the current locker _must_ be the extension.
     // The extension must call this function within a lock callback.
-    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
+    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
         (uint256 id, address locker) = _requireLocker();
         require(locker == poolKey.extension);
 
@@ -212,7 +212,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             }
         }
 
-        _accountDebt(id, poolKey.token0, int256(uint256(amount0)));
+        _maybeAccountDebtToken0(id, poolKey.token0, int256(uint256(amount0)));
         _accountDebt(id, poolKey.token1, int256(uint256(amount1)));
 
         emit FeesAccumulated(poolId, amount0, amount1);
@@ -234,8 +234,25 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         tickInfo.liquidityNet = liquidityNetNext;
     }
 
+    function _maybeAccountDebtToken0(uint256 id, address token0, int256 debtChange) private {
+        if (msg.value == 0) {
+            _accountDebt(id, token0, debtChange);
+        } else {
+            assert(msg.value <= uint256(type(int256).max));
+
+            if (token0 == NATIVE_TOKEN_ADDRESS) {
+                // checked math on purpose so we don't overflow
+                _accountDebt(id, NATIVE_TOKEN_ADDRESS, debtChange - int256(msg.value));
+            } else {
+                _accountDebt(id, token0, debtChange);
+                _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+            }
+        }
+    }
+
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
+        payable
         returns (int128 delta0, int128 delta1)
     {
         (uint256 id, address locker) = _requireLocker();
@@ -310,7 +327,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
             }
 
-            _accountDebt(id, poolKey.token0, delta0);
+            _maybeAccountDebtToken0(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
             emit PositionUpdated(locker, poolId, params, delta0, delta1);
@@ -355,6 +372,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
     function swap(PoolKey memory poolKey, SwapParameters memory params)
         external
+        payable
         returns (int128 delta0, int128 delta1)
     {
         (uint256 id, address locker) = _requireLocker();
@@ -491,7 +509,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)
             }
 
-            _accountDebt(id, poolKey.token0, delta0);
+            _maybeAccountDebtToken0(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
             assembly ("memory-safe") {

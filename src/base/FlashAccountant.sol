@@ -45,7 +45,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 let deltaSlot := keccak256(0, 32)
                 let current := tload(deltaSlot)
 
-                // we know this never overflows because debtChange is only ever derived from 128 bit values in this contract
+                // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
                 let next := add(current, debtChange)
 
                 let nextZero := iszero(next)

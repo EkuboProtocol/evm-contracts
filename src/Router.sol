@@ -10,6 +10,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/swap.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./interfaces/IFlashAccountant.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 struct RouteNode {
@@ -68,7 +69,16 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         node.sqrtRatioLimit
                     );
 
-                    (int128 delta0, int128 delta1) = core.swap(
+                    // in the case that the first swap is an exact input ETH swap, we make the payment here, directly
+                    uint128 value = uint128(
+                        FixedPointMathLib.ternary(
+                            j == 0 && tokenAmount.token == NATIVE_TOKEN_ADDRESS && tokenAmount.amount > 0,
+                            uint128(tokenAmount.amount),
+                            0
+                        )
+                    );
+
+                    (int128 delta0, int128 delta1) = core.swap{value: value}(
                         node.poolKey,
                         SwapParameters({
                             amount: tokenAmount.amount,
@@ -83,7 +93,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                     if (j == 0) {
                         firstSwapAmount = isToken1
                             ? TokenAmount({amount: delta1, token: node.poolKey.token1})
-                            : TokenAmount({amount: delta0, token: node.poolKey.token0});
+                            : TokenAmount({amount: delta0 - int128(value), token: node.poolKey.token0});
                     }
 
                     if (isToken1) {
@@ -96,7 +106,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 }
 
                 // all the swaps must have the same input/output token
-                assert(i == 0 || (calculatedToken == firstSwapAmount.token && specifiedToken == tokenAmount.token));
+                assert(i == 0 || (specifiedToken == firstSwapAmount.token && calculatedToken == tokenAmount.token));
                 specifiedToken = firstSwapAmount.token;
                 totalSpecified += firstSwapAmount.amount;
                 calculatedToken = tokenAmount.token;

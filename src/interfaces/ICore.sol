@@ -102,7 +102,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     function load(address token, bytes32 salt, uint128 amount) external;
 
     // Saves an amount of a token to be used later.
-    function save(address owner, address token, bytes32 salt, uint128 amount) external;
+    function save(address owner, address token, bytes32 salt, uint128 amount) external payable;
 
     // Returns the pool fees per liquidity inside the given bounds.
     function getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds)
@@ -113,10 +113,11 @@ interface ICore is IFlashAccountant, IExposedStorage {
     // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
     // key, i.e. the current locker _must_ be the extension.
     // The extension must call this function within a lock callback.
-    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external;
+    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable;
 
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
+        payable
         returns (int128 delta0, int128 delta1);
 
     function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
@@ -125,5 +126,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
 
     function swap(PoolKey memory poolKey, SwapParameters memory params)
         external
+        payable
         returns (int128 delta0, int128 delta1);
 }

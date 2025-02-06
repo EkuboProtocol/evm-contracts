@@ -10,6 +10,7 @@ import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 
 contract RouterTest is FullTest {
@@ -352,18 +353,34 @@ contract RouterTest is FullTest {
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
-        vm.snapshotGasLastCall("swap 100 token0");
+        vm.snapshotGasLastCall("swap 100 token0 for token1");
     }
 
-    function test_swap_eth_gas() public {
+    function test_swap_token_for_eth_gas() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        token1.approve(address(router), 100);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 100}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap 100 token0 for eth");
+    }
+
+    function test_swap_eth_for_token_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
             type(int256).min
         );
-        vm.snapshotGasLastCall("swap 100 wei of eth");
+        vm.snapshotGasLastCall("swap 100 wei of eth for token");
     }
+
+    receive() external payable {}
 }

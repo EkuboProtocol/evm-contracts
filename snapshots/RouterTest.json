@@ -1,4 +1,5 @@
 {
-  "swap 100 token0": "58674",
-  "swap 100 wei of eth": "59831"
+  "swap 100 token0 for eth": "62975",
+  "swap 100 token0 for token1": "58796",
+  "swap 100 wei of eth for token": "58406"
 }

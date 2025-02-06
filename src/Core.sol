@@ -30,6 +30,7 @@ import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math
 import {ICore, UpdatePositionParameters, SwapParameters, IExtension} from "./interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
+import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING, MAX_TICK_SPACING} from "./math/constants.sol";
 
 contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
@@ -226,7 +227,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         int128 liquidityDeltaNext =
             isUpper ? tickInfo.liquidityDelta - liquidityDelta : tickInfo.liquidityDelta + liquidityDelta;
 
-        if ((tickInfo.liquidityNet == 0) != (liquidityNetNext == 0)) {
+        // no need to flip ticks for tickSpacing == FULL_RANGE_ONLY_TICK_SPACING because we don't use the bitmaps
+        if ((tickInfo.liquidityNet == 0) != (liquidityNetNext == 0) && tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
             flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
         }
 
@@ -428,20 +430,40 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             }
 
             while (amountRemaining != 0 && sqrtRatio != params.sqrtRatioLimit) {
-                (int32 nextTick, bool isInitialized) = increasing
-                    ? initializedTickBitmaps.findNextInitializedTick(tick, poolKey.tickSpacing, params.skipAhead)
-                    : initializedTickBitmaps.findPrevInitializedTick(tick, poolKey.tickSpacing, params.skipAhead);
+                int32 nextTick;
+                bool isInitialized;
+                uint256 nextTickSqrtRatio;
+                SwapResult memory result;
 
-                uint256 nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                uint256 limitedNextSqrtRatio = FixedPointMathLib.ternary(
-                    increasing,
-                    FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit),
-                    FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit)
-                );
+                if (poolKey.tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
+                    (nextTick, isInitialized) = increasing
+                        ? initializedTickBitmaps.findNextInitializedTick(tick, poolKey.tickSpacing, params.skipAhead)
+                        : initializedTickBitmaps.findPrevInitializedTick(tick, poolKey.tickSpacing, params.skipAhead);
 
-                SwapResult memory result = swapResult(
-                    sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
-                );
+                    nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                    uint256 limitedNextSqrtRatio = FixedPointMathLib.ternary(
+                        increasing,
+                        FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit),
+                        FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit)
+                    );
+                    result = swapResult(
+                        sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
+                    );
+                } else {
+                    // we treat it as always initialized. the tick will rarely be crossed but when it is crossed, it has no effect
+                    isInitialized = true;
+                    (nextTick, nextTickSqrtRatio) = increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
+
+                    uint256 limitedNextSqrtRatio = FixedPointMathLib.ternary(
+                        increasing,
+                        FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit),
+                        FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit)
+                    );
+
+                    result = swapResult(
+                        sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
+                    );
+                }
 
                 // this accounts the fees into the feesPerLiquidity memory struct
                 assembly ("memory-safe") {

@@ -4,7 +4,9 @@ pragma solidity =0.8.28;
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/math/constants.sol";
+import {
+    MIN_SQRT_RATIO, MAX_SQRT_RATIO, FULL_RANGE_ONLY_TICK_SPACING, MIN_TICK, MAX_TICK
+} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
@@ -380,6 +382,18 @@ contract RouterTest is FullTest {
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 wei of eth for token");
+    }
+
+    function test_swap_eth_for_token_full_range_pool_gas() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 127, FULL_RANGE_ONLY_TICK_SPACING);
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);
+
+        router.swap{value: 100}(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
     }
 
     receive() external payable {}

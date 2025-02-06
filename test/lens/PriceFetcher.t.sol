@@ -149,7 +149,7 @@ contract PriceFetcherTest is BaseOracleTest {
         PriceFetcher.PeriodAverage memory average =
             pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 12);
         // combined should be about sqrt(1000*12000) = ~3464
-        assertEq(average.liquidity, 3462, "l[t=18]");
+        assertEq(average.liquidity, 3462, "l[t=12]");
         assertEq(average.tick, 2079441); // ~= 8
 
         // first half of first period is the same

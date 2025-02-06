@@ -9,7 +9,7 @@ import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICo
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 function oracleCallPoints() pure returns (CallPoints memory) {
@@ -29,7 +29,6 @@ contract Oracle is ExposedStorage, BaseExtension {
     error PairsWithNativeTokenOnly();
     error FeeMustBeZero();
     error TickSpacingMustBeMaximum();
-    error BoundsMustBeMaximum();
     error FutureTime();
     error NoPreviousSnapshotExists(address token, uint64 time);
     error EndTimeLessThanStartTime();
@@ -79,7 +78,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             token0: NATIVE_TOKEN_ADDRESS,
             token1: token,
             fee: 0,
-            tickSpacing: MAX_TICK_SPACING,
+            tickSpacing: FULL_RANGE_ONLY_TICK_SPACING,
             extension: address(this)
         });
     }
@@ -148,7 +147,7 @@ contract Oracle is ExposedStorage, BaseExtension {
     function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
         if (key.fee != 0) revert FeeMustBeZero();
-        if (key.tickSpacing != MAX_TICK_SPACING) revert TickSpacingMustBeMaximum();
+        if (key.tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         address token = key.token1;
 
@@ -166,10 +165,6 @@ contract Oracle is ExposedStorage, BaseExtension {
         override
         onlyCore
     {
-        if (params.bounds.lower != MIN_TICK || params.bounds.upper != MAX_TICK) {
-            revert BoundsMustBeMaximum();
-        }
-
         if (params.liquidityDelta != 0) {
             maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token1);
         }

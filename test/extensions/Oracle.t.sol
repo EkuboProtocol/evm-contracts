@@ -7,7 +7,14 @@ import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
-import {MIN_TICK, MAX_TICK, MIN_SQRT_RATIO, MAX_SQRT_RATIO, MAX_TICK_SPACING} from "../../src/math/constants.sol";
+import {
+    MIN_TICK,
+    MAX_TICK,
+    MIN_SQRT_RATIO,
+    MAX_SQRT_RATIO,
+    MAX_TICK_SPACING,
+    FULL_RANGE_ONLY_TICK_SPACING
+} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle} from "../../src/extensions/Oracle.sol";
@@ -16,6 +23,7 @@ import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
+import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
 
 abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
@@ -71,11 +79,11 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function createOraclePool(address quoteToken, int32 tick) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, 0, MAX_TICK_SPACING, address(oracle));
+        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
     }
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal {
-        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, 0, MAX_TICK_SPACING, address(oracle));
+        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
         Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
         // todo: finish this for the price fetcher tests
         (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);
@@ -345,18 +353,18 @@ contract OracleTest is BaseOracleTest {
 
     function test_createPool_beforeInitializePool_reverts() public {
         vm.expectRevert(Oracle.PairsWithNativeTokenOnly.selector);
-        createPool(address(token0), address(token1), 0, 0, MAX_TICK_SPACING, address(oracle));
+        createPool(address(token0), address(token1), 0, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
 
         vm.expectRevert(Oracle.TickSpacingMustBeMaximum.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, MAX_TICK_SPACING - 1, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, 100, address(oracle));
 
         vm.expectRevert(Oracle.FeeMustBeZero.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, MAX_TICK_SPACING, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
     }
 
     function test_createPosition_failsForPositionsNotWideEnough() public {
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
-        vm.expectRevert(Oracle.BoundsMustBeMaximum.selector);
+        vm.expectRevert(FullRangeOnlyPool.selector);
         positions.mintAndDeposit{value: 100}(
             poolKey, Bounds(-int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING)), 100, 100, 0
         );

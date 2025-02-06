@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 
 using {toPositionId} for PositionKey global;
 using {validateBounds} for Bounds global;
@@ -15,8 +15,12 @@ struct Bounds {
 error BoundsOrder();
 error MinMaxBounds();
 error BoundsTickSpacing();
+error FullRangeOnlyPool();
 
 function validateBounds(Bounds memory bounds, uint32 tickSpacing) pure {
+    if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+        if (bounds.lower != MIN_TICK || bounds.upper != MAX_TICK) revert FullRangeOnlyPool();
+    }
     if (bounds.lower >= bounds.upper) revert BoundsOrder();
     if (bounds.lower < MIN_TICK || bounds.upper > MAX_TICK) revert MinMaxBounds();
     int32 spacing = int32(tickSpacing);

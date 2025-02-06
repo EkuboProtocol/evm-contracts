@@ -40,7 +40,7 @@ interface IFlashAccountant {
     // Token must not be the NATIVE_TOKEN_ADDRESS, as the `balanceOf` calls will fail.
     // If you want to pay in the chain's native token, simply transfer it to this contract using a call.
     // The payer must implement payCallback in which they must transfer the token to Core.
-    function pay(address token) external;
+    function pay(address token) external returns (uint128 payment);
 
     // Withdraws a token amount from the accountant to the given recipient.
     // The contract must be locked, as it tracks the withdrawn amount against the current locker's delta.

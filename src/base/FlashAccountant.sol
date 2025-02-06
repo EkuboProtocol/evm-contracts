@@ -92,7 +92,7 @@ abstract contract FlashAccountant is IFlashAccountant {
             // Check if something is nonzero
             let nonzeroDebtCount := tload(add(_NONZERO_DEBT_COUNT_OFFSET, id))
             if nonzeroDebtCount {
-                // DebtsNotZeroed(uint256)
+                // cast sig "DebtsNotZeroed(uint256)"
                 mstore(0x00, 0x9731ba37)
                 mstore(0x20, id)
                 revert(0x1c, 0x24)
@@ -139,13 +139,22 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    function pay(address token) external {
+    function pay(address token) external returns (uint128 payment) {
         (uint256 id,) = _requireLocker();
-
-        uint256 tokenBalanceBefore = SafeTransferLib.balanceOf(token, address(this));
 
         assembly ("memory-safe") {
             let free := mload(0x40)
+
+            mstore(20, address()) // Store the `account` argument.
+            mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
+            let tokenBalanceBefore :=
+                mul( // The arguments of `mul` are evaluated from right to left.
+                    mload(free),
+                    and( // The arguments of `and` are evaluated from right to left.
+                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                        staticcall(gas(), token, 0x10, 0x24, free, 0x20)
+                    )
+                )
 
             // Prepare call to "payCallback(uint256,address)"
             mstore(free, shl(224, 0x599d0714))
@@ -156,30 +165,40 @@ abstract contract FlashAccountant is IFlashAccountant {
             calldatacopy(add(free, 68), 36, sub(calldatasize(), 36))
 
             // Call the forwardee with the packed data
-            let success := call(gas(), caller(), 0, free, add(32, calldatasize()), 0, 0)
-
             // Pass through the error on failure
-            if iszero(success) {
+            if iszero(call(gas(), caller(), 0, free, add(32, calldatasize()), 0, 0)) {
                 returndatacopy(0, 0, returndatasize())
                 revert(0, returndatasize())
             }
-        }
 
-        uint256 tokenBalanceAfter = SafeTransferLib.balanceOf(token, address(this));
+            // Arguments are still in scratch, we don't need to rewrite them
+            let tokenBalanceAfter :=
+                mul( // The arguments of `mul` are evaluated from right to left.
+                    mload(0x20),
+                    and( // The arguments of `and` are evaluated from right to left.
+                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                        staticcall(gas(), token, 0x10, 0x24, 0x20, 0x20)
+                    )
+                )
 
-        if (tokenBalanceAfter <= tokenBalanceBefore) {
-            revert NoPaymentMade();
-        }
+            if lt(tokenBalanceAfter, tokenBalanceBefore) {
+                // cast sig "NoPaymentMade()"
+                mstore(0x00, 0x01b243b9)
+                revert(0x1c, 4)
+            }
 
-        unchecked {
-            uint256 payment = tokenBalanceAfter - tokenBalanceBefore;
+            payment := sub(tokenBalanceAfter, tokenBalanceBefore)
 
             // We never expect tokens to have this much total supply
-            if (payment > type(uint128).max) revert PaymentOverflow();
-
-            // The unary negative operator never fails because payment is less than max uint128
-            _accountDebt(id, token, -int256(payment));
+            if gt(payment, 0xffffffffffffffffffffffffffffffff) {
+                // cast sig "PaymentOverflow()"
+                mstore(0x00, 0x9cac58ca)
+                revert(0x1c, 4)
+            }
         }
+
+        // The unary negative operator never fails because payment is less than max uint128
+        _accountDebt(id, token, -int256(uint256(payment)));
     }
 
     function withdraw(address token, address recipient, uint128 amount) external {

@@ -64,12 +64,12 @@ abstract contract BaseOracleTest is FullTest {
 
         if (tick < targetTick) {
             uint256 targetRatio = tickToSqrtRatio(targetTick);
-            TestToken(poolKey.token1).approve(address(swapper), type(uint256).max);
-            swapper.swap(poolKey, false, type(int128).min, targetRatio, 0);
+            TestToken(poolKey.token1).approve(address(router), type(uint256).max);
+            router.swap(poolKey, false, type(int128).min, targetRatio, 0);
         } else if (tick > targetTick) {
             uint256 targetRatio = tickToSqrtRatio(targetTick) + 1;
-            vm.deal(address(swapper), amount0Delta(sqrtRatio, targetRatio, liquidity, true));
-            swapper.swap(poolKey, true, type(int128).min, targetRatio, 0);
+            vm.deal(address(router), amount0Delta(sqrtRatio, targetRatio, liquidity, true));
+            router.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }
 
         (, tick) = core.poolPrice(poolKey.toPoolId());
@@ -641,24 +641,24 @@ contract OracleTest is BaseOracleTest {
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
         updateOraclePoolLiquidity(address(token1), 1e18);
 
-        TestToken(poolKey.token1).approve(address(swapper), type(uint256).max);
+        TestToken(poolKey.token1).approve(address(router), type(uint256).max);
 
         advanceTime(1);
-        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
-        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
 
         advanceTime(1);
-        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token1 in with write");
 
         advanceTime(1);
-        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token0 in with write");
 
-        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token1 in no write");
 
-        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token0 in no write");
     }
 

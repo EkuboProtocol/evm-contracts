@@ -201,8 +201,8 @@ contract PositionsTest is FullTest {
             type(int256).min
         );
 
-        token1.approve(address(swapper), type(uint256).max);
-        swapper.swap({
+        token1.approve(address(router), type(uint256).max);
+        router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: type(int128).max,
@@ -242,8 +242,8 @@ contract PositionsTest is FullTest {
             type(int256).min
         );
 
-        token0.approve(address(swapper), type(uint256).max);
-        swapper.swap({
+        token0.approve(address(router), type(uint256).max);
+        router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: type(int128).max,
@@ -309,8 +309,8 @@ contract PositionsTest is FullTest {
         vm.snapshotGasLastCall("mintAndDeposit full range max");
         assertGt(liquidity, 0);
 
-        token1.approve(address(swapper), type(uint256).max);
-        (int128 delta0, int128 delta1) = swapper.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
         assertEq(delta0, 0);
 
         (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
@@ -338,8 +338,8 @@ contract PositionsTest is FullTest {
         vm.snapshotGasLastCall("mintAndDeposit full range min");
         assertGt(liquidity, 0);
 
-        token0.approve(address(swapper), type(uint256).max);
-        (int128 delta0, int128 delta1) = swapper.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
         assertEq(delta1, 0);
 
         (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());

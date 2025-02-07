@@ -26,7 +26,6 @@ import {Positions} from "../src/Positions.sol";
 import {TestToken} from "./TestToken.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
-import {SimpleSwapper} from "../src/SimpleSwapper.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
@@ -75,7 +74,7 @@ contract Handler is StdUtils, StdAssertions {
 
     ICore immutable core;
     Positions immutable positions;
-    SimpleSwapper immutable swapper;
+    Router immutable router;
     TestToken immutable token0;
     TestToken immutable token1;
     FeeAccumulatingExtension immutable fae;
@@ -88,20 +87,20 @@ contract Handler is StdUtils, StdAssertions {
         ICore _core,
         FeeAccumulatingExtension _fae,
         Positions _positions,
-        SimpleSwapper _swapper,
+        Router _router,
         TestToken _token0,
         TestToken _token1
     ) {
         core = _core;
         fae = _fae;
         positions = _positions;
-        swapper = _swapper;
+        router = _router;
         token0 = _token0;
         token1 = _token1;
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
-        token0.approve(address(swapper), type(uint256).max);
-        token1.approve(address(swapper), type(uint256).max);
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
         token0.approve(address(fae), type(uint256).max);
         token1.approve(address(fae), type(uint256).max);
         positionId = positions.mint();
@@ -241,7 +240,7 @@ contract Handler is StdUtils, StdAssertions {
 
         params.skipAhead = bound(params.skipAhead, 0, type(uint8).max);
 
-        try swapper.swap{gas: 15000000}({
+        try router.swap{gas: 15000000}({
             poolKey: poolKey,
             sqrtRatioLimit: params.sqrtRatioLimit,
             skipAhead: params.skipAhead,
@@ -302,7 +301,7 @@ contract SolvencyInvariantTest is FullTest {
         MockExtension(actual).register(core, byteToCallPoints(0xff));
         FeeAccumulatingExtension fae = FeeAccumulatingExtension(actual);
 
-        handler = new Handler(core, fae, positions, swapper, token0, token1);
+        handler = new Handler(core, fae, positions, router, token0, token1);
         vm.prank(owner);
         core.transferOwnership(address(handler));
         vm.stopPrank();

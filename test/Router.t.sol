@@ -402,24 +402,6 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 wei of eth for token");
     }
 
-    function test_swap_token_for_eth_gas_simple() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
-
-        token1.approve(address(swapper), 100);
-
-        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
-        vm.snapshotGasLastCall("simple swap 100 token0 for eth");
-    }
-
-    function test_swap_eth_for_token_gas_simple() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
-
-        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
-        vm.snapshotGasLastCall("simple swap 100 wei of eth for token");
-    }
-
     function test_swap_eth_for_token_full_range_pool_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 127, FULL_RANGE_ONLY_TICK_SPACING);
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);

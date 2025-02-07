@@ -207,8 +207,20 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         }
     }
 
-    function swap(RouteNode calldata node, TokenAmount calldata tokenAmount, int256 calculatedAmountThreshold)
+    function swap(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
         external
+        payable
+        returns (int128 delta0, int128 delta1)
+    {
+        (delta0, delta1) = swap(
+            RouteNode(poolKey, sqrtRatioLimit, skipAhead),
+            TokenAmount(isToken1 ? poolKey.token1 : poolKey.token0, amount),
+            type(int256).min
+        );
+    }
+
+    function swap(RouteNode memory node, TokenAmount memory tokenAmount, int256 calculatedAmountThreshold)
+        public
         payable
         returns (int128 delta0, int128 delta1)
     {

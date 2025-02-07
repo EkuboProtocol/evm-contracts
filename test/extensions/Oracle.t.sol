@@ -642,6 +642,9 @@ contract OracleTest is BaseOracleTest {
         updateOraclePoolLiquidity(address(token1), 1e18);
 
         TestToken(poolKey.token1).approve(address(swapper), type(uint256).max);
+        advanceTime(1);
+        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
 
         advanceTime(1);
         swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);

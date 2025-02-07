@@ -7,7 +7,7 @@ import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionKey} from "../types/positionKey.sol";
 import {Position} from "../types/position.sol";
-import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
 
 struct TickDelta {
@@ -78,38 +78,40 @@ contract QuoteDataFetcher is UsesCore {
     {
         assert(toTick >= fromTick);
 
-        DynamicArrayLib.DynamicArray memory packedTicks;
+        if (tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
+            DynamicArrayLib.DynamicArray memory packedTicks;
 
-        while (toTick >= fromTick) {
-            (int32 tick, bool initialized) = core.prevInitializedTick(
-                poolId, toTick, tickSpacing, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
-            );
+            while (toTick >= fromTick) {
+                (int32 tick, bool initialized) = core.prevInitializedTick(
+                    poolId, toTick, tickSpacing, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
+                );
 
-            if (initialized && tick >= fromTick) {
-                (int128 liquidityDelta,) = core.poolTicks(poolId, tick);
-                uint256 v;
-                assembly ("memory-safe") {
-                    v := or(shl(128, tick), and(liquidityDelta, 0xffffffffffffffffffffffffffffffff))
+                if (initialized && tick >= fromTick) {
+                    (int128 liquidityDelta,) = core.poolTicks(poolId, tick);
+                    uint256 v;
+                    assembly ("memory-safe") {
+                        v := or(shl(128, tick), and(liquidityDelta, 0xffffffffffffffffffffffffffffffff))
+                    }
+                    packedTicks.p(v);
                 }
-                packedTicks.p(v);
+
+                toTick = tick - 1;
             }
 
-            toTick = tick - 1;
-        }
+            ticks = new TickDelta[](packedTicks.length());
 
-        ticks = new TickDelta[](packedTicks.length());
+            uint256 index = 0;
 
-        uint256 index = 0;
-
-        while (packedTicks.length() > 0) {
-            uint256 packed = packedTicks.pop();
-            int32 tickNumber;
-            int128 liquidityDelta;
-            assembly ("memory-safe") {
-                tickNumber := shr(128, packed)
-                liquidityDelta := and(packed, 0xffffffffffffffffffffffffffffffff)
+            while (packedTicks.length() > 0) {
+                uint256 packed = packedTicks.pop();
+                int32 tickNumber;
+                int128 liquidityDelta;
+                assembly ("memory-safe") {
+                    tickNumber := shr(128, packed)
+                    liquidityDelta := and(packed, 0xffffffffffffffffffffffffffffffff)
+                }
+                ticks[index++] = TickDelta(tickNumber, liquidityDelta);
             }
-            ticks[index++] = TickDelta(tickNumber, liquidityDelta);
         }
     }
 

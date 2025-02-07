@@ -53,6 +53,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 );
 
                 bool isToken1 = tokenAmount.token == node.poolKey.token1;
+                require(isToken1 || tokenAmount.token == node.poolKey.token0);
                 bool increasing = isPriceIncreasing(tokenAmount.amount, tokenAmount.token == node.poolKey.token1);
 
                 uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
@@ -125,6 +126,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         RouteNode memory node = s.route[j];
 
                         bool isToken1 = tokenAmount.token == node.poolKey.token1;
+                        require(isToken1 || tokenAmount.token == node.poolKey.token0);
 
                         uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
                             node.sqrtRatioLimit == 0,

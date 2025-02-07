@@ -396,7 +396,7 @@ contract RouterTest is FullTest {
 
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 wei of eth for token");
@@ -426,7 +426,7 @@ contract RouterTest is FullTest {
 
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");

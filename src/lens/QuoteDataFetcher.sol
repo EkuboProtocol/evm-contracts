@@ -44,19 +44,25 @@ contract QuoteDataFetcher is UsesCore {
                 (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolId);
                 uint128 liquidity = core.poolLiquidity(poolId);
 
-                int256 rangeSize = int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].tickSpacing)) * 256;
-                int256 minTick = int256(tick) - rangeSize;
-                int256 maxTick = int256(tick) + rangeSize;
+                int256 minTick;
+                int256 maxTick;
+                TickDelta[] memory ticks;
+                if (poolKeys[i].tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
+                    int256 rangeSize = int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].tickSpacing)) * 256;
+                    minTick = int256(tick) - rangeSize;
+                    maxTick = int256(tick) + rangeSize;
 
-                if (minTick < MIN_TICK) {
+                    if (minTick < MIN_TICK) {
+                        minTick = MIN_TICK;
+                    }
+                    if (maxTick > MAX_TICK) {
+                        maxTick = MAX_TICK;
+                    }
+                    ticks = _getInitializedTicksInRange(poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing);
+                } else {
                     minTick = MIN_TICK;
-                }
-                if (maxTick > MAX_TICK) {
                     maxTick = MAX_TICK;
                 }
-
-                TickDelta[] memory ticks =
-                    _getInitializedTicksInRange(poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing);
 
                 results[i] = QuoteData({
                     tick: tick,

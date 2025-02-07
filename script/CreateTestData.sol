@@ -10,7 +10,8 @@ import {MAX_TICK_SPACING, MAX_SQRT_RATIO, MIN_SQRT_RATIO, NATIVE_TOKEN_ADDRESS} 
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {SimpleSwapper} from "../src/SimpleSwapper.sol";
-import {Bounds, maxBounds} from "../src/types/positionKey.sol";
+import {Bounds} from "../src/types/positionKey.sol";
+import {maxBounds} from "../test/SolvencyInvariantTest.t.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 
 contract CreateTestDataScript is Script {
@@ -30,11 +31,19 @@ contract CreateTestDataScript is Script {
             address(token),
             uint128((uint256(30) << 128) / 10_000),
             5982,
+            maxBounds(5982),
             address(0),
             8517197,
             10000000000000000,
             50000000000000000000
         );
+
+        // 2 example swaps, back and forth, twice, to demonstrate gas usage
+        for (uint256 i = 0; i < 2; i++) {
+            swapper.swap{value: 100000}(poolKey, false, 100000, MIN_SQRT_RATIO, 0);
+
+            swapper.swap(poolKey, true, 100000 * 5000, MAX_SQRT_RATIO, 0);
+        }
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
@@ -51,24 +60,33 @@ contract CreateTestDataScript is Script {
             address(token),
             uint128((uint256(100) << 128) / 10_000),
             19802,
+            maxBounds(19802),
             address(0),
             8517197,
             30000000000000000,
             300000000000000000000
         );
 
-        createPool(
+        poolKey = createPool(
             baseSalt++,
             positions,
             NATIVE_TOKEN_ADDRESS,
             address(token),
             0,
             MAX_TICK_SPACING,
+            maxBounds(MAX_TICK_SPACING),
             address(oracle),
             4605172,
             1e18,
             100e18
         );
+
+        // 2 example swaps, back and forth, twice, to demonstrate gas usage
+        for (uint256 i = 0; i < 2; i++) {
+            swapper.swap{value: 100000}(poolKey, false, 100000, MIN_SQRT_RATIO, 0);
+
+            swapper.swap(poolKey, true, 100000 * 5000, MAX_SQRT_RATIO, 0);
+        }
     }
 
     function createPool(
@@ -78,6 +96,7 @@ contract CreateTestDataScript is Script {
         address tokenB,
         uint128 fee,
         uint32 tickSpacing,
+        Bounds memory bounds,
         address extension,
         int32 startingTick,
         uint128 maxAmount0,
@@ -87,8 +106,6 @@ contract CreateTestDataScript is Script {
             ? (tokenA, tokenB, startingTick, maxAmount0, maxAmount1)
             : (tokenB, tokenA, -startingTick, maxAmount1, maxAmount0);
         poolKey = PoolKey({token0: tokenA, token1: tokenB, fee: fee, tickSpacing: tickSpacing, extension: extension});
-
-        Bounds memory bounds = maxBounds(tickSpacing);
 
         bool isETH = tokenA == NATIVE_TOKEN_ADDRESS;
         bytes[] memory calls = isETH ? new bytes[](3) : new bytes[](2);

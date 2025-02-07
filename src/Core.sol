@@ -247,14 +247,18 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         if (msg.value == 0) {
             _accountDebt(id, token0, debtChange);
         } else {
-            assert(msg.value <= uint256(type(int256).max));
+            if (msg.value > type(uint128).max) revert PaymentOverflow();
 
             if (token0 == NATIVE_TOKEN_ADDRESS) {
-                // checked math on purpose so we don't overflow
-                _accountDebt(id, NATIVE_TOKEN_ADDRESS, debtChange - int256(msg.value));
+                unchecked {
+                    // checked math on purpose so we don't overflow
+                    _accountDebt(id, NATIVE_TOKEN_ADDRESS, debtChange - int256(msg.value));
+                }
             } else {
-                _accountDebt(id, token0, debtChange);
-                _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+                unchecked {
+                    _accountDebt(id, token0, debtChange);
+                    _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+                }
             }
         }
     }

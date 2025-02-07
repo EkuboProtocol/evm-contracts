@@ -3,12 +3,19 @@ pragma solidity =0.8.28;
 
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {Bounds, maxBounds} from "../src/types/positionKey.sol";
+import {Bounds} from "../src/types/positionKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_SQRT_RATIO, MIN_SQRT_RATIO, MAX_TICK_SPACING} from "../src/math/constants.sol";
+import {
+    MAX_TICK,
+    MIN_TICK,
+    MAX_SQRT_RATIO,
+    MIN_SQRT_RATIO,
+    MAX_TICK_SPACING,
+    FULL_RANGE_ONLY_TICK_SPACING
+} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -39,6 +46,15 @@ contract FeeAccumulatingExtension is MockExtension, BaseLocker {
         pay(sender, poolKey.token0, amount0);
         pay(sender, poolKey.token1, amount1);
     }
+}
+
+function maxBounds(uint32 tickSpacing) pure returns (Bounds memory) {
+    if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+        return Bounds(MIN_TICK, MAX_TICK);
+    }
+    int32 spacing = int32(tickSpacing);
+
+    return Bounds({lower: (MIN_TICK / spacing) * spacing, upper: (MAX_TICK / spacing) * spacing});
 }
 
 contract Handler is StdUtils, StdAssertions {
@@ -92,7 +108,10 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     function createNewPool(uint128 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
-        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING + 1));
+        if (tickSpacing == MAX_TICK_SPACING + 1) {
+            tickSpacing = FULL_RANGE_ONLY_TICK_SPACING;
+        }
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey =
             PoolKey(address(token0), address(token1), fee, tickSpacing, withExtension ? address(fae) : address(0));
@@ -126,6 +145,10 @@ contract Handler is StdUtils, StdAssertions {
         bounds.lower = (bounds.lower / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
         bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing), max.upper));
         bounds.upper = (bounds.upper / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
+
+        if (poolKey.tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+            bounds = Bounds(MIN_TICK, MAX_TICK);
+        }
 
         try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
             uint128 liquidity, uint128 result0, uint128 result1

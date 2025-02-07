@@ -637,5 +637,27 @@ contract OracleTest is BaseOracleTest {
         oracle.beforeSwap(address(0), poolKey, SwapParameters(0, false, 0, 0));
     }
 
+    function test_gas_swap_on_oracle_pool() public {
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
+        updateOraclePoolLiquidity(address(token1), 1e18);
+
+        TestToken(poolKey.token1).approve(address(swapper), type(uint256).max);
+
+        advanceTime(1);
+        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        vm.snapshotGasLastCall("swap token1 in with write");
+        advanceTime(1);
+        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        vm.snapshotGasLastCall("swap token0 in with write");
+
+        movePrice(poolKey, 693147 + 1);
+        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        vm.snapshotGasLastCall("swap token1 in no write");
+
+        movePrice(poolKey, 693147 - 1);
+        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        vm.snapshotGasLastCall("swap token0 in no write");
+    }
+
     receive() external payable {}
 }

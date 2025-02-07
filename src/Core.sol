@@ -5,7 +5,7 @@ import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionKey, Bounds} from "./types/positionKey.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
-import {isPriceIncreasing, SwapResult, swapResult} from "./math/swap.sol";
+import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
@@ -169,11 +169,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     }
 
     // Returns the pool fees per liquidity inside the given bounds.
-    function getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds)
+    function _getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds, uint32 tickSpacing)
         public
         view
         returns (FeesPerLiquidity memory)
     {
+        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) return poolFeesPerLiquidity[poolId];
+
         int32 tick = poolPrice[poolId].tick;
         mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
         FeesPerLiquidity memory lower = poolIdEntry[bounds.lower];
@@ -188,6 +190,15 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         } else {
             return upper.sub(lower);
         }
+    }
+
+    // Returns the pool fees per liquidity inside the given bounds.
+    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
+        external
+        view
+        returns (FeesPerLiquidity memory)
+    {
+        return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), bounds, poolKey.tickSpacing);
     }
 
     // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
@@ -317,9 +328,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             bytes32 positionId = positionKey.toPositionId();
             Position storage position = poolPositions[poolId][positionId];
 
-            FeesPerLiquidity memory feesPerLiquidityInside = poolKey.tickSpacing == FULL_RANGE_ONLY_TICK_SPACING
-                ? poolFeesPerLiquidity[poolId]
-                : getPoolFeesPerLiquidityInside(poolId, params.bounds);
+            FeesPerLiquidity memory feesPerLiquidityInside =
+                _getPoolFeesPerLiquidityInside(poolId, params.bounds, poolKey.tickSpacing);
 
             (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
 
@@ -372,7 +382,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         bytes32 positionId = positionKey.toPositionId();
         Position memory position = poolPositions[poolId][positionId];
 
-        FeesPerLiquidity memory feesPerLiquidityInside = getPoolFeesPerLiquidityInside(poolId, bounds);
+        FeesPerLiquidity memory feesPerLiquidityInside =
+            _getPoolFeesPerLiquidityInside(poolId, bounds, poolKey.tickSpacing);
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 

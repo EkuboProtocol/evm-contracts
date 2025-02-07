@@ -103,7 +103,7 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
 
         (principal0, principal1) = (uint128(-delta0), uint128(-delta1));
 
-        FeesPerLiquidity memory feesPerLiquidityInside = core.getPoolFeesPerLiquidityInside(poolId, bounds);
+        FeesPerLiquidity memory feesPerLiquidityInside = core.getPoolFeesPerLiquidityInside(poolKey, bounds);
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
     }
 

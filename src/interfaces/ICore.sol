@@ -75,7 +75,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     error ExtensionNotRegistered();
     error PoolNotInitialized();
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
-    error SqrtRatioLimitWrongDirection();
     error SqrtRatioLimitOutOfRange();
 
     // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
@@ -105,7 +104,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     function save(address owner, address token, bytes32 salt, uint128 amount) external payable;
 
     // Returns the pool fees per liquidity inside the given bounds.
-    function getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds)
+    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
         external
         view
         returns (FeesPerLiquidity memory);

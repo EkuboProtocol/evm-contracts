@@ -97,7 +97,7 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: false, amount: 100}),
+            TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
@@ -128,7 +128,7 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: true, amount: 100}),
+            TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
         );
 
@@ -156,13 +156,13 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: false, amount: 100}),
+            TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: true, amount: 50}),
+            TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
 
@@ -188,13 +188,13 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: false, amount: 100}),
+            TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: true, amount: 50}),
+            TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
 
@@ -229,13 +229,13 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: false, amount: 100}),
+            TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: true, amount: 50}),
+            TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
 
@@ -270,13 +270,13 @@ contract PositionsTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: false, amount: 100}),
+            TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({isToken1: true, amount: 50}),
+            TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
 

@@ -6,6 +6,9 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {FullTest} from "./FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
+import {
+    MIN_TICK, MAX_TICK, MIN_SQRT_RATIO, MAX_SQRT_RATIO, FULL_RANGE_ONLY_TICK_SPACING
+} from "../src/math/constants.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -294,6 +297,64 @@ contract PositionsTest is FullTest {
         assertEq(f1, 0);
     }
 
+    function test_fees_fullRange_max_price() public {
+        PoolKey memory poolKey =
+            createPool({tick: MAX_TICK - 1, fee: 1 << 127, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
+
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
+        vm.snapshotGasLastCall("mintAndDeposit full range max");
+        assertGt(liquidity, 0);
+
+        token1.approve(address(swapper), type(uint256).max);
+        (int128 delta0, int128 delta1) = swapper.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
+        assertEq(delta0, 0);
+
+        (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+        assertEq(sqrtRatio, MAX_SQRT_RATIO);
+        assertEq(tick, MAX_TICK);
+        uint128 liqAfter = core.poolLiquidity(poolKey.toPoolId());
+        assertEq(liqAfter, liquidity);
+
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        assertEq(p0, 0);
+        assertEq(p1, 1000000499999874989827178462790659559);
+        assertEq(f0, 0);
+        assertEq(f1, ((uint128(delta1)) / 2) - 1);
+    }
+
+    function test_fees_fullRange_min_price() public {
+        PoolKey memory poolKey =
+            createPool({tick: MIN_TICK + 1, fee: 1 << 127, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
+
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
+        vm.snapshotGasLastCall("mintAndDeposit full range min");
+        assertGt(liquidity, 0);
+
+        token0.approve(address(swapper), type(uint256).max);
+        (int128 delta0, int128 delta1) = swapper.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
+        assertEq(delta1, 0);
+
+        (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+        assertEq(sqrtRatio, MIN_SQRT_RATIO);
+        assertEq(tick, MIN_TICK - 1);
+        uint128 liqAfter = core.poolLiquidity(poolKey.toPoolId());
+        assertEq(liqAfter, liquidity);
+
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        assertEq(p0, 1000000499999874989827178462790659559);
+        assertEq(p1, 0);
+        assertEq(f0, ((uint128(delta0)) / 2) - 1);
+        assertEq(f1, 0);
+    }
+
     function test_mintAndDeposit_gas() public {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100);
         token0.approve(address(positions), 100);
@@ -313,5 +374,16 @@ contract PositionsTest is FullTest {
 
         positions.mintAndDeposit{value: 100}(poolKey, bounds, 100, 100, 0);
         vm.snapshotGasLastCall("mintAndDeposit eth");
+    }
+
+    function test_gas_full_range_mintAndDeposit() public {
+        PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 127, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
+
+        positions.mintAndDeposit(poolKey, bounds, 1e18, 1e18, 0);
+        vm.snapshotGasLastCall("mintAndDeposit full range both tokens");
     }
 }

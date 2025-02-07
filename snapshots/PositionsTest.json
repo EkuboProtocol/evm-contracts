@@ -1,4 +1,7 @@
 {
   "mintAndDeposit": "270791",
-  "mintAndDeposit eth": "245053"
+  "mintAndDeposit eth": "245053",
+  "mintAndDeposit full range both tokens": "194026",
+  "mintAndDeposit full range max": "194342",
+  "mintAndDeposit full range min": "194026"
 }

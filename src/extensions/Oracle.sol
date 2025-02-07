@@ -34,10 +34,6 @@ contract Oracle is ExposedStorage, BaseExtension {
     error TimestampsNotSorted();
     error ZeroTimestampsProvided();
 
-    event SnapshotInserted(
-        address indexed token, uint64 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative
-    );
-
     using CoreLib for ICore;
 
     // all snapshots are taken with respect to this snapshot.
@@ -69,6 +65,20 @@ contract Oracle is ExposedStorage, BaseExtension {
         // This assumption is used throughout the code, so we assert it in the constructor so that everything fails if it isn't held
         assert(NATIVE_TOKEN_ADDRESS == address(0));
         timestampOffset = uint64(block.timestamp);
+    }
+
+    function _emitSnapshotEvent(address token, Snapshot memory snapshot) private {
+        unchecked {
+            uint64 ts = timestampOffset + snapshot.secondsSinceOffset;
+            assembly ("memory-safe") {
+                let free := mload(0x40)
+                mstore(free, shl(96, token))
+                mstore(add(free, 20), shl(192, ts))
+                mstore(add(free, 28), mload(add(snapshot, 44)))
+                mstore(add(free, 48), mload(add(snapshot, 88)))
+                log0(free, 56)
+            }
+        }
     }
 
     // The only allowed pool key for the given token
@@ -134,12 +144,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             snapshots[token][c.index] = snapshot;
             counts[token] = c;
 
-            emit SnapshotInserted(
-                token,
-                secondsSinceOffsetToTimestamp(snapshot.secondsSinceOffset),
-                snapshot.secondsPerLiquidityCumulative,
-                snapshot.tickCumulative
-            );
+            _emitSnapshotEvent(token, snapshot);
         }
     }
 
@@ -154,9 +159,10 @@ contract Oracle is ExposedStorage, BaseExtension {
         //  remember we have the capacity since the snapshot storage has been initialized
         counts[token] = Counts({index: 0, count: 1, capacity: uint64(FixedPointMathLib.max(1, counts[token].capacity))});
         uint32 sso = secondsSinceOffset();
-        snapshots[token][0] = Snapshot(sso, 0, 0);
+        Snapshot memory snapshot = Snapshot(sso, 0, 0);
+        snapshots[token][0] = snapshot;
 
-        emit SnapshotInserted(token, secondsSinceOffsetToTimestamp(sso), 0, 0);
+        _emitSnapshotEvent(token, snapshot);
     }
 
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory params)

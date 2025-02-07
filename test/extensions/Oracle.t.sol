@@ -24,6 +24,8 @@ import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
+import {Vm} from "forge-std/Vm.sol";
+import {LibBytes} from "solady/utils/LibBytes.sol";
 
 abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
@@ -214,7 +216,7 @@ contract OracleTest is BaseOracleTest {
     }
 
     function test_createPool_beforeInitializePool() public {
-        createOraclePool(address(token1), 0);
+        createOraclePool(address(token1), 1000);
         (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
         assertEq(index, 0);
         assertEq(count, 1);
@@ -224,6 +226,61 @@ contract OracleTest is BaseOracleTest {
         assertEq(secondsSinceOffset, 0);
         assertEq(secondsPerLiquidityCumulative, 0);
         assertEq(tickCumulative, 0);
+    }
+
+    function test_snapshotEvent_emitted_at_create() public {
+        vm.recordLogs();
+        createOraclePool(address(token1), 0);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2);
+        assertEq(logs[0].emitter, address(oracle));
+        assertEq(logs[0].topics.length, 0);
+        assertEq(logs[0].data.length, 56);
+        assertEq(address(bytes20(LibBytes.load(logs[0].data, 0))), address(token1));
+        assertEq(uint64(bytes8(LibBytes.load(logs[0].data, 20))), vm.getBlockTimestamp());
+        assertEq(uint160(bytes20(LibBytes.load(logs[0].data, 28))), 0);
+        assertEq(int64(uint64(bytes8(LibBytes.load(logs[0].data, 48)))), 0);
+
+        assertEq(logs[1].emitter, address(core));
+    }
+
+    function test_snapshotEvent_emitted_at_swap() public {
+        PoolKey memory poolKey = createOraclePool(address(token1), 1000);
+        updateOraclePoolLiquidity(address(token1), 5000);
+        advanceTime(5);
+        vm.recordLogs();
+        movePrice(poolKey, -3000);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 3);
+        Vm.Log memory log = logs[0];
+        assertEq(log.emitter, address(oracle));
+        assertEq(log.topics.length, 0);
+        assertEq(log.data.length, 56);
+        assertEq(address(bytes20(LibBytes.load(log.data, 0))), address(token1));
+        assertEq(uint64(bytes8(LibBytes.load(log.data, 20))), vm.getBlockTimestamp());
+        assertEq(uint160(bytes20(LibBytes.load(log.data, 28))), (uint256(5) << 128) / 5000);
+        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 48)))), 5000);
+
+        updateOraclePoolLiquidity(address(token1), 100_000);
+
+        advanceTime(10);
+
+        vm.recordLogs();
+        updateOraclePoolLiquidity(address(token1), 1000);
+        logs = vm.getRecordedLogs();
+
+        assertEq(logs.length, 4);
+        log = logs[1];
+        assertEq(log.emitter, address(oracle));
+        assertEq(log.topics.length, 0);
+        assertEq(log.data.length, 56);
+        assertEq(address(bytes20(LibBytes.load(log.data, 0))), address(token1));
+        assertEq(uint64(bytes8(LibBytes.load(log.data, 20))), vm.getBlockTimestamp());
+        assertEq(
+            uint160(bytes20(LibBytes.load(log.data, 28))),
+            ((uint256(5) << 128) / 5000) + ((uint256(10) << 128) / 100_000)
+        );
+        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 48)))), -25000);
     }
 
     function test_createPool_beforeInitializePool_first_expandCapacity() public {

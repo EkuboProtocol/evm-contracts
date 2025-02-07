@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 contract TokenDataFetcher {

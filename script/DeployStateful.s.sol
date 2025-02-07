@@ -7,8 +7,7 @@ import {Positions} from "../src/Positions.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
-
-import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
     return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)))));

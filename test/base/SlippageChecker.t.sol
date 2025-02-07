@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {SlippageChecker} from "../../src/base/SlippageChecker.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {TestToken} from "../TestToken.sol";
 
 contract TestTarget is SlippageChecker {}

@@ -6,11 +6,10 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle} from "../src/extensions/Oracle.sol";
 import {TestToken} from "../test/TestToken.sol";
-import {MAX_TICK_SPACING, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "../src/math/constants.sol";
+import {MAX_TICK_SPACING, MAX_SQRT_RATIO, MIN_SQRT_RATIO, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {SimpleSwapper} from "../src/SimpleSwapper.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
 import {Bounds, maxBounds} from "../src/types/positionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 

@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 
 // Has methods that are multicallable for checking deadlines and balance changes
 // Only useful in multicallable context, because these methods are expected to be called as part of another transaction that manipulates balances

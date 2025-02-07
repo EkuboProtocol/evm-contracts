@@ -2,13 +2,25 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {PositionKey, Bounds, BoundsOrder, MinMaxBounds, BoundsTickSpacing} from "../../src/types/positionKey.sol";
-import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {
+    PositionKey,
+    Bounds,
+    BoundsOrder,
+    MinMaxBounds,
+    BoundsTickSpacing,
+    FullRangeOnlyPool
+} from "../../src/types/positionKey.sol";
+import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PositionKeyTest is Test {
     function test_validateBounds() public {
         Bounds({lower: -1, upper: 1}).validateBounds(1);
         Bounds({lower: -2, upper: 2}).validateBounds(2);
+        Bounds({lower: MIN_TICK, upper: MAX_TICK}).validateBounds(MAX_TICK_SPACING);
+        Bounds({lower: MIN_TICK, upper: MAX_TICK}).validateBounds(FULL_RANGE_ONLY_TICK_SPACING);
+
+        vm.expectRevert(FullRangeOnlyPool.selector);
+        Bounds({lower: -2, upper: 2}).validateBounds(FULL_RANGE_ONLY_TICK_SPACING);
 
         vm.expectRevert(BoundsOrder.selector);
         Bounds({lower: -1, upper: -1}).validateBounds(1);

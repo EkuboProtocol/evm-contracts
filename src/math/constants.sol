@@ -10,3 +10,6 @@ uint32 constant FULL_RANGE_ONLY_TICK_SPACING = type(uint32).max;
 
 uint256 constant MIN_SQRT_RATIO = 18447191164202170526;
 uint256 constant MAX_SQRT_RATIO = 6276949602062853172742588666638147158083741740262337144812;
+
+// We use this address to represent the native token within the protocol
+address constant NATIVE_TOKEN_ADDRESS = address(0);

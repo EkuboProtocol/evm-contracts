@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {IPayer, IFlashAccountant, NATIVE_TOKEN_ADDRESS} from "../interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {IPayer, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 // todo: should anyone be able to pay for any lock?

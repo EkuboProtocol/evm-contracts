@@ -5,14 +5,18 @@ import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {
-    MIN_SQRT_RATIO, MAX_SQRT_RATIO, FULL_RANGE_ONLY_TICK_SPACING, MIN_TICK, MAX_TICK
+    MIN_SQRT_RATIO,
+    MAX_SQRT_RATIO,
+    FULL_RANGE_ONLY_TICK_SPACING,
+    MIN_TICK,
+    MAX_TICK,
+    NATIVE_TOKEN_ADDRESS
 } from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 
 contract RouterTest is FullTest {

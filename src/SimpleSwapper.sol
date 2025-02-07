@@ -6,7 +6,7 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {NATIVE_TOKEN_ADDRESS} from "./interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/swap.sol";
 
 contract SimpleQuoter is BaseLocker {

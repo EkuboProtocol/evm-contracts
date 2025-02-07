@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";

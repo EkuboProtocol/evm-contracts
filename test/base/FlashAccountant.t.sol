@@ -4,7 +4,8 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {BaseForwardee} from "../../src/base/BaseForwardee.sol";
-import {IFlashAccountant, IForwardee, NATIVE_TOKEN_ADDRESS} from "../../src/interfaces/IFlashAccountant.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
+import {IFlashAccountant, IForwardee} from "../../src/interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "../../src/base/FlashAccountant.sol";
 
 struct Action {

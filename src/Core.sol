@@ -8,7 +8,7 @@ import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiqu
 import {isPriceIncreasing, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {tickToSqrtRatio, sqrtRatioToTick, MAX_SQRT_RATIO, MIN_SQRT_RATIO} from "./math/ticks.sol";
+import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {
     shouldCallBeforeInitializePool,
@@ -28,9 +28,16 @@ import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from 
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {ICore, UpdatePositionParameters, SwapParameters, IExtension} from "./interfaces/ICore.sol";
-import {NATIVE_TOKEN_ADDRESS} from "./interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING, MAX_TICK_SPACING} from "./math/constants.sol";
+import {
+    MIN_TICK,
+    MAX_TICK,
+    MIN_SQRT_RATIO,
+    MAX_SQRT_RATIO,
+    NATIVE_TOKEN_ADDRESS,
+    FULL_RANGE_ONLY_TICK_SPACING,
+    MAX_TICK_SPACING
+} from "./math/constants.sol";
 
 contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);

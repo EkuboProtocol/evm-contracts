@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolKey, TokensMustBeSorted, InvalidTickSpacing} from "../../src/types/poolKey.sol";
-import {MAX_TICK_SPACING} from "../../src/math/constants.sol";
+import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PoolKeyTest is Test {
     function test_poolKey_validateTokens_zero_token0() public pure {
@@ -36,6 +36,16 @@ contract PoolKeyTest is Test {
             token1: address(2),
             fee: 0,
             tickSpacing: MAX_TICK_SPACING + 1,
+            extension: address(0)
+        }).validatePoolKey();
+    }
+
+    function test_poolKey_validateTickSpacing_full_range() public {
+        PoolKey({
+            token0: address(1),
+            token1: address(2),
+            fee: 0,
+            tickSpacing: FULL_RANGE_ONLY_TICK_SPACING,
             extension: address(0)
         }).validatePoolKey();
     }

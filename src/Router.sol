@@ -89,7 +89,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                     }
                 }
 
-                result = abi.encode(Delta(delta0, delta1));
+                result = abi.encode(delta0, delta1);
             }
         } else {
             address swapper;
@@ -202,10 +202,10 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
     function swap(RouteNode calldata node, TokenAmount calldata tokenAmount, int256 calculatedAmountThreshold)
         external
         payable
-        returns (Delta memory result)
+        returns (int128 delta0, int128 delta1)
     {
-        result = abi.decode(
-            lock(abi.encode(bytes1(0x00), msg.sender, node, tokenAmount, calculatedAmountThreshold)), (Delta)
+        (delta0, delta1) = abi.decode(
+            lock(abi.encode(bytes1(0x00), msg.sender, node, tokenAmount, calculatedAmountThreshold)), (int128, int128)
         );
     }
 

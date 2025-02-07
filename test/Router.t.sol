@@ -33,13 +33,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, 100);
         assertEq(delta1, -49);
 
-        Delta memory d = router.swap(
+        (delta0, delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
-        assertEq(d.amount0, 100);
-        assertEq(d.amount1, -49);
+        assertEq(delta0, 100);
+        assertEq(delta1, -49);
     }
 
     function test_basicSwap_token0_out(CallPoints memory callPoints) public {
@@ -58,13 +58,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, -100);
         assertEq(delta1, 202);
 
-        Delta memory d = router.swap(
+        (delta0, delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             type(int256).min
         );
-        assertEq(d.amount0, -100);
-        assertEq(d.amount1, 202);
+        assertEq(delta0, -100);
+        assertEq(delta1, 202);
     }
 
     function test_basicSwap_token1_in(CallPoints memory callPoints) public {
@@ -78,13 +78,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, -49);
         assertEq(delta1, 100);
 
-        Delta memory d = router.swap(
+        (delta0, delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
         );
-        assertEq(d.amount0, -49);
-        assertEq(d.amount1, 100);
+        assertEq(delta0, -49);
+        assertEq(delta1, 100);
     }
 
     function test_basicSwap_token1_out(CallPoints memory callPoints) public {
@@ -98,13 +98,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, 202);
         assertEq(delta1, -100);
 
-        Delta memory d = router.swap(
+        (delta0, delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token1), amount: -100}),
             type(int256).min
         );
-        assertEq(d.amount0, 202);
-        assertEq(d.amount1, -100);
+        assertEq(delta0, 202);
+        assertEq(delta1, -100);
     }
 
     function test_basicSwap_token0_in_slippage_check_failed(CallPoints memory callPoints) public {
@@ -161,13 +161,13 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
-        Delta memory d = router.swap(
+        (int128 delta0, int128 delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             type(int256).min
         );
-        assertEq(d.amount0, -100);
-        assertEq(d.amount1, 202);
+        assertEq(delta0, -100);
+        assertEq(delta1, 202);
     }
 
     function test_multihopSwap(CallPoints memory callPoints) public {
@@ -352,14 +352,14 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 100);
 
-        Delta memory d = router.swap(
+        (int128 delta0, int128 delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
-        assertEq(d.amount0, 100);
+        assertEq(delta0, 100);
         // approximately 1x after fee
-        assertEq(d.amount1, -99);
+        assertEq(delta1, -99);
     }
 
     function test_swap_gas() public {

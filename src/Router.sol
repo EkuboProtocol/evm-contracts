@@ -7,7 +7,7 @@ import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
-import {isPriceIncreasing} from "./math/swap.sol";
+import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";

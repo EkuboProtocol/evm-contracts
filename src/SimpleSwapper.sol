@@ -7,7 +7,7 @@ import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
-import {isPriceIncreasing} from "./math/swap.sol";
+import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 
 contract SimpleQuoter is BaseLocker {
     constructor(ICore core) BaseLocker(core) {}

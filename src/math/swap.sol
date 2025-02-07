@@ -6,18 +6,13 @@ import {computeFee, amountBeforeFee} from "./fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./delta.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {isPriceIncreasing} from "./isPriceIncreasing.sol";
 
 struct SwapResult {
     int128 consumedAmount;
     uint128 calculatedAmount;
     uint256 sqrtRatioNext;
     uint128 feeAmount;
-}
-
-function isPriceIncreasing(int128 amount, bool isToken1) pure returns (bool increasing) {
-    assembly ("memory-safe") {
-        increasing := xor(isToken1, slt(amount, 0))
-    }
 }
 
 function noOpSwapResult(uint256 sqrtRatioNext) pure returns (SwapResult memory) {

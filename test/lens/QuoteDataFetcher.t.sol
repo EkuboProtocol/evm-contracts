@@ -19,10 +19,11 @@ contract QuoteDataFetcherTest is FullTest {
 
     function test_getQuoteData() public {
         PoolKey memory poolKey = createPool({tick: 10, fee: 0, tickSpacing: 5});
-        (, uint128 liqA) = createPosition(poolKey, Bounds(-50, 50), 100, 100);
-        (, uint128 liqB) = createPosition(poolKey, Bounds(-2000, 1200), 100, 100);
-        (, uint128 liqC) = createPosition(poolKey, Bounds(-400, -200), 0, 100);
-        (, uint128 liqD) = createPosition(poolKey, Bounds(250, 600), 100, 0);
+        (, uint128 liqA) = createPosition(poolKey, Bounds(-50, 50), 500, 500);
+        (, uint128 liqB) = createPosition(poolKey, Bounds(-2000, 1200), 1000, 1000);
+        (, uint128 liqC) = createPosition(poolKey, Bounds(-400, -200), 0, 300);
+        (, uint128 liqD) = createPosition(poolKey, Bounds(250, 600), 200, 0);
+        (, uint128 liqE) = createPosition(poolKey, Bounds(-1280, -1275), 0, 5000);
 
         PoolKey[] memory keys = new PoolKey[](1);
         keys[0] = poolKey;
@@ -47,5 +48,7 @@ contract QuoteDataFetcherTest is FullTest {
         assertEq(qd[0].ticks[2].liquidityDelta, int128(liqA));
         assertEq(qd[0].ticks[3].liquidityDelta, -int128(liqA));
         assertEq(qd[0].ticks[4].liquidityDelta, int128(liqD));
+        assertEq(qd[0].ticks[5].liquidityDelta, -int128(liqD));
+        assertEq(qd[0].ticks[6].liquidityDelta, -int128(liqB));
     }
 }

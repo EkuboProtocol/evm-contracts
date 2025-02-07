@@ -85,7 +85,7 @@ contract QuoteDataFetcher is UsesCore {
                 poolId, toTick, tickSpacing, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
             );
 
-            if (initialized) {
+            if (initialized && tick >= fromTick) {
                 (int128 liquidityDelta,) = core.poolTicks(poolId, tick);
                 uint256 v;
                 assembly ("memory-safe") {

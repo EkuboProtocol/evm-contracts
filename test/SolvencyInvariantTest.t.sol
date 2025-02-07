@@ -107,10 +107,7 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     function createNewPool(uint128 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
-        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING + 1));
-        if (tickSpacing == MAX_TICK_SPACING + 1) {
-            tickSpacing = FULL_RANGE_ONLY_TICK_SPACING;
-        }
+        tickSpacing = uint32(bound(tickSpacing, 0, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey =
             PoolKey(address(token0), address(token1), fee, tickSpacing, withExtension ? address(fae) : address(0));
@@ -138,15 +135,16 @@ contract Handler is StdUtils, StdAssertions {
         ifPoolExists
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
-        Bounds memory max = maxBounds(poolKey.tickSpacing);
-        bounds.lower = int32(bound(bounds.lower, max.lower, max.upper - int32(poolKey.tickSpacing)));
-        // snap to nearest valid tick
-        bounds.lower = (bounds.lower / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
-        bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing), max.upper));
-        bounds.upper = (bounds.upper / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
 
         if (poolKey.tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
             bounds = Bounds(MIN_TICK, MAX_TICK);
+        } else {
+            Bounds memory max = maxBounds(poolKey.tickSpacing);
+            bounds.lower = int32(bound(bounds.lower, max.lower, max.upper - int32(poolKey.tickSpacing)));
+            // snap to nearest valid tick
+            bounds.lower = (bounds.lower / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
+            bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing), max.upper));
+            bounds.upper = (bounds.upper / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
         }
 
         try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (

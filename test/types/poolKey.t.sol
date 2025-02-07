@@ -23,8 +23,7 @@ contract PoolKeyTest is Test {
         );
     }
 
-    function test_poolKey_validateTickSpacing_zero() public {
-        vm.expectRevert(InvalidTickSpacing.selector);
+    function test_poolKey_validateTickSpacing_zero_is_valid() public {
         PoolKey({token0: address(1), token1: address(2), fee: 0, tickSpacing: 0, extension: address(0)}).validatePoolKey(
         );
     }

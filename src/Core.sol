@@ -235,7 +235,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             isUpper ? tickInfo.liquidityDelta - liquidityDelta : tickInfo.liquidityDelta + liquidityDelta;
 
         // no need to flip ticks for tickSpacing == FULL_RANGE_ONLY_TICK_SPACING because we don't use the bitmaps
-        if ((tickInfo.liquidityNet == 0) != (liquidityNetNext == 0) && tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
+        if ((tickInfo.liquidityNet == 0) != (liquidityNetNext == 0)) {
             flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
         }
 
@@ -317,7 +317,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             bytes32 positionId = positionKey.toPositionId();
             Position storage position = poolPositions[poolId][positionId];
 
-            FeesPerLiquidity memory feesPerLiquidityInside = getPoolFeesPerLiquidityInside(poolId, params.bounds);
+            FeesPerLiquidity memory feesPerLiquidityInside = poolKey.tickSpacing == FULL_RANGE_ONLY_TICK_SPACING
+                ? poolFeesPerLiquidity[poolId]
+                : getPoolFeesPerLiquidityInside(poolId, params.bounds);
 
             (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
 
@@ -333,10 +335,14 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
             }
 
-            updateTick(poolId, params.bounds.lower, poolKey.tickSpacing, params.liquidityDelta, false);
-            updateTick(poolId, params.bounds.upper, poolKey.tickSpacing, params.liquidityDelta, true);
+            if (poolKey.tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
+                updateTick(poolId, params.bounds.lower, poolKey.tickSpacing, params.liquidityDelta, false);
+                updateTick(poolId, params.bounds.upper, poolKey.tickSpacing, params.liquidityDelta, true);
 
-            if (price.tick >= params.bounds.lower && price.tick < params.bounds.upper) {
+                if (price.tick >= params.bounds.lower && price.tick < params.bounds.upper) {
+                    poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
+                }
+            } else {
                 poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
             }
 
@@ -461,8 +467,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                         sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
                     );
                 } else {
-                    // we treat it as always initialized. the tick will rarely be crossed but when it is crossed, it has no effect
-                    isInitialized = true;
+                    // we never cross ticks in the full range version
+                    // isInitialized = false;
                     (nextTick, nextTickSqrtRatio) = increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
 
                     uint256 limitedNextSqrtRatio = FixedPointMathLib.ternary(

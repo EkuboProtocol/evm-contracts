@@ -35,7 +35,7 @@ contract RouterTest is FullTest {
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({isToken1: false, amount: 100}),
             type(int256).min
         );
         assertEq(d.amount0, 100);
@@ -60,7 +60,7 @@ contract RouterTest is FullTest {
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: -100}),
+            TokenAmount({isToken1: false, amount: -100}),
             type(int256).min
         );
         assertEq(d.amount0, -100);
@@ -80,7 +80,7 @@ contract RouterTest is FullTest {
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
+            TokenAmount({isToken1: true, amount: 100}),
             type(int256).min
         );
         assertEq(d.amount0, -49);
@@ -100,7 +100,7 @@ contract RouterTest is FullTest {
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: -100}),
+            TokenAmount({isToken1: true, amount: -100}),
             type(int256).min
         );
         assertEq(d.amount0, 202);
@@ -114,7 +114,7 @@ contract RouterTest is FullTest {
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({isToken1: false, amount: 100}),
             50
         );
     }
@@ -126,7 +126,7 @@ contract RouterTest is FullTest {
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: -100}),
+            TokenAmount({isToken1: false, amount: -100}),
             -200
         );
     }
@@ -138,7 +138,7 @@ contract RouterTest is FullTest {
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
+            TokenAmount({isToken1: true, amount: 100}),
             50
         );
     }
@@ -150,7 +150,7 @@ contract RouterTest is FullTest {
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: -100}),
+            TokenAmount({isToken1: true, amount: -100}),
             -200
         );
     }
@@ -163,7 +163,7 @@ contract RouterTest is FullTest {
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: -100}),
+            TokenAmount({isToken1: false, amount: -100}),
             type(int256).min
         );
         assertEq(d.amount0, -100);
@@ -181,7 +181,7 @@ contract RouterTest is FullTest {
         route[1] = RouteNode(poolKey, 0, 0);
 
         Delta[] memory d =
-            router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: 100})), type(int256).min);
+            router.multihopSwap(Swap(route, TokenAmount({isToken1: false, amount: 100})), type(int256).min);
         assertEq(d[0].amount0, 100);
         assertEq(d[0].amount1, -49);
         assertEq(d[1].amount0, -24);
@@ -199,7 +199,7 @@ contract RouterTest is FullTest {
         route[1] = RouteNode(poolKey, 0, 0);
 
         Delta[] memory d =
-            router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: -100})), type(int256).min);
+            router.multihopSwap(Swap(route, TokenAmount({isToken1: false, amount: -100})), type(int256).min);
         assertEq(d[0].amount0, -100);
         assertEq(d[0].amount1, 202);
         assertEq(d[1].amount0, 406);
@@ -222,8 +222,8 @@ contract RouterTest is FullTest {
         route1[0] = RouteNode(poolKey, 0, 0);
         route1[1] = RouteNode(poolKey, 0, 0);
 
-        swaps[0] = Swap(route0, TokenAmount({token: address(token0), amount: 100}));
-        swaps[1] = Swap(route1, TokenAmount({token: address(token0), amount: -100}));
+        swaps[0] = Swap(route0, TokenAmount({isToken1: false, amount: 100}));
+        swaps[1] = Swap(route1, TokenAmount({isToken1: false, amount: -100}));
 
         Delta[][] memory d = router.multiMultihopSwap(swaps, type(int256).min);
         assertEq(d[0][0].amount0, 100);
@@ -249,8 +249,8 @@ contract RouterTest is FullTest {
         route[0] = RouteNode(poolKey, 0, 0);
         route[1] = RouteNode(poolKey, 0, 0);
 
-        swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
-        swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
+        swaps[0] = Swap(route, TokenAmount({isToken1: false, amount: 100}));
+        swaps[1] = Swap(route, TokenAmount({isToken1: false, amount: 100}));
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, 49, 48));
         router.multiMultihopSwap(swaps, 49);
@@ -270,13 +270,27 @@ contract RouterTest is FullTest {
         route[0] = RouteNode(poolKey, 0, 0);
         route[1] = RouteNode(poolKey, 0, 0);
 
-        swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
-        swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
+        swaps[0] = Swap(route, TokenAmount({isToken1: false, amount: -100}));
+        swaps[1] = Swap(route, TokenAmount({isToken1: false, amount: -100}));
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, -807, -808));
         router.multiMultihopSwap(swaps, -807);
         // -808 works
         router.multiMultihopSwap(swaps, -808);
+    }
+
+    function test_validation_Swaps() public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100);
+        Swap[] memory swaps = new Swap[](2);
+
+        RouteNode[] memory route = new RouteNode[](1);
+        route[0] = RouteNode(poolKey, 0, 0);
+
+        swaps[0] = Swap(route, TokenAmount({isToken1: false, amount: 100}));
+        swaps[1] = Swap(route, TokenAmount({isToken1: true, amount: 100}));
+
+        vm.expectRevert();
+        router.multiMultihopSwap(swaps, type(int256).min);
     }
 
     function test_coreEmitsSwapLogs() public {
@@ -291,8 +305,8 @@ contract RouterTest is FullTest {
         route[0] = RouteNode(poolKey, 0, 0);
         route[1] = RouteNode(poolKey, 0, 0);
 
-        swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
-        swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
+        swaps[0] = Swap(route, TokenAmount({isToken1: false, amount: -100}));
+        swaps[1] = Swap(route, TokenAmount({isToken1: false, amount: -100}));
 
         vm.recordLogs();
         Delta[][] memory deltas = router.multiMultihopSwap(swaps, -808);
@@ -340,7 +354,7 @@ contract RouterTest is FullTest {
 
         Delta memory d = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({isToken1: false, amount: 100}),
             type(int256).min
         );
         assertEq(d.amount0, 100);
@@ -356,7 +370,7 @@ contract RouterTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({isToken1: false, amount: 100}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 token0 for token1");
@@ -370,7 +384,7 @@ contract RouterTest is FullTest {
 
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
+            TokenAmount({isToken1: true, amount: 100}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 token0 for eth");
@@ -382,10 +396,28 @@ contract RouterTest is FullTest {
 
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
+            TokenAmount({isToken1: false, amount: 100}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 wei of eth for token");
+    }
+
+    function test_swap_token_for_eth_gas_simple() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        token1.approve(address(swapper), 100);
+
+        swapper.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        vm.snapshotGasLastCall("simple swap 100 token0 for eth");
+    }
+
+    function test_swap_eth_for_token_gas_simple() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        swapper.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        vm.snapshotGasLastCall("simple swap 100 wei of eth for token");
     }
 
     function test_swap_eth_for_token_full_range_pool_gas() public {
@@ -394,10 +426,23 @@ contract RouterTest is FullTest {
 
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
-            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
+            TokenAmount({isToken1: false, amount: 100}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
+    }
+
+    function test_swap_token_for_eth_full_range_pool_gas() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 127, FULL_RANGE_ONLY_TICK_SPACING);
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);
+
+        token1.approve(address(router), 100);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            TokenAmount({isToken1: true, amount: 100}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap 100 wei of token for eth full range");
     }
 
     receive() external payable {}

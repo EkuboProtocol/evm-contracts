@@ -19,6 +19,8 @@ struct QuoteData {
     int32 tick;
     uint256 sqrtRatio;
     uint128 liquidity;
+    int32 minTick;
+    int32 maxTick;
     // all the initialized ticks within minTickSpacings of the current tick
     TickDelta[] ticks;
 }
@@ -56,7 +58,14 @@ contract QuoteDataFetcher is UsesCore {
                 TickDelta[] memory ticks =
                     _getInitializedTicksInRange(poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing);
 
-                results[i] = QuoteData({tick: tick, sqrtRatio: sqrtRatio, liquidity: liquidity, ticks: ticks});
+                results[i] = QuoteData({
+                    tick: tick,
+                    sqrtRatio: sqrtRatio,
+                    liquidity: liquidity,
+                    minTick: int32(minTick),
+                    maxTick: int32(maxTick),
+                    ticks: ticks
+                });
             }
         }
     }
@@ -69,7 +78,7 @@ contract QuoteDataFetcher is UsesCore {
     {
         assert(toTick >= fromTick);
 
-        DynamicArrayLib.DynamicArray memory tickTuples;
+        DynamicArrayLib.DynamicArray memory packedTicks;
 
         while (toTick >= fromTick) {
             (int32 tick, bool initialized) = core.prevInitializedTick(
@@ -82,23 +91,23 @@ contract QuoteDataFetcher is UsesCore {
                 assembly ("memory-safe") {
                     v := or(shl(128, tick), and(liquidityDelta, 0xffffffffffffffffffffffffffffffff))
                 }
-                tickTuples.p(v);
+                packedTicks.p(v);
             }
 
             toTick = tick - 1;
         }
 
-        ticks = new TickDelta[](tickTuples.length());
+        ticks = new TickDelta[](packedTicks.length());
 
         uint256 index = 0;
 
-        while (tickTuples.length() > 0) {
-            uint256 tPacked = tickTuples.pop();
+        while (packedTicks.length() > 0) {
+            uint256 packed = packedTicks.pop();
             int32 tickNumber;
             int128 liquidityDelta;
             assembly ("memory-safe") {
-                tickNumber := shr(128, tPacked)
-                liquidityDelta := and(tPacked, 0xffffffffffffffffffffffffffffffff)
+                tickNumber := shr(128, packed)
+                liquidityDelta := and(packed, 0xffffffffffffffffffffffffffffffff)
             }
             ticks[index++] = TickDelta(tickNumber, liquidityDelta);
         }

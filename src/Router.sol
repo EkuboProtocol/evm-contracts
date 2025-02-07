@@ -19,7 +19,7 @@ struct RouteNode {
 }
 
 struct TokenAmount {
-    address token;
+    bool isToken1;
     int128 amount;
 }
 
@@ -40,95 +40,241 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        (address swapper, int256 calculatedAmountThreshold, Swap[] memory swaps) =
-            abi.decode(data, (address, int256, Swap[]));
-        Delta[][] memory results = new Delta[][](swaps.length);
-        unchecked {
-            int256 totalCalculated;
-            int256 totalSpecified;
+        bytes1 callType = data[0];
+
+        if (callType == bytes1(0x00)) {
+            // swap
+            (, address swapper, RouteNode memory node, TokenAmount memory tokenAmount, int256 calculatedAmountThreshold)
+            = abi.decode(data, (bytes1, address, RouteNode, TokenAmount, int256));
+
+            unchecked {
+                uint128 value = uint128(
+                    FixedPointMathLib.ternary(
+                        node.poolKey.token0 == NATIVE_TOKEN_ADDRESS && !tokenAmount.isToken1 && tokenAmount.amount > 0,
+                        uint128(tokenAmount.amount),
+                        0
+                    )
+                );
+
+                bool increasing = isPriceIncreasing(tokenAmount.amount, tokenAmount.isToken1);
+                uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
+                    node.sqrtRatioLimit == 0,
+                    FixedPointMathLib.ternary(increasing, MAX_SQRT_RATIO, MIN_SQRT_RATIO),
+                    node.sqrtRatioLimit
+                );
+
+                (int128 delta0, int128 delta1) = core.swap{value: value}(
+                    node.poolKey,
+                    SwapParameters({
+                        amount: tokenAmount.amount,
+                        isToken1: tokenAmount.isToken1,
+                        sqrtRatioLimit: sqrtRatioLimit,
+                        skipAhead: node.skipAhead
+                    })
+                );
+
+                int128 amountCalculated = tokenAmount.isToken1 ? -delta0 : -delta1;
+                if (amountCalculated < calculatedAmountThreshold) {
+                    revert SlippageCheckFailed(calculatedAmountThreshold, amountCalculated);
+                }
+
+                if (increasing) {
+                    withdraw(node.poolKey.token0, uint128(-delta0), swapper);
+                    pay(swapper, node.poolKey.token1, uint128(delta1));
+                } else {
+                    withdraw(node.poolKey.token1, uint128(-delta1), swapper);
+                    if (uint128(delta0) <= value) {
+                        withdraw(node.poolKey.token0, value - uint128(delta0), swapper);
+                    } else {
+                        pay(swapper, node.poolKey.token0, uint128(delta0));
+                    }
+                }
+
+                result = abi.encode(Delta(delta0, delta1));
+            }
+        } else if (callType == bytes1(0x01)) {
+            // multihopSwap
+            (, address swapper, Swap memory s, int256 calculatedAmountThreshold) =
+                abi.decode(data, (bytes1, address, Swap, int256));
+            Delta[] memory results = new Delta[](s.route.length);
+            TokenAmount memory tokenAmount = s.tokenAmount;
+            TokenAmount memory firstSwapAmount;
             address specifiedToken;
             address calculatedToken;
-            for (uint256 i = 0; i < swaps.length; i++) {
-                Swap memory s = swaps[i];
-                results[i] = new Delta[](s.route.length);
 
-                TokenAmount memory firstSwapAmount;
-                TokenAmount memory tokenAmount = s.tokenAmount;
-
+            unchecked {
                 for (uint256 j = 0; j < s.route.length; j++) {
                     RouteNode memory node = s.route[j];
-
-                    bool isToken1 = tokenAmount.token == node.poolKey.token1;
-
                     uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
                         node.sqrtRatioLimit == 0,
                         FixedPointMathLib.ternary(
-                            isPriceIncreasing(tokenAmount.amount, isToken1), MAX_SQRT_RATIO, MIN_SQRT_RATIO
+                            isPriceIncreasing(tokenAmount.amount, tokenAmount.isToken1), MAX_SQRT_RATIO, MIN_SQRT_RATIO
                         ),
                         node.sqrtRatioLimit
                     );
-
-                    // in the case that the first swap is an exact input ETH swap, we make the payment here, directly
                     uint128 value = uint128(
                         FixedPointMathLib.ternary(
-                            j == 0 && tokenAmount.token == NATIVE_TOKEN_ADDRESS && tokenAmount.amount > 0,
+                            j == 0 && !tokenAmount.isToken1 && node.poolKey.token0 == NATIVE_TOKEN_ADDRESS
+                                && tokenAmount.amount > 0,
                             uint128(tokenAmount.amount),
                             0
                         )
                     );
-
                     (int128 delta0, int128 delta1) = core.swap{value: value}(
                         node.poolKey,
                         SwapParameters({
                             amount: tokenAmount.amount,
-                            isToken1: isToken1,
+                            isToken1: tokenAmount.isToken1,
                             sqrtRatioLimit: sqrtRatioLimit,
                             skipAhead: node.skipAhead
                         })
                     );
-
-                    results[i][j] = Delta(delta0, delta1);
+                    results[j] = Delta(delta0, delta1);
 
                     if (j == 0) {
-                        firstSwapAmount = isToken1
-                            ? TokenAmount({amount: delta1, token: node.poolKey.token1})
-                            : TokenAmount({amount: delta0 - int128(value), token: node.poolKey.token0});
+                        firstSwapAmount = tokenAmount.isToken1
+                            ? TokenAmount({amount: delta1, isToken1: true})
+                            : TokenAmount({amount: delta0 - int128(value), isToken1: false});
+                        // Set specified token from first swap.
+                        specifiedToken = tokenAmount.isToken1 ? node.poolKey.token1 : node.poolKey.token0;
                     }
 
-                    if (isToken1) {
+                    if (tokenAmount.isToken1) {
                         if (delta1 != tokenAmount.amount) revert PartialSwapsDisallowed();
-                        tokenAmount = TokenAmount({token: node.poolKey.token0, amount: -delta0});
+                        tokenAmount = TokenAmount({isToken1: false, amount: -delta0});
                     } else {
                         if (delta0 != tokenAmount.amount) revert PartialSwapsDisallowed();
-                        tokenAmount = TokenAmount({token: node.poolKey.token1, amount: -delta1});
+                        tokenAmount = TokenAmount({isToken1: true, amount: -delta1});
                     }
                 }
 
-                // all the swaps must have the same input/output token
-                assert(i == 0 || (specifiedToken == firstSwapAmount.token && calculatedToken == tokenAmount.token));
-                specifiedToken = firstSwapAmount.token;
-                totalSpecified += firstSwapAmount.amount;
-                calculatedToken = tokenAmount.token;
-                totalCalculated += tokenAmount.amount;
-            }
+                if (tokenAmount.amount < calculatedAmountThreshold) {
+                    revert SlippageCheckFailed(calculatedAmountThreshold, tokenAmount.amount);
+                }
 
-            if (totalCalculated < calculatedAmountThreshold) {
-                revert SlippageCheckFailed(calculatedAmountThreshold, totalCalculated);
-            }
+                // Determine calculated token based on initial direction.
+                if (s.tokenAmount.isToken1) {
+                    // Input was token1; output is token0.
+                    specifiedToken = s.route[0].poolKey.token1;
+                    calculatedToken = s.route[s.route.length - 1].poolKey.token0;
+                } else {
+                    // Input was token0; output is token1.
+                    specifiedToken = s.route[0].poolKey.token0;
+                    calculatedToken = s.route[s.route.length - 1].poolKey.token1;
+                }
 
-            if (totalSpecified < 0) {
-                withdraw(specifiedToken, uint128(uint256(-totalSpecified)), swapper);
-            } else {
-                pay(swapper, specifiedToken, uint128(uint256(totalSpecified)));
-            }
+                if (firstSwapAmount.amount < 0) {
+                    withdraw(specifiedToken, uint128(-firstSwapAmount.amount), swapper);
+                } else {
+                    pay(swapper, specifiedToken, uint128(firstSwapAmount.amount));
+                }
 
-            if (totalCalculated > 0) {
-                withdraw(calculatedToken, uint128(uint256(totalCalculated)), swapper);
-            } else {
-                pay(swapper, calculatedToken, uint128(uint256(-totalCalculated)));
+                if (tokenAmount.amount > 0) {
+                    withdraw(calculatedToken, uint128(tokenAmount.amount), swapper);
+                } else {
+                    pay(swapper, calculatedToken, uint128(-tokenAmount.amount));
+                }
             }
+            result = abi.encode(results);
+        } else {
+            // multiMultihopSwap
+            (, address swapper, Swap[] memory swaps, int256 calculatedAmountThreshold) =
+                abi.decode(data, (bytes1, address, Swap[], int256));
+
+            Delta[][] memory results = new Delta[][](swaps.length);
+            unchecked {
+                int256 totalCalculated;
+                int256 totalSpecified;
+                address specifiedToken;
+                address calculatedToken;
+                for (uint256 i = 0; i < swaps.length; i++) {
+                    Swap memory s = swaps[i];
+                    results[i] = new Delta[](s.route.length);
+                    TokenAmount memory tokenAmount = s.tokenAmount;
+                    TokenAmount memory firstSwapAmount;
+
+                    for (uint256 j = 0; j < s.route.length; j++) {
+                        RouteNode memory node = s.route[j];
+                        uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
+                            node.sqrtRatioLimit == 0,
+                            FixedPointMathLib.ternary(
+                                isPriceIncreasing(tokenAmount.amount, tokenAmount.isToken1),
+                                MAX_SQRT_RATIO,
+                                MIN_SQRT_RATIO
+                            ),
+                            node.sqrtRatioLimit
+                        );
+                        uint128 value = uint128(
+                            FixedPointMathLib.ternary(
+                                j == 0 && !tokenAmount.isToken1 && node.poolKey.token0 == NATIVE_TOKEN_ADDRESS
+                                    && tokenAmount.amount > 0,
+                                uint128(tokenAmount.amount),
+                                0
+                            )
+                        );
+                        (int128 delta0, int128 delta1) = core.swap{value: value}(
+                            node.poolKey,
+                            SwapParameters({
+                                amount: tokenAmount.amount,
+                                isToken1: tokenAmount.isToken1,
+                                sqrtRatioLimit: sqrtRatioLimit,
+                                skipAhead: node.skipAhead
+                            })
+                        );
+                        results[i][j] = Delta(delta0, delta1);
+
+                        if (j == 0) {
+                            firstSwapAmount = tokenAmount.isToken1
+                                ? TokenAmount({amount: delta1, isToken1: true})
+                                : TokenAmount({amount: delta0 - int128(value), isToken1: false});
+                        }
+
+                        if (tokenAmount.isToken1) {
+                            if (delta1 != tokenAmount.amount) revert PartialSwapsDisallowed();
+                            tokenAmount = TokenAmount({isToken1: false, amount: -delta0});
+                        } else {
+                            if (delta0 != tokenAmount.amount) revert PartialSwapsDisallowed();
+                            tokenAmount = TokenAmount({isToken1: true, amount: -delta1});
+                        }
+                    }
+
+                    // Assert all swaps use the same input/output tokens.
+                    address swapSpecifiedToken =
+                        s.tokenAmount.isToken1 ? s.route[0].poolKey.token1 : s.route[0].poolKey.token0;
+                    address swapCalculatedToken = s.tokenAmount.isToken1
+                        ? s.route[s.route.length - 1].poolKey.token0
+                        : s.route[s.route.length - 1].poolKey.token1;
+                    if (i == 0) {
+                        specifiedToken = swapSpecifiedToken;
+                        calculatedToken = swapCalculatedToken;
+                    } else {
+                        if (specifiedToken != swapSpecifiedToken || calculatedToken != swapCalculatedToken) {
+                            revert("Inconsistent tokens across swaps");
+                        }
+                    }
+
+                    totalSpecified += firstSwapAmount.amount;
+                    totalCalculated += tokenAmount.amount;
+                }
+
+                if (totalCalculated < calculatedAmountThreshold) {
+                    revert SlippageCheckFailed(calculatedAmountThreshold, totalCalculated);
+                }
+
+                if (totalSpecified < 0) {
+                    withdraw(specifiedToken, uint128(uint256(-totalSpecified)), swapper);
+                } else {
+                    pay(swapper, specifiedToken, uint128(uint256(totalSpecified)));
+                }
+
+                if (totalCalculated > 0) {
+                    withdraw(calculatedToken, uint128(uint256(totalCalculated)), swapper);
+                } else {
+                    pay(swapper, calculatedToken, uint128(uint256(-totalCalculated)));
+                }
+            }
+            result = abi.encode(results);
         }
-        result = abi.encode(results);
     }
 
     function swap(RouteNode calldata node, TokenAmount calldata tokenAmount, int256 calculatedAmountThreshold)
@@ -136,11 +282,9 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         payable
         returns (Delta memory result)
     {
-        Swap[] memory swaps = new Swap[](1);
-        RouteNode[] memory nodes = new RouteNode[](1);
-        nodes[0] = node;
-        swaps[0] = Swap(nodes, tokenAmount);
-        result = abi.decode(lock(abi.encode(msg.sender, calculatedAmountThreshold, swaps)), (Delta[][]))[0][0];
+        result = abi.decode(
+            lock(abi.encode(bytes1(0x00), msg.sender, node, tokenAmount, calculatedAmountThreshold)), (Delta)
+        );
     }
 
     function multihopSwap(Swap memory s, int256 calculatedAmountThreshold)
@@ -148,9 +292,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         payable
         returns (Delta[] memory result)
     {
-        Swap[] memory swaps = new Swap[](1);
-        swaps[0] = s;
-        result = abi.decode(lock(abi.encode(msg.sender, calculatedAmountThreshold, swaps)), (Delta[][]))[0];
+        result = abi.decode(lock(abi.encode(bytes1(0x01), msg.sender, s, calculatedAmountThreshold)), (Delta[]));
     }
 
     function multiMultihopSwap(Swap[] memory swaps, int256 calculatedAmountThreshold)
@@ -158,6 +300,6 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         payable
         returns (Delta[][] memory results)
     {
-        results = abi.decode(lock(abi.encode(msg.sender, calculatedAmountThreshold, swaps)), (Delta[][]));
+        results = abi.decode(lock(abi.encode(bytes1(0x02), msg.sender, swaps, calculatedAmountThreshold)), (Delta[][]));
     }
 }

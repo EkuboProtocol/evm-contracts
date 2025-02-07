@@ -91,7 +91,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
                 result = abi.encode(delta0, delta1);
             }
-        } else {
+        } else if (callType == bytes1(0x01) || callType == bytes1(0x02)) {
             address swapper;
             Swap[] memory swaps;
             int256 calculatedAmountThreshold;
@@ -196,6 +196,14 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
             } else {
                 result = abi.encode(results);
             }
+        } else if (callType == bytes1(0x03)) {
+            (, PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead) =
+                abi.decode(data, (bytes1, PoolKey, bool, int128, uint256, uint256));
+
+            (int128 delta0, int128 delta1) =
+                ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
+
+            revert QuoteReturnValue(delta0, delta1);
         }
     }
 
@@ -223,5 +231,32 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         returns (Delta[][] memory results)
     {
         results = abi.decode(lock(abi.encode(bytes1(0x02), msg.sender, swaps, calculatedAmountThreshold)), (Delta[][]));
+    }
+
+    error QuoteReturnValue(int128 delta0, int128 delta1);
+
+    function quote(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
+        external
+        returns (int128 delta0, int128 delta1)
+    {
+        bytes memory revertData =
+            lockAndExpectRevert(abi.encode(bytes1(0x03), poolKey, isToken1, amount, sqrtRatioLimit, skipAhead));
+
+        // check that the sig matches the error data
+
+        bytes4 sig;
+        assembly ("memory-safe") {
+            sig := mload(add(revertData, 32))
+        }
+        if (sig == QuoteReturnValue.selector && revertData.length == 68) {
+            assembly ("memory-safe") {
+                delta0 := mload(add(revertData, 36))
+                delta1 := mload(add(revertData, 68))
+            }
+        } else {
+            assembly ("memory-safe") {
+                revert(add(revertData, 32), mload(revertData))
+            }
+        }
     }
 }

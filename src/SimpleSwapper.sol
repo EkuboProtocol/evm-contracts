@@ -9,46 +9,6 @@ import {PoolKey} from "./types/poolKey.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 
-contract SimpleQuoter is BaseLocker {
-    constructor(ICore core) BaseLocker(core) {}
-
-    function quote(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
-        external
-        returns (int128 delta0, int128 delta1)
-    {
-        bytes memory revertData = lockAndExpectRevert(abi.encode(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead));
-
-        // check that the sig matches the error data
-
-        bytes4 sig;
-        assembly ("memory-safe") {
-            sig := mload(add(revertData, 32))
-        }
-        if (sig == QuoteReturnValue.selector && revertData.length == 68) {
-            assembly ("memory-safe") {
-                delta0 := mload(add(revertData, 36))
-                delta1 := mload(add(revertData, 68))
-            }
-        } else {
-            assembly ("memory-safe") {
-                revert(add(revertData, 32), mload(revertData))
-            }
-        }
-    }
-
-    error QuoteReturnValue(int128 delta0, int128 delta1);
-
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead) =
-            abi.decode(data, (PoolKey, bool, int128, uint256, uint256));
-
-        (int128 delta0, int128 delta1) =
-            ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
-
-        revert QuoteReturnValue(delta0, delta1);
-    }
-}
-
 contract SimpleSwapper is BaseLocker, SlippageChecker, PayableMulticallable {
     constructor(ICore core) BaseLocker(core) {}
 

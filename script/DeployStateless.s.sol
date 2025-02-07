@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
-import {SimpleSwapper, SimpleQuoter} from "../src/SimpleSwapper.sol";
+import {SimpleSwapper} from "../src/SimpleSwapper.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {Oracle} from "../src/extensions/Oracle.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
@@ -24,7 +24,6 @@ contract DeployStatelessScript is Script {
         new PriceFetcher{salt: salt}(oracle);
         new CoreDataFetcher{salt: salt}(core);
         new SimpleSwapper{salt: salt}(core);
-        new SimpleQuoter{salt: salt}(core);
         new QuoteDataFetcher{salt: salt}(core);
         new TokenDataFetcher{salt: salt}();
 

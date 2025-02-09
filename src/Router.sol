@@ -44,31 +44,38 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
         if (callType == bytes1(0x00)) {
             // swap
-            (, address swapper, RouteNode memory node, TokenAmount memory tokenAmount, int256 calculatedAmountThreshold)
-            = abi.decode(data, (bytes1, address, RouteNode, TokenAmount, int256));
+            (
+                ,
+                address swapper,
+                PoolKey memory poolKey,
+                bool isToken1,
+                int128 amount,
+                uint256 sqrtRatioLimit,
+                uint256 skipAhead,
+                int256 calculatedAmountThreshold,
+                address recipient
+            ) = abi.decode(data, (bytes1, address, PoolKey, bool, int128, uint256, uint256, int256, address));
 
             unchecked {
                 uint256 value = FixedPointMathLib.ternary(
-                    tokenAmount.token == NATIVE_TOKEN_ADDRESS && tokenAmount.amount > 0, uint128(tokenAmount.amount), 0
+                    !isToken1 && poolKey.token0 == NATIVE_TOKEN_ADDRESS && amount > 0, uint128(amount), 0
                 );
 
-                bool isToken1 = tokenAmount.token == node.poolKey.token1;
-                require(isToken1 || tokenAmount.token == node.poolKey.token0);
-                bool increasing = isPriceIncreasing(tokenAmount.amount, tokenAmount.token == node.poolKey.token1);
+                bool increasing = isPriceIncreasing(amount, isToken1);
 
-                uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
-                    node.sqrtRatioLimit == 0,
+                sqrtRatioLimit = FixedPointMathLib.ternary(
+                    sqrtRatioLimit == 0,
                     FixedPointMathLib.ternary(increasing, MAX_SQRT_RATIO, MIN_SQRT_RATIO),
-                    node.sqrtRatioLimit
+                    sqrtRatioLimit
                 );
 
                 (int128 delta0, int128 delta1) = core.swap{value: value}(
-                    node.poolKey,
+                    poolKey,
                     SwapParameters({
-                        amount: tokenAmount.amount,
+                        amount: amount,
                         isToken1: isToken1,
                         sqrtRatioLimit: sqrtRatioLimit,
-                        skipAhead: node.skipAhead
+                        skipAhead: skipAhead
                     })
                 );
 
@@ -78,14 +85,14 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 }
 
                 if (increasing) {
-                    withdraw(node.poolKey.token0, uint128(-delta0), swapper);
-                    pay(swapper, node.poolKey.token1, uint128(delta1));
+                    withdraw(poolKey.token0, uint128(-delta0), recipient);
+                    pay(swapper, poolKey.token1, uint128(delta1));
                 } else {
-                    withdraw(node.poolKey.token1, uint128(-delta1), swapper);
+                    withdraw(poolKey.token1, uint128(-delta1), recipient);
                     if (uint128(delta0) <= value) {
-                        withdraw(node.poolKey.token0, uint128(value) - uint128(delta0), swapper);
+                        withdraw(poolKey.token0, uint128(value) - uint128(delta0), swapper);
                     } else {
-                        pay(swapper, node.poolKey.token0, uint128(delta0));
+                        pay(swapper, poolKey.token0, uint128(delta0));
                     }
                 }
 
@@ -207,16 +214,51 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         }
     }
 
+    function swap(
+        PoolKey memory poolKey,
+        bool isToken1,
+        int128 amount,
+        uint256 sqrtRatioLimit,
+        uint256 skipAhead,
+        int256 calculatedAmountThreshold,
+        address recipient
+    ) public payable returns (int128 delta0, int128 delta1) {
+        (delta0, delta1) = abi.decode(
+            lock(
+                abi.encode(
+                    bytes1(0x00),
+                    msg.sender,
+                    poolKey,
+                    isToken1,
+                    amount,
+                    sqrtRatioLimit,
+                    skipAhead,
+                    calculatedAmountThreshold,
+                    recipient
+                )
+            ),
+            (int128, int128)
+        );
+    }
+
+    function swap(
+        PoolKey memory poolKey,
+        bool isToken1,
+        int128 amount,
+        uint256 sqrtRatioLimit,
+        uint256 skipAhead,
+        int256 calculatedAmountThreshold
+    ) external payable returns (int128 delta0, int128 delta1) {
+        (delta0, delta1) =
+            swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender);
+    }
+
     function swap(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
         external
         payable
         returns (int128 delta0, int128 delta1)
     {
-        (delta0, delta1) = swap(
-            RouteNode(poolKey, sqrtRatioLimit, skipAhead),
-            TokenAmount(isToken1 ? poolKey.token1 : poolKey.token0, amount),
-            type(int256).min
-        );
+        (delta0, delta1) = swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, type(int256).min, msg.sender);
     }
 
     function swap(RouteNode memory node, TokenAmount memory tokenAmount, int256 calculatedAmountThreshold)
@@ -224,8 +266,14 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         payable
         returns (int128 delta0, int128 delta1)
     {
-        (delta0, delta1) = abi.decode(
-            lock(abi.encode(bytes1(0x00), msg.sender, node, tokenAmount, calculatedAmountThreshold)), (int128, int128)
+        (delta0, delta1) = swap(
+            node.poolKey,
+            node.poolKey.token1 == tokenAmount.token,
+            tokenAmount.amount,
+            node.sqrtRatioLimit,
+            node.skipAhead,
+            calculatedAmountThreshold,
+            msg.sender
         );
     }
 

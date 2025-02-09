@@ -29,7 +29,7 @@ contract QuoteDataFetcherTest is FullTest {
         (, uint128 liqB) = createPosition(poolKey, Bounds(-2000, 1200), 1000, 1000);
         (, uint128 liqC) = createPosition(poolKey, Bounds(-400, -200), 0, 300);
         (, uint128 liqD) = createPosition(poolKey, Bounds(250, 600), 200, 0);
-        (, uint128 liqE) = createPosition(poolKey, Bounds(-1280, -1275), 0, 5000);
+        createPosition(poolKey, Bounds(-1280, -1275), 0, 5000);
 
         PoolKey memory poolKeyFull = createPool({tick: 693147, fee: 0, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
         (, uint128 liqF) = createPosition(poolKeyFull, Bounds(MIN_TICK, MAX_TICK), 5000, 5000);

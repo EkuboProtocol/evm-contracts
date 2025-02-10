@@ -102,7 +102,7 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
             ratio = type(uint256).max / ratio;
         }
 
-        r = toSqrtRatio(ratio);
+        r = toSqrtRatio(ratio, false);
     }
 }
 

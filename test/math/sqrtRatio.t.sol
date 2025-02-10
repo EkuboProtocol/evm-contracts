@@ -48,20 +48,29 @@ contract SqrtRatioTest is Test {
 
     function test_nextSqrtRatioFromAmount0() public pure {
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount0(ONE, 1 << 96, 10000), toSqrtRatio(340282366920938463463374564482095251457)
+            nextSqrtRatioFromAmount0(ONE, 1 << 96, 10000), toSqrtRatio(340282366920938463463374564482095251457, true)
         );
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount0(ONE, 1 << 96, -10000), toSqrtRatio(340282366920938463463374650381441171457)
+            nextSqrtRatioFromAmount0(ONE, 1 << 96, -10000), toSqrtRatio(340282366920938463463374650381441171457, true)
         );
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount0(ONE, 1000000, 1000), toSqrtRatio(339942424496442021441932674757011200256)
+            nextSqrtRatioFromAmount0(ONE, 1000000, 1000), toSqrtRatio(339942424496442021441932674757011200256, true)
         );
         assertSqrtRatioEq(nextSqrtRatioFromAmount0(ONE, 1, -100000000000000), SqrtRatio.wrap(type(uint128).max));
-        assertSqrtRatioEq(nextSqrtRatioFromAmount0(MIN_SQRT_RATIO, 1, type(int128).max), toSqrtRatio(2));
+        assertSqrtRatioEq(nextSqrtRatioFromAmount0(MIN_SQRT_RATIO, 1, type(int128).max), toSqrtRatio(2, true));
         assertSqrtRatioEq(
             nextSqrtRatioFromAmount0(ONE, 100000000000, -1000),
-            toSqrtRatio((1 << 128) + 3402823703237621667009962744418)
+            toSqrtRatio((1 << 128) + 3402823703237621667009962744418, true)
         );
+    }
+
+    function test_exampleFailure() public view {
+        SqrtRatio sqrtRatio = SqrtRatio.wrap(170141183460469231752067778737020830138);
+        uint128 liquidity = 1193162642746963740395886491286;
+        int128 amount = -45721516157224221702990211;
+        SqrtRatio sqrtRatioNext = this.nsrfa0(sqrtRatio, liquidity, amount);
+        uint128 delta = this.a0d(sqrtRatio, sqrtRatioNext, liquidity, false);
+        assertLe(uint128(-amount), delta);
     }
 
     function test_nextSqrtRatioFromAmount0_compared_amount0Delta(
@@ -71,7 +80,8 @@ contract SqrtRatioTest is Test {
     ) public view {
         vm.assumeNoRevert();
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
-        SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed);
+        SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
+        sqrtRatioFixed = sqrtRatio.toFixed();
 
         SqrtRatio sqrtRatioNext = this.nsrfa0(sqrtRatio, liquidity, amount);
 
@@ -109,10 +119,11 @@ contract SqrtRatioTest is Test {
 
     function test_nextSqrtRatioFromAmount1() public pure {
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount1(ONE, 1000000, 1000), toSqrtRatio((1 << 128) + 340282366920938463463374607431768211)
+            nextSqrtRatioFromAmount1(ONE, 1000000, 1000),
+            toSqrtRatio((1 << 128) + 340282366920938463463374607431768211, false)
         );
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount1(ONE, 1000000, -1000), toSqrtRatio(339942084554017524999911232824336443244)
+            nextSqrtRatioFromAmount1(ONE, 1000000, -1000), toSqrtRatio(339942084554017524999911232824336443244, false)
         );
         assertSqrtRatioEq(nextSqrtRatioFromAmount1(ONE, 1, -1000000), SqrtRatio.wrap(0));
         // 0 in case of overflow
@@ -131,7 +142,8 @@ contract SqrtRatioTest is Test {
         vm.assumeNoRevert();
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
 
-        SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed);
+        SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
+        sqrtRatioFixed = sqrtRatio.toFixed();
 
         SqrtRatio sqrtRatioNext = this.nsrfa1(sqrtRatio, liquidity, amount);
 

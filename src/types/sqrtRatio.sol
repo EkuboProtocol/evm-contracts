@@ -14,11 +14,15 @@ using {toFixed, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=, sub} 
 uint128 constant TWO_POW_127 = 0x80000000000000000000000000000000;
 
 // Converts a 64.128 value into the compact SqrtRatio representation
-function toSqrtRatio(uint256 sqrtRatio) pure returns (SqrtRatio) {
-    if (sqrtRatio > type(uint128).max) {
-        return SqrtRatio.wrap(uint128(TWO_POW_127 | (sqrtRatio >> 65)));
-    } else {
-        return SqrtRatio.wrap(uint128(sqrtRatio >> 1));
+function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio) {
+    unchecked {
+        if (sqrtRatio > type(uint128).max) {
+            return roundUp
+                ? SqrtRatio.wrap(uint128(TWO_POW_127 | ((sqrtRatio + type(uint64).max) >> 65)))
+                : SqrtRatio.wrap(uint128(TWO_POW_127 | (sqrtRatio >> 65)));
+        } else {
+            return roundUp ? SqrtRatio.wrap(uint128((sqrtRatio + 1) >> 1)) : SqrtRatio.wrap(uint128(sqrtRatio >> 1));
+        }
     }
 }
 

@@ -331,12 +331,12 @@ contract RouterTest is FullTest {
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 52)))), deltas[1][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 68)))), deltas[1][0].amount1);
-        assertEq(uint256(LibBytes.load(logs[2].data, 100)) >> 128, 170141166446614644242697648117690387857);
+        assertEq(uint256(LibBytes.load(logs[2].data, 100)) >> 128, 170141166446614644242697648117690387858);
         assertEq(int32(uint32(bytes4(LibBytes.load(logs[2].data, 116)))), -1);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 52)))), deltas[1][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 68)))), deltas[1][1].amount1);
-        assertEq(uint256(LibBytes.load(logs[3].data, 100)) >> 128, 170139465078164935017965561912851452408);
+        assertEq(uint256(LibBytes.load(logs[3].data, 100)) >> 128, 170139465078164935017965561912851452409);
         assertEq(int32(uint32(bytes4(LibBytes.load(logs[3].data, 116)))), -21);
     }
 

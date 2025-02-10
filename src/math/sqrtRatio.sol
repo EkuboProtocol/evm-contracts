@@ -41,8 +41,7 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
 
             uint256 denominator = liquidityX128 - product;
 
-            // todo: make sure we are rounding in the right direction
-            sqrtRatioNext = toSqrtRatio(FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator));
+            sqrtRatioNext = toSqrtRatio(FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator), true);
         }
     } else {
         uint256 denominator;
@@ -54,8 +53,7 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
             denominator = denominatorP1 + amountAbs;
         }
 
-        // todo: make sure we are rounding in the right direction
-        sqrtRatioNext = toSqrtRatio(FixedPointMathLib.divUp(liquidityX128, denominator));
+        sqrtRatioNext = toSqrtRatio(FixedPointMathLib.divUp(liquidityX128, denominator), true);
     }
 }
 
@@ -97,15 +95,13 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
                 sqrtRatioNextFixed -= 1;
             }
 
-            // todo: make sure we are rounding in the right direction
-            sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed);
+            sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);
         } else {
             uint256 sum = sqrtRatio + quotient;
             if (sum < sqrtRatio || sum > type(uint192).max) {
                 return SqrtRatio.wrap(type(uint128).max);
             }
-            // todo: make sure we are rounding in the right direction
-            sqrtRatioNext = toSqrtRatio(sum);
+            sqrtRatioNext = toSqrtRatio(sum, false);
         }
     }
 }

@@ -13,103 +13,102 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
 
-// contract DeltaTest is Test {
-//     function test_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public {
-//         (uint256 c, uint256 d) = sortSqrtRatios(a, b);
+SqrtRatio constant ONE = SqrtRatio.wrap((1 << 127) + (1 << 63));
 
-//         if (a < b) {
-//             assertTrue(a.toFixed() == c);
-//             assertTrue(b.toFixed() == d);
-//         } else {
-//             assertTrue(a.toFixed() == d);
-//             assertTrue(b.toFixed() == c);
-//         }
-//     }
+contract DeltaTest is Test {
+    function test_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public pure {
+        (uint256 c, uint256 d) = sortSqrtRatios(a, b);
 
-//     function test_amount0Delta_examples() public pure {
-//         assertEq(amount0Delta(1 << 128, MIN_SQRT_RATIO, 1, false), 18446296994052723737);
-//         assertEq(amount0Delta(MIN_SQRT_RATIO, 1 << 128, 1, false), 18446296994052723737);
-//         assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
-//         assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, false), 0);
-//         assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
-//         assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
-//         assertEq(amount0Delta(339942424496442021441932674757011200255, 1 << 128, 1000000, false), 1000);
-//         assertEq(
-//             amount0Delta((1 << 128) + 34028236692093846346337460743176821145, 1 << 128, 1000000000000000000, true),
-//             90909090909090910
-//         );
-//         assertEq(amount0Delta((1 << 128) + 340622989910849312776150758189957120, 1 << 128, 1000000, false), 999);
-//         assertEq(amount0Delta(339942424496442021441932674757011200255, 1 << 128, 1000000, true), 1001);
-//     }
+        if (a < b) {
+            assertTrue(a.toFixed() == c);
+            assertTrue(b.toFixed() == d);
+        } else {
+            assertTrue(a.toFixed() == d);
+            assertTrue(b.toFixed() == c);
+        }
+    }
 
-//     function a0d(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
-//         external
-//         pure
-//         returns (uint128)
-//     {
-//         return amount0Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
-//     }
+    function test_amount0Delta_examples() public pure {
+        assertEq(amount0Delta(ONE, MIN_SQRT_RATIO, 1, false), 18446296994052723737);
+        assertEq(amount0Delta(MIN_SQRT_RATIO, ONE, 1, false), 18446296994052723737);
+        assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
+        assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, false), 0);
+        assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
+        assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
+        assertEq(amount0Delta(SqrtRatio.wrap(339942424496442021441932674757011200255 >> 1), ONE, 1000000, false), 1000);
+        assertEq(
+            amount0Delta(SqrtRatio.wrap(SqrtRatio.unwrap(ONE) + 922337203685477580), ONE, 1e18, true), 90909090909090910
+        );
+        assertEq(amount0Delta(SqrtRatio.wrap(SqrtRatio.unwrap(ONE) + 9232604641496272), ONE, 1000000, false), 999);
+        assertEq(amount0Delta(SqrtRatio.wrap(339942424496442021441932674757011200255 >> 1), ONE, 1000000, true), 1001);
+    }
 
-//     function test_amount0Delta_fuzz(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
-//         public
-//         view
-//     {
-//         vm.assume(sqrtRatioA != 0 && sqrtRatioB != 0);
-//         (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+    function a0d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+        external
+        pure
+        returns (uint128)
+    {
+        return amount0Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+    }
 
-//         vm.assumeNoRevert();
-//         uint128 amount = this.a0d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+    function test_amount0Delta_fuzz(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+        public
+        view
+    {
+        vm.assume(SqrtRatio.unwrap(sqrtRatioA) != 0 && SqrtRatio.unwrap(sqrtRatioB) != 0);
+        (uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
-//         uint256 amountA = (uint256(liquidity) << 128) / sqrtRatioA;
-//         uint256 amountB = (uint256(liquidity) << 128) / sqrtRatioB;
-//         uint256 diff = amountA - amountB;
+        vm.assumeNoRevert();
+        uint128 amount = this.a0d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
 
-//         // it can only be off by up to 1
-//         if (diff != 0) assertGe(amount, diff - 1);
-//         if (diff != type(uint256).max) assertLe(amount, diff + 1);
-//     }
+        uint256 amountA = (uint256(liquidity) << 128) / sqrtRatioAFixed;
+        uint256 amountB = (uint256(liquidity) << 128) / sqrtRatioBFixed;
+        uint256 diff = amountA - amountB;
 
-//     function test_amount1Delta_examples() public pure {
-//         assertEq(amount1Delta(1 << 128, MAX_SQRT_RATIO, 1, false), 18446296994052723737);
-//         assertEq(amount1Delta(MAX_SQRT_RATIO, 1 << 128, 1, false), 18446296994052723737);
-//         assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
-//         assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, false), 0);
-//         assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
-//         assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
+        // it can only be off by up to 1
+        if (diff != 0) assertGe(amount, diff - 1);
+        if (diff != type(uint256).max) assertLe(amount, diff + 1);
+    }
 
-//         assertEq(
-//             amount1Delta(1 << 128, 309347606291762239512158734028880192232, 1000000000000000000, true),
-//             90909090909090910
-//         );
-//         assertEq(
-//             amount1Delta(1 << 128, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 340274119756928397675478831271437331477
-//         );
-//     }
+    function test_amount1Delta_examples() public pure {
+        assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, 1, false), 18446296994052723737);
+        assertEq(amount1Delta(MAX_SQRT_RATIO, ONE, 1, false), 18446296994052723737);
+        assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
+        assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, false), 0);
+        assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
+        assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
 
-//     function a1d(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
-//         external
-//         pure
-//         returns (uint128)
-//     {
-//         return amount1Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
-//     }
+        assertEq(
+            amount1Delta(ONE, SqrtRatio.wrap(309347606291762239512158734028880192232 >> 1), 1000000000000000000, true),
+            90909090909090910
+        );
+        assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 340274119756928397675478831271437331476);
+    }
 
-//     function test_amount1Delta_fuzz(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
-//         public
-//         view
-//     {
-//         vm.assume(sqrtRatioA != 0 && sqrtRatioB != 0);
-//         (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+    function a1d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+        external
+        pure
+        returns (uint128)
+    {
+        return amount1Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+    }
 
-//         vm.assumeNoRevert();
-//         uint128 amount = this.a1d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+    function test_amount1Delta_fuzz(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+        public
+        view
+    {
+        vm.assume(SqrtRatio.unwrap(sqrtRatioA) != 0 && SqrtRatio.unwrap(sqrtRatioB) != 0);
+        (uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
-//         uint256 amountA = FixedPointMathLib.fullMulDivN(liquidity, sqrtRatioA, 128);
-//         uint256 amountB = FixedPointMathLib.fullMulDivN(liquidity, sqrtRatioB, 128);
-//         uint256 diff = amountB - amountA;
+        vm.assumeNoRevert();
+        uint128 amount = this.a1d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
 
-//         // it can only be off by up to 1
-//         if (diff != 0) assertGe(amount, diff - 1);
-//         if (diff != type(uint256).max) assertLe(amount, diff + 1);
-//     }
-// }
+        uint256 amountA = FixedPointMathLib.fullMulDivN(liquidity, sqrtRatioAFixed, 128);
+        uint256 amountB = FixedPointMathLib.fullMulDivN(liquidity, sqrtRatioBFixed, 128);
+        uint256 diff = amountB - amountA;
+
+        // it can only be off by up to 1
+        if (diff != 0) assertGe(amount, diff - 1);
+        if (diff != type(uint256).max) assertLe(amount, diff + 1);
+    }
+}

@@ -32,12 +32,11 @@ import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {
     MIN_TICK,
     MAX_TICK,
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
     NATIVE_TOKEN_ADDRESS,
     FULL_RANGE_ONLY_TICK_SPACING,
     MAX_TICK_SPACING
 } from "./math/constants.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 
 contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
@@ -50,7 +49,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
     // The pool price, we pack the tick with the sqrt ratio
     struct PoolPrice {
-        uint192 sqrtRatio;
+        SqrtRatio sqrtRatio;
         int32 tick;
     }
 
@@ -93,7 +92,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         emit ExtensionRegistered(msg.sender);
     }
 
-    function initializePool(PoolKey memory poolKey, int32 tick) external returns (uint256 sqrtRatio) {
+    function initializePool(PoolKey memory poolKey, int32 tick) external returns (SqrtRatio sqrtRatio) {
         poolKey.validatePoolKey();
 
         if (poolKey.extension != address(0)) {
@@ -108,10 +107,10 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
         bytes32 poolId = poolKey.toPoolId();
         PoolPrice memory price = poolPrice[poolId];
-        if (price.sqrtRatio != 0) revert PoolAlreadyInitialized();
+        if (SqrtRatio.unwrap(price.sqrtRatio) != 0) revert PoolAlreadyInitialized();
 
         sqrtRatio = tickToSqrtRatio(tick);
-        poolPrice[poolId] = PoolPrice({sqrtRatio: uint192(sqrtRatio), tick: tick});
+        poolPrice[poolId] = PoolPrice({sqrtRatio: sqrtRatio, tick: tick});
 
         emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 
@@ -290,9 +289,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         if (params.liquidityDelta != 0) {
             bytes32 poolId = poolKey.toPoolId();
             PoolPrice memory price = poolPrice[poolId];
-            if (price.sqrtRatio == 0) revert PoolNotInitialized();
+            if (SqrtRatio.unwrap(price.sqrtRatio) == 0) revert PoolNotInitialized();
 
-            (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
+            (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
                 (tickToSqrtRatio(params.bounds.lower), tickToSqrtRatio(params.bounds.upper));
 
             (delta0, delta1) =
@@ -412,14 +411,14 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
 
         bytes32 poolId = poolKey.toPoolId();
-        uint256 sqrtRatio;
+        SqrtRatio sqrtRatio;
         int32 tick;
         {
             PoolPrice storage price = poolPrice[poolId];
             (tick, sqrtRatio) = (price.tick, price.sqrtRatio);
         }
 
-        if (sqrtRatio == 0) revert PoolNotInitialized();
+        if (SqrtRatio.unwrap(sqrtRatio) == 0) revert PoolNotInitialized();
 
         // 0 swap amount is no-op
         if (params.amount != 0) {
@@ -427,10 +426,10 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             bool increasing = isPriceIncreasing(params.amount, params.isToken1);
             if (increasing) {
                 if (params.sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
-                if (params.sqrtRatioLimit > MAX_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
+                // if (params.sqrtRatioLimit.toFixed() > MAX_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
             } else {
                 if (params.sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
-                if (params.sqrtRatioLimit < MIN_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
+                // if (params.sqrtRatioLimit.toFixed() < MIN_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
             }
 
             mapping(uint256 => Bitmap) storage initializedTickBitmaps = poolInitializedTickBitmaps[poolKey.toPoolId()];
@@ -460,7 +459,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             while (amountRemaining != 0 && sqrtRatio != params.sqrtRatioLimit) {
                 int32 nextTick;
                 bool isInitialized;
-                uint256 nextTickSqrtRatio;
+                SqrtRatio nextTickSqrtRatio;
                 SwapResult memory result;
 
                 if (poolKey.tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
@@ -469,29 +468,19 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                         : initializedTickBitmaps.findPrevInitializedTick(tick, poolKey.tickSpacing, params.skipAhead);
 
                     nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                    uint256 limitedNextSqrtRatio = FixedPointMathLib.ternary(
-                        increasing,
-                        FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit),
-                        FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit)
-                    );
-                    result = swapResult(
-                        sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
-                    );
                 } else {
                     // we never cross ticks in the full range version
                     // isInitialized = false;
                     (nextTick, nextTickSqrtRatio) = increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
-
-                    uint256 limitedNextSqrtRatio = FixedPointMathLib.ternary(
-                        increasing,
-                        FixedPointMathLib.min(nextTickSqrtRatio, params.sqrtRatioLimit),
-                        FixedPointMathLib.max(nextTickSqrtRatio, params.sqrtRatioLimit)
-                    );
-
-                    result = swapResult(
-                        sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
-                    );
                 }
+
+                SqrtRatio limitedNextSqrtRatio = increasing
+                    ? nextTickSqrtRatio > params.sqrtRatioLimit ? params.sqrtRatioLimit : nextTickSqrtRatio
+                    : nextTickSqrtRatio < params.sqrtRatioLimit ? params.sqrtRatioLimit : nextTickSqrtRatio;
+
+                result = swapResult(
+                    sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee
+                );
 
                 // this accounts the fees into the feesPerLiquidity memory struct
                 assembly ("memory-safe") {

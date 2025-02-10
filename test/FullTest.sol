@@ -14,6 +14,7 @@ import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract MockExtension is IExtension {
     function register(ICore core, CallPoints calldata expectedCallPoints) external {
@@ -26,9 +27,9 @@ contract MockExtension is IExtension {
         emit BeforeInitializePoolCalled(caller, key, tick);
     }
 
-    event AfterInitializePoolCalled(address caller, PoolKey poolKey, int32 tick, uint256 sqrtRatio);
+    event AfterInitializePoolCalled(address caller, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
 
-    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external {
+    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, SqrtRatio sqrtRatio) external {
         emit AfterInitializePoolCalled(caller, key, tick, sqrtRatio);
     }
 

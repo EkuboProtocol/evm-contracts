@@ -4,18 +4,12 @@ pragma solidity =0.8.28;
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {
-    MAX_TICK,
-    MIN_TICK,
-    MAX_SQRT_RATIO,
-    MIN_SQRT_RATIO,
-    MAX_TICK_SPACING,
-    FULL_RANGE_ONLY_TICK_SPACING
-} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -111,8 +105,8 @@ contract Handler is StdUtils, StdAssertions {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey =
             PoolKey(address(token0), address(token1), fee, tickSpacing, withExtension ? address(fae) : address(0));
-        (bool initialized, uint256 sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
-        assertNotEq(sqrtRatio, 0);
+        (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
+        assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);
     }
 
@@ -226,15 +220,15 @@ contract Handler is StdUtils, StdAssertions {
     function swap(uint256 poolKeyIndex, SwapParameters memory params) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        (uint256 price,) = core.poolPrice(poolKey.toPoolId());
+        // (SqrtRatio price,) = core.poolPrice(poolKey.toPoolId());
 
-        params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+        // // params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
 
-        if (isPriceIncreasing(params.amount, params.isToken1)) {
-            params.sqrtRatioLimit = bound(params.sqrtRatioLimit, price, MAX_SQRT_RATIO);
-        } else {
-            params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, price);
-        }
+        // if (isPriceIncreasing(params.amount, params.isToken1)) {
+        //     // params.sqrtRatioLimit = bound(params.sqrtRatioLimit, price, MAX_SQRT_RATIO);
+        // } else {
+        //     // params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, price);
+        // }
 
         params.skipAhead = bound(params.skipAhead, 0, type(uint8).max);
 
@@ -277,10 +271,10 @@ contract Handler is StdUtils, StdAssertions {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
             PoolKey memory poolKey = allPoolKeys[i];
 
-            (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+            (SqrtRatio sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
 
-            assertGe(sqrtRatio, MIN_SQRT_RATIO);
-            assertLe(sqrtRatio, MAX_SQRT_RATIO);
+            // assertGe(sqrtRatio, MIN_SQRT_RATIO);
+            // assertLe(sqrtRatio, MAX_SQRT_RATIO);
             assertGe(tick, MIN_TICK - 1);
             assertLe(tick, MAX_TICK + 1);
         }

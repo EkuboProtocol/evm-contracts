@@ -7,6 +7,7 @@ import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionKey} from "../types/positionKey.sol";
 import {Position} from "../types/position.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 contract CoreDataFetcher is UsesCore {
     using CoreLib for *;
@@ -17,7 +18,7 @@ contract CoreDataFetcher is UsesCore {
         amount = core.protocolFeesCollected(token);
     }
 
-    function poolPrice(PoolKey memory poolKey) external view returns (uint256 sqrtRatio, int32 tick) {
+    function poolPrice(PoolKey memory poolKey) external view returns (SqrtRatio sqrtRatio, int32 tick) {
         (sqrtRatio, tick) = core.poolPrice(poolKey.toPoolId());
     }
 

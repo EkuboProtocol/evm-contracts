@@ -16,6 +16,7 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
+import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, ERC721 {
@@ -88,7 +89,7 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
     {
         bytes32 poolId = poolKey.toPoolId();
-        (uint256 sqrtRatio,) = core.poolPrice(poolId);
+        (SqrtRatio sqrtRatio,) = core.poolPrice(poolId);
         bytes32 positionId = PositionKey(bytes32(id), address(this), bounds).toPositionId();
         Position memory position = core.poolPositions(poolId, positionId);
 
@@ -115,7 +116,7 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
         uint128 maxAmount1,
         uint128 minLiquidity
     ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        (uint256 sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
 
         liquidity = maxLiquidity(
             sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), maxAmount0, maxAmount1
@@ -180,11 +181,11 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
     function maybeInitializePool(PoolKey memory poolKey, int32 tick)
         external
         payable
-        returns (bool initialized, uint256 sqrtRatio)
+        returns (bool initialized, SqrtRatio sqrtRatio)
     {
         // the before update position hook shouldn't be taken into account here
         (sqrtRatio,) = core.poolPrice(poolKey.toPoolId());
-        if (sqrtRatio == 0) {
+        if (SqrtRatio.unwrap(sqrtRatio) == 0) {
             initialized = true;
             sqrtRatio = core.initializePool(poolKey, tick);
         }

@@ -4,14 +4,8 @@ pragma solidity =0.8.28;
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
-import {
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
-    FULL_RANGE_ONLY_TICK_SPACING,
-    MIN_TICK,
-    MAX_TICK,
-    NATIVE_TOKEN_ADDRESS
-} from "../src/math/constants.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../src/types/sqrtRatio.sol";
+import {FULL_RANGE_ONLY_TICK_SPACING, MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
@@ -34,7 +28,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, -49);
 
         (delta0, delta1) = router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
@@ -59,7 +53,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 202);
 
         (delta0, delta1) = router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             type(int256).min
         );
@@ -79,7 +73,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 100);
 
         (delta0, delta1) = router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
         );
@@ -99,7 +93,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, -100);
 
         (delta0, delta1) = router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: -100}),
             type(int256).min
         );
@@ -113,7 +107,7 @@ contract RouterTest is FullTest {
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             50
         );
@@ -125,7 +119,7 @@ contract RouterTest is FullTest {
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             -200
         );
@@ -137,7 +131,7 @@ contract RouterTest is FullTest {
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             50
         );
@@ -149,7 +143,7 @@ contract RouterTest is FullTest {
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: -100}),
             -200
         );
@@ -162,7 +156,7 @@ contract RouterTest is FullTest {
         token1.approve(address(router), 202);
 
         (int128 delta0, int128 delta1) = router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             type(int256).min
         );
@@ -177,8 +171,8 @@ contract RouterTest is FullTest {
         token0.approve(address(router), 100);
 
         RouteNode[] memory route = new RouteNode[](2);
-        route[0] = RouteNode(poolKey, 0, 0);
-        route[1] = RouteNode(poolKey, 0, 0);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         Delta[] memory d =
             router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: 100})), type(int256).min);
@@ -195,8 +189,8 @@ contract RouterTest is FullTest {
         token0.approve(address(router), type(uint256).max);
 
         RouteNode[] memory route = new RouteNode[](2);
-        route[0] = RouteNode(poolKey, 0, 0);
-        route[1] = RouteNode(poolKey, 0, 0);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         Delta[] memory d =
             router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: -100})), type(int256).min);
@@ -215,12 +209,12 @@ contract RouterTest is FullTest {
         Swap[] memory swaps = new Swap[](2);
 
         RouteNode[] memory route0 = new RouteNode[](2);
-        route0[0] = RouteNode(poolKey, 0, 0);
-        route0[1] = RouteNode(poolKey, 0, 0);
+        route0[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route0[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         RouteNode[] memory route1 = new RouteNode[](2);
-        route1[0] = RouteNode(poolKey, 0, 0);
-        route1[1] = RouteNode(poolKey, 0, 0);
+        route1[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route1[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         swaps[0] = Swap(route0, TokenAmount({token: address(token0), amount: 100}));
         swaps[1] = Swap(route1, TokenAmount({token: address(token0), amount: -100}));
@@ -246,8 +240,8 @@ contract RouterTest is FullTest {
         Swap[] memory swaps = new Swap[](2);
 
         RouteNode[] memory route = new RouteNode[](2);
-        route[0] = RouteNode(poolKey, 0, 0);
-        route[1] = RouteNode(poolKey, 0, 0);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
         swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
@@ -267,8 +261,8 @@ contract RouterTest is FullTest {
         Swap[] memory swaps = new Swap[](2);
 
         RouteNode[] memory route = new RouteNode[](2);
-        route[0] = RouteNode(poolKey, 0, 0);
-        route[1] = RouteNode(poolKey, 0, 0);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
         swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
@@ -284,7 +278,7 @@ contract RouterTest is FullTest {
         Swap[] memory swaps = new Swap[](2);
 
         RouteNode[] memory route = new RouteNode[](1);
-        route[0] = RouteNode(poolKey, 0, 0);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
         swaps[1] = Swap(route, TokenAmount({token: address(token1), amount: 100}));
@@ -302,8 +296,8 @@ contract RouterTest is FullTest {
         Swap[] memory swaps = new Swap[](2);
 
         RouteNode[] memory route = new RouteNode[](2);
-        route[0] = RouteNode(poolKey, 0, 0);
-        route[1] = RouteNode(poolKey, 0, 0);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
         swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
         swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
@@ -353,7 +347,7 @@ contract RouterTest is FullTest {
         token0.approve(address(router), 100);
 
         (int128 delta0, int128 delta1) = router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
@@ -369,7 +363,7 @@ contract RouterTest is FullTest {
         token0.approve(address(router), 100);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
@@ -383,7 +377,7 @@ contract RouterTest is FullTest {
         token1.approve(address(router), 100);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
         );
@@ -395,7 +389,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
         router.swap{value: 100}(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
             type(int256).min
         );
@@ -407,7 +401,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);
 
         router.swap{value: 100}(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
             type(int256).min
         );
@@ -420,7 +414,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 100);
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
         );

@@ -7,6 +7,7 @@ import {PositionKey, Bounds} from "../types/positionKey.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 struct UpdatePositionParameters {
     bytes32 salt;
@@ -17,13 +18,13 @@ struct UpdatePositionParameters {
 struct SwapParameters {
     int128 amount;
     bool isToken1;
-    uint256 sqrtRatioLimit;
+    SqrtRatio sqrtRatioLimit;
     uint256 skipAhead;
 }
 
 interface IExtension {
     function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
-    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, uint256 sqrtRatio) external;
+    function afterInitializePool(address caller, PoolKey calldata key, int32 tick, SqrtRatio sqrtRatio) external;
 
     function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
         external;
@@ -58,7 +59,7 @@ interface IExtension {
 interface ICore is IFlashAccountant, IExposedStorage {
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
-    event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, uint256 sqrtRatio);
+    event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
     event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
     event SavedBalance(address owner, address token, bytes32 salt, uint128 amount);
     event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
@@ -85,7 +86,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     function registerExtension(CallPoints memory expectedCallPoints) external;
 
     // Sets the initial price for a new pool in terms of tick.
-    function initializePool(PoolKey memory poolKey, int32 tick) external returns (uint256 sqrtRatio);
+    function initializePool(PoolKey memory poolKey, int32 tick) external returns (SqrtRatio sqrtRatio);
 
     function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external

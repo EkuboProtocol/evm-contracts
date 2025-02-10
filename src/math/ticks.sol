@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {MAX_TICK_SPACING, MAX_TICK_MAGNITUDE, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./constants.sol";
+import {MAX_TICK_SPACING, MAX_TICK_MAGNITUDE} from "./constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 
 error InvalidTick(int32 tick);
 
-function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
+// Returns the sqrtRatio for the tick, as a 64.63 number or a 0.127 number, where the most significant bit indicates whether it's a 64.63 number or a 0.127 number
+// If the tick is >= 0, then the top bit is 1 and the value is a 64.63 number, otherwise it is a 0.127 number
+function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     unchecked {
         uint256 t = FixedPointMathLib.abs(tick);
         if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
+        uint256 ratio;
         assembly ("memory-safe") {
             ratio := sub(0x100000000000000000000000000000000, mul(and(t, 0x1), 170141055854687974526380422256581))
         }
@@ -98,17 +102,15 @@ function tickToSqrtRatio(int32 tick) pure returns (uint256 ratio) {
             ratio = type(uint256).max / ratio;
         }
 
-        return ratio;
+        r = toSqrtRatio(ratio);
     }
 }
 
 error InvalidSqrtRatio(uint256 sqrtRatio);
 
-function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
+function sqrtRatioToTick(SqrtRatio sqrtRatioWrapped) pure returns (int32) {
     unchecked {
-        if (sqrtRatio >= MAX_SQRT_RATIO || sqrtRatio < MIN_SQRT_RATIO) {
-            revert InvalidSqrtRatio(sqrtRatio);
-        }
+        uint256 sqrtRatio = sqrtRatioWrapped.toFixed();
 
         bool negative = (sqrtRatio >> 128) == 0;
 
@@ -273,7 +275,7 @@ function sqrtRatioToTick(uint256 sqrtRatio) pure returns (int32) {
             return tickLow;
         }
 
-        if (tickToSqrtRatio(tickHigh) <= sqrtRatio) return tickHigh;
+        if (SqrtRatio.unwrap(tickToSqrtRatio(tickHigh)) <= SqrtRatio.unwrap(sqrtRatioWrapped)) return tickHigh;
 
         return tickLow;
     }

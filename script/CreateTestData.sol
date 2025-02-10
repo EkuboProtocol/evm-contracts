@@ -6,12 +6,13 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle} from "../src/extensions/Oracle.sol";
 import {TestToken} from "../test/TestToken.sol";
-import {MAX_TICK_SPACING, MAX_SQRT_RATIO, MIN_SQRT_RATIO, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
+import {MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {maxBounds} from "../test/SolvencyInvariantTest.t.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract CreateTestDataScript is Script {
     function generateTestData(Positions positions, Router router, Oracle oracle) private {
@@ -39,16 +40,16 @@ contract CreateTestDataScript is Script {
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, MIN_SQRT_RATIO, 0);
+            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
 
-            router.swap(poolKey, true, 100000 * 5000, MAX_SQRT_RATIO, 0);
+            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, MIN_SQRT_RATIO, 0);
+            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
 
-            router.swap(poolKey, true, 100000 * 5000, MAX_SQRT_RATIO, 0);
+            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
 
         // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH
@@ -72,7 +73,7 @@ contract CreateTestDataScript is Script {
             NATIVE_TOKEN_ADDRESS,
             address(token),
             0,
-            MAX_TICK_SPACING,
+            FULL_RANGE_ONLY_TICK_SPACING,
             maxBounds(MAX_TICK_SPACING),
             address(oracle),
             4605172,
@@ -82,9 +83,9 @@ contract CreateTestDataScript is Script {
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, MIN_SQRT_RATIO, 0);
+            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
 
-            router.swap(poolKey, true, 100000 * 5000, MAX_SQRT_RATIO, 0);
+            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
     }
 

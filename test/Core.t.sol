@@ -6,6 +6,7 @@ import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
@@ -101,8 +102,8 @@ contract CoreTest is FullTest {
         // call under test
         core.initializePool(key, tick);
 
-        (uint192 _sqrtRatio, int32 _tick) = core.poolPrice(key.toPoolId());
-        assertEq(_sqrtRatio, tickToSqrtRatio(tick));
+        (SqrtRatio _sqrtRatio, int32 _tick) = core.poolPrice(key.toPoolId());
+        assertTrue(_sqrtRatio == tickToSqrtRatio(tick));
         assertEq(_tick, tick);
 
         vm.expectRevert(ICore.PoolAlreadyInitialized.selector);

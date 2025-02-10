@@ -5,6 +5,7 @@ import {ICore} from "../interfaces/ICore.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -21,7 +22,7 @@ library CoreLib {
         amountCollected = uint256(core.unsafeRead(key));
     }
 
-    function poolPrice(ICore core, bytes32 poolId) internal view returns (uint192 sqrtRatio, int32 tick) {
+    function poolPrice(ICore core, bytes32 poolId) internal view returns (SqrtRatio sqrtRatio, int32 tick) {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
@@ -32,8 +33,8 @@ library CoreLib {
         bytes32 result = core.unsafeRead(key);
 
         assembly ("memory-safe") {
-            sqrtRatio := and(result, 0xffffffffffffffffffffffffffffffffffffffffffffffff)
-            tick := shr(192, result)
+            sqrtRatio := and(result, 0xffffffffffffffffffffffffffffffff)
+            tick := shr(128, result)
         }
     }
 

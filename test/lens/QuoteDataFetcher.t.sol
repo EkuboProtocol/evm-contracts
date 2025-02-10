@@ -41,7 +41,7 @@ contract QuoteDataFetcherTest is FullTest {
         QuoteData[] memory qd = qdf.getQuoteData(keys, 1);
         assertEq(qd.length, 2);
         assertEq(qd[0].liquidity, liqA + liqB);
-        assertEq(qd[0].sqrtRatio, tickToSqrtRatio(10));
+        assertTrue(qd[0].sqrtRatio == tickToSqrtRatio(10));
         assertEq(qd[0].minTick, -1270);
         assertEq(qd[0].maxTick, 1290);
         assertEq(qd[0].tick, 10);
@@ -63,7 +63,7 @@ contract QuoteDataFetcherTest is FullTest {
         assertEq(qd[0].ticks[6].liquidityDelta, -int128(liqB));
 
         assertEq(qd[1].liquidity, liqF + liqG);
-        assertEq(qd[1].sqrtRatio, tickToSqrtRatio(693147));
+        assertTrue(qd[1].sqrtRatio == tickToSqrtRatio(693147));
         assertEq(qd[1].minTick, MIN_TICK);
         assertEq(qd[1].maxTick, MAX_TICK);
         assertEq(qd[1].tick, 693147);

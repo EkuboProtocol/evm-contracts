@@ -220,7 +220,7 @@ contract Handler is StdUtils, StdAssertions {
     function swap(uint256 poolKeyIndex, SwapParameters memory params) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        (SqrtRatio price,) = core.poolPrice(poolKey.toPoolId());
+        (SqrtRatio price,,) = core.poolState(poolKey.toPoolId());
 
         bool increasing = isPriceIncreasing(params.amount, params.isToken1);
 
@@ -287,7 +287,7 @@ contract Handler is StdUtils, StdAssertions {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
             PoolKey memory poolKey = allPoolKeys[i];
 
-            (SqrtRatio sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+            (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolKey.toPoolId());
 
             assertGe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
             assertLe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));

@@ -102,7 +102,7 @@ contract CoreTest is FullTest {
         // call under test
         core.initializePool(key, tick);
 
-        (SqrtRatio _sqrtRatio, int32 _tick) = core.poolPrice(key.toPoolId());
+        (SqrtRatio _sqrtRatio, int32 _tick,) = core.poolState(key.toPoolId());
         assertTrue(_sqrtRatio == tickToSqrtRatio(tick));
         assertEq(_tick, tick);
 

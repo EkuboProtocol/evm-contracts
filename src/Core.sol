@@ -48,17 +48,17 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     }
 
     // The pool price, we pack the tick with the sqrt ratio
-    struct PoolPrice {
+    struct PoolState {
         SqrtRatio sqrtRatio;
         int32 tick;
+        uint128 liquidity;
     }
 
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
     mapping(address token => uint256 amountCollected) private protocolFeesCollected;
 
     // Keyed by the pool ID, which is the hash of the ABI-encoded pool key
-    mapping(bytes32 poolId => PoolPrice price) private poolPrice;
-    mapping(bytes32 poolId => uint128 liquidity) private poolLiquidity;
+    mapping(bytes32 poolId => PoolState) private poolState;
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) private poolPositions;
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
@@ -106,11 +106,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
 
         bytes32 poolId = poolKey.toPoolId();
-        PoolPrice memory price = poolPrice[poolId];
+        PoolState memory price = poolState[poolId];
         if (SqrtRatio.unwrap(price.sqrtRatio) != 0) revert PoolAlreadyInitialized();
 
         sqrtRatio = tickToSqrtRatio(tick);
-        poolPrice[poolId] = PoolPrice({sqrtRatio: sqrtRatio, tick: tick});
+        poolState[poolId] = PoolState({sqrtRatio: sqrtRatio, tick: tick, liquidity: 0});
 
         emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 
@@ -175,7 +175,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     {
         if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) return poolFeesPerLiquidity[poolId];
 
-        int32 tick = poolPrice[poolId].tick;
+        int32 tick = poolState[poolId].tick;
         mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
         FeesPerLiquidity memory lower = poolIdEntry[bounds.lower];
         FeesPerLiquidity memory upper = poolIdEntry[bounds.upper];
@@ -210,13 +210,12 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         bytes32 poolId = poolKey.toPoolId();
 
         assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 3)
-            let liquidity := sload(keccak256(0, 64))
-
             if or(amount0, amount1) {
                 mstore(0, poolId)
-                mstore(32, 4)
+                mstore(32, 2)
+                let liquidity := sload(add(keccak256(0, 64), 1))
+
+                mstore(32, 3)
                 let slot0 := keccak256(0, 64)
 
                 if amount0 {
@@ -288,7 +287,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
         if (params.liquidityDelta != 0) {
             bytes32 poolId = poolKey.toPoolId();
-            PoolPrice memory price = poolPrice[poolId];
+            PoolState memory price = poolState[poolId];
             if (SqrtRatio.unwrap(price.sqrtRatio) == 0) revert PoolNotInitialized();
 
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
@@ -349,10 +348,10 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 updateTick(poolId, params.bounds.upper, poolKey.tickSpacing, params.liquidityDelta, true);
 
                 if (price.tick >= params.bounds.lower && price.tick < params.bounds.upper) {
-                    poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
+                    poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, params.liquidityDelta);
                 }
             } else {
-                poolLiquidity[poolId] = addLiquidityDelta(poolLiquidity[poolId], params.liquidityDelta);
+                poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, params.liquidityDelta);
             }
 
             _maybeAccountDebtToken0(id, poolKey.token0, delta0);
@@ -413,9 +412,10 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         bytes32 poolId = poolKey.toPoolId();
         SqrtRatio sqrtRatio;
         int32 tick;
+        uint128 liquidity;
         {
-            PoolPrice storage price = poolPrice[poolId];
-            (tick, sqrtRatio) = (price.tick, price.sqrtRatio);
+            PoolState storage state = poolState[poolId];
+            (tick, sqrtRatio, liquidity) = (state.tick, state.sqrtRatio, state.liquidity);
         }
 
         if (SqrtRatio.unwrap(sqrtRatio) == 0) revert PoolNotInitialized();
@@ -438,7 +438,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             mapping(int32 => TickInfo) storage ticks = poolTicks[poolId];
 
             int128 amountRemaining = params.amount;
-            uint128 liquidity = poolLiquidity[poolId];
 
             uint128 calculatedAmount = 0;
 
@@ -451,7 +450,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             // this loads only the input token fees per liquidity
             assembly ("memory-safe") {
                 mstore(0, poolId)
-                mstore(32, 4)
+                mstore(32, 3)
                 inputTokenFeesPerLiquiditySlot := add(keccak256(0, 64), increasing)
                 inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
             }

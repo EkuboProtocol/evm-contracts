@@ -313,10 +313,9 @@ contract PositionsTest is FullTest {
         (int128 delta0, int128 delta1) = router.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
         assertEq(delta0, 0);
 
-        (SqrtRatio sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId());
         assertTrue(sqrtRatio == MAX_SQRT_RATIO);
         assertEq(tick, MAX_TICK);
-        uint128 liqAfter = core.poolLiquidity(poolKey.toPoolId());
         assertEq(liqAfter, liquidity);
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
@@ -342,17 +341,16 @@ contract PositionsTest is FullTest {
         (int128 delta0, int128 delta1) = router.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
         assertEq(delta1, 0);
 
-        (SqrtRatio sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId());
         assertTrue(sqrtRatio == MIN_SQRT_RATIO);
         assertEq(tick, MIN_TICK - 1);
-        uint128 liqAfter = core.poolLiquidity(poolKey.toPoolId());
         assertEq(liqAfter, liquidity);
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
-        assertEq(p0, 1000000499999874989827178462790659559);
-        assertEq(p1, 0);
-        assertEq(f0, ((uint128(delta0)) / 2) - 1);
-        assertEq(f1, 0);
+        assertEq(p0, 1000000499999874989827178462790659559, "principal0");
+        assertEq(p1, 0, "principal1");
+        assertEq(f0, ((uint128(delta0)) / 2) - 1, "fees0");
+        assertEq(f1, 0, "fees1");
     }
 
     function test_mintAndDeposit_gas() public {

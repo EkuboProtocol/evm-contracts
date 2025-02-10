@@ -60,8 +60,7 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function movePrice(PoolKey memory poolKey, int32 targetTick) internal {
-        (SqrtRatio sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
-        uint128 liquidity = core.poolLiquidity(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolKey.toPoolId());
 
         if (tick < targetTick) {
             SqrtRatio targetRatio = tickToSqrtRatio(targetTick);
@@ -73,7 +72,7 @@ abstract contract BaseOracleTest is FullTest {
             router.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }
 
-        (, tick) = core.poolPrice(poolKey.toPoolId());
+        (, tick,) = core.poolState(poolKey.toPoolId());
 
         // this can happen because of rounding, we may fall just short
         assertEq(tick, targetTick, "failed to move price");
@@ -89,7 +88,7 @@ abstract contract BaseOracleTest is FullTest {
         // todo: finish this for the price fetcher tests
         (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);
 
-        (SqrtRatio sqrtRatio,) = core.poolPrice(pk.toPoolId());
+        (SqrtRatio sqrtRatio,,) = core.poolState(pk.toPoolId());
         if (liquidity < liquidityNext) {
             (int128 d0, int128 d1) = liquidityDeltaToAmountDelta(
                 sqrtRatio, int128(liquidityNext - liquidity), MIN_SQRT_RATIO, MAX_SQRT_RATIO
@@ -99,7 +98,8 @@ abstract contract BaseOracleTest is FullTest {
 
             vm.deal(address(positions), uint128(d0));
             positions.deposit(positionId, pk, bounds, uint128(d0), uint128(d1), liquidityNext - liquidity);
-            assertEq(core.poolLiquidity(pk.toPoolId()), liquidityNext);
+            (,, uint128 liquidityAfter) = core.poolState(pk.toPoolId());
+            assertEq(liquidityAfter, liquidityNext, "liquidity after");
         } else if (liquidity > liquidityNext) {
             positions.withdraw(positionId, pk, bounds, liquidity - liquidityNext);
         }

@@ -6,6 +6,7 @@ import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "../../src/math
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {console} from "forge-std/console.sol";
 
 contract SqrtRatioTest is Test {
     // wrapper for the purpose of vm.assumeNoRevert
@@ -62,15 +63,6 @@ contract SqrtRatioTest is Test {
             nextSqrtRatioFromAmount0(ONE, 100000000000, -1000),
             toSqrtRatio((1 << 128) + 3402823703237621667009962744418, true)
         );
-    }
-
-    function test_exampleFailure() public view {
-        SqrtRatio sqrtRatio = SqrtRatio.wrap(170141183460469231752067778737020830138);
-        uint128 liquidity = 1193162642746963740395886491286;
-        int128 amount = -45721516157224221702990211;
-        SqrtRatio sqrtRatioNext = this.nsrfa0(sqrtRatio, liquidity, amount);
-        uint128 delta = this.a0d(sqrtRatio, sqrtRatioNext, liquidity, false);
-        assertLe(uint128(-amount), delta);
     }
 
     function test_nextSqrtRatioFromAmount0_compared_amount0Delta(

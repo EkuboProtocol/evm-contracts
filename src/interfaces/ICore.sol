@@ -77,6 +77,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     error PoolNotInitialized();
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
     error SqrtRatioLimitOutOfRange();
+    error InvalidSqrtRatioLimit();
 
     // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
     // To withdraw the native token protocol fees, call with token = NATIVE_TOKEN_ADDRESS

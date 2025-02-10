@@ -17,7 +17,8 @@ error ValueOverflowsSqrtRatioContainer();
 
 function isValid(SqrtRatio sqrtRatio) pure returns (bool) {
     uint128 v = SqrtRatio.unwrap(sqrtRatio);
-    return v < TWO_POW_127 || v > (1 << 127) + (1 << 63);
+    return (v < TWO_POW_127 && v >= SqrtRatio.unwrap(MIN_SQRT_RATIO))
+        || (v >= SqrtRatio.unwrap(ONE) && v <= SqrtRatio.unwrap(MAX_SQRT_RATIO));
 }
 
 // Converts a 64.128 value into the compact SqrtRatio representation

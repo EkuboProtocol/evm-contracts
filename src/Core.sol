@@ -403,6 +403,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         payable
         returns (int128 delta0, int128 delta1)
     {
+        if (!params.sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
         (uint256 id, address locker) = _requireLocker();
 
         if (shouldCallBeforeSwap(poolKey.extension) && locker != poolKey.extension) {

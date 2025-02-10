@@ -16,11 +16,11 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
         return _sqrtRatio;
     }
 
-    uint256 sqrtRatio = _sqrtRatio.toFixed();
-
     if (liquidity == 0) {
         revert ZeroLiquidityNextSqrtRatioFromAmount0();
     }
+
+    uint256 sqrtRatio = _sqrtRatio.toFixed();
 
     uint256 liquidityX128 = uint256(liquidity) << 128;
     uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
@@ -67,11 +67,11 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
         return _sqrtRatio;
     }
 
-    uint256 sqrtRatio = _sqrtRatio.toFixed();
-
     if (liquidity == 0) {
         revert ZeroLiquidityNextSqrtRatioFromAmount1();
     }
+
+    uint256 sqrtRatio = _sqrtRatio.toFixed();
 
     unchecked {
         uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;

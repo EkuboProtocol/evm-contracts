@@ -9,19 +9,24 @@ SqrtRatio constant MIN_SQRT_RATIO = SqrtRatio.wrap(9223595582101085263);
 SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(340278243338933430587873239885483909143);
 SqrtRatio constant ONE = SqrtRatio.wrap((1 << 127) + (1 << 63));
 
-using {toFixed, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=, sub} for SqrtRatio global;
+using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=, sub} for SqrtRatio global;
 
 uint128 constant TWO_POW_127 = 0x80000000000000000000000000000000;
 
-error InvalidSqrtRatio();
+error ValueOverflowsSqrtRatioContainer();
+
+function isValid(SqrtRatio sqrtRatio) pure returns (bool) {
+    uint128 v = SqrtRatio.unwrap(sqrtRatio);
+    return v < TWO_POW_127 || v > (1 << 127) + (1 << 63);
+}
 
 // Converts a 64.128 value into the compact SqrtRatio representation
 function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio) {
     unchecked {
         if (sqrtRatio > type(uint128).max) {
-            if (sqrtRatio > type(uint192).max) revert InvalidSqrtRatio();
+            if (sqrtRatio > type(uint192).max) revert ValueOverflowsSqrtRatioContainer();
             return roundUp
-                ? SqrtRatio.wrap(uint128(TWO_POW_127 | ((sqrtRatio + type(uint64).max) >> 65)))
+                ? SqrtRatio.wrap(uint128(TWO_POW_127 | ((sqrtRatio + 0x1ffffffffffffffff) >> 65)))
                 : SqrtRatio.wrap(uint128(TWO_POW_127 | (sqrtRatio >> 65)));
         } else {
             if (roundUp) {
@@ -37,12 +42,16 @@ function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio) {
     }
 }
 
+error InvalidSqrtRatioToFixed();
+
 // Returns a 64.128 value for the given sqrt ratio
 function toFixed(SqrtRatio sqrtRatio) pure returns (uint256) {
-    if (SqrtRatio.unwrap(sqrtRatio) > TWO_POW_127) {
-        return uint256(SqrtRatio.unwrap(sqrtRatio) - TWO_POW_127) << 65;
+    uint128 value = SqrtRatio.unwrap(sqrtRatio);
+    if (value & TWO_POW_127 != 0) {
+        if (value < SqrtRatio.unwrap(ONE)) revert InvalidSqrtRatioToFixed();
+        return uint256(value - TWO_POW_127) << 65;
     } else {
-        return uint256(SqrtRatio.unwrap(sqrtRatio)) << 1;
+        return uint256(value) << 1;
     }
 }
 
@@ -72,11 +81,4 @@ function neq(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
 
 function sub(SqrtRatio a, SqrtRatio b) pure returns (uint256) {
     return a.toFixed() - b.toFixed();
-}
-
-function isValid(SqrtRatio a) pure returns (bool r) {
-    r = SqrtRatio.unwrap(a) != 0;
-    if (r) {
-        r = a >= MIN_SQRT_RATIO && a <= MAX_SQRT_RATIO;
-    }
 }

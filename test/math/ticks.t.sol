@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {sqrtRatioToTick, tickToSqrtRatio, InvalidTick, InvalidSqrtRatio} from "../../src/math/ticks.sol";
+import {sqrtRatioToTick, tickToSqrtRatio, InvalidTick, toSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
 
@@ -74,17 +74,6 @@ contract TicksTest is Test {
         assertEq(SqrtRatio.unwrap(tickToSqrtRatio(-18129342)), 19682253548409207138782582852285036);
     }
 
-    // function test_sqrtRatioToTick_invalid_sqrtRatio_lt_min(SqrtRatio sqrtRatio) public {
-    //     vm.expectRevert(abi.encodeWithSelector(InvalidSqrtRatio.selector, sqrtRatio));
-    //     sqrtRatioToTick(sqrtRatio);
-    // }
-
-    // function test_sqrtRatioToTick_invalid_sqrtRatio_ge_max(uint256 sqrtRatio) public {
-    //     sqrtRatio = bound(sqrtRatio, MAX_SQRT_RATIO, type(uint256).max);
-    //     vm.expectRevert(abi.encodeWithSelector(InvalidSqrtRatio.selector, sqrtRatio));
-    //     sqrtRatioToTick(sqrtRatio);
-    // }
-
     function test_sqrtRatioToTick_min_sqrt_ratio() public pure {
         assertEq(sqrtRatioToTick(MIN_SQRT_RATIO), MIN_TICK);
     }
@@ -104,7 +93,8 @@ contract TicksTest is Test {
     function test_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(int32 tick) public pure {
         tick = boundTick(tick);
         vm.assume(tick > MIN_TICK);
-        SqrtRatio sqrtRatio = SqrtRatio.wrap(SqrtRatio.unwrap(tickToSqrtRatio(tick)) - 1);
+
+        SqrtRatio sqrtRatio = toSqrtRatio(tickToSqrtRatio(tick).toFixed() - 1, false);
         int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
         assertEq(tickCalculated, tick - 1);
     }

@@ -2,10 +2,11 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {SqrtRatio, toSqrtRatio, ONE} from "../../src/types/sqrtRatio.sol";
 
 contract FeesPerLiquidityTest is Test {
     function test_toFixed_toSqrtRatio(SqrtRatio sqrtRatio) public pure {
+        vm.assume(SqrtRatio.unwrap(sqrtRatio) < (1 << 127) || SqrtRatio.unwrap(sqrtRatio) >= SqrtRatio.unwrap(ONE));
         // whether you round up or down, it doesnt matter, since it started as a sqrt ratio
         assertEq(SqrtRatio.unwrap(toSqrtRatio(sqrtRatio.toFixed(), false)), SqrtRatio.unwrap(sqrtRatio));
         assertEq(SqrtRatio.unwrap(toSqrtRatio(sqrtRatio.toFixed(), true)), SqrtRatio.unwrap(sqrtRatio));

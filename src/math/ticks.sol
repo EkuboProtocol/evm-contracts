@@ -106,8 +106,6 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     }
 }
 
-error InvalidSqrtRatio(uint256 sqrtRatio);
-
 function sqrtRatioToTick(SqrtRatio sqrtRatioWrapped) pure returns (int32) {
     unchecked {
         uint256 sqrtRatio = sqrtRatioWrapped.toFixed();

@@ -321,22 +321,22 @@ contract RouterTest is FullTest {
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 52)))), deltas[0][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 68)))), deltas[0][0].amount1);
-        assertEq(uint256(LibBytes.load(logs[0].data, 100)) >> 128, 170141183460469231740910721868653689556);
+        assertEq(uint256(LibBytes.load(logs[0].data, 100)) >> 128, 170141183460469231740910721868653689557);
         assertEq(int32(uint32(bytes4(LibBytes.load(logs[0].data, 116)))), 9);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 52)))), deltas[0][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 68)))), deltas[0][1].amount1);
-        assertEq(uint256(LibBytes.load(logs[1].data, 100)) >> 128, 170140315766813213952197637457917541245);
+        assertEq(uint256(LibBytes.load(logs[1].data, 100)) >> 128, 170140315766813213970644381531627092861);
         assertEq(int32(uint32(bytes4(LibBytes.load(logs[1].data, 116)))), -11);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 52)))), deltas[1][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 68)))), deltas[1][0].amount1);
-        assertEq(uint256(LibBytes.load(logs[2].data, 100)) >> 128, 170141166446614644242697648117690387858);
+        assertEq(uint256(LibBytes.load(logs[2].data, 100)) >> 128, 170141166446614644261144576654579575781);
         assertEq(int32(uint32(bytes4(LibBytes.load(logs[2].data, 116)))), -1);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 52)))), deltas[1][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 68)))), deltas[1][1].amount1);
-        assertEq(uint256(LibBytes.load(logs[3].data, 100)) >> 128, 170139465078164935017965561912851452409);
+        assertEq(uint256(LibBytes.load(logs[3].data, 100)) >> 128, 170139465078164935036412490449740640332);
         assertEq(int32(uint32(bytes4(LibBytes.load(logs[3].data, 116)))), -21);
     }
 

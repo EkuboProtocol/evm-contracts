@@ -426,10 +426,10 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             bool increasing = isPriceIncreasing(params.amount, params.isToken1);
             if (increasing) {
                 if (params.sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
-                // if (params.sqrtRatioLimit.toFixed() > MAX_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
+                if (params.sqrtRatioLimit > MAX_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
             } else {
                 if (params.sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
-                // if (params.sqrtRatioLimit.toFixed() < MIN_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
+                if (params.sqrtRatioLimit < MIN_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
             }
 
             mapping(uint256 => Bitmap) storage initializedTickBitmaps = poolInitializedTickBitmaps[poolKey.toPoolId()];

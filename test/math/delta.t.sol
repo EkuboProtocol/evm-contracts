@@ -10,11 +10,12 @@ import {
     Amount1DeltaOverflow
 } from "../../src/math/delta.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SqrtRatio, ONE} from "../../src/types/sqrtRatio.sol";
+import {SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
 
 contract DeltaTest is Test {
     function test_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public pure {
+        vm.assume(a.isValid() && b.isValid());
         (uint256 c, uint256 d) = sortSqrtRatios(a, b);
 
         if (a < b) {
@@ -49,12 +50,15 @@ contract DeltaTest is Test {
         return amount0Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
     }
 
-    function test_amount0Delta_fuzz(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+    function test_amount0Delta_fuzz(uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed, uint128 liquidity, bool roundUp)
         public
         view
     {
-        vm.assume(SqrtRatio.unwrap(sqrtRatioA) != 0 && SqrtRatio.unwrap(sqrtRatioB) != 0);
-        (uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+        SqrtRatio sqrtRatioA =
+            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        SqrtRatio sqrtRatioB =
+            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        (sqrtRatioAFixed, sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         vm.assumeNoRevert();
         uint128 amount = this.a0d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
@@ -91,12 +95,15 @@ contract DeltaTest is Test {
         return amount1Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
     }
 
-    function test_amount1Delta_fuzz(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+    function test_amount1Delta_fuzz(uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed, uint128 liquidity, bool roundUp)
         public
         view
     {
-        vm.assume(SqrtRatio.unwrap(sqrtRatioA) != 0 && SqrtRatio.unwrap(sqrtRatioB) != 0);
-        (uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+        SqrtRatio sqrtRatioA =
+            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        SqrtRatio sqrtRatioB =
+            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        (sqrtRatioAFixed, sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         vm.assumeNoRevert();
         uint128 amount = this.a1d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);

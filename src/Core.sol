@@ -536,7 +536,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             assembly ("memory-safe") {
                 mstore(0, poolId)
                 mstore(32, 2)
-                sstore(keccak256(0, 64), or(shl(192, tick), sqrtRatio))
+                sstore(keccak256(0, 64), or(shl(128, tick), sqrtRatio))
 
                 if hasCrossed {
                     mstore(0, poolId)
@@ -557,9 +557,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 mstore(add(o, 20), poolId)
                 mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
                 mstore(add(o, 84), shl(128, liquidity))
-                mstore(add(o, 100), shl(64, sqrtRatio))
-                mstore(add(o, 124), shl(224, tick))
-                log0(o, 128)
+                mstore(add(o, 100), shl(128, sqrtRatio))
+                mstore(add(o, 116), shl(224, tick))
+                log0(o, 120)
             }
         }
 

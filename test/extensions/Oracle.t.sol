@@ -291,6 +291,11 @@ contract OracleTest is BaseOracleTest {
         assertEq(capacity, 10);
     }
 
+    function test_expandCapacity_returns_old_if_not_expanded() public {
+        assertEq(oracle.expandCapacity(address(token1), 10), 10);
+        assertEq(oracle.expandCapacity(address(token1), 5), 10);
+    }
+
     function test_createPool_beforeInitializePool_then_expandCapacity() public {
         createOraclePool(address(token1), 0);
         oracle.expandCapacity(address(token1), 10);

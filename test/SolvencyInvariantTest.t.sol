@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
-import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
@@ -220,15 +220,31 @@ contract Handler is StdUtils, StdAssertions {
     function swap(uint256 poolKeyIndex, SwapParameters memory params) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        // (SqrtRatio price,) = core.poolPrice(poolKey.toPoolId());
+        (SqrtRatio price,) = core.poolPrice(poolKey.toPoolId());
 
-        // // params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+        bool increasing = isPriceIncreasing(params.amount, params.isToken1);
 
-        // if (isPriceIncreasing(params.amount, params.isToken1)) {
-        //     // params.sqrtRatioLimit = bound(params.sqrtRatioLimit, price, MAX_SQRT_RATIO);
-        // } else {
-        //     // params.sqrtRatioLimit = bound(params.sqrtRatioLimit, MIN_SQRT_RATIO, price);
-        // }
+        if (isPriceIncreasing(params.amount, params.isToken1)) {
+            params.sqrtRatioLimit = SqrtRatio.wrap(
+                uint128(
+                    bound(
+                        SqrtRatio.unwrap(params.sqrtRatioLimit),
+                        SqrtRatio.unwrap(price),
+                        SqrtRatio.unwrap(MAX_SQRT_RATIO)
+                    )
+                )
+            );
+        } else {
+            params.sqrtRatioLimit = SqrtRatio.wrap(
+                uint128(
+                    bound(
+                        SqrtRatio.unwrap(params.sqrtRatioLimit),
+                        SqrtRatio.unwrap(MIN_SQRT_RATIO),
+                        SqrtRatio.unwrap(price)
+                    )
+                )
+            );
+        }
 
         params.skipAhead = bound(params.skipAhead, 0, type(uint8).max);
 
@@ -273,8 +289,8 @@ contract Handler is StdUtils, StdAssertions {
 
             (SqrtRatio sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
 
-            // assertGe(sqrtRatio, MIN_SQRT_RATIO);
-            // assertLe(sqrtRatio, MAX_SQRT_RATIO);
+            assertGe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
+            assertLe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
             assertGe(tick, MIN_TICK - 1);
             assertLe(tick, MAX_TICK + 1);
         }

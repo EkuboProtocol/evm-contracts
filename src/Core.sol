@@ -404,6 +404,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         returns (int128 delta0, int128 delta1)
     {
         if (!params.sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
+
         (uint256 id, address locker) = _requireLocker();
 
         if (shouldCallBeforeSwap(poolKey.extension) && locker != poolKey.extension) {
@@ -427,10 +428,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             bool increasing = isPriceIncreasing(params.amount, params.isToken1);
             if (increasing) {
                 if (params.sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
-                if (params.sqrtRatioLimit > MAX_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
             } else {
                 if (params.sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
-                if (params.sqrtRatioLimit < MIN_SQRT_RATIO) revert SqrtRatioLimitOutOfRange();
             }
 
             mapping(uint256 => Bitmap) storage initializedTickBitmaps = poolInitializedTickBitmaps[poolKey.toPoolId()];
@@ -536,13 +535,10 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             assembly ("memory-safe") {
                 mstore(0, poolId)
                 mstore(32, 2)
-                sstore(keccak256(0, 64), or(shl(128, tick), sqrtRatio))
+                let slot := keccak256(0, 64)
+                sstore(slot, or(shl(128, tick), sqrtRatio))
 
-                if hasCrossed {
-                    mstore(0, poolId)
-                    mstore(32, 3)
-                    sstore(keccak256(0, 64), liquidity)
-                }
+                if hasCrossed { sstore(add(slot, 1), liquidity) }
 
                 // this stores only the input token fees per liquidity
                 sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)

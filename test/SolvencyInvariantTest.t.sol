@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
-import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
@@ -224,25 +224,13 @@ contract Handler is StdUtils, StdAssertions {
 
         bool increasing = isPriceIncreasing(params.amount, params.isToken1);
 
-        if (isPriceIncreasing(params.amount, params.isToken1)) {
-            params.sqrtRatioLimit = SqrtRatio.wrap(
-                uint128(
-                    bound(
-                        SqrtRatio.unwrap(params.sqrtRatioLimit),
-                        SqrtRatio.unwrap(price),
-                        SqrtRatio.unwrap(MAX_SQRT_RATIO)
-                    )
-                )
+        if (increasing) {
+            params.sqrtRatioLimit = toSqrtRatio(
+                bound(SqrtRatio.unwrap(params.sqrtRatioLimit), price.toFixed(), MAX_SQRT_RATIO.toFixed()), false
             );
         } else {
-            params.sqrtRatioLimit = SqrtRatio.wrap(
-                uint128(
-                    bound(
-                        SqrtRatio.unwrap(params.sqrtRatioLimit),
-                        SqrtRatio.unwrap(MIN_SQRT_RATIO),
-                        SqrtRatio.unwrap(price)
-                    )
-                )
+            params.sqrtRatioLimit = toSqrtRatio(
+                bound(SqrtRatio.unwrap(params.sqrtRatioLimit), MIN_SQRT_RATIO.toFixed(), price.toFixed()), false
             );
         }
 

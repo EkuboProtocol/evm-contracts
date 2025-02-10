@@ -10,10 +10,8 @@ import {
     Amount1DeltaOverflow
 } from "../../src/math/delta.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {SqrtRatio, ONE} from "../../src/types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
-
-SqrtRatio constant ONE = SqrtRatio.wrap((1 << 127) + (1 << 63));
 
 contract DeltaTest is Test {
     function test_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public pure {

@@ -7,6 +7,7 @@ type SqrtRatio is uint128;
 
 SqrtRatio constant MIN_SQRT_RATIO = SqrtRatio.wrap(9223595582101085263);
 SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(340278243338933430587873239885483909143);
+SqrtRatio constant ONE = SqrtRatio.wrap((1 << 127) + (1 << 63));
 
 using {toFixed, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=, sub} for SqrtRatio global;
 

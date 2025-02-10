@@ -101,7 +101,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
             sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed);
         } else {
             uint256 sum = sqrtRatio + quotient;
-            if (sum < sqrtRatio) {
+            if (sum < sqrtRatio || sum > type(uint192).max) {
                 return SqrtRatio.wrap(type(uint128).max);
             }
             // todo: make sure we are rounding in the right direction

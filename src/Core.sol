@@ -215,21 +215,23 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 mstore(32, 2)
                 let liquidity := shr(128, sload(keccak256(0, 64)))
 
-                mstore(32, 3)
-                let slot0 := keccak256(0, 64)
+                if liquidity {
+                    mstore(32, 3)
+                    let slot0 := keccak256(0, 64)
 
-                // division by 0 burns the fees
-                if amount0 {
-                    let v := div(shl(128, amount0), liquidity)
-                    sstore(slot0, add(sload(slot0), v))
-                }
-                if amount1 {
-                    let v := div(shl(128, amount1), liquidity)
-                    sstore(add(slot0, 1), add(sload(add(slot0, 1)), v))
+                    if amount0 {
+                        let v := div(shl(128, amount0), liquidity)
+                        sstore(slot0, add(sload(slot0), v))
+                    }
+                    if amount1 {
+                        let v := div(shl(128, amount1), liquidity)
+                        sstore(add(slot0, 1), add(sload(add(slot0, 1)), v))
+                    }
                 }
             }
         }
 
+        // whether the fees are actually accounted to any position, the caller owes the debt
         _maybeAccountDebtToken0(id, poolKey.token0, int256(uint256(amount0)));
         _accountDebt(id, poolKey.token1, int256(uint256(amount1)));
 

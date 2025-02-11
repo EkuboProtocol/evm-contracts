@@ -7,8 +7,7 @@ import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 
 error InvalidTick(int32 tick);
 
-// Returns the sqrtRatio for the tick, as a 64.63 number or a 0.127 number, where the most significant bit indicates whether it's a 64.63 number or a 0.127 number
-// If the tick is >= 0, then the top bit is 1 and the value is a 64.63 number, otherwise it is a 0.127 number
+// Returns the sqrtRatio corresponding for the tick
 function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     unchecked {
         uint256 t = FixedPointMathLib.abs(tick);

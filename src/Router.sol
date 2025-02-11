@@ -65,9 +65,17 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
                 bool increasing = isPriceIncreasing(amount, isToken1);
 
-                sqrtRatioLimit = SqrtRatio.unwrap(sqrtRatioLimit) == 0
-                    ? increasing ? MAX_SQRT_RATIO : MIN_SQRT_RATIO
-                    : sqrtRatioLimit;
+                sqrtRatioLimit = SqrtRatio.wrap(
+                    uint96(
+                        FixedPointMathLib.ternary(
+                            SqrtRatio.unwrap(sqrtRatioLimit) == 0,
+                            FixedPointMathLib.ternary(
+                                increasing, SqrtRatio.unwrap(MAX_SQRT_RATIO), SqrtRatio.unwrap(MIN_SQRT_RATIO)
+                            ),
+                            SqrtRatio.unwrap(sqrtRatioLimit)
+                        )
+                    )
+                );
 
                 (int128 delta0, int128 delta1) = core.swap{value: value}(
                     poolKey,
@@ -135,9 +143,19 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         bool isToken1 = tokenAmount.token == node.poolKey.token1;
                         require(isToken1 || tokenAmount.token == node.poolKey.token0);
 
-                        SqrtRatio sqrtRatioLimit = SqrtRatio.unwrap(node.sqrtRatioLimit) == 0
-                            ? isPriceIncreasing(tokenAmount.amount, isToken1) ? MAX_SQRT_RATIO : MIN_SQRT_RATIO
-                            : node.sqrtRatioLimit;
+                        SqrtRatio sqrtRatioLimit = SqrtRatio.wrap(
+                            uint96(
+                                FixedPointMathLib.ternary(
+                                    SqrtRatio.unwrap(node.sqrtRatioLimit) == 0,
+                                    FixedPointMathLib.ternary(
+                                        isPriceIncreasing(tokenAmount.amount, isToken1),
+                                        SqrtRatio.unwrap(MAX_SQRT_RATIO),
+                                        SqrtRatio.unwrap(MIN_SQRT_RATIO)
+                                    ),
+                                    SqrtRatio.unwrap(node.sqrtRatioLimit)
+                                )
+                            )
+                        );
 
                         uint256 value = FixedPointMathLib.ternary(
                             j == 0 && tokenAmount.token == NATIVE_TOKEN_ADDRESS && tokenAmount.amount > 0,

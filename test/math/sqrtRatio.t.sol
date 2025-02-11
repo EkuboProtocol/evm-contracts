@@ -6,6 +6,7 @@ import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "../../src/math
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {console} from "forge-std/console.sol";
 
 contract SqrtRatioTest is Test {
     // wrapper for the purpose of vm.assumeNoRevert

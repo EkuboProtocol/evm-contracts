@@ -44,4 +44,24 @@ contract SqrtRatioTest is Test {
             "rounded down != ONE"
         );
     }
+
+    function test_lt(SqrtRatio a, SqrtRatio b) public pure {
+        vm.assume(a.isValid() && b.isValid());
+        assertEq(a < b, a.toFixed() < b.toFixed());
+    }
+
+    function test_le(SqrtRatio a, SqrtRatio b) public pure {
+        vm.assume(a.isValid() && b.isValid());
+        assertEq(a <= b, a.toFixed() <= b.toFixed());
+    }
+
+    function test_gt(SqrtRatio a, SqrtRatio b) public pure {
+        vm.assume(a.isValid() && b.isValid());
+        assertEq(a > b, a.toFixed() > b.toFixed());
+    }
+
+    function test_ge(SqrtRatio a, SqrtRatio b) public pure {
+        vm.assume(a.isValid() && b.isValid());
+        assertEq(a >= b, a.toFixed() >= b.toFixed());
+    }
 }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-// A dynamic fixed point number that stores a shifting 94 bit view of the underlying fixed point value
+// A dynamic fixed point number (a la floating point) that stores a shifting 94 bit view of the underlying fixed point value,
+//  based on the most significant bits (mantissa)
 // If the most significant 2 bits are 11, it represents a 64.30
 // If the most significant 2 bits are 10, it represents a 32.62 number
 // If the most significant 2 bits are 01, it represents a 0.94 number
@@ -10,15 +11,16 @@ pragma solidity =0.8.28;
 type SqrtRatio is uint96;
 
 uint96 constant MIN_SQRT_RATIO_RAW = 4611797791050542631;
-SqrtRatio constant MIN_SQRT_RATIO = SqrtRatio.wrap(4611797791050542631);
+SqrtRatio constant MIN_SQRT_RATIO = SqrtRatio.wrap(MIN_SQRT_RATIO_RAW);
 uint96 constant MAX_SQRT_RATIO_RAW = 79227682466138141934206691491;
 SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(MAX_SQRT_RATIO_RAW);
-SqrtRatio constant ONE = SqrtRatio.wrap((1 << 95) + (1 << 62));
-
-using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=} for SqrtRatio global;
 
 uint96 constant TWO_POW_95 = 0x800000000000000000000000;
 uint96 constant TWO_POW_94 = 0x400000000000000000000000;
+
+SqrtRatio constant ONE = SqrtRatio.wrap((TWO_POW_95) + (1 << 62));
+
+using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=} for SqrtRatio global;
 
 function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
     assembly ("memory-safe") {
@@ -73,6 +75,8 @@ function toFixed(SqrtRatio sqrtRatio) pure returns (uint256 r) {
         r := shl(bitshift, and(sqrtRatio, 0x3fffffffffffffffffffffff))
     }
 }
+
+// The below operators assume that the SqrtRatio is valid, i.e. SqrtRatio#isValid returns true
 
 function lt(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
     r = SqrtRatio.unwrap(a) < SqrtRatio.unwrap(b);

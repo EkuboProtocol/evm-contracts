@@ -60,8 +60,6 @@ function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r)
     }
 }
 
-error InvalidSqrtRatioToFixed();
-
 // Returns the 64.128 representation of the given sqrt ratio
 function toFixed(SqrtRatio sqrtRatio) pure returns (uint256 r) {
     assembly ("memory-safe") {

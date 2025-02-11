@@ -13,12 +13,12 @@ SqrtRatio constant MIN_SQRT_RATIO = SqrtRatio.wrap(4611797791050542631);
 SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(79227682466138141934206691491);
 SqrtRatio constant ONE = SqrtRatio.wrap((1 << 95) + (1 << 62));
 
-using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=, sub} for SqrtRatio global;
+using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=} for SqrtRatio global;
 
 error ValueOverflowsSqrtRatioContainer();
 
-uint96 constant TWO_POW_95 = uint96(1) << 95;
-uint96 constant TWO_POW_94 = uint96(1) << 94;
+uint96 constant TWO_POW_95 = 0x800000000000000000000000;
+uint96 constant TWO_POW_94 = 0x400000000000000000000000;
 
 function isValid(SqrtRatio sqrtRatio) pure returns (bool) {
     uint96 v = SqrtRatio.unwrap(sqrtRatio);
@@ -64,28 +64,18 @@ function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio) {
 
 error InvalidSqrtRatioToFixed();
 
-// Returns a 64.128 value for the given sqrt ratio
-function toFixed(SqrtRatio sqrtRatio) pure returns (uint256) {
-    unchecked {
-        uint128 value = SqrtRatio.unwrap(sqrtRatio);
-        if (value & TWO_POW_95 != 0) {
-            if (value & TWO_POW_94 != 0) {
-                return uint256(value - TWO_POW_95 - TWO_POW_94) << 98;
-            } else {
-                return uint256(value - TWO_POW_95) << 66;
-            }
-        } else {
-            if (value & TWO_POW_94 != 0) {
-                return uint256(value - TWO_POW_94) << 34;
-            } else {
-                return uint256(value) << 2;
-            }
-        }
+// Returns the 64.128 representation of the given sqrt ratio
+function toFixed(SqrtRatio sqrtRatio) pure returns (uint256 r) {
+    assembly ("memory-safe") {
+        let bitshift :=
+            add(
+                2,
+                add(
+                    mul(iszero(iszero(and(sqrtRatio, TWO_POW_95))), 64), mul(iszero(iszero(and(sqrtRatio, TWO_POW_94))), 32)
+                )
+            )
+        r := shl(bitshift, and(sqrtRatio, 0x3fffffffffffffffffffffff))
     }
-}
-
-function le(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
-    r = SqrtRatio.unwrap(a) <= SqrtRatio.unwrap(b);
 }
 
 function lt(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
@@ -94,6 +84,10 @@ function lt(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
 
 function gt(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
     r = SqrtRatio.unwrap(a) > SqrtRatio.unwrap(b);
+}
+
+function le(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
+    r = SqrtRatio.unwrap(a) <= SqrtRatio.unwrap(b);
 }
 
 function ge(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
@@ -106,8 +100,4 @@ function eq(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
 
 function neq(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
     r = SqrtRatio.unwrap(a) != SqrtRatio.unwrap(b);
-}
-
-function sub(SqrtRatio a, SqrtRatio b) pure returns (uint256) {
-    return a.toFixed() - b.toFixed();
 }

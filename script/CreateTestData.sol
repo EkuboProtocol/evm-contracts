@@ -45,6 +45,21 @@ contract CreateTestDataScript is Script {
             router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
 
+        // 30 basis points fee, full range tick spacing
+        poolKey = createPool(
+            baseSalt++,
+            positions,
+            NATIVE_TOKEN_ADDRESS,
+            address(token),
+            uint128((uint256(30) << 128) / 10_000),
+            FULL_RANGE_ONLY_TICK_SPACING,
+            maxBounds(FULL_RANGE_ONLY_TICK_SPACING),
+            address(0),
+            8517197,
+            10000000000000000,
+            50000000000000000000
+        );
+
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
             router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
@@ -52,7 +67,28 @@ contract CreateTestDataScript is Script {
             router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
 
-        // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH
+        poolKey = createPool(
+            baseSalt++,
+            positions,
+            NATIVE_TOKEN_ADDRESS,
+            address(token),
+            0,
+            FULL_RANGE_ONLY_TICK_SPACING,
+            maxBounds(FULL_RANGE_ONLY_TICK_SPACING),
+            address(oracle),
+            4605172,
+            1e18,
+            100e18
+        );
+
+        // 2 example swaps, back and forth, twice, to demonstrate gas usage
+        for (uint256 i = 0; i < 2; i++) {
+            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
+
+            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
+        }
+
+        // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH, just for routing testing
         createPool(
             baseSalt++,
             positions,
@@ -66,27 +102,6 @@ contract CreateTestDataScript is Script {
             30000000000000000,
             300000000000000000000
         );
-
-        poolKey = createPool(
-            baseSalt++,
-            positions,
-            NATIVE_TOKEN_ADDRESS,
-            address(token),
-            0,
-            FULL_RANGE_ONLY_TICK_SPACING,
-            maxBounds(MAX_TICK_SPACING),
-            address(oracle),
-            4605172,
-            1e18,
-            100e18
-        );
-
-        // 2 example swaps, back and forth, twice, to demonstrate gas usage
-        for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
-
-            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
-        }
     }
 
     function createPool(

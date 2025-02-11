@@ -64,4 +64,14 @@ contract SqrtRatioTest is Test {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a >= b, a.toFixed() >= b.toFixed());
     }
+
+    function test_eq(SqrtRatio a, SqrtRatio b) public pure {
+        vm.assume(a.isValid() && b.isValid());
+        assertEq(a == b, a.toFixed() == b.toFixed());
+    }
+
+    function test_neq(SqrtRatio a, SqrtRatio b) public pure {
+        vm.assume(a.isValid() && b.isValid());
+        assertEq(a != b, a.toFixed() != b.toFixed());
+    }
 }

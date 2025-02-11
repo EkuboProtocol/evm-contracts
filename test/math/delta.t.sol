@@ -14,7 +14,7 @@ import {SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
 
 contract DeltaTest is Test {
-    function test_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public pure {
+    function check_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
         (uint256 c, uint256 d) = sortSqrtRatios(a, b);
 

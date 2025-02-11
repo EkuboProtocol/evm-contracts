@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {SqrtRatio, toSqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, ONE} from "../../src/types/sqrtRatio.sol";
 
-contract SqrtRatioTest is Test {
+contract SqrtRatioTypeTest is Test {
     function test_min_max_sqrt_ratio_isValid() public pure {
         assertTrue(MIN_SQRT_RATIO.isValid(), "min");
         assertTrue(MAX_SQRT_RATIO.isValid(), "max");
@@ -36,7 +36,7 @@ contract SqrtRatioTest is Test {
         assertTrue(toSqrtRatio(sqrtRatioFixed, true).isValid(), "sqrt ratio rounded up is valid");
     }
 
-    function test_toFixed_toSqrtRatio(SqrtRatio sqrtRatio) public pure {
+    function check_toFixed_toSqrtRatio(SqrtRatio sqrtRatio) public pure {
         // the assertions only hold true for valid sqrt ratios
         vm.assume(sqrtRatio.isValid());
 
@@ -59,32 +59,32 @@ contract SqrtRatioTest is Test {
         );
     }
 
-    function test_lt(SqrtRatio a, SqrtRatio b) public pure {
+    function check_lt(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a < b, a.toFixed() < b.toFixed());
     }
 
-    function test_le(SqrtRatio a, SqrtRatio b) public pure {
+    function check_le(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a <= b, a.toFixed() <= b.toFixed());
     }
 
-    function test_gt(SqrtRatio a, SqrtRatio b) public pure {
+    function check_gt(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a > b, a.toFixed() > b.toFixed());
     }
 
-    function test_ge(SqrtRatio a, SqrtRatio b) public pure {
+    function check_ge(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a >= b, a.toFixed() >= b.toFixed());
     }
 
-    function test_eq(SqrtRatio a, SqrtRatio b) public pure {
+    function check_eq(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a == b, a.toFixed() == b.toFixed());
     }
 
-    function test_neq(SqrtRatio a, SqrtRatio b) public pure {
+    function check_neq(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a != b, a.toFixed() != b.toFixed());
     }

@@ -213,11 +213,12 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             if or(amount0, amount1) {
                 mstore(0, poolId)
                 mstore(32, 2)
-                let liquidity := sload(add(keccak256(0, 64), 1))
+                let liquidity := shr(128, sload(keccak256(0, 64)))
 
                 mstore(32, 3)
                 let slot0 := keccak256(0, 64)
 
+                // division by 0 burns the fees
                 if amount0 {
                     let v := div(shl(128, amount0), liquidity)
                     sstore(slot0, add(sload(slot0), v))

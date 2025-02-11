@@ -296,8 +296,8 @@ contract SolvencyInvariantTest is FullTest {
         address impl = address(new FeeAccumulatingExtension(core));
         address actual = address((uint160(0xff) << 152) + 0xdeadbeef);
         vm.etch(actual, impl.code);
-        MockExtension(actual).register(core, byteToCallPoints(0xff));
         FeeAccumulatingExtension fae = FeeAccumulatingExtension(actual);
+        fae.register(core, byteToCallPoints(0xff));
 
         handler = new Handler(core, fae, positions, router, token0, token1);
         vm.prank(owner);

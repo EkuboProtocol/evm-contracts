@@ -5,6 +5,16 @@ import {Test} from "forge-std/Test.sol";
 import {SqrtRatio, toSqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, ONE} from "../../src/types/sqrtRatio.sol";
 
 contract SqrtRatioTest is Test {
+    function test_min_max_sqrt_ratio_isValid() public pure {
+        assertTrue(MIN_SQRT_RATIO.isValid(), "min");
+        assertTrue(MAX_SQRT_RATIO.isValid(), "max");
+    }
+
+    function test_outside_min_max_sqrt_ratio_isValid_false() public pure {
+        assertFalse(SqrtRatio.wrap(SqrtRatio.unwrap(MIN_SQRT_RATIO) - 1).isValid(), "lt min");
+        assertFalse(SqrtRatio.wrap(SqrtRatio.unwrap(MAX_SQRT_RATIO) + 1).isValid(), "gt max");
+    }
+
     function toSqrtRatioAlwaysValid(uint256 sqrtRatioFixed) public pure {
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
 

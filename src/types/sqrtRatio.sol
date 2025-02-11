@@ -9,44 +9,40 @@ pragma solidity =0.8.28;
 
 type SqrtRatio is uint96;
 
+uint96 constant MIN_SQRT_RATIO_RAW = 4611797791050542631;
 SqrtRatio constant MIN_SQRT_RATIO = SqrtRatio.wrap(4611797791050542631);
-SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(79227682466138141934206691491);
+uint96 constant MAX_SQRT_RATIO_RAW = 79227682466138141934206691491;
+SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(MAX_SQRT_RATIO_RAW);
 SqrtRatio constant ONE = SqrtRatio.wrap((1 << 95) + (1 << 62));
 
 using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=} for SqrtRatio global;
 
-error ValueOverflowsSqrtRatioContainer();
-
 uint96 constant TWO_POW_95 = 0x800000000000000000000000;
 uint96 constant TWO_POW_94 = 0x400000000000000000000000;
 
-function isValid(SqrtRatio sqrtRatio) pure returns (bool) {
-    uint96 v = SqrtRatio.unwrap(sqrtRatio);
-    bool p = v & TWO_POW_95 != 0;
-    bool pp = v & TWO_POW_94 != 0;
-
-    if (p) {
-        if (pp) {
-            return (v - TWO_POW_95 - TWO_POW_94) >= (1 << 62) && v <= SqrtRatio.unwrap(MAX_SQRT_RATIO);
-        } else {
-            return (v - TWO_POW_95) >= (1 << 62);
-        }
-    } else {
-        if (pp) {
-            return (v - TWO_POW_94) >= (1 << 62);
-        } else {
-            return v >= SqrtRatio.unwrap(MIN_SQRT_RATIO);
-        }
+function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
+    assembly ("memory-safe") {
+        r :=
+            and(
+                and(
+                    iszero(lt(and(sqrtRatio, 0x3fffffffffffffffffffffff), 0x4000000000000000)),
+                    iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW))
+                ),
+                iszero(lt(sqrtRatio, MIN_SQRT_RATIO_RAW))
+            )
     }
 }
 
+error ValueOverflowsSqrtRatioContainer();
+
 // Converts a 64.128 value into the compact SqrtRatio representation
-function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio) {
+function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r) {
     unchecked {
-        if (sqrtRatio > type(uint160).max) {
-            if (sqrtRatio > type(uint192).max) revert ValueOverflowsSqrtRatioContainer();
+        if (sqrtRatio > type(uint192).max) {
+            revert ValueOverflowsSqrtRatioContainer();
+        } else if (sqrtRatio > type(uint160).max) {
             return roundUp
-                ? SqrtRatio.wrap(uint96(TWO_POW_95 | TWO_POW_94 | ((sqrtRatio + 0x3ffffffffffffffffffffffff) >> 98)))
+                ? toSqrtRatio(sqrtRatio + 0x3ffffffffffffffffffffffff, false)
                 : SqrtRatio.wrap(uint96(TWO_POW_95 | TWO_POW_94 | (sqrtRatio >> 98)));
         } else if (sqrtRatio > type(uint128).max) {
             return roundUp

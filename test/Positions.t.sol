@@ -12,6 +12,8 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {FeeAccumulatingExtension} from "./SolvencyInvariantTest.t.sol";
+import {byteToCallPoints} from "../src/types/callPoints.sol";
 
 contract PositionsTest is FullTest {
     using CoreLib for *;
@@ -351,6 +353,67 @@ contract PositionsTest is FullTest {
         assertEq(p1, 0, "principal1");
         assertEq(f0, ((uint128(delta0)) / 2) - 1, "fees0");
         assertEq(f1, 0, "fees1");
+    }
+
+    function test_feeAccumulation_works_full_range() public {
+        address impl = address(new FeeAccumulatingExtension(core));
+        address actual = address((uint160(0xff) << 152) + 0xdeadbeef);
+        vm.etch(actual, impl.code);
+        FeeAccumulatingExtension fae = FeeAccumulatingExtension(actual);
+        fae.register(core, byteToCallPoints(0xff));
+
+        PoolKey memory poolKey = createPool({
+            tick: MIN_TICK + 1,
+            fee: 1 << 127,
+            tickSpacing: FULL_RANGE_ONLY_TICK_SPACING,
+            extension: address(fae)
+        });
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
+
+        (uint256 id,,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
+        (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        assertEq(f0, 0);
+        assertEq(f1, 0);
+
+        token0.approve(address(fae), 1000);
+        token1.approve(address(fae), 2000);
+        fae.accumulateFees(poolKey, 1000, 2000);
+
+        (,,, f0, f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        assertEq(f0, 999);
+        assertEq(f1, 1999);
+    }
+
+    function test_feeAccumulation_zero_liquidity_full_range() public {
+        address impl = address(new FeeAccumulatingExtension(core));
+        address actual = address((uint160(0xff) << 152) + 0xdeadbeef);
+        vm.etch(actual, impl.code);
+        FeeAccumulatingExtension fae = FeeAccumulatingExtension(actual);
+        fae.register(core, byteToCallPoints(0xff));
+
+        PoolKey memory poolKey = createPool({
+            tick: MIN_TICK + 1,
+            fee: 1 << 127,
+            tickSpacing: FULL_RANGE_ONLY_TICK_SPACING,
+            extension: address(fae)
+        });
+
+        token0.approve(address(fae), 1000);
+        token1.approve(address(fae), 2000);
+        fae.accumulateFees(poolKey, 1000, 2000);
+
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
+
+        (uint256 id,,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
+        (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        assertEq(f0, 0);
+        assertEq(f1, 0);
     }
 
     function test_mintAndDeposit_gas() public {

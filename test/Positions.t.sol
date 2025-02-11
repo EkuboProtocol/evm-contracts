@@ -320,7 +320,7 @@ contract PositionsTest is FullTest {
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
         assertEq(p0, 0);
-        assertEq(p1, 1000000499999874989827178462790659559);
+        assertEq(p1, 1000000499999874989827178462785727275);
         assertEq(f0, 0);
         assertEq(f1, ((uint128(delta1)) / 2) - 1);
     }
@@ -347,7 +347,7 @@ contract PositionsTest is FullTest {
         assertEq(liqAfter, liquidity);
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
-        assertEq(p0, 1000000499999874989827178462790659559, "principal0");
+        assertEq(p0, 1000000499999874989935596106549936381, "principal0");
         assertEq(p1, 0, "principal1");
         assertEq(f0, ((uint128(delta0)) / 2) - 1, "fees0");
         assertEq(f1, 0, "fees1");

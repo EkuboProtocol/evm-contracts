@@ -28,18 +28,24 @@ contract DeltaTest is Test {
     }
 
     function test_amount0Delta_examples() public pure {
-        assertEq(amount0Delta(ONE, MIN_SQRT_RATIO, 1, false), 18446296994052723737);
-        assertEq(amount0Delta(MIN_SQRT_RATIO, ONE, 1, false), 18446296994052723737);
+        assertEq(amount0Delta(ONE, MIN_SQRT_RATIO, 1, false), 18446296994052723739);
+        assertEq(amount0Delta(MIN_SQRT_RATIO, ONE, 1, false), 18446296994052723739);
+
         assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
         assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, false), 0);
         assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
         assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
-        assertEq(amount0Delta(SqrtRatio.wrap(339942424496442021441932674757011200255 >> 1), ONE, 1000000, false), 1000);
+
+        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255, false), ONE, 1000000, false), 1000);
         assertEq(
-            amount0Delta(SqrtRatio.wrap(SqrtRatio.unwrap(ONE) + 922337203685477580), ONE, 1e18, true), 90909090909090910
+            amount0Delta(toSqrtRatio((1 << 128) + 34028236692093846346337460743176821145, false), ONE, 1e18, true),
+            90909090909090910
         );
-        assertEq(amount0Delta(SqrtRatio.wrap(SqrtRatio.unwrap(ONE) + 9232604641496272), ONE, 1000000, false), 999);
-        assertEq(amount0Delta(SqrtRatio.wrap(339942424496442021441932674757011200255 >> 1), ONE, 1000000, true), 1001);
+        assertEq(
+            amount0Delta(toSqrtRatio((1 << 128) + 340622989910849312776150758189957120, false), ONE, 1000000, false),
+            999
+        );
+        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255, false), ONE, 1000000, true), 1001);
     }
 
     function a0d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
@@ -81,10 +87,10 @@ contract DeltaTest is Test {
         assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
 
         assertEq(
-            amount1Delta(ONE, SqrtRatio.wrap(309347606291762239512158734028880192232 >> 1), 1000000000000000000, true),
+            amount1Delta(ONE, toSqrtRatio(309347606291762239512158734028880192232, false), 1000000000000000000, true),
             90909090909090910
         );
-        assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 340274119756928397675478831271437331476);
+        assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 340274119756928397675478831269759003622);
     }
 
     function a1d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)

@@ -35,11 +35,11 @@ library CoreLib {
         }
 
         bytes32 p = core.unsafeRead(key);
-        liquidity = uint128(uint256(core.unsafeRead(bytes32(uint256(key) + 1))));
 
         assembly ("memory-safe") {
-            sqrtRatio := and(p, 0xffffffffffffffffffffffffffffffff)
-            tick := shr(128, p)
+            sqrtRatio := and(p, 0xffffffffffffffffffffffff)
+            tick := and(shr(96, p), 0xffffffff)
+            liquidity := shr(128, p)
         }
     }
 

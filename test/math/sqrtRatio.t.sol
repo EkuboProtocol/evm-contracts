@@ -56,7 +56,7 @@ contract SqrtRatioTest is Test {
         assertSqrtRatioEq(
             nextSqrtRatioFromAmount0(ONE, 1000000, 1000), toSqrtRatio(339942424496442021441932674757011200256, true)
         );
-        assertSqrtRatioEq(nextSqrtRatioFromAmount0(ONE, 1, -100000000000000), SqrtRatio.wrap(type(uint128).max));
+        assertSqrtRatioEq(nextSqrtRatioFromAmount0(ONE, 1, -100000000000000), SqrtRatio.wrap(type(uint96).max));
         assertSqrtRatioEq(nextSqrtRatioFromAmount0(MIN_SQRT_RATIO, 1, type(int128).max), toSqrtRatio(2, true));
         assertSqrtRatioEq(
             nextSqrtRatioFromAmount0(ONE, 100000000000, -1000),
@@ -81,7 +81,7 @@ contract SqrtRatioTest is Test {
             // or more than the amount required to move to that price
             if (amount < 0) {
                 assertGt(sqrtRatioNext.toFixed(), sqrtRatioFixed, "next price increasing");
-                if (SqrtRatio.unwrap(sqrtRatioNext) == type(uint128).max) {
+                if (SqrtRatio.unwrap(sqrtRatioNext) == type(uint96).max) {
                     // if we overflowed, the amount in the pool is not enough to support the trade
                     assertLe(
                         (uint256(liquidity) << 128) / sqrtRatioFixed,
@@ -119,8 +119,8 @@ contract SqrtRatioTest is Test {
         assertSqrtRatioEq(nextSqrtRatioFromAmount1(ONE, 1, -1000000), SqrtRatio.wrap(0));
         // 0 in case of overflow
         assertEq(
-            SqrtRatio.unwrap(nextSqrtRatioFromAmount1(SqrtRatio.wrap(type(uint128).max - 1), 1, type(int128).max)),
-            type(uint128).max,
+            SqrtRatio.unwrap(nextSqrtRatioFromAmount1(SqrtRatio.wrap(type(uint96).max - 1), 1, type(int128).max)),
+            type(uint96).max,
             "overflow from amount1 in"
         );
     }

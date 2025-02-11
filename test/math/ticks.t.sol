@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {sqrtRatioToTick, tickToSqrtRatio, InvalidTick, toSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, ONE} from "../../src/types/sqrtRatio.sol";
 
 contract TicksTest is Test {
     function boundTick(int32 tick) internal pure returns (int32) {
@@ -13,7 +13,7 @@ contract TicksTest is Test {
     }
 
     function test_tickToSqrtRatio_one() public pure {
-        assertEq(SqrtRatio.unwrap(tickToSqrtRatio(0)), 0x80000000000000008000000000000000);
+        assertEq(tickToSqrtRatio(0).toFixed(), (1 << 128));
     }
 
     function ttsr(int32 tick) external pure returns (SqrtRatio) {
@@ -39,10 +39,12 @@ contract TicksTest is Test {
 
     function test_tickToSqrtRatio_max() public pure {
         assertEq(SqrtRatio.unwrap(tickToSqrtRatio(MAX_TICK)), SqrtRatio.unwrap(MAX_SQRT_RATIO));
+        assertEq(MAX_SQRT_RATIO.toFixed(), 6276949602062853172742588666607187473671941430179807625216);
     }
 
     function test_tickToSqrtRatio_min() public pure {
         assertEq(SqrtRatio.unwrap(tickToSqrtRatio(MIN_TICK)), SqrtRatio.unwrap(MIN_SQRT_RATIO));
+        assertEq(MIN_SQRT_RATIO.toFixed(), 18447191164202170524);
     }
 
     function test_tickToSqrtRatio_reverts_gt_max_tick(int32 tick) public {
@@ -71,7 +73,7 @@ contract TicksTest is Test {
     }
 
     function test_tickToSqrtRatio_example() public pure {
-        assertEq(SqrtRatio.unwrap(tickToSqrtRatio(-18129342)), 19682253548409207138782582852285036);
+        assertEq(tickToSqrtRatio(-18129342).toFixed(), 39364507096818414277565152436944896);
     }
 
     function test_sqrtRatioToTick_min_sqrt_ratio() public pure {
@@ -99,22 +101,13 @@ contract TicksTest is Test {
         assertEq(tickCalculated, tick - 1);
     }
 
-    function test_sqrtRatioToTick_within_bounds(SqrtRatio sqrtRatio) public pure {
-        if (SqrtRatio.unwrap(sqrtRatio) >= (1 << 127)) {
-            sqrtRatio = SqrtRatio.wrap(
-                uint128(
-                    bound(SqrtRatio.unwrap(sqrtRatio), ((1 << 127) + (1 << 63)), SqrtRatio.unwrap(MAX_SQRT_RATIO) - 1)
-                )
-            );
-        } else {
-            sqrtRatio = SqrtRatio.wrap(
-                uint128(bound(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO), (1 << 127) - 1))
-            );
-        }
+    function test_sqrtRatioToTick_within_bounds(uint256 _sqrtRatio) public pure {
+        _sqrtRatio = bound(_sqrtRatio, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1);
+        SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio, false);
 
         int32 tick = sqrtRatioToTick(sqrtRatio);
-        assertGe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(tickToSqrtRatio(tick)));
-        assertLt(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(tickToSqrtRatio(tick + 1)));
+        assertGe(sqrtRatio.toFixed(), tickToSqrtRatio(tick).toFixed());
+        assertLt(sqrtRatio.toFixed(), tickToSqrtRatio(tick + 1).toFixed());
     }
 
     // this takes about 1 hour to run
@@ -137,8 +130,8 @@ contract TicksTest is Test {
     }
 
     function test_sqrtRatioToTick_gas() public {
-        this.srtt(SqrtRatio.wrap((1 << 63) + (1 << 127)));
-        vm.snapshotGasLastCall("sqrtRatioToTick(1 << 128)");
+        this.srtt(ONE);
+        vm.snapshotGasLastCall("sqrtRatioToTick(1)");
 
         this.srtt(MIN_SQRT_RATIO);
         vm.snapshotGasLastCall("sqrtRatioToTick(MIN_SQRT_RATIO)");

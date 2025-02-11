@@ -29,14 +29,14 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
         unchecked {
             // multiplication will revert on overflow, so we return the maximum value for the type
             if (amountAbs > type(uint256).max / sqrtRatio) {
-                return SqrtRatio.wrap(type(uint128).max);
+                return SqrtRatio.wrap(type(uint96).max);
             }
 
             uint256 product = sqrtRatio * amountAbs;
 
             // again it will overflow if this is the case, so return the max value
             if (product >= liquidityX128) {
-                return SqrtRatio.wrap(type(uint128).max);
+                return SqrtRatio.wrap(type(uint96).max);
             }
 
             uint256 denominator = liquidityX128 - product;
@@ -99,7 +99,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
         } else {
             uint256 sum = sqrtRatio + quotient;
             if (sum < sqrtRatio || sum > type(uint192).max) {
-                return SqrtRatio.wrap(type(uint128).max);
+                return SqrtRatio.wrap(type(uint96).max);
             }
             sqrtRatioNext = toSqrtRatio(sum, false);
         }

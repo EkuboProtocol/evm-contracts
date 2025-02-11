@@ -116,7 +116,7 @@ contract SwapTest is Test {
         swapResult({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 100000,
-            sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + (1 << 65), false),
+            sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + (1 << 96), false),
             amount: 10000,
             isToken1: false,
             fee: 0
@@ -129,7 +129,7 @@ contract SwapTest is Test {
         swapResult({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 0,
-            sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + (1 << 65), false),
+            sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + (1 << 96), false),
             amount: 10000,
             isToken1: false,
             fee: 0

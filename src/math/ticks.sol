@@ -106,13 +106,13 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     }
 }
 
-function sqrtRatioToTick(SqrtRatio sqrtRatioWrapped) pure returns (int32) {
+function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
     unchecked {
-        uint256 sqrtRatio = sqrtRatioWrapped.toFixed();
+        uint256 sqrtRatioFixed = sqrtRatio.toFixed();
 
-        bool negative = (sqrtRatio >> 128) == 0;
+        bool negative = (sqrtRatioFixed >> 128) == 0;
 
-        uint256 x = negative ? (type(uint256).max / sqrtRatio) : sqrtRatio;
+        uint256 x = negative ? (type(uint256).max / sqrtRatioFixed) : sqrtRatioFixed;
 
         // we know x >> 128 is never zero because we check bounds above and then reciprocate sqrtRatio if the high 128 bits are zero
         // so we don't need to handle the exceptional case of log2(0)
@@ -273,7 +273,7 @@ function sqrtRatioToTick(SqrtRatio sqrtRatioWrapped) pure returns (int32) {
             return tickLow;
         }
 
-        if (SqrtRatio.unwrap(tickToSqrtRatio(tickHigh)) <= SqrtRatio.unwrap(sqrtRatioWrapped)) return tickHigh;
+        if (SqrtRatio.unwrap(tickToSqrtRatio(tickHigh)) <= SqrtRatio.unwrap(sqrtRatio)) return tickHigh;
 
         return tickLow;
     }

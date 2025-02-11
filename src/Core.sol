@@ -532,14 +532,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                     : (params.amount - amountRemaining, calculatedAmountDelta);
             }
 
+            poolState[poolId] = PoolState({sqrtRatio: sqrtRatio, tick: tick, liquidity: liquidity});
+
             assembly ("memory-safe") {
-                mstore(0, poolId)
-                mstore(32, 2)
-                let slot := keccak256(0, 64)
-                sstore(slot, or(shl(128, tick), sqrtRatio))
-
-                if hasCrossed { sstore(add(slot, 1), liquidity) }
-
                 // this stores only the input token fees per liquidity
                 sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)
             }
@@ -553,9 +548,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 mstore(add(o, 20), poolId)
                 mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
                 mstore(add(o, 84), shl(128, liquidity))
-                mstore(add(o, 100), shl(128, sqrtRatio))
-                mstore(add(o, 116), shl(224, tick))
-                log0(o, 120)
+                mstore(add(o, 100), shl(160, sqrtRatio))
+                mstore(add(o, 112), shl(224, tick))
+                log0(o, 116)
             }
         }
 

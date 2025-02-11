@@ -15,7 +15,21 @@ contract SqrtRatioTest is Test {
         assertFalse(SqrtRatio.wrap(SqrtRatio.unwrap(MAX_SQRT_RATIO) + 1).isValid(), "gt max");
     }
 
-    function toSqrtRatioAlwaysValid(uint256 sqrtRatioFixed) public pure {
+    function test_toSqrtRatio_below_range_invalid(SqrtRatio sqrtRatio) public pure {
+        sqrtRatio = SqrtRatio.wrap(uint96(bound(SqrtRatio.unwrap(sqrtRatio), 0, SqrtRatio.unwrap(MIN_SQRT_RATIO) - 1)));
+
+        assertFalse(sqrtRatio.isValid());
+    }
+
+    function test_toSqrtRatio_above_range_invalid(SqrtRatio sqrtRatio) public pure {
+        sqrtRatio = SqrtRatio.wrap(
+            uint96(bound(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO) + 1, type(uint96).max))
+        );
+
+        assertFalse(sqrtRatio.isValid());
+    }
+
+    function test_toSqrtRatio_valid(uint256 sqrtRatioFixed) public pure {
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
 
         assertTrue(toSqrtRatio(sqrtRatioFixed, false).isValid(), "sqrt ratio rounded down is valid");

@@ -420,7 +420,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         uint128 liquidity;
         {
             PoolState storage state = poolState[poolId];
-            (tick, sqrtRatio, liquidity) = (state.tick, state.sqrtRatio, state.liquidity);
+            (sqrtRatio, tick, liquidity) = (state.sqrtRatio, state.tick, state.liquidity);
         }
 
         if (sqrtRatio.isZero()) revert PoolNotInitialized();

@@ -47,6 +47,7 @@ function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r)
         // overflows type(uint192).max after rounding
         switch gt(sqrtRatio, sub(0xffffffffffffffffffffffffffffffffffffffffffffffff, addend))
         case 1 {
+            // cast sig "ValueOverflowsSqrtRatioContainer()"
             mstore(0, shl(224, 0xa10459f4))
             revert(0, 4)
         }

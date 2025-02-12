@@ -36,6 +36,15 @@ contract RouterTest is FullTest {
         assertEq(delta1, -49);
     }
 
+    function test_basicSwap_token0_in_with_recipient(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        token0.approve(address(router), 100);
+        router.swap(poolKey, false, 100, SqrtRatio.wrap(0), 0, type(int256).min, address(0xdeadbeef));
+        assertEq(token1.balanceOf(address(0xdeadbeef)), 49);
+    }
+
     function test_basicSwap_token0_out(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
@@ -59,6 +68,16 @@ contract RouterTest is FullTest {
         );
         assertEq(delta0, -100);
         assertEq(delta1, 202);
+    }
+
+    function test_basicSwap_token0_out_with_recipient(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        token1.approve(address(router), 202);
+
+        router.swap(poolKey, false, -100, SqrtRatio.wrap(0), 0, type(int256).min, address(0xdeadbeef));
+        assertEq(token0.balanceOf(address(0xdeadbeef)), 100);
     }
 
     function test_basicSwap_token1_in(CallPoints memory callPoints) public {

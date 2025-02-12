@@ -38,6 +38,7 @@ struct Delta {
 contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker {
     error PartialSwapsDisallowed();
     error SlippageCheckFailed(int256 expectedAmount, int256 calculatedAmount);
+    error TokensMismatch(uint256 index);
 
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
@@ -192,7 +193,9 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         specifiedToken = s.tokenAmount.token;
                         calculatedToken = tokenAmount.token;
                     } else {
-                        require(specifiedToken == s.tokenAmount.token && calculatedToken == tokenAmount.token);
+                        if (specifiedToken != s.tokenAmount.token || calculatedToken != tokenAmount.token) {
+                            revert TokensMismatch(i);
+                        }
                     }
                 }
 

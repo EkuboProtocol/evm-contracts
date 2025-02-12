@@ -252,6 +252,42 @@ contract RouterTest is FullTest {
         router.multiMultihopSwap(swaps, 48);
     }
 
+    function test_multiMultihopSwap_eth_payment() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 127, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        Swap[] memory swaps = new Swap[](2);
+
+        RouteNode[] memory route = new RouteNode[](2);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+
+        swaps[0] = Swap(route, TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 150}));
+        swaps[1] = Swap(route, TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 50}));
+
+        // eth multihop swap
+        router.multiMultihopSwap{value: 200}(swaps, type(int256).min);
+    }
+
+    function test_multiMultihopSwap_slippage_input_reverts_diff_tokens(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+
+        token0.approve(address(router), type(uint256).max);
+
+        Swap[] memory swaps = new Swap[](2);
+
+        RouteNode[] memory route = new RouteNode[](2);
+        route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+        route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
+
+        swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
+        swaps[1] = Swap(route, TokenAmount({token: address(token1), amount: 100}));
+
+        vm.expectRevert(abi.encodeWithSelector(Router.TokensMismatch.selector, 1));
+        router.multiMultihopSwap(swaps, type(int256).min);
+    }
+
     function test_multiMultihopSwap_slippage_output(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 127, 100, callPoints);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);

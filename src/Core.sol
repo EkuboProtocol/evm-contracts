@@ -477,8 +477,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 }
 
                 SqrtRatio limitedNextSqrtRatio = increasing
-                    ? nextTickSqrtRatio > params.sqrtRatioLimit ? params.sqrtRatioLimit : nextTickSqrtRatio
-                    : nextTickSqrtRatio < params.sqrtRatioLimit ? params.sqrtRatioLimit : nextTickSqrtRatio;
+                    ? nextTickSqrtRatio.min(params.sqrtRatioLimit)
+                    : nextTickSqrtRatio.max(params.sqrtRatioLimit);
 
                 result = swapResult(
                     sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee

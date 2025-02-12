@@ -69,7 +69,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 sqrtRatioLimit = SqrtRatio.wrap(
                     uint96(
                         FixedPointMathLib.ternary(
-                            SqrtRatio.unwrap(sqrtRatioLimit) == 0,
+                            sqrtRatioLimit.isZero(),
                             FixedPointMathLib.ternary(
                                 increasing, SqrtRatio.unwrap(MAX_SQRT_RATIO), SqrtRatio.unwrap(MIN_SQRT_RATIO)
                             ),
@@ -147,7 +147,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         SqrtRatio sqrtRatioLimit = SqrtRatio.wrap(
                             uint96(
                                 FixedPointMathLib.ternary(
-                                    SqrtRatio.unwrap(node.sqrtRatioLimit) == 0,
+                                    node.sqrtRatioLimit.isZero(),
                                     FixedPointMathLib.ternary(
                                         isPriceIncreasing(tokenAmount.amount, isToken1),
                                         SqrtRatio.unwrap(MAX_SQRT_RATIO),

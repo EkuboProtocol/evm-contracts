@@ -88,4 +88,18 @@ contract SqrtRatioTypeTest is Test {
         vm.assume(a.isValid() && b.isValid());
         assertEq(a != b, a.toFixed() != b.toFixed());
     }
+
+    function check_max(SqrtRatio a, SqrtRatio b) public pure {
+        SqrtRatio m = a.max(b);
+        assertTrue(m == a || m == b);
+        assertTrue(m >= a);
+        assertTrue(m >= b);
+    }
+
+    function check_min(SqrtRatio a, SqrtRatio b) public pure {
+        SqrtRatio m = a.min(b);
+        assertTrue(m == a || m == b);
+        assertTrue(m <= a);
+        assertTrue(m <= b);
+    }
 }

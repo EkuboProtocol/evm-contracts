@@ -53,23 +53,35 @@ error ValueOverflowsSqrtRatioContainer();
 
 // Converts a 64.128 value into the compact SqrtRatio representation
 function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r) {
-    unchecked {
-        if (sqrtRatio > type(uint192).max) {
-            revert ValueOverflowsSqrtRatioContainer();
-        } else if (sqrtRatio > type(uint160).max) {
-            return roundUp
-                ? toSqrtRatio(sqrtRatio + 0x3ffffffffffffffffffffffff, false)
-                : SqrtRatio.wrap(uint96(BIT_MASK | (sqrtRatio >> 98)));
-        } else if (sqrtRatio > type(uint128).max) {
-            return roundUp
-                ? toSqrtRatio(sqrtRatio + 0x3ffffffffffffffff, false)
-                : SqrtRatio.wrap(uint96(TWO_POW_95 | (sqrtRatio >> 66)));
-        } else if (sqrtRatio > type(uint96).max) {
-            return roundUp
-                ? toSqrtRatio(sqrtRatio + 0x3ffffffff, false)
-                : SqrtRatio.wrap(TWO_POW_94 | uint96((sqrtRatio >> 34)));
-        } else {
-            return roundUp ? toSqrtRatio(sqrtRatio + 0x3, false) : SqrtRatio.wrap(uint96((sqrtRatio >> 2)));
+    assembly ("memory-safe") {
+        let addend := mul(roundUp, 0x3)
+
+        // lt 2**96 after rounding up
+        switch lt(sqrtRatio, sub(0x1000000000000000000000000, addend))
+        case 1 { r := shr(2, add(sqrtRatio, addend)) }
+        default {
+            // 2**34 - 1
+            addend := mul(roundUp, 0x3ffffffff)
+            // lt 2**128 after rounding up
+            switch lt(sqrtRatio, sub(0x100000000000000000000000000000000, addend))
+            case 1 { r := or(TWO_POW_94, shr(34, add(sqrtRatio, addend))) }
+            default {
+                addend := mul(roundUp, 0x3ffffffffffffffff)
+                // lt 2**160 after rounding up
+                switch lt(sqrtRatio, sub(0x10000000000000000000000000000000000000000, addend))
+                case 1 { r := or(TWO_POW_95, shr(66, add(sqrtRatio, addend))) }
+                default {
+                    // 2**98 - 1
+                    addend := mul(roundUp, 0x3ffffffffffffffffffffffff)
+                    switch lt(sqrtRatio, sub(0x1000000000000000000000000000000000000000000000000, addend))
+                    case 1 { r := or(BIT_MASK, shr(98, add(sqrtRatio, addend))) }
+                    default {
+                        // cast sig "ValueOverflowsSqrtRatioContainer()"
+                        mstore(0, shl(224, 0xa10459f4))
+                        revert(0, 4)
+                    }
+                }
+            }
         }
     }
 }

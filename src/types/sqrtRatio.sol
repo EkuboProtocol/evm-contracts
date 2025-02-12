@@ -41,23 +41,35 @@ error ValueOverflowsSqrtRatioContainer();
 
 // Converts a 64.128 value into the compact SqrtRatio representation
 function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r) {
-    unchecked {
-        if (sqrtRatio > type(uint192).max) {
-            revert ValueOverflowsSqrtRatioContainer();
-        } else if (sqrtRatio > type(uint160).max) {
-            return roundUp
-                ? toSqrtRatio(sqrtRatio + 0x3ffffffffffffffffffffffff, false)
-                : SqrtRatio.wrap(uint96(TWO_POW_95 | TWO_POW_94 | (sqrtRatio >> 98)));
-        } else if (sqrtRatio > type(uint128).max) {
-            return roundUp
-                ? toSqrtRatio(sqrtRatio + 0x3ffffffffffffffff, false)
-                : SqrtRatio.wrap(uint96(TWO_POW_95 | (sqrtRatio >> 66)));
-        } else if (sqrtRatio > type(uint96).max) {
-            return roundUp
-                ? toSqrtRatio(sqrtRatio + 0x3ffffffff, false)
-                : SqrtRatio.wrap(TWO_POW_94 | uint96((sqrtRatio >> 34)));
-        } else {
-            return roundUp ? toSqrtRatio(sqrtRatio + 0x3, false) : SqrtRatio.wrap(uint96((sqrtRatio >> 2)));
+    assembly ("memory-safe") {
+        // 2**98 - 1
+        let addend := mul(roundUp, 0x3ffffffffffffffffffffffff)
+        // overflows type(uint192).max after rounding
+        switch gt(sqrtRatio, sub(0xffffffffffffffffffffffffffffffffffffffffffffffff, addend))
+        case 1 {
+            mstore(0, shl(224, 0xa10459f4))
+            revert(0, 4)
+        }
+        default {
+            // type(uint160).max
+            switch gt(sqrtRatio, sub(0xffffffffffffffffffffffffffffffffffffffff, addend))
+            case 1 { r := or(BIT_MASK, shr(98, add(sqrtRatio, addend))) }
+            default {
+                // 2**66 - 1
+                addend := mul(roundUp, 0x3ffffffffffffffff)
+                // type(uint128).max
+                switch gt(sqrtRatio, sub(0xffffffffffffffffffffffffffffffff, addend))
+                case 1 { r := or(TWO_POW_95, shr(66, add(sqrtRatio, addend))) }
+                default {
+                    // 2**34 - 1
+                    addend := mul(roundUp, 0x3ffffffff)
+                    // type(uint96).max
+                    switch gt(sqrtRatio, sub(0xffffffffffffffffffffffff, addend))
+                    case 1 { r := or(TWO_POW_94, shr(34, add(sqrtRatio, addend))) }
+                    // 0x3 == 2**2 - 1
+                    default { r := shr(2, add(sqrtRatio, mul(roundUp, 0x3))) }
+                }
+            }
         }
     }
 }

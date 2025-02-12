@@ -17,7 +17,7 @@ SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(MAX_SQRT_RATIO_RAW);
 
 uint96 constant TWO_POW_95 = 0x800000000000000000000000;
 uint96 constant TWO_POW_94 = 0x400000000000000000000000;
-uint96 constant BIT_MASK = 0xc00000000000000000000000;
+uint96 constant BIT_MASK = 0xc00000000000000000000000; // TWO_POW_95 | TWO_POW_94
 
 SqrtRatio constant ONE = SqrtRatio.wrap((TWO_POW_95) + (1 << 62));
 
@@ -28,8 +28,7 @@ function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
         r :=
             and(
                 and(
-                    iszero(lt(and(sqrtRatio, 0x3fffffffffffffffffffffff), 0x4000000000000000)),
-                    iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW))
+                    iszero(lt(and(sqrtRatio, not(BIT_MASK)), 0x4000000000000000)), iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW))
                 ),
                 iszero(lt(sqrtRatio, MIN_SQRT_RATIO_RAW))
             )
@@ -64,8 +63,7 @@ function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r)
 // Returns the 64.128 representation of the given sqrt ratio
 function toFixed(SqrtRatio sqrtRatio) pure returns (uint256 r) {
     assembly ("memory-safe") {
-        let bitshift := add(2, shr(89, and(sqrtRatio, BIT_MASK)))
-        r := shl(bitshift, and(sqrtRatio, 0x3fffffffffffffffffffffff))
+        r := shl(add(2, shr(89, and(sqrtRatio, BIT_MASK))), and(sqrtRatio, not(BIT_MASK)))
     }
 }
 

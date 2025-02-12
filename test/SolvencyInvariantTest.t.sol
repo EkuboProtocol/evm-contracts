@@ -279,6 +279,7 @@ contract Handler is StdUtils, StdAssertions {
 
             assertGe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
             assertLe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
+            assertTrue(sqrtRatio.isValid());
             assertGe(tick, MIN_TICK - 1);
             assertLe(tick, MAX_TICK + 1);
         }

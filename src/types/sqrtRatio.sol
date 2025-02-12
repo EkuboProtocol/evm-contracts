@@ -23,7 +23,7 @@ uint96 constant BIT_MASK = 0xc00000000000000000000000; // TWO_POW_95 | TWO_POW_9
 
 SqrtRatio constant ONE = SqrtRatio.wrap((TWO_POW_95) + (1 << 62));
 
-using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=} for SqrtRatio global;
+using {toFixed, isValid, ge as >=, le as <=, lt as <, gt as >, eq as ==, neq as !=, isZero} for SqrtRatio global;
 
 function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
     assembly ("memory-safe") {
@@ -93,4 +93,10 @@ function eq(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
 
 function neq(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
     r = SqrtRatio.unwrap(a) != SqrtRatio.unwrap(b);
+}
+
+function isZero(SqrtRatio a) pure returns (bool r) {
+    assembly ("memory-safe") {
+        r := iszero(a)
+    }
 }

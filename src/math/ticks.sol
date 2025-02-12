@@ -272,7 +272,7 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
             return tickLow;
         }
 
-        if (SqrtRatio.unwrap(tickToSqrtRatio(tickHigh)) <= SqrtRatio.unwrap(sqrtRatio)) return tickHigh;
+        if (tickToSqrtRatio(tickHigh) <= sqrtRatio) return tickHigh;
 
         return tickLow;
     }

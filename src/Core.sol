@@ -423,7 +423,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             (tick, sqrtRatio, liquidity) = (state.tick, state.sqrtRatio, state.liquidity);
         }
 
-        if (SqrtRatio.unwrap(sqrtRatio) == 0) revert PoolNotInitialized();
+        if (sqrtRatio.isZero()) revert PoolNotInitialized();
 
         // 0 swap amount is no-op
         if (params.amount != 0) {

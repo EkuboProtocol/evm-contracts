@@ -185,7 +185,7 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
     {
         // the before update position hook shouldn't be taken into account here
         (sqrtRatio,,) = core.poolState(poolKey.toPoolId());
-        if (SqrtRatio.unwrap(sqrtRatio) == 0) {
+        if (sqrtRatio.isZero()) {
             initialized = true;
             sqrtRatio = core.initializePool(poolKey, tick);
         }

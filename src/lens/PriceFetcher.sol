@@ -4,7 +4,8 @@ pragma solidity =0.8.28;
 import {Oracle} from "../extensions/Oracle.sol";
 import {amount1Delta} from "../math/delta.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
-import {NATIVE_TOKEN_ADDRESS, MIN_SQRT_RATIO} from "../math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {MIN_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 error InvalidNumIntervals();

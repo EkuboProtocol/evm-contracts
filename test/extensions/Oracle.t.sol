@@ -6,11 +6,10 @@ import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {
     MIN_TICK,
     MAX_TICK,
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
     MAX_TICK_SPACING,
     FULL_RANGE_ONLY_TICK_SPACING,
     NATIVE_TOKEN_ADDRESS
@@ -61,20 +60,19 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function movePrice(PoolKey memory poolKey, int32 targetTick) internal {
-        (uint192 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
-        uint128 liquidity = core.poolLiquidity(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolKey.toPoolId());
 
         if (tick < targetTick) {
-            uint256 targetRatio = tickToSqrtRatio(targetTick);
+            SqrtRatio targetRatio = tickToSqrtRatio(targetTick);
             TestToken(poolKey.token1).approve(address(router), type(uint256).max);
             router.swap(poolKey, false, type(int128).min, targetRatio, 0);
         } else if (tick > targetTick) {
-            uint256 targetRatio = tickToSqrtRatio(targetTick) + 1;
+            SqrtRatio targetRatio = toSqrtRatio(tickToSqrtRatio(targetTick).toFixed() + 1, true);
             vm.deal(address(router), amount0Delta(sqrtRatio, targetRatio, liquidity, true));
             router.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }
 
-        (, tick) = core.poolPrice(poolKey.toPoolId());
+        (, tick,) = core.poolState(poolKey.toPoolId());
 
         // this can happen because of rounding, we may fall just short
         assertEq(tick, targetTick, "failed to move price");
@@ -90,7 +88,7 @@ abstract contract BaseOracleTest is FullTest {
         // todo: finish this for the price fetcher tests
         (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);
 
-        (uint256 sqrtRatio,) = core.poolPrice(pk.toPoolId());
+        (SqrtRatio sqrtRatio,,) = core.poolState(pk.toPoolId());
         if (liquidity < liquidityNext) {
             (int128 d0, int128 d1) = liquidityDeltaToAmountDelta(
                 sqrtRatio, int128(liquidityNext - liquidity), MIN_SQRT_RATIO, MAX_SQRT_RATIO
@@ -100,7 +98,8 @@ abstract contract BaseOracleTest is FullTest {
 
             vm.deal(address(positions), uint128(d0));
             positions.deposit(positionId, pk, bounds, uint128(d0), uint128(d1), liquidityNext - liquidity);
-            assertEq(core.poolLiquidity(pk.toPoolId()), liquidityNext);
+            (,, uint128 liquidityAfter) = core.poolState(pk.toPoolId());
+            assertEq(liquidityAfter, liquidityNext, "liquidity after");
         } else if (liquidity > liquidityNext) {
             positions.withdraw(positionId, pk, bounds, liquidity - liquidityNext);
         }
@@ -290,6 +289,11 @@ contract OracleTest is BaseOracleTest {
         assertEq(index, 0);
         assertEq(count, 1);
         assertEq(capacity, 10);
+    }
+
+    function test_expandCapacity_returns_old_if_not_expanded() public {
+        assertEq(oracle.expandCapacity(address(token1), 10), 10);
+        assertEq(oracle.expandCapacity(address(token1), 5), 10);
     }
 
     function test_createPool_beforeInitializePool_then_expandCapacity() public {
@@ -691,7 +695,7 @@ contract OracleTest is BaseOracleTest {
         oracle.beforeUpdatePosition(address(0), poolKey, UpdatePositionParameters(bytes32(0x0), Bounds(-100, 100), 0));
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeSwap(address(0), poolKey, SwapParameters(0, false, 0, 0));
+        oracle.beforeSwap(address(0), poolKey, SwapParameters(0, false, SqrtRatio.wrap(0), 0));
     }
 
     function test_gas_swap_on_oracle_pool() public {

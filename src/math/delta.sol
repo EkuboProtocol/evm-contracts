@@ -2,22 +2,21 @@
 pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-
-error ZeroSqrtRatio();
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 error Amount0DeltaOverflow();
 error Amount1DeltaOverflow();
 
-function sortSqrtRatios(uint256 sqrtRatioA, uint256 sqrtRatioB)
+function sortSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB)
     pure
     returns (uint256 sqrtRatioLower, uint256 sqrtRatioUpper)
 {
-    (sqrtRatioLower, sqrtRatioUpper) =
-        (FixedPointMathLib.min(sqrtRatioA, sqrtRatioB), FixedPointMathLib.max(sqrtRatioA, sqrtRatioB));
-    if (sqrtRatioLower == 0) revert ZeroSqrtRatio();
+    uint256 aFixed = sqrtRatioA.toFixed();
+    uint256 bFixed = sqrtRatioB.toFixed();
+    (sqrtRatioLower, sqrtRatioUpper) = (FixedPointMathLib.min(aFixed, bFixed), FixedPointMathLib.max(aFixed, bFixed));
 }
 
-function amount0Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
+function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount0)
 {
@@ -42,7 +41,7 @@ function amount0Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity,
     }
 }
 
-function amount1Delta(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 liquidity, bool roundUp)
+function amount1Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount1)
 {

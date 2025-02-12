@@ -2,24 +2,25 @@
 pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 
 error ZeroLiquidityNextSqrtRatioFromAmount0();
 
 // Compute the next ratio from a delta amount0, always rounded towards starting price for input, and
 // away from starting price for output
-function nextSqrtRatioFromAmount0(uint256 sqrtRatio, uint128 liquidity, int128 amount)
+function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int128 amount)
     pure
-    returns (uint256 sqrtRatioNext)
+    returns (SqrtRatio sqrtRatioNext)
 {
-    assert(sqrtRatio != 0);
-
     if (amount == 0) {
-        return sqrtRatio;
+        return _sqrtRatio;
     }
 
     if (liquidity == 0) {
         revert ZeroLiquidityNextSqrtRatioFromAmount0();
     }
+
+    uint256 sqrtRatio = _sqrtRatio.toFixed();
 
     uint256 liquidityX128 = uint256(liquidity) << 128;
     uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
@@ -28,19 +29,19 @@ function nextSqrtRatioFromAmount0(uint256 sqrtRatio, uint128 liquidity, int128 a
         unchecked {
             // multiplication will revert on overflow, so we return the maximum value for the type
             if (amountAbs > type(uint256).max / sqrtRatio) {
-                return type(uint256).max;
+                return SqrtRatio.wrap(type(uint96).max);
             }
 
             uint256 product = sqrtRatio * amountAbs;
 
             // again it will overflow if this is the case, so return the max value
             if (product >= liquidityX128) {
-                return type(uint256).max;
+                return SqrtRatio.wrap(type(uint96).max);
             }
 
             uint256 denominator = liquidityX128 - product;
 
-            sqrtRatioNext = FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator);
+            sqrtRatioNext = toSqrtRatio(FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator), true);
         }
     } else {
         uint256 denominator;
@@ -52,25 +53,25 @@ function nextSqrtRatioFromAmount0(uint256 sqrtRatio, uint128 liquidity, int128 a
             denominator = denominatorP1 + amountAbs;
         }
 
-        sqrtRatioNext = FixedPointMathLib.divUp(liquidityX128, denominator);
+        sqrtRatioNext = toSqrtRatio(FixedPointMathLib.divUp(liquidityX128, denominator), true);
     }
 }
 
 error ZeroLiquidityNextSqrtRatioFromAmount1();
 
-function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 amount)
+function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int128 amount)
     pure
-    returns (uint256 sqrtRatioNext)
+    returns (SqrtRatio sqrtRatioNext)
 {
-    assert(sqrtRatio != 0);
-
     if (amount == 0) {
-        return sqrtRatio;
+        return _sqrtRatio;
     }
 
     if (liquidity == 0) {
         revert ZeroLiquidityNextSqrtRatioFromAmount1();
     }
+
+    uint256 sqrtRatio = _sqrtRatio.toFixed();
 
     unchecked {
         uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
@@ -80,25 +81,27 @@ function nextSqrtRatioFromAmount1(uint256 sqrtRatio, uint128 liquidity, int128 a
         if (amount < 0) {
             if (quotient > sqrtRatio) {
                 // Underflow => return 0
-                return 0;
+                return SqrtRatio.wrap(0);
             }
 
-            sqrtRatioNext = sqrtRatio - quotient;
+            uint256 sqrtRatioNextFixed = sqrtRatio - quotient;
 
             // If remainder is non-zero, we do one more step down (rounding).
             // If sqrtRatioNext == 0 => can't go lower => return 0
             if ((shiftedAmountAbs % liquidity) != 0) {
-                if (sqrtRatioNext == 0) {
-                    return 0;
+                if (sqrtRatioNextFixed == 0) {
+                    return SqrtRatio.wrap(0);
                 }
-                sqrtRatioNext -= 1;
+                sqrtRatioNextFixed -= 1;
             }
+
+            sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);
         } else {
             uint256 sum = sqrtRatio + quotient;
-            if (sum < sqrtRatio) {
-                return type(uint256).max;
+            if (sum < sqrtRatio || sum > type(uint192).max) {
+                return SqrtRatio.wrap(type(uint96).max);
             }
-            sqrtRatioNext = sum;
+            sqrtRatioNext = toSqrtRatio(sum, false);
         }
     }
 }

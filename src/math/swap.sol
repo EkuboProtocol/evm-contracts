@@ -7,24 +7,25 @@ import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./sqrtRatio.so
 import {amount0Delta, amount1Delta} from "./delta.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {isPriceIncreasing} from "./isPriceIncreasing.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 struct SwapResult {
     int128 consumedAmount;
     uint128 calculatedAmount;
-    uint256 sqrtRatioNext;
+    SqrtRatio sqrtRatioNext;
     uint128 feeAmount;
 }
 
-function noOpSwapResult(uint256 sqrtRatioNext) pure returns (SwapResult memory) {
+function noOpSwapResult(SqrtRatio sqrtRatioNext) pure returns (SwapResult memory) {
     return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioNext});
 }
 
 error SqrtRatioLimitWrongDirection();
 
 function swapResult(
-    uint256 sqrtRatio,
+    SqrtRatio sqrtRatio,
     uint128 liquidity,
-    uint256 sqrtRatioLimit,
+    SqrtRatio sqrtRatioLimit,
     int128 amount,
     bool isToken1,
     uint128 fee
@@ -57,7 +58,7 @@ function swapResult(
         }
     }
 
-    uint256 sqrtRatioNextFromAmount;
+    SqrtRatio sqrtRatioNextFromAmount;
     if (isToken1) {
         sqrtRatioNextFromAmount = nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount);
     } else {

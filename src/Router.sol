@@ -6,15 +6,17 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, SwapParameters} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
+import {SqrtRatio, toSqrtRatio} from "./types/sqrtRatio.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 struct RouteNode {
     PoolKey poolKey;
-    uint256 sqrtRatioLimit;
+    SqrtRatio sqrtRatioLimit;
     uint256 skipAhead;
 }
 
@@ -50,11 +52,11 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 PoolKey memory poolKey,
                 bool isToken1,
                 int128 amount,
-                uint256 sqrtRatioLimit,
+                SqrtRatio sqrtRatioLimit,
                 uint256 skipAhead,
                 int256 calculatedAmountThreshold,
                 address recipient
-            ) = abi.decode(data, (bytes1, address, PoolKey, bool, int128, uint256, uint256, int256, address));
+            ) = abi.decode(data, (bytes1, address, PoolKey, bool, int128, SqrtRatio, uint256, int256, address));
 
             unchecked {
                 uint256 value = FixedPointMathLib.ternary(
@@ -63,10 +65,16 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
                 bool increasing = isPriceIncreasing(amount, isToken1);
 
-                sqrtRatioLimit = FixedPointMathLib.ternary(
-                    sqrtRatioLimit == 0,
-                    FixedPointMathLib.ternary(increasing, MAX_SQRT_RATIO, MIN_SQRT_RATIO),
-                    sqrtRatioLimit
+                sqrtRatioLimit = SqrtRatio.wrap(
+                    uint96(
+                        FixedPointMathLib.ternary(
+                            SqrtRatio.unwrap(sqrtRatioLimit) == 0,
+                            FixedPointMathLib.ternary(
+                                increasing, SqrtRatio.unwrap(MAX_SQRT_RATIO), SqrtRatio.unwrap(MIN_SQRT_RATIO)
+                            ),
+                            SqrtRatio.unwrap(sqrtRatioLimit)
+                        )
+                    )
                 );
 
                 (int128 delta0, int128 delta1) = core.swap{value: value}(
@@ -135,13 +143,20 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         bool isToken1 = tokenAmount.token == node.poolKey.token1;
                         require(isToken1 || tokenAmount.token == node.poolKey.token0);
 
-                        uint256 sqrtRatioLimit = FixedPointMathLib.ternary(
-                            node.sqrtRatioLimit == 0,
-                            FixedPointMathLib.ternary(
-                                isPriceIncreasing(tokenAmount.amount, isToken1), MAX_SQRT_RATIO, MIN_SQRT_RATIO
-                            ),
-                            node.sqrtRatioLimit
+                        SqrtRatio sqrtRatioLimit = SqrtRatio.wrap(
+                            uint96(
+                                FixedPointMathLib.ternary(
+                                    SqrtRatio.unwrap(node.sqrtRatioLimit) == 0,
+                                    FixedPointMathLib.ternary(
+                                        isPriceIncreasing(tokenAmount.amount, isToken1),
+                                        SqrtRatio.unwrap(MAX_SQRT_RATIO),
+                                        SqrtRatio.unwrap(MIN_SQRT_RATIO)
+                                    ),
+                                    SqrtRatio.unwrap(node.sqrtRatioLimit)
+                                )
+                            )
                         );
+
                         uint256 value = FixedPointMathLib.ternary(
                             j == 0 && tokenAmount.token == NATIVE_TOKEN_ADDRESS && tokenAmount.amount > 0,
                             uint128(tokenAmount.amount),
@@ -204,8 +219,8 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 result = abi.encode(results);
             }
         } else if (callType == bytes1(0x03)) {
-            (, PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead) =
-                abi.decode(data, (bytes1, PoolKey, bool, int128, uint256, uint256));
+            (, PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
+                abi.decode(data, (bytes1, PoolKey, bool, int128, SqrtRatio, uint256));
 
             (int128 delta0, int128 delta1) =
                 ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
@@ -218,7 +233,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         PoolKey memory poolKey,
         bool isToken1,
         int128 amount,
-        uint256 sqrtRatioLimit,
+        SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int256 calculatedAmountThreshold,
         address recipient
@@ -245,7 +260,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         PoolKey memory poolKey,
         bool isToken1,
         int128 amount,
-        uint256 sqrtRatioLimit,
+        SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int256 calculatedAmountThreshold
     ) external payable returns (int128 delta0, int128 delta1) {
@@ -253,7 +268,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
             swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender);
     }
 
-    function swap(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
+    function swap(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
         payable
         returns (int128 delta0, int128 delta1)
@@ -295,7 +310,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     error QuoteReturnValue(int128 delta0, int128 delta1);
 
-    function quote(PoolKey memory poolKey, bool isToken1, int128 amount, uint256 sqrtRatioLimit, uint256 skipAhead)
+    function quote(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
         returns (int128 delta0, int128 delta1)
     {

@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {amount0Delta, amount1Delta, sortSqrtRatios} from "./delta.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 /**
  * @notice Returns the token0 and token1 delta owed for a given change in liquidity.
@@ -13,10 +14,10 @@ import {amount0Delta, amount1Delta, sortSqrtRatios} from "./delta.sol";
  * @param sqrtRatioUpper   The upper bound of the price range (as a sqrt ratio).
  */
 function liquidityDeltaToAmountDelta(
-    uint256 sqrtRatio,
+    SqrtRatio sqrtRatio,
     int128 liquidityDelta,
-    uint256 sqrtRatioLower,
-    uint256 sqrtRatioUpper
+    SqrtRatio sqrtRatioLower,
+    SqrtRatio sqrtRatioUpper
 ) pure returns (int128 delta0, int128 delta1) {
     unchecked {
         if (liquidityDelta == 0) {
@@ -47,27 +48,28 @@ function liquidityDeltaToAmountDelta(
     }
 }
 
-function maxLiquidityForToken0(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount) pure returns (uint256) {
+function maxLiquidityForToken0(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint128 amount) pure returns (uint256) {
     unchecked {
-        (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
-        uint256 numerator_1 = FixedPointMathLib.fullMulDivN(sqrtRatioA, sqrtRatioB, 128);
+        uint256 numerator_1 = FixedPointMathLib.fullMulDivN(sqrtRatioLower, sqrtRatioUpper, 128);
 
-        return FixedPointMathLib.fullMulDiv(amount, numerator_1, (sqrtRatioB - sqrtRatioA));
+        return FixedPointMathLib.fullMulDiv(amount, numerator_1, (sqrtRatioUpper - sqrtRatioLower));
     }
 }
 
-function maxLiquidityForToken1(uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount) pure returns (uint256) {
+function maxLiquidityForToken1(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint128 amount) pure returns (uint256) {
     unchecked {
-        (sqrtRatioA, sqrtRatioB) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
-
-        return (uint256(amount) << 128) / (sqrtRatioB - sqrtRatioA);
+        return (uint256(amount) << 128) / (sqrtRatioUpper - sqrtRatioLower);
     }
 }
 
-function maxLiquidity(uint256 sqrtRatio, uint256 sqrtRatioA, uint256 sqrtRatioB, uint128 amount0, uint128 amount1)
-    pure
-    returns (uint128)
-{
+function maxLiquidity(
+    SqrtRatio _sqrtRatio,
+    SqrtRatio sqrtRatioA,
+    SqrtRatio sqrtRatioB,
+    uint128 amount0,
+    uint128 amount1
+) pure returns (uint128) {
+    uint256 sqrtRatio = _sqrtRatio.toFixed();
     (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
 
     if (sqrtRatio <= sqrtRatioLower) {

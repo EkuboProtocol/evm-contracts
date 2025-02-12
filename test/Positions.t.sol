@@ -6,9 +6,9 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {FullTest} from "./FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
-import {
-    MIN_TICK, MAX_TICK, MIN_SQRT_RATIO, MAX_SQRT_RATIO, FULL_RANGE_ONLY_TICK_SPACING
-} from "../src/math/constants.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -101,7 +101,7 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), 100);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
@@ -132,7 +132,7 @@ contract PositionsTest is FullTest {
         token1.approve(address(router), 100);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
         );
@@ -160,13 +160,13 @@ contract PositionsTest is FullTest {
         token1.approve(address(router), 50);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
@@ -192,13 +192,13 @@ contract PositionsTest is FullTest {
         token1.approve(address(router), 50);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
@@ -233,13 +233,13 @@ contract PositionsTest is FullTest {
         token1.approve(address(router), 50);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
@@ -274,13 +274,13 @@ contract PositionsTest is FullTest {
         token1.approve(address(router), 50);
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
 
         router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: 0, skipAhead: 0}),
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 50}),
             type(int256).min
         );
@@ -315,15 +315,14 @@ contract PositionsTest is FullTest {
         (int128 delta0, int128 delta1) = router.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
         assertEq(delta0, 0);
 
-        (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
-        assertEq(sqrtRatio, MAX_SQRT_RATIO);
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId());
+        assertTrue(sqrtRatio == MAX_SQRT_RATIO);
         assertEq(tick, MAX_TICK);
-        uint128 liqAfter = core.poolLiquidity(poolKey.toPoolId());
         assertEq(liqAfter, liquidity);
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
         assertEq(p0, 0);
-        assertEq(p1, 1000000499999874989827178462790659559);
+        assertEq(p1, 1000000499999874989827178462785727275);
         assertEq(f0, 0);
         assertEq(f1, ((uint128(delta1)) / 2) - 1);
     }
@@ -344,17 +343,16 @@ contract PositionsTest is FullTest {
         (int128 delta0, int128 delta1) = router.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
         assertEq(delta1, 0);
 
-        (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolKey.toPoolId());
-        assertEq(sqrtRatio, MIN_SQRT_RATIO);
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId());
+        assertTrue(sqrtRatio == MIN_SQRT_RATIO);
         assertEq(tick, MIN_TICK - 1);
-        uint128 liqAfter = core.poolLiquidity(poolKey.toPoolId());
         assertEq(liqAfter, liquidity);
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
-        assertEq(p0, 1000000499999874989827178462790659559);
-        assertEq(p1, 0);
-        assertEq(f0, ((uint128(delta0)) / 2) - 1);
-        assertEq(f1, 0);
+        assertEq(p0, 1000000499999874989935596106549936381, "principal0");
+        assertEq(p1, 0, "principal1");
+        assertEq(f0, ((uint128(delta0)) / 2) - 1, "fees0");
+        assertEq(f1, 0, "fees1");
     }
 
     function test_feeAccumulation_works_full_range() public {

@@ -120,8 +120,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             uint32 timePassed = sso - lastSso;
             if (timePassed == 0) return;
 
-            uint128 liquidity = core.poolLiquidity(poolId);
-            (, int32 tick) = core.poolPrice(poolId);
+            (, int32 tick, uint128 liquidity) = core.poolState(poolId);
 
             if (c.index == c.count - 1) {
                 if (c.capacity > c.count) {
@@ -275,8 +274,7 @@ contract Oracle is ExposedStorage, BaseExtension {
                 if (logicalIndex == c.count - 1) {
                     // Use current pool state.
                     bytes32 poolId = getPoolKey(token).toPoolId();
-                    (, tick) = core.poolPrice(poolId);
-                    liquidity = core.poolLiquidity(poolId);
+                    (, tick, liquidity) = core.poolState(poolId);
                 } else {
                     // Use the next snapshot.
                     Snapshot memory next = _getSnapshotLogical(c, token, logicalIndex + 1);

@@ -23,7 +23,7 @@ contract PoolKeyTest is Test {
         );
     }
 
-    function test_poolKey_validateTickSpacing_zero_is_valid() public {
+    function test_poolKey_validateTickSpacing_zero_is_valid() public pure {
         PoolKey({token0: address(1), token1: address(2), fee: 0, tickSpacing: 0, extension: address(0)}).validatePoolKey(
         );
     }
@@ -39,7 +39,7 @@ contract PoolKeyTest is Test {
         }).validatePoolKey();
     }
 
-    function test_poolKey_validateTickSpacing_full_range() public {
+    function test_poolKey_validateTickSpacing_full_range() public pure {
         PoolKey({
             token0: address(1),
             token1: address(2),

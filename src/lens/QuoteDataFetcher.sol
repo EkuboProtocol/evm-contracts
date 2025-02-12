@@ -7,6 +7,7 @@ import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionKey} from "../types/positionKey.sol";
 import {Position} from "../types/position.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
 
@@ -17,7 +18,7 @@ struct TickDelta {
 
 struct QuoteData {
     int32 tick;
-    uint256 sqrtRatio;
+    SqrtRatio sqrtRatio;
     uint128 liquidity;
     int32 minTick;
     int32 maxTick;
@@ -41,8 +42,7 @@ contract QuoteDataFetcher is UsesCore {
             results = new QuoteData[](poolKeys.length);
             for (uint256 i = 0; i < poolKeys.length; i++) {
                 bytes32 poolId = poolKeys[i].toPoolId();
-                (uint256 sqrtRatio, int32 tick) = core.poolPrice(poolId);
-                uint128 liquidity = core.poolLiquidity(poolId);
+                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
 
                 int256 minTick;
                 int256 maxTick;

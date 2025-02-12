@@ -5,6 +5,7 @@ import {ICore} from "../interfaces/ICore.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -21,7 +22,11 @@ library CoreLib {
         amountCollected = uint256(core.unsafeRead(key));
     }
 
-    function poolPrice(ICore core, bytes32 poolId) internal view returns (uint192 sqrtRatio, int32 tick) {
+    function poolState(ICore core, bytes32 poolId)
+        internal
+        view
+        returns (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity)
+    {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
@@ -29,26 +34,12 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        bytes32 result = core.unsafeRead(key);
+        bytes32 p = core.unsafeRead(key);
 
         assembly ("memory-safe") {
-            sqrtRatio := and(result, 0xffffffffffffffffffffffffffffffffffffffffffffffff)
-            tick := shr(192, result)
-        }
-    }
-
-    function poolLiquidity(ICore core, bytes32 poolId) internal view returns (uint128 liquidity) {
-        bytes32 key;
-        assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 3)
-            key := keccak256(0, 64)
-        }
-
-        bytes32 result = core.unsafeRead(key);
-
-        assembly ("memory-safe") {
-            liquidity := and(result, 0xffffffffffffffffffffffffffffffff)
+            sqrtRatio := and(p, 0xffffffffffffffffffffffff)
+            tick := and(shr(96, p), 0xffffffff)
+            liquidity := shr(128, p)
         }
     }
 
@@ -60,7 +51,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 5)
+            mstore(32, 4)
             let b := keccak256(0, 64)
             mstore(0, positionId)
             mstore(32, b)
@@ -81,7 +72,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, owner)
-            mstore(32, 9)
+            mstore(32, 8)
             key := keccak256(0, 64)
             mstore(0, token)
             mstore(32, key)
@@ -102,7 +93,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 6)
+            mstore(32, 5)
             let b := keccak256(0, 64)
             mstore(0, tick)
             mstore(32, b)

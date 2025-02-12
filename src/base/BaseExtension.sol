@@ -5,6 +5,7 @@ import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../in
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {Bounds} from "../types/positionKey.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {UsesCore} from "./UsesCore.sol";
 
 abstract contract BaseExtension is UsesCore, IExtension {
@@ -20,7 +21,7 @@ abstract contract BaseExtension is UsesCore, IExtension {
         revert CallPointNotImplemented();
     }
 
-    function afterInitializePool(address, PoolKey calldata, int32, uint256) external virtual {
+    function afterInitializePool(address, PoolKey calldata, int32, SqrtRatio) external virtual {
         revert CallPointNotImplemented();
     }
 

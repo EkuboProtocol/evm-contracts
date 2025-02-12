@@ -12,6 +12,7 @@ import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {maxBounds} from "../test/SolvencyInvariantTest.t.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract CreateTestDataScript is Script {
     function generateTestData(Positions positions, Router router, Oracle oracle) private {
@@ -39,9 +40,9 @@ contract CreateTestDataScript is Script {
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, 0, 0);
+            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
 
-            router.swap(poolKey, true, 100000 * 5000, 0, 0);
+            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
 
         // 30 basis points fee, full range tick spacing
@@ -61,9 +62,9 @@ contract CreateTestDataScript is Script {
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, 0, 0);
+            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
 
-            router.swap(poolKey, true, 100000 * 5000, 0, 0);
+            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
 
         poolKey = createPool(
@@ -82,9 +83,9 @@ contract CreateTestDataScript is Script {
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
         for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, 0, 0);
+            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
 
-            router.swap(poolKey, true, 100000 * 5000, 0, 0);
+            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
         }
 
         // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH, just for routing testing

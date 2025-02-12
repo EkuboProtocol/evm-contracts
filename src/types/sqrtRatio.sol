@@ -17,6 +17,8 @@ SqrtRatio constant MAX_SQRT_RATIO = SqrtRatio.wrap(MAX_SQRT_RATIO_RAW);
 
 uint96 constant TWO_POW_95 = 0x800000000000000000000000;
 uint96 constant TWO_POW_94 = 0x400000000000000000000000;
+uint96 constant TWO_POW_62 = 0x4000000000000000;
+uint96 constant TWO_POW_62_MINUS_ONE = 0x3fffffffffffffff;
 uint96 constant BIT_MASK = 0xc00000000000000000000000; // TWO_POW_95 | TWO_POW_94
 
 SqrtRatio constant ONE = SqrtRatio.wrap((TWO_POW_95) + (1 << 62));
@@ -27,10 +29,10 @@ function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
     assembly ("memory-safe") {
         r :=
             and(
-                and(
-                    iszero(lt(and(sqrtRatio, not(BIT_MASK)), 0x4000000000000000)), iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW))
-                ),
-                iszero(lt(sqrtRatio, MIN_SQRT_RATIO_RAW))
+                // greater than or equal to TWO_POW_62, i.e. the whole number portion is nonzero
+                gt(and(sqrtRatio, not(BIT_MASK)), TWO_POW_62_MINUS_ONE),
+                // and between min/max sqrt ratio
+                and(iszero(lt(sqrtRatio, MIN_SQRT_RATIO_RAW)), iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW)))
             )
     }
 }

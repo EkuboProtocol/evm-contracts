@@ -41,13 +41,11 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
-    // We pack the delta and net.
     struct TickInfo {
         int128 liquidityDelta;
         uint128 liquidityNet;
     }
 
-    // The pool price, we pack the tick with the sqrt ratio
     struct PoolState {
         SqrtRatio sqrtRatio;
         int32 tick;
@@ -57,7 +55,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
     mapping(address token => uint256 amountCollected) private protocolFeesCollected;
 
-    // Keyed by the pool ID, which is the hash of the ABI-encoded pool key
     mapping(bytes32 poolId => PoolState) private poolState;
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) private poolPositions;
@@ -66,7 +63,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         poolTickFeesPerLiquidityOutside;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
-    // Balances saved for later
     mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) private savedBalances;
 
     constructor(address owner) {
@@ -192,7 +188,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
-    // Returns the pool fees per liquidity inside the given bounds.
     function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
         external
         view
@@ -242,7 +237,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         emit FeesAccumulated(poolId, amount0, amount1);
     }
 
-    function updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
+    function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
         TickInfo storage tickInfo = poolTicks[poolId][tick];
 
         uint128 liquidityNetNext = addLiquidityDelta(tickInfo.liquidityNet, liquidityDelta);
@@ -350,8 +345,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             }
 
             if (!poolKey.isFullRange()) {
-                updateTick(poolId, params.bounds.lower, poolKey.tickSpacing(), params.liquidityDelta, false);
-                updateTick(poolId, params.bounds.upper, poolKey.tickSpacing(), params.liquidityDelta, true);
+                _updateTick(poolId, params.bounds.lower, poolKey.tickSpacing(), params.liquidityDelta, false);
+                _updateTick(poolId, params.bounds.upper, poolKey.tickSpacing(), params.liquidityDelta, true);
 
                 if (price.tick >= params.bounds.lower && price.tick < params.bounds.upper) {
                     poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, params.liquidityDelta);

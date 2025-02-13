@@ -47,8 +47,9 @@ contract QuoteDataFetcher is UsesCore {
                 int256 minTick;
                 int256 maxTick;
                 TickDelta[] memory ticks;
-                if (poolKeys[i].tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
-                    int256 rangeSize = int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].tickSpacing)) * 256;
+                if (poolKeys[i].config.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
+                    int256 rangeSize =
+                        int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].config.tickSpacing())) * 256;
                     minTick = int256(tick) - rangeSize;
                     maxTick = int256(tick) + rangeSize;
 
@@ -58,7 +59,9 @@ contract QuoteDataFetcher is UsesCore {
                     if (maxTick > MAX_TICK) {
                         maxTick = MAX_TICK;
                     }
-                    ticks = _getInitializedTicksInRange(poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing);
+                    ticks = _getInitializedTicksInRange(
+                        poolId, int32(minTick), int32(maxTick), poolKeys[i].config.tickSpacing()
+                    );
                 } else {
                     minTick = MIN_TICK;
                     maxTick = MAX_TICK;
@@ -126,6 +129,6 @@ contract QuoteDataFetcher is UsesCore {
         view
         returns (TickDelta[] memory ticks)
     {
-        return _getInitializedTicksInRange(poolKey.toPoolId(), fromTick, toTick, poolKey.tickSpacing);
+        return _getInitializedTicksInRange(poolKey.toPoolId(), fromTick, toTick, poolKey.config.tickSpacing());
     }
 }

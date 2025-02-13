@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey} from "../types/poolKey.sol";
+import {PoolKey, toConfig} from "../types/poolKey.sol";
 import {PositionKey, Bounds} from "../types/positionKey.sol";
 import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
@@ -86,9 +86,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         return PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
             token1: token,
-            fee: 0,
-            tickSpacing: FULL_RANGE_ONLY_TICK_SPACING,
-            extension: address(this)
+            config: toConfig({_fee: 0, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
         });
     }
 
@@ -149,8 +147,8 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
-        if (key.fee != 0) revert FeeMustBeZero();
-        if (key.tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+        if (key.config.fee() != 0) revert FeeMustBeZero();
+        if (key.config.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         address token = key.token1;
 

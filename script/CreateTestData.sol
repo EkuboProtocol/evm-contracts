@@ -11,7 +11,7 @@ import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {maxBounds} from "../test/SolvencyInvariantTest.t.sol";
-import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract CreateTestDataScript is Script {
@@ -29,7 +29,7 @@ contract CreateTestDataScript is Script {
             positions,
             NATIVE_TOKEN_ADDRESS,
             address(token),
-            uint128((uint256(30) << 128) / 10_000),
+            uint64((uint256(30) << 64) / 10_000),
             5982,
             maxBounds(5982),
             address(0),
@@ -51,7 +51,7 @@ contract CreateTestDataScript is Script {
             positions,
             NATIVE_TOKEN_ADDRESS,
             address(token),
-            uint128((uint256(30) << 128) / 10_000),
+            uint64((uint256(30) << 64) / 10_000),
             FULL_RANGE_ONLY_TICK_SPACING,
             maxBounds(FULL_RANGE_ONLY_TICK_SPACING),
             address(0),
@@ -94,7 +94,7 @@ contract CreateTestDataScript is Script {
             positions,
             NATIVE_TOKEN_ADDRESS,
             address(token),
-            uint128((uint256(100) << 128) / 10_000),
+            uint64((uint256(100) << 64) / 10_000),
             19802,
             maxBounds(19802),
             address(0),
@@ -109,7 +109,7 @@ contract CreateTestDataScript is Script {
         Positions positions,
         address tokenA,
         address tokenB,
-        uint128 fee,
+        uint64 fee,
         uint32 tickSpacing,
         Bounds memory bounds,
         address extension,
@@ -120,7 +120,7 @@ contract CreateTestDataScript is Script {
         (tokenA, tokenB, startingTick, maxAmount0, maxAmount1) = tokenA < tokenB
             ? (tokenA, tokenB, startingTick, maxAmount0, maxAmount1)
             : (tokenB, tokenA, -startingTick, maxAmount1, maxAmount0);
-        poolKey = PoolKey({token0: tokenA, token1: tokenB, fee: fee, tickSpacing: tickSpacing, extension: extension});
+        poolKey = PoolKey({token0: tokenA, token1: tokenB, config: toConfig(fee, tickSpacing, extension)});
 
         bool isETH = tokenA == NATIVE_TOKEN_ADDRESS;
         bytes[] memory calls = isETH ? new bytes[](3) : new bytes[](2);

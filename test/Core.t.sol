@@ -5,7 +5,7 @@ import {FullTest, MockExtension} from "./FullTest.sol";
 import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
@@ -73,7 +73,7 @@ contract CoreTest is FullTest {
     function test_initializePool(
         address token0,
         address token1,
-        uint128 fee,
+        uint64 fee,
         int32 tick,
         uint32 tickSpacing,
         CallPoints memory callPoints
@@ -84,8 +84,7 @@ contract CoreTest is FullTest {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
 
         address extension = callPoints.isValid() ? createAndRegisterExtension(callPoints) : address(0);
-        PoolKey memory key =
-            PoolKey({token0: token0, token1: token1, fee: fee, tickSpacing: tickSpacing, extension: extension});
+        PoolKey memory key = PoolKey({token0: token0, token1: token1, config: toConfig(fee, tickSpacing, extension)});
 
         if (callPoints.beforeInitializePool) {
             vm.expectEmit(extension);

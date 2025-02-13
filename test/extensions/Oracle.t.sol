@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
-import {PoolKey} from "../../src/types/poolKey.sol";
+import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
@@ -83,7 +83,8 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal {
-        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
+        PoolKey memory pk =
+            PoolKey(NATIVE_TOKEN_ADDRESS, token, toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
         Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
         // todo: finish this for the price fetcher tests
         (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);

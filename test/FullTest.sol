@@ -7,7 +7,7 @@ import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
-import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
@@ -124,11 +124,11 @@ abstract contract FullTest is Test {
         return actual;
     }
 
-    function createPool(int32 tick, uint128 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
+    function createPool(int32 tick, uint64 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
         poolKey = createPool(tick, fee, tickSpacing, CallPoints(false, false, false, false, false, false, false, false));
     }
 
-    function createPool(int32 tick, uint128 fee, uint32 tickSpacing, CallPoints memory callPoints)
+    function createPool(int32 tick, uint64 fee, uint32 tickSpacing, CallPoints memory callPoints)
         internal
         returns (PoolKey memory poolKey)
     {
@@ -137,26 +137,22 @@ abstract contract FullTest is Test {
     }
 
     // creates a pool of token1/ETH
-    function createETHPool(int32 tick, uint128 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
+    function createETHPool(int32 tick, uint64 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
         poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), tick, fee, tickSpacing, address(0));
     }
 
-    function createPool(int32 tick, uint128 fee, uint32 tickSpacing, address extension)
+    function createPool(int32 tick, uint64 fee, uint32 tickSpacing, address extension)
         internal
         returns (PoolKey memory poolKey)
     {
         poolKey = createPool(address(token0), address(token1), tick, fee, tickSpacing, extension);
     }
 
-    function createPool(
-        address _token0,
-        address _token1,
-        int32 tick,
-        uint128 fee,
-        uint32 tickSpacing,
-        address extension
-    ) internal returns (PoolKey memory poolKey) {
-        poolKey = PoolKey({token0: _token0, token1: _token1, fee: fee, tickSpacing: tickSpacing, extension: extension});
+    function createPool(address _token0, address _token1, int32 tick, uint64 fee, uint32 tickSpacing, address extension)
+        internal
+        returns (PoolKey memory poolKey)
+    {
+        poolKey = PoolKey({token0: _token0, token1: _token1, config: toConfig(fee, tickSpacing, extension)});
         core.initializePool(poolKey, tick);
     }
 

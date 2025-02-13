@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
-import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
@@ -100,11 +100,12 @@ contract Handler is StdUtils, StdAssertions {
         positionId = positions.mint();
     }
 
-    function createNewPool(uint128 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
+    function createNewPool(uint64 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
         tickSpacing = uint32(bound(tickSpacing, 0, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        PoolKey memory poolKey =
-            PoolKey(address(token0), address(token1), fee, tickSpacing, withExtension ? address(fae) : address(0));
+        PoolKey memory poolKey = PoolKey(
+            address(token0), address(token1), toConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+        );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);
@@ -130,15 +131,15 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        if (poolKey.tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+        if (poolKey.config.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
             bounds = Bounds(MIN_TICK, MAX_TICK);
         } else {
-            Bounds memory max = maxBounds(poolKey.tickSpacing);
-            bounds.lower = int32(bound(bounds.lower, max.lower, max.upper - int32(poolKey.tickSpacing)));
+            Bounds memory max = maxBounds(poolKey.config.tickSpacing());
+            bounds.lower = int32(bound(bounds.lower, max.lower, max.upper - int32(poolKey.config.tickSpacing())));
             // snap to nearest valid tick
-            bounds.lower = (bounds.lower / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
-            bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing), max.upper));
-            bounds.upper = (bounds.upper / int32(poolKey.tickSpacing)) * int32(poolKey.tickSpacing);
+            bounds.lower = (bounds.lower / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
+            bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.config.tickSpacing()), max.upper));
+            bounds.upper = (bounds.upper / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
         }
 
         try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
@@ -174,7 +175,7 @@ contract Handler is StdUtils, StdAssertions {
             poolBalances[poolId].amount0 += int256(uint256(amount0));
             poolBalances[poolId].amount1 += int256(uint256(amount1));
         } catch (bytes memory err) {
-            if (poolKey.extension != address(fae)) {
+            if (poolKey.config.extension() != address(fae)) {
                 assert(err.length == 0);
             } else {
                 bytes4 sig;

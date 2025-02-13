@@ -28,7 +28,7 @@ function swapResult(
     SqrtRatio sqrtRatioLimit,
     int128 amount,
     bool isToken1,
-    uint128 fee
+    uint64 fee
 ) pure returns (SwapResult memory) {
     if (amount == 0 || sqrtRatio == sqrtRatioLimit) {
         return noOpSwapResult(sqrtRatio);

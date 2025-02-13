@@ -123,7 +123,7 @@ contract Handler is StdUtils, StdAssertions {
         _;
     }
 
-    error UnexpectedError(bytes4 sig, bytes data);
+    error UnexpectedError(bytes data);
 
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, Bounds memory bounds)
         public
@@ -163,7 +163,7 @@ contract Handler is StdUtils, StdAssertions {
                 sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
             ) {
-                revert UnexpectedError(sig, err);
+                revert UnexpectedError(err);
             }
         }
     }
@@ -182,7 +182,7 @@ contract Handler is StdUtils, StdAssertions {
                 assembly ("memory-safe") {
                     sig := mload(add(err, 32))
                 }
-                revert UnexpectedError(sig, err);
+                revert UnexpectedError(err);
             }
         }
     }
@@ -213,7 +213,7 @@ contract Handler is StdUtils, StdAssertions {
                     && sig != SafeCastLib.Overflow.selector && sig != Amount1DeltaOverflow.selector
                     && sig != Amount0DeltaOverflow.selector && sig != 0x4e487b71
             ) {
-                revert UnexpectedError(sig, err);
+                revert UnexpectedError(err);
             }
         }
     }
@@ -259,7 +259,7 @@ contract Handler is StdUtils, StdAssertions {
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
                     && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71 && sig != SafeCastLib.Overflow.selector
             ) {
-                revert UnexpectedError(sig, err);
+                revert UnexpectedError(err);
             }
         }
     }

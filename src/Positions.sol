@@ -53,13 +53,14 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
 
     function saltToId(address minter, bytes32 salt) public view returns (uint256 result) {
         assembly ("memory-safe") {
-            mstore(0, minter)
-            mstore(32, salt)
-            let h := keccak256(0, 64)
-            mstore(0, h)
-            mstore(32, address())
-            // we use the first 48 bits only
-            result := shr(208, keccak256(0, 64))
+            let free := mload(0x40)
+            mstore(free, minter)
+            mstore(add(free, 32), salt)
+            mstore(add(free, 64), chainid())
+            mstore(add(free, 96), address())
+
+            // we use the first 48 bits only so it fits in most integer types
+            result := shr(208, keccak256(free, 128))
         }
     }
 

@@ -34,8 +34,8 @@ contract CreateTestDataScript is Script {
             maxBounds(5982),
             address(0),
             8517197,
-            10000000000000000,
-            50000000000000000000
+            0.01e18,
+            50e18
         );
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
@@ -56,8 +56,8 @@ contract CreateTestDataScript is Script {
             maxBounds(FULL_RANGE_ONLY_TICK_SPACING),
             address(0),
             8517197,
-            10000000000000000,
-            50000000000000000000
+            0.01e18,
+            50e18
         );
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
@@ -77,8 +77,8 @@ contract CreateTestDataScript is Script {
             maxBounds(FULL_RANGE_ONLY_TICK_SPACING),
             address(oracle),
             4605172,
-            1e18,
-            100e18
+            0.01e18,
+            1e18
         );
 
         // 2 example swaps, back and forth, twice, to demonstrate gas usage
@@ -99,8 +99,8 @@ contract CreateTestDataScript is Script {
             maxBounds(19802),
             address(0),
             8517197,
-            30000000000000000,
-            300000000000000000000
+            0.03e16,
+            300e18
         );
     }
 

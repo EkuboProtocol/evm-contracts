@@ -541,7 +541,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                     : (params.amount - amountRemaining, calculatedAmountDelta);
             }
 
-            poolState[poolId] = PoolState({sqrtRatio: sqrtRatio, tick: tick, liquidity: liquidity});
+            assembly ("memory-safe") {
+                mstore(0, poolId)
+                mstore(32, 2)
+                sstore(keccak256(0, 64), add(add(sqrtRatio, shl(96, and(tick, 0xffffffff))), shl(128, liquidity)))
+            }
 
             if (poolKey.mustLoadFees()) {
                 assembly ("memory-safe") {

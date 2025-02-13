@@ -18,8 +18,14 @@ contract CoreDataFetcher is UsesCore {
         amount = core.protocolFeesCollected(token);
     }
 
+    function poolPrice(PoolKey memory poolKey) external view returns (uint256 sqrtRatioFixed, int32 tick) {
+        SqrtRatio sqrtRatio;
+        (sqrtRatio, tick,) = poolState(poolKey);
+        sqrtRatioFixed = sqrtRatio.toFixed();
+    }
+
     function poolState(PoolKey memory poolKey)
-        external
+        public
         view
         returns (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity)
     {

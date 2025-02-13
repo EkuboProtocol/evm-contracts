@@ -250,7 +250,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         int128 liquidityDeltaNext =
             isUpper ? tickInfo.liquidityDelta - liquidityDelta : tickInfo.liquidityDelta + liquidityDelta;
 
-        // no need to flip ticks for tickSpacing == FULL_RANGE_ONLY_TICK_SPACING because we don't use the bitmaps
         if ((tickInfo.liquidityNet == 0) != (liquidityNetNext == 0)) {
             flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
         }
@@ -267,7 +266,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
             if (token0 == NATIVE_TOKEN_ADDRESS) {
                 unchecked {
-                    // checked math on purpose so we don't overflow
                     _accountDebt(id, NATIVE_TOKEN_ADDRESS, debtChange - int256(msg.value));
                 }
             } else {

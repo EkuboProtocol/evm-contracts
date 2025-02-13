@@ -30,7 +30,7 @@ function mustLoadFees(PoolKey memory pk) pure returns (bool r) {
     assembly ("memory-safe") {
         // only if either of tick spacing and fee are nonzero
         // if _both_ are zero, then we know we do not need to load fees for swaps
-        r := iszero(iszero(and(mload(add(64, pk)), 0xffffffffffffffffffffffffffffffff)))
+        r := iszero(iszero(and(mload(add(64, pk)), 0xffffffffffffffffffffffff)))
     }
 }
 

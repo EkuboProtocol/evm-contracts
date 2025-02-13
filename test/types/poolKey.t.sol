@@ -14,6 +14,14 @@ contract PoolKeyTest is Test {
         assertEq(pk.extension(), extension);
     }
 
+    function check_mustLoadFees(PoolKey memory poolKey) public pure {
+        assertEq(poolKey.mustLoadFees(), poolKey.tickSpacing() != 0 || poolKey.fee() != 0);
+    }
+
+    function test_mustLoadFees(PoolKey memory poolKey) public pure {
+        assertEq(poolKey.mustLoadFees(), poolKey.tickSpacing() != 0 || poolKey.fee() != 0);
+    }
+
     function test_poolKey_validateTokens_zero_token0() public pure {
         PoolKey({token0: address(0), token1: address(1), config: toConfig(0, 1, address(0))}).validatePoolKey();
     }

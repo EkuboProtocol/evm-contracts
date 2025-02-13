@@ -1,39 +1,41 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {MAX_TICK_SPACING} from "../math/constants.sol";
+import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 
-using {toPoolId, validatePoolKey} for PoolKey global;
+using {toPoolId, validatePoolKey, isFullRange, mustLoadFees, tickSpacing, fee, extension} for PoolKey global;
 
 // address (20 bytes) | fee (8 bytes) | tickSpacing (4 bytes)
 type Config is bytes32;
 
-using {mustLoadFees, tickSpacing, fee, extension} for Config global;
-
-function tickSpacing(Config c) pure returns (uint32 r) {
+function tickSpacing(PoolKey memory pk) pure returns (uint32 r) {
     assembly ("memory-safe") {
-        r := and(c, 0xffffffff)
+        r := and(mload(add(64, pk)), 0xffffffff)
     }
 }
 
-function fee(Config c) pure returns (uint64 r) {
+function fee(PoolKey memory pk) pure returns (uint64 r) {
     assembly ("memory-safe") {
-        r := and(shr(32, c), 0xffffffffffffffff)
+        r := and(mload(add(60, pk)), 0xffffffffffffffff)
     }
 }
 
-function extension(Config c) pure returns (address r) {
+function extension(PoolKey memory pk) pure returns (address r) {
     assembly ("memory-safe") {
-        r := shr(96, c)
+        r := and(mload(add(52, pk)), 0xffffffffffffffffffffffffffffffffffffffff)
     }
 }
 
-function mustLoadFees(Config c) pure returns (bool r) {
+function mustLoadFees(PoolKey memory pk) pure returns (bool r) {
     assembly ("memory-safe") {
         // only if either of tick spacing and fee are nonzero
         // if _both_ are zero, then we know we do not need to load fees for swaps
-        r := iszero(iszero(and(c, 0xffffffffffffffffffffffffffffffff)))
+        r := iszero(iszero(and(mload(add(64, pk)), 0xffffffffffffffffffffffffffffffff)))
     }
+}
+
+function isFullRange(PoolKey memory pk) pure returns (bool r) {
+    r = pk.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
 }
 
 function toConfig(uint64 _fee, uint32 _tickSpacing, address _extension) pure returns (Config c) {
@@ -54,7 +56,7 @@ error InvalidTickSpacing();
 
 function validatePoolKey(PoolKey memory key) pure {
     if (key.token0 >= key.token1) revert TokensMustBeSorted();
-    if (key.config.tickSpacing() > MAX_TICK_SPACING) {
+    if (key.tickSpacing() > MAX_TICK_SPACING) {
         revert InvalidTickSpacing();
     }
 }

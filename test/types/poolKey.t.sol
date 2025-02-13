@@ -8,9 +8,10 @@ import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/con
 contract PoolKeyTest is Test {
     function test_toConfig_fee_tickSpacing_extension(uint64 fee, uint32 tickSpacing, address extension) public pure {
         Config c = toConfig(fee, tickSpacing, extension);
-        assertEq(c.fee(), fee);
-        assertEq(c.tickSpacing(), tickSpacing);
-        assertEq(c.extension(), extension);
+        PoolKey memory pk = PoolKey(address(0), address(0), c);
+        assertEq(pk.fee(), fee);
+        assertEq(pk.tickSpacing(), tickSpacing);
+        assertEq(pk.extension(), extension);
     }
 
     function test_poolKey_validateTokens_zero_token0() public pure {
@@ -61,9 +62,7 @@ contract PoolKeyTest is Test {
     function test_toPoolId_changesWithExtension(PoolKey memory poolKey) public pure {
         bytes32 id = poolKey.toPoolId();
         unchecked {
-            poolKey.config = toConfig(
-                poolKey.config.fee(), poolKey.config.tickSpacing(), address(uint160(poolKey.config.extension()) + 1)
-            );
+            poolKey.config = toConfig(poolKey.fee(), poolKey.tickSpacing(), address(uint160(poolKey.extension()) + 1));
         }
         assertNotEq(poolKey.toPoolId(), id);
     }
@@ -71,8 +70,7 @@ contract PoolKeyTest is Test {
     function test_toPoolId_changesWithFee(PoolKey memory poolKey) public pure {
         bytes32 id = poolKey.toPoolId();
         unchecked {
-            poolKey.config =
-                toConfig(poolKey.config.fee() + 1, poolKey.config.tickSpacing(), poolKey.config.extension());
+            poolKey.config = toConfig(poolKey.fee() + 1, poolKey.tickSpacing(), poolKey.extension());
         }
         assertNotEq(poolKey.toPoolId(), id);
     }
@@ -80,8 +78,7 @@ contract PoolKeyTest is Test {
     function test_toPoolId_changesWithTickSpacing(PoolKey memory poolKey) public pure {
         bytes32 id = poolKey.toPoolId();
         unchecked {
-            poolKey.config =
-                toConfig(poolKey.config.fee(), poolKey.config.tickSpacing() + 1, poolKey.config.extension());
+            poolKey.config = toConfig(poolKey.fee(), poolKey.tickSpacing() + 1, poolKey.extension());
         }
         assertNotEq(poolKey.toPoolId(), id);
     }

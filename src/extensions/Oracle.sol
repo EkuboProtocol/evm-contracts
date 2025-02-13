@@ -147,8 +147,8 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
-        if (key.config.fee() != 0) revert FeeMustBeZero();
-        if (key.config.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+        if (key.fee() != 0) revert FeeMustBeZero();
+        if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         address token = key.token1;
 

@@ -441,11 +441,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 if (params.sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
             }
 
-            mapping(uint256 => Bitmap) storage initializedTickBitmaps = poolInitializedTickBitmaps[poolKey.toPoolId()];
-            mapping(int32 => FeesPerLiquidity) storage tickFeesPerLiquidityOutside =
-                poolTickFeesPerLiquidityOutside[poolId];
-            mapping(int32 => TickInfo) storage ticks = poolTicks[poolId];
-
             int128 amountRemaining = params.amount;
 
             uint128 calculatedAmount = 0;
@@ -474,8 +469,12 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
                 if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                     (nextTick, isInitialized) = increasing
-                        ? initializedTickBitmaps.findNextInitializedTick(tick, poolKey.tickSpacing(), params.skipAhead)
-                        : initializedTickBitmaps.findPrevInitializedTick(tick, poolKey.tickSpacing(), params.skipAhead);
+                        ? poolInitializedTickBitmaps[poolId].findNextInitializedTick(
+                            tick, poolKey.tickSpacing(), params.skipAhead
+                        )
+                        : poolInitializedTickBitmaps[poolId].findPrevInitializedTick(
+                            tick, poolKey.tickSpacing(), params.skipAhead
+                        );
 
                     nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                 } else {
@@ -507,11 +506,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                     tick = increasing ? nextTick : nextTick - 1;
 
                     if (isInitialized) {
-                        int128 liquidityDelta = ticks[nextTick].liquidityDelta;
+                        int128 liquidityDelta = poolTicks[poolId][nextTick].liquidityDelta;
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
                             : subLiquidityDelta(liquidity, liquidityDelta);
-                        FeesPerLiquidity memory tickFpl = tickFeesPerLiquidityOutside[nextTick];
+                        FeesPerLiquidity memory tickFpl = poolTickFeesPerLiquidityOutside[poolId][nextTick];
 
                         FeesPerLiquidity memory totalFpl;
 
@@ -524,7 +523,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                             mstore(add(totalFpl, mul(32, iszero(increasing))), outputTokenFeesPerLiquidity)
                         }
 
-                        tickFeesPerLiquidityOutside[nextTick] = totalFpl.sub(tickFpl);
+                        poolTickFeesPerLiquidityOutside[poolId][nextTick] = totalFpl.sub(tickFpl);
                     }
                 } else if (sqrtRatio != result.sqrtRatioNext) {
                     sqrtRatio = result.sqrtRatioNext;

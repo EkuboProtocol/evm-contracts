@@ -26,11 +26,13 @@ contract PoolKeyTest is Test {
         PoolKey({token0: address(0), token1: address(1), config: toConfig(0, 1, address(0))}).validatePoolKey();
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_poolKey_validateTokens_order() public {
         vm.expectRevert(TokensMustBeSorted.selector);
         PoolKey({token0: address(2), token1: address(1), config: toConfig(0, 1, address(0))}).validatePoolKey();
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_poolKey_validateTokens_equal() public {
         vm.expectRevert(TokensMustBeSorted.selector);
         PoolKey({token0: address(2), token1: address(2), config: toConfig(0, 1, address(0))}).validatePoolKey();
@@ -40,6 +42,7 @@ contract PoolKeyTest is Test {
         PoolKey({token0: address(1), token1: address(2), config: toConfig(0, 0, address(0))}).validatePoolKey();
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_poolKey_validateTickSpacing_max() public {
         vm.expectRevert(InvalidTickSpacing.selector);
         PoolKey({token0: address(1), token1: address(2), config: toConfig(0, MAX_TICK_SPACING + 1, address(0))})

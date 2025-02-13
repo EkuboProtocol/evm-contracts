@@ -13,6 +13,7 @@ import {
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PositionKeyTest is Test {
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_validateBounds() public {
         Bounds({lower: -1, upper: 1}).validateBounds(1);
         Bounds({lower: -2, upper: 2}).validateBounds(2);

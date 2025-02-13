@@ -128,6 +128,7 @@ contract LiquidityTest is Test {
         assertEq(amount1, 5000, "amount1");
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_addLiquidityDelta() public {
         vm.expectRevert(LiquidityDeltaOverflow.selector);
         addLiquidityDelta(type(uint128).max, 1);
@@ -135,6 +136,7 @@ contract LiquidityTest is Test {
         addLiquidityDelta(0, -1);
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_addLiquidityDeltaInvariants(uint128 liquidity, int128 delta) public {
         int256 result = int256(uint256(liquidity)) + delta;
         if (result < 0) {
@@ -155,6 +157,7 @@ contract LiquidityTest is Test {
         assertEq(addLiquidityDelta(type(uint128).max, type(int128).min), type(uint128).max >> 1);
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_subLiquidityDelta() public {
         vm.expectRevert(LiquidityDeltaOverflow.selector);
         subLiquidityDelta(type(uint128).max, -1);
@@ -162,6 +165,7 @@ contract LiquidityTest is Test {
         subLiquidityDelta(0, 1);
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_subLiquidityDeltaInvariants(uint128 liquidity, int128 delta) public {
         int256 result = int256(uint256(liquidity)) - delta;
         if (result < 0) {

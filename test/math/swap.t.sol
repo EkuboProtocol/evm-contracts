@@ -111,7 +111,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token0_input() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 100000,
             sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + (1 << 96), false),
@@ -123,7 +123,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token0_input_zero_liquidity() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 0,
             sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + (1 << 96), false),
@@ -151,7 +151,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token0_output() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 100000,
             sqrtRatioLimit: MIN_SQRT_RATIO,
@@ -163,7 +163,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token0_output_zero_liquidity() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 0,
             sqrtRatioLimit: MIN_SQRT_RATIO,
@@ -191,7 +191,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token1_input() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 100000,
             sqrtRatioLimit: toSqrtRatio(0x100000000000000000000000000000000, false),
@@ -203,7 +203,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token1_input_zero_liquidity() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 0,
             sqrtRatioLimit: toSqrtRatio(0x100000000000000000000000000000000, false),
@@ -231,7 +231,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token1_output() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 100000,
             sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + 1, true),
@@ -243,7 +243,7 @@ contract SwapTest is Test {
 
     function test_swap_ratio_wrong_direction_token1_output_zero_liquidity() public {
         vm.expectRevert(SqrtRatioLimitWrongDirection.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
             liquidity: 0,
             sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + 1, true),
@@ -579,7 +579,7 @@ contract SwapTest is Test {
 
     function test_swap_all_max_inputs() public {
         vm.expectRevert(Amount1DeltaOverflow.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: MAX_SQRT_RATIO,
             liquidity: 0xffffffffffffffffffffffffffffffff,
             sqrtRatioLimit: MIN_SQRT_RATIO,
@@ -592,7 +592,7 @@ contract SwapTest is Test {
     function test_swap_all_max_inputs_no_fee() public {
         int128 amount = type(int128).max;
         vm.expectRevert(Amount1DeltaOverflow.selector);
-        swapResult({
+        this.sr({
             sqrtRatio: MAX_SQRT_RATIO,
             liquidity: 0xffffffffffffffffffffffffffffffff,
             sqrtRatioLimit: MIN_SQRT_RATIO,

@@ -47,12 +47,14 @@ contract TicksTest is Test {
         assertEq(MIN_SQRT_RATIO.toFixed(), 18447191164202170524);
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_tickToSqrtRatio_reverts_gt_max_tick(int32 tick) public {
         tick = int32(bound(tick, MAX_TICK + 1, type(int32).max));
         vm.expectRevert(abi.encodeWithSelector(InvalidTick.selector, tick));
         tickToSqrtRatio(tick);
     }
 
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_tickToSqrtRatio_reverts_lt_min_tick(int32 tick) public {
         tick = int32(bound(tick, type(int32).min, MIN_TICK - 1));
         vm.expectRevert(abi.encodeWithSelector(InvalidTick.selector, tick));

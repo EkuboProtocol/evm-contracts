@@ -31,13 +31,21 @@ contract PriceFetcherTest is BaseOracleTest {
         assertEq(result[7], 100);
     }
 
+    function _getTimestampsForPeriod(uint64 endTime, uint32 numIntervals, uint32 period)
+        external
+        pure
+        returns (uint64[] memory timestamps)
+    {
+        timestamps = getTimestampsForPeriod({endTime: endTime, numIntervals: numIntervals, period: period});
+    }
+
     function test_getTimestampsForPeriod_reverts_invalid() public {
         vm.expectRevert(InvalidPeriod.selector);
-        getTimestampsForPeriod({endTime: 100, numIntervals: 7, period: 0});
+        this._getTimestampsForPeriod({endTime: 100, numIntervals: 7, period: 0});
         vm.expectRevert(InvalidNumIntervals.selector);
-        getTimestampsForPeriod({endTime: 100, numIntervals: type(uint32).max, period: 5});
+        this._getTimestampsForPeriod({endTime: 100, numIntervals: type(uint32).max, period: 5});
         vm.expectRevert(InvalidNumIntervals.selector);
-        getTimestampsForPeriod({endTime: 100, numIntervals: 0, period: 5});
+        this._getTimestampsForPeriod({endTime: 100, numIntervals: 0, period: 5});
     }
 
     function test_fetchPrices_gas_snapshot() public {

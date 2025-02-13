@@ -579,7 +579,7 @@ contract SwapTest is Test {
 
     function test_swap_all_max_inputs() public {
         vm.expectRevert(Amount1DeltaOverflow.selector);
-        SwapResult memory result = swapResult({
+        swapResult({
             sqrtRatio: MAX_SQRT_RATIO,
             liquidity: 0xffffffffffffffffffffffffffffffff,
             sqrtRatioLimit: MIN_SQRT_RATIO,
@@ -617,7 +617,7 @@ contract SwapTest is Test {
         assertEq(result.feeAmount, 29985000);
     }
 
-    function test_exact_output_swap_max_fee_token0() public {
+    function test_exact_output_swap_max_fee_token0() public pure {
         SwapResult memory result = swapResult({
             sqrtRatio: ONE,
             liquidity: 79228162514264337593543950336,
@@ -633,7 +633,7 @@ contract SwapTest is Test {
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463537161583726606417920);
     }
 
-    function test_exact_output_swap_max_fee_large_amount_token0() public {
+    function test_exact_output_swap_max_fee_large_amount_token0() public pure {
         SwapResult memory result = swapResult({
             sqrtRatio: ONE,
             liquidity: 79228162514264337593543950336,
@@ -649,7 +649,7 @@ contract SwapTest is Test {
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463537161583726606417920);
     }
 
-    function test_exact_output_swap_max_fee_token0_limit_reached() public {
+    function test_exact_output_swap_max_fee_token0_limit_reached() public pure {
         SwapResult memory result = swapResult({
             sqrtRatio: ONE,
             liquidity: 79228162514264337593543950336,
@@ -665,7 +665,7 @@ contract SwapTest is Test {
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463537161583726606417920);
     }
 
-    function test_exact_output_swap_max_fee_token1() public {
+    function test_exact_output_swap_max_fee_token1() public pure {
         SwapResult memory result = swapResult({
             sqrtRatio: ONE,
             liquidity: 79228162514264337593543950336,

@@ -11,6 +11,17 @@ import {SqrtRatio} from "../types/sqrtRatio.sol";
 library CoreLib {
     using ExposedStorageLib for *;
 
+    function isExtensionRegistered(ICore core, address extension) internal view returns (bool registered) {
+        bytes32 key;
+        assembly ("memory-safe") {
+            mstore(0, extension)
+            mstore(32, 0)
+            key := keccak256(0, 64)
+        }
+
+        registered = uint256(core.unsafeRead(key)) != 0;
+    }
+
     function protocolFeesCollected(ICore core, address token) internal view returns (uint256 amountCollected) {
         bytes32 key;
         assembly ("memory-safe") {

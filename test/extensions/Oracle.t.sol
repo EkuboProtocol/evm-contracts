@@ -211,6 +211,10 @@ contract ManyObservationsOracleTest is BaseOracleTest {
 contract OracleTest is BaseOracleTest {
     using CoreLib for *;
 
+    function test_isRegistered() public view {
+        assertTrue(core.isExtensionRegistered(address(oracle)));
+    }
+
     function test_getImmutables() public view {
         assertEq(oracle.timestampOffset(), uint64(block.timestamp));
     }

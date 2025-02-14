@@ -15,7 +15,7 @@ abstract contract BaseExtension is UsesCore, IExtension {
         core.registerExtension(getCallPoints());
     }
 
-    function getCallPoints() internal pure virtual returns (CallPoints memory);
+    function getCallPoints() internal virtual returns (CallPoints memory);
 
     function beforeInitializePool(address, PoolKey calldata, int32) external virtual {
         revert CallPointNotImplemented();

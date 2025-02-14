@@ -62,6 +62,9 @@ contract PositionsTest is FullTest {
         // original 100, rounded down, minus the 50% fee
         assertEq(amount0, 49);
         assertEq(amount1, 49);
+
+        assertEq(core.protocolFeesCollected(poolKey.token0), 50);
+        assertEq(core.protocolFeesCollected(poolKey.token1), 50);
     }
 
     function test_mintAndDeposit_shared_tick_boundary(CallPoints memory callPoints) public {
@@ -114,10 +117,16 @@ contract PositionsTest is FullTest {
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
+        assertEq(core.protocolFeesCollected(poolKey.token0), 0);
+        assertEq(core.protocolFeesCollected(poolKey.token1), 0);
+
         (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
 
         assertEq(amount0, 74);
         assertEq(amount1, 25);
+
+        assertEq(core.protocolFeesCollected(poolKey.token0), 75);
+        assertEq(core.protocolFeesCollected(poolKey.token1), 25);
     }
 
     function test_collectFees_amount1(CallPoints memory callPoints) public {
@@ -141,6 +150,9 @@ contract PositionsTest is FullTest {
         assertEq(amount0, 0);
         assertEq(amount1, 49);
 
+        assertEq(core.protocolFeesCollected(poolKey.token0), 0);
+        assertEq(core.protocolFeesCollected(poolKey.token1), 0);
+
         (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
         assertEq(amount0, 0);
         assertEq(amount1, 0);
@@ -149,6 +161,9 @@ contract PositionsTest is FullTest {
 
         assertEq(amount0, 25);
         assertEq(amount1, 74);
+
+        assertEq(core.protocolFeesCollected(poolKey.token0), 25);
+        assertEq(core.protocolFeesCollected(poolKey.token1), 75);
     }
 
     function test_collectFeesAndWithdraw(CallPoints memory callPoints) public {

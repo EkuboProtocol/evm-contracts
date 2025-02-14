@@ -99,7 +99,7 @@ contract CreateTestDataScript is Script {
             maxBounds(19802),
             address(0),
             8517197,
-            0.03e16,
+            0.03e18,
             300e18
         );
     }

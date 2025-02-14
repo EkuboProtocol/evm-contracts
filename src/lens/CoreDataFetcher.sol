@@ -14,8 +14,12 @@ contract CoreDataFetcher is UsesCore {
 
     constructor(ICore core) UsesCore(core) {}
 
-    function protocolFeesCollected(address token) external view returns (uint256 amount) {
-        amount = core.protocolFeesCollected(token);
+    function isExtensionRegistered(address extension) external view returns (bool registered) {
+        registered = core.isExtensionRegistered(extension);
+    }
+
+    function protocolFeesCollected(address token) external view returns (uint256 amountCollected) {
+        amountCollected = core.protocolFeesCollected(token);
     }
 
     function poolPrice(PoolKey memory poolKey) external view returns (uint256 sqrtRatioFixed, int32 tick) {

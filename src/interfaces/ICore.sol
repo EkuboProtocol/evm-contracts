@@ -15,13 +15,6 @@ struct UpdatePositionParameters {
     int128 liquidityDelta;
 }
 
-struct SwapParameters {
-    int128 amount;
-    bool isToken1;
-    SqrtRatio sqrtRatioLimit;
-    uint256 skipAhead;
-}
-
 interface IExtension {
     function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
     function afterInitializePool(address caller, PoolKey calldata key, int32 tick, SqrtRatio sqrtRatio) external;
@@ -36,11 +29,21 @@ interface IExtension {
         int128 delta1
     ) external;
 
-    function beforeSwap(address locker, PoolKey memory poolKey, SwapParameters memory params) external;
+    function beforeSwap(
+        address locker,
+        PoolKey memory poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) external;
     function afterSwap(
         address locker,
         PoolKey memory poolKey,
-        SwapParameters memory params,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead,
         int128 delta0,
         int128 delta1
     ) external;
@@ -125,7 +128,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
         external
         returns (uint128 amount0, uint128 amount1);
 
-    function swap(PoolKey memory poolKey, SwapParameters memory params)
+    function swap(PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
         payable
         returns (int128 delta0, int128 delta1);

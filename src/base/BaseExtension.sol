@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
+import {ICore, IExtension, UpdatePositionParameters} from "../interfaces/ICore.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {Bounds} from "../types/positionKey.sol";
@@ -36,11 +36,11 @@ abstract contract BaseExtension is UsesCore, IExtension {
         revert CallPointNotImplemented();
     }
 
-    function beforeSwap(address, PoolKey memory, SwapParameters memory) external virtual {
+    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external virtual {
         revert CallPointNotImplemented();
     }
 
-    function afterSwap(address, PoolKey memory, SwapParameters memory, int128, int128) external virtual {
+    function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128) external virtual {
         revert CallPointNotImplemented();
     }
 

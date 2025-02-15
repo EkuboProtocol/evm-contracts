@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
-import {ICore, SwapParameters} from "./interfaces/ICore.sol";
+import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
@@ -78,15 +78,8 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                     )
                 );
 
-                (int128 delta0, int128 delta1) = core.swap{value: value}(
-                    poolKey,
-                    SwapParameters({
-                        amount: amount,
-                        isToken1: isToken1,
-                        sqrtRatioLimit: sqrtRatioLimit,
-                        skipAhead: skipAhead
-                    })
-                );
+                (int128 delta0, int128 delta1) =
+                    core.swap{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
                 int128 amountCalculated = isToken1 ? -delta0 : -delta1;
                 if (amountCalculated < calculatedAmountThreshold) {
@@ -164,13 +157,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                             0
                         );
                         (int128 delta0, int128 delta1) = core.swap{value: value}(
-                            node.poolKey,
-                            SwapParameters({
-                                amount: tokenAmount.amount,
-                                isToken1: isToken1,
-                                sqrtRatioLimit: sqrtRatioLimit,
-                                skipAhead: node.skipAhead
-                            })
+                            node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead
                         );
                         results[i][j] = Delta(delta0, delta1);
 
@@ -226,7 +213,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 abi.decode(data, (bytes1, PoolKey, bool, int128, SqrtRatio, uint256));
 
             (int128 delta0, int128 delta1) =
-                ICore(payable(accountant)).swap(poolKey, SwapParameters(amount, isToken1, sqrtRatioLimit, skipAhead));
+                ICore(payable(accountant)).swap(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
             revert QuoteReturnValue(delta0, delta1);
         }

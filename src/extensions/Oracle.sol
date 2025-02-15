@@ -3,8 +3,9 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, toConfig} from "../types/poolKey.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../types/positionKey.sol";
-import {ICore, UpdatePositionParameters, SwapParameters} from "../interfaces/ICore.sol";
+import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -172,8 +173,12 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
-    function beforeSwap(address, PoolKey memory poolKey, SwapParameters memory params) external override onlyCore {
-        if (params.amount != 0) {
+    function beforeSwap(address, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
+        external
+        override
+        onlyCore
+    {
+        if (amount != 0) {
             maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token1);
         }
     }

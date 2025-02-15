@@ -11,7 +11,6 @@ import {isPriceIncreasing} from "../src/math/swap.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
 import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
-import {SwapParameters} from "../src/interfaces/ICore.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
@@ -218,31 +217,32 @@ contract Handler is StdUtils, StdAssertions {
         }
     }
 
-    function swap(uint256 poolKeyIndex, SwapParameters memory params) public ifPoolExists {
+    function swap(uint256 poolKeyIndex, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
+        public
+        ifPoolExists
+    {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
         (SqrtRatio price,,) = core.poolState(poolKey.toPoolId());
 
-        bool increasing = isPriceIncreasing(params.amount, params.isToken1);
+        bool increasing = isPriceIncreasing(amount, isToken1);
 
         if (increasing) {
-            params.sqrtRatioLimit = toSqrtRatio(
-                bound(SqrtRatio.unwrap(params.sqrtRatioLimit), price.toFixed(), MAX_SQRT_RATIO.toFixed()), false
-            );
+            sqrtRatioLimit =
+                toSqrtRatio(bound(SqrtRatio.unwrap(sqrtRatioLimit), price.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
         } else {
-            params.sqrtRatioLimit = toSqrtRatio(
-                bound(SqrtRatio.unwrap(params.sqrtRatioLimit), MIN_SQRT_RATIO.toFixed(), price.toFixed()), false
-            );
+            sqrtRatioLimit =
+                toSqrtRatio(bound(SqrtRatio.unwrap(sqrtRatioLimit), MIN_SQRT_RATIO.toFixed(), price.toFixed()), false);
         }
 
-        params.skipAhead = bound(params.skipAhead, 0, type(uint8).max);
+        skipAhead = bound(skipAhead, 0, type(uint8).max);
 
         try router.swap{gas: 15000000}({
             poolKey: poolKey,
-            sqrtRatioLimit: params.sqrtRatioLimit,
-            skipAhead: params.skipAhead,
-            isToken1: params.isToken1,
-            amount: params.amount
+            sqrtRatioLimit: sqrtRatioLimit,
+            skipAhead: skipAhead,
+            isToken1: isToken1,
+            amount: amount
         }) returns (int128 delta0, int128 delta1) {
             bytes32 poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += delta0;

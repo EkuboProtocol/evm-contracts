@@ -27,7 +27,7 @@ import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
-import {ICore, UpdatePositionParameters, SwapParameters, IExtension} from "./interfaces/ICore.sol";
+import {ICore, UpdatePositionParameters, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {
     MIN_TICK,
@@ -400,18 +400,18 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
-    function swap(PoolKey memory poolKey, SwapParameters memory params)
+    function swap(PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
         payable
         returns (int128 delta0, int128 delta1)
     {
-        if (!params.sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
+        if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
         if (shouldCallBeforeSwap(extension) && locker != extension) {
-            IExtension(extension).beforeSwap(locker, poolKey, params);
+            IExtension(extension).beforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         }
 
         bytes32 poolId = poolKey.toPoolId();
@@ -426,15 +426,15 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         if (sqrtRatio.isZero()) revert PoolNotInitialized();
 
         // 0 swap amount is no-op
-        if (params.amount != 0) {
-            bool increasing = isPriceIncreasing(params.amount, params.isToken1);
+        if (amount != 0) {
+            bool increasing = isPriceIncreasing(amount, isToken1);
             if (increasing) {
-                if (params.sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
+                if (sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
             } else {
-                if (params.sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
+                if (sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
             }
 
-            int128 amountRemaining = params.amount;
+            int128 amountRemaining = amount;
 
             uint128 calculatedAmount = 0;
 
@@ -454,7 +454,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 }
             }
 
-            while (amountRemaining != 0 && sqrtRatio != params.sqrtRatioLimit) {
+            while (amountRemaining != 0 && sqrtRatio != sqrtRatioLimit) {
                 int32 nextTick;
                 bool isInitialized;
                 SqrtRatio nextTickSqrtRatio;
@@ -462,12 +462,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
                 if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                     (nextTick, isInitialized) = increasing
-                        ? poolInitializedTickBitmaps[poolId].findNextInitializedTick(
-                            tick, poolKey.tickSpacing(), params.skipAhead
-                        )
-                        : poolInitializedTickBitmaps[poolId].findPrevInitializedTick(
-                            tick, poolKey.tickSpacing(), params.skipAhead
-                        );
+                        ? poolInitializedTickBitmaps[poolId].findNextInitializedTick(tick, poolKey.tickSpacing(), skipAhead)
+                        : poolInitializedTickBitmaps[poolId].findPrevInitializedTick(tick, poolKey.tickSpacing(), skipAhead);
 
                     nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                 } else {
@@ -476,13 +472,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                     (nextTick, nextTickSqrtRatio) = increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                 }
 
-                SqrtRatio limitedNextSqrtRatio = increasing
-                    ? nextTickSqrtRatio.min(params.sqrtRatioLimit)
-                    : nextTickSqrtRatio.max(params.sqrtRatioLimit);
+                SqrtRatio limitedNextSqrtRatio =
+                    increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
 
-                result = swapResult(
-                    sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, params.isToken1, poolKey.fee()
-                );
+                result =
+                    swapResult(sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, isToken1, poolKey.fee());
 
                 // this accounts the fees into the feesPerLiquidity memory struct
                 assembly ("memory-safe") {
@@ -525,13 +519,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             }
 
             unchecked {
-                int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(params.amount < 0, 1, type(uint256).max));
+                int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(amount < 0, 1, type(uint256).max));
                 int128 calculatedAmountDelta =
                     SafeCastLib.toInt128(calculatedAmountSign * int256(uint256(calculatedAmount)));
 
-                (delta0, delta1) = params.isToken1
-                    ? (calculatedAmountDelta, params.amount - amountRemaining)
-                    : (params.amount - amountRemaining, calculatedAmountDelta);
+                (delta0, delta1) = isToken1
+                    ? (calculatedAmountDelta, amount - amountRemaining)
+                    : (amount - amountRemaining, calculatedAmountDelta);
             }
 
             assembly ("memory-safe") {
@@ -563,7 +557,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
 
         if (shouldCallAfterSwap(extension) && locker != extension) {
-            IExtension(extension).afterSwap(locker, poolKey, params, delta0, delta1);
+            IExtension(extension).afterSwap(
+                locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1
+            );
         }
     }
 }

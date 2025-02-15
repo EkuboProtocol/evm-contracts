@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
-import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
+import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";

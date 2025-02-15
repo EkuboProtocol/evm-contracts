@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {UpdatePositionParameters, SwapParameters} from "../../src/interfaces/ICore.sol";
+import {UpdatePositionParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
@@ -700,7 +700,7 @@ contract OracleTest is BaseOracleTest {
         oracle.beforeUpdatePosition(address(0), poolKey, UpdatePositionParameters(bytes32(0x0), Bounds(-100, 100), 0));
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeSwap(address(0), poolKey, SwapParameters(0, false, SqrtRatio.wrap(0), 0));
+        oracle.beforeSwap(address(0), poolKey, 0, false, SqrtRatio.wrap(0), 0);
     }
 
     function test_gas_swap_on_oracle_pool() public {

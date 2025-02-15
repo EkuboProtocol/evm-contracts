@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {ICore, IExtension, UpdatePositionParameters, SwapParameters} from "../src/interfaces/ICore.sol";
+import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
@@ -55,22 +55,43 @@ contract MockExtension is IExtension {
         emit AfterUpdatePositionCalled(locker, poolKey, params, delta0, delta1);
     }
 
-    event BeforeSwapCalled(address locker, PoolKey poolKey, SwapParameters params);
+    event BeforeSwapCalled(
+        address locker, PoolKey poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead
+    );
 
-    function beforeSwap(address locker, PoolKey memory poolKey, SwapParameters memory params) external {
-        emit BeforeSwapCalled(locker, poolKey, params);
+    function beforeSwap(
+        address locker,
+        PoolKey memory poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) external {
+        emit BeforeSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 
-    event AfterSwapCalled(address locker, PoolKey poolKey, SwapParameters params, int128 delta0, int128 delta1);
+    event AfterSwapCalled(
+        address locker,
+        PoolKey poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead,
+        int128 delta0,
+        int128 delta1
+    );
 
     function afterSwap(
         address locker,
         PoolKey memory poolKey,
-        SwapParameters memory params,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead,
         int128 delta0,
         int128 delta1
     ) external {
-        emit AfterSwapCalled(locker, poolKey, params, delta0, delta1);
+        emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1);
     }
 
     event BeforeCollectFeesCalled(address locker, PoolKey poolKey, bytes32 salt, Bounds bounds);

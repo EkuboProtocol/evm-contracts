@@ -725,4 +725,74 @@ contract SwapTest is Test {
         assertEq(result.calculatedAmount, 0);
         assertEq(result.feeAmount, 1);
     }
+
+    function test_large_liquidity_rounding_price_eg_usdc_usdt_token1() public pure {
+        SwapResult memory result = swapResult({
+            sqrtRatio: ONE,
+            // e.g. $100m of USDC/USDT at max concentration (2e6 concentrated)
+            liquidity: 100_000_000e6 * 2e6,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            amount: 1e6, // 1 of token1
+            isToken1: true,
+            fee: uint64((uint256(1) << 64) / 10_000) // .01%
+        });
+        assertEq(result.consumedAmount, 1e6);
+        assertEq(result.sqrtRatioNext.toFixed(), 340282366920940164695900061221456445440);
+        assertEq(result.calculatedAmount, 999894);
+        assertEq(result.feeAmount, 100);
+    }
+
+    function test_large_liquidity_rounding_price_eg_usdc_usdt_token0() public pure {
+        SwapResult memory result = swapResult({
+            sqrtRatio: ONE,
+            // e.g. $100m of USDC/USDT at max concentration (2e6 concentrated)
+            liquidity: 100_000_000e6 * 2e6,
+            sqrtRatioLimit: MIN_SQRT_RATIO,
+            amount: 1000,
+            isToken1: false,
+            fee: uint64((uint256(1) << 64) / 10_000) // .01%
+        });
+        assertEq(result.consumedAmount, 1000);
+        assertEq(result.sqrtRatioNext.toFixed(), 340282366920938461763664184673493319680);
+        assertEq(result.calculatedAmount, 998);
+        assertEq(result.feeAmount, 1);
+    }
+
+    function test_large_liquidity_rounding_price_eg_eth_wbtc_token1() public pure {
+        SwapResult memory result = swapResult({
+            // floor(sqrt((1/35.9646)*(10**8 / 10**18)) * 2**128)
+            sqrtRatio: toSqrtRatio(567416326511680895821092960597055, false),
+            // e.g. $100m of WBTC/ETH at max concentration (2e6 concentrated)
+            // floor(sqrt(1000e8 * 37037e18))
+            liquidity: 60858031515979877 * 2e6,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            // 1 wbtc should be about 35 eth
+            amount: 1e8,
+            isToken1: true,
+            fee: uint64((uint256(5) << 64) / 10_000) // .05%
+        });
+        assertEq(result.consumedAmount, 1e8);
+        assertEq(result.sqrtRatioNext.toFixed(), 567416326791111742716100667768832);
+        assertEq(result.calculatedAmount, 35.946617682297259606e18);
+        assertEq(result.feeAmount, 50000);
+    }
+
+    function test_large_liquidity_rounding_price_eg_eth_wbtc_eth_in_token0() public pure {
+        SwapResult memory result = swapResult({
+            // floor(sqrt((1/35.9646)*(10**8 / 10**18)) * 2**128)
+            sqrtRatio: toSqrtRatio(567416326511680895821092960597055, false),
+            // e.g. $100m of WBTC/ETH at max concentration (2e6 concentrated)
+            // floor(sqrt(1000e8 * 37037e18))
+            liquidity: 60858031515979877 * 2e6,
+            sqrtRatioLimit: MIN_SQRT_RATIO,
+            // 1 wbtc should be about 35 eth
+            amount: 100e18,
+            isToken1: false,
+            fee: uint64((uint256(5) << 64) / 10_000) // .05%
+        });
+        assertEq(result.consumedAmount, 100e18);
+        assertEq(result.sqrtRatioNext.toFixed(), 567416325734720088492796473769984);
+        assertEq(result.calculatedAmount, 2.77912168e8);
+        assertEq(result.feeAmount, 49999999999999996);
+    }
 }

@@ -795,4 +795,76 @@ contract SwapTest is Test {
         assertEq(result.calculatedAmount, 2.77912168e8);
         assertEq(result.feeAmount, 49999999999999996);
     }
+
+    function test_unrealistic_large_liquidity_rounding_token0_in_high_price() public pure {
+        SwapResult memory result = swapResult({
+            // price of 2**96
+            // floor(sqrt(2**96) * 2**128) == 2**176
+            sqrtRatio: toSqrtRatio(1 << 176, false),
+            liquidity: type(uint128).max,
+            sqrtRatioLimit: MIN_SQRT_RATIO,
+            // 1e-18 token0
+            amount: 100,
+            isToken1: false,
+            fee: uint64((uint256(5) << 64) / 10_000) // .05%
+        });
+        assertEq(result.consumedAmount, 100);
+        assertEq(result.sqrtRatioNext.toFixed(), 95780971304118053647389083293292954599762214917242880);
+        assertEq(result.calculatedAmount, 7_605_903_601_369_376_408_980_219_232_255); // approximately 100 input - 1 fee * 2**96 price == 7.9228162514E30
+        assertEq(result.feeAmount, 1);
+    }
+
+    function test_unrealistic_large_liquidity_rounding_token1_in_high_price() public pure {
+        SwapResult memory result = swapResult({
+            // price of 2**96
+            // floor(sqrt(2**96) * 2**128) == 2**176
+            sqrtRatio: toSqrtRatio(1 << 176, false),
+            liquidity: type(uint128).max,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            // 1 token1
+            amount: type(int128).max,
+            isToken1: true,
+            fee: uint64((uint256(5) << 64) / 10_000) // .05%
+        });
+        assertEq(result.consumedAmount, type(int128).max);
+        assertEq(result.sqrtRatioNext.toFixed(), 95780971304118223703509385535409808758432655611002880);
+        assertEq(result.calculatedAmount, 2_146_409_903); // approximately 2**127 input / 2**96 price == 2,147,483,648
+        assertEq(result.feeAmount, 85070591730234608413359046079283200);
+    }
+
+    function test_unrealistic_large_liquidity_rounding_token0_in_low_price() public pure {
+        SwapResult memory result = swapResult({
+            // price of 2**96
+            // floor(sqrt(1/2**96) * 2**128) == 2**80
+            sqrtRatio: toSqrtRatio(1 << 80, false),
+            liquidity: type(uint128).max,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            // 1e-18 token0
+            amount: 100,
+            isToken1: true,
+            fee: uint64((uint256(5) << 64) / 10_000) // .05%
+        });
+        assertEq(result.consumedAmount, 100);
+        assertEq(result.sqrtRatioNext.toFixed(), 1208925819614629174706272);
+        assertEq(result.calculatedAmount, 7_605_903_601_369_376_408_979_615_252_479); // approximately 100 input - 1 fee * 2**96 price == 7.9228162514E30
+        assertEq(result.feeAmount, 1);
+    }
+
+    function test_unrealistic_large_liquidity_rounding_token1_in_low_price() public pure {
+        SwapResult memory result = swapResult({
+            // price of 2**96
+            // floor(sqrt(2**96) * 2**128) == 2**176
+            sqrtRatio: toSqrtRatio(1 << 80, false),
+            liquidity: type(uint128).max,
+            sqrtRatioLimit: MIN_SQRT_RATIO,
+            // 1 token1
+            amount: type(int128).max,
+            isToken1: false,
+            fee: uint64((uint256(5) << 64) / 10_000) // .05%
+        });
+        assertEq(result.consumedAmount, type(int128).max);
+        assertEq(result.sqrtRatioNext.toFixed(), 1208925819614627028296272);
+        assertEq(result.calculatedAmount, 2_146_409_903); // approximately 2**127 input / 2**96 price == 2,147,483,648
+        assertEq(result.feeAmount, 85070591730234608413359046079283200);
+    }
 }

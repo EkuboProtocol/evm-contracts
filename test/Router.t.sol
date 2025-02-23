@@ -5,7 +5,13 @@ import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../src/types/sqrtRatio.sol";
-import {FULL_RANGE_ONLY_TICK_SPACING, MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
+import {
+    FULL_RANGE_ONLY_TICK_SPACING,
+    MIN_TICK,
+    MAX_TICK,
+    MAX_TICK_SPACING,
+    NATIVE_TOKEN_ADDRESS
+} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
@@ -544,6 +550,59 @@ contract RouterTest is FullTest {
         // crosses the min tick, but liquidity is still not zero
         assertEq(tick, MIN_TICK - 1);
         assertEq(liquidityAfter, liquidity);
+    }
+
+    function test_swap_max_spacing_to_max_price() public {
+        PoolKey memory poolKey = createPool(MAX_TICK - 1, 0, MAX_TICK_SPACING);
+
+        (, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1, 1e36);
+        assertNotEq(liquidity, 0);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: -1,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        assertEq(delta0, 0);
+        assertEq(delta1, 499999875000098127000483558015);
+
+        // reaches max tick but does not change liquidity
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
+        assertEq(tick, MAX_TICK);
+        assertEq(liquidityAfter, 0);
+    }
+
+    function test_swap_max_spacing_to_min_price() public {
+        PoolKey memory poolKey = createPool(MIN_TICK + 1, 0, MAX_TICK_SPACING);
+
+        (, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e36, 1);
+        assertNotEq(liquidity, 0);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: -1,
+            sqrtRatioLimit: MIN_SQRT_RATIO,
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        assertEq(delta0, 499999875000098127108899679808);
+        assertEq(delta1, 0);
+
+        // reaches max tick but does not change liquidity
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
+        // crosses the min tick, but liquidity is still not zero
+        assertEq(tick, MIN_TICK - 1);
+        assertEq(liquidityAfter, 0);
     }
 
     receive() external payable {}

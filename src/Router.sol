@@ -13,6 +13,7 @@ import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {SqrtRatio, toSqrtRatio} from "./types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {CoreLib} from "./libraries/CoreLib.sol";
 
 struct RouteNode {
     PoolKey poolKey;
@@ -36,6 +37,8 @@ struct Delta {
 }
 
 contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker {
+    using CoreLib for *;
+
     error PartialSwapsDisallowed();
     error SlippageCheckFailed(int256 expectedAmount, int256 calculatedAmount);
     error TokensMismatch(uint256 index);
@@ -78,8 +81,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                     )
                 );
 
-                (int128 delta0, int128 delta1) =
-                    core.swap{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+                (int128 delta0, int128 delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
                 int128 amountCalculated = isToken1 ? -delta0 : -delta1;
                 if (amountCalculated < calculatedAmountThreshold) {
@@ -156,9 +158,8 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                             uint128(tokenAmount.amount),
                             0
                         );
-                        (int128 delta0, int128 delta1) = core.swap{value: value}(
-                            node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead
-                        );
+                        (int128 delta0, int128 delta1) =
+                            core.swap(value, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
                         results[i][j] = Delta(delta0, delta1);
 
                         if (j == 0) {
@@ -213,7 +214,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 abi.decode(data, (bytes1, PoolKey, bool, int128, SqrtRatio, uint256));
 
             (int128 delta0, int128 delta1) =
-                ICore(payable(accountant)).swap(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+                ICore(payable(accountant)).swap(0, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
             revert QuoteReturnValue(delta0, delta1);
         }

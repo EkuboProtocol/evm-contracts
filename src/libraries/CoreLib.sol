@@ -6,6 +6,7 @@ import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {PoolKey} from "../types/poolKey.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -117,5 +118,17 @@ library CoreLib {
         liquidityDelta = int128(uint128(uint256(data)));
         // takes only most significant 128 bits
         liquidityNet = uint128(bytes16(data));
+    }
+
+    function swap(
+        ICore core,
+        uint256 value,
+        PoolKey memory poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) internal returns (int128 delta0, int128 delta1) {
+        (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 }

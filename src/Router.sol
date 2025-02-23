@@ -153,17 +153,12 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                             )
                         );
 
-                        uint256 value = FixedPointMathLib.ternary(
-                            j == 0 && tokenAmount.token == NATIVE_TOKEN_ADDRESS && tokenAmount.amount > 0,
-                            uint128(tokenAmount.amount),
-                            0
-                        );
                         (int128 delta0, int128 delta1) =
-                            core.swap(value, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
+                            core.swap(0, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
                         results[i][j] = Delta(delta0, delta1);
 
                         if (j == 0) {
-                            totalSpecified += (isToken1 ? delta1 : delta0 - int256(value));
+                            totalSpecified += tokenAmount.amount;
                         }
 
                         if (isToken1) {

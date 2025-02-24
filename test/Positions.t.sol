@@ -455,7 +455,8 @@ contract PositionsTest is FullTest {
     function test_burn_can_be_minted() public {
         uint256 id = positions.mint(bytes32(0));
         positions.burn(id);
-        positions.mint(bytes32(0));
+        uint256 id2 = positions.mint(bytes32(0));
+        assertEq(id, id2);
     }
 
     function test_gas_full_range_mintAndDeposit() public {

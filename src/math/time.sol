@@ -2,12 +2,14 @@
 pragma solidity =0.8.28;
 
 import {LibBit} from "solady/utils/LibBit.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {console} from "forge-std/console.sol";
 
 type Duration is uint32;
 
 error InvalidDuration();
 
-function toDuration(uint256 start, uint256 end) returns (Duration duration) {
+function toDuration(uint256 start, uint256 end) pure returns (Duration duration) {
     unchecked {
         uint256 difference = end - start;
         if (difference == 0 || difference > end || difference > type(uint32).max) {
@@ -17,12 +19,16 @@ function toDuration(uint256 start, uint256 end) returns (Duration duration) {
     }
 }
 
-function isTimeValid(uint256 currentTime, uint256 time) returns (bool) {
+function isTimeValid(uint256 currentTime, uint256 time) pure returns (bool) {
     unchecked {
+        uint256 stepSize;
+
         if (time <= currentTime) {
-            return (time % 16) == 0;
+            stepSize = 16;
         } else {
-            return (time % (1 << ((LibBit.fls(time - currentTime) + 4) / 4))) == 0;
+            stepSize = uint256(1) << FixedPointMathLib.max(4, (((LibBit.fls(time - currentTime)) / 4) * 4));
         }
+
+        return time % stepSize == 0;
     }
 }

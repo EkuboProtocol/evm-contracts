@@ -7,9 +7,6 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 // todo: should anyone be able to pay for any lock?
 abstract contract FlashAccountant is IFlashAccountant {
-    // Thrown if the contract receives too much payment in the payment callback or from a direct transfer
-    error PaymentOverflow();
-
     // These are randomly selected offsets so that they do not accidentally overlap with any other base contract's use of transient storage
 
     // cast keccak "FlashAccountant#LOCKER_COUNT"
@@ -22,6 +19,8 @@ abstract contract FlashAccountant is IFlashAccountant {
         0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d;
     // cast keccak "FlashAccountant#DEBT_HASH_OFFSET"
     uint256 private constant _DEBT_HASH_OFFSET = 0x3fee1dc3ade45aa30d633b5b8645760533723e46597841ef1126c6577a091742;
+    // cast keccak "FlashAccountant#PAY_REENTRANCY_LOCK"
+    uint256 private constant _PAY_REENTRANCY_LOCK = 0xe1be600102d456bf2d4dee36e1641404df82292916888bf32557e00dfe166412;
 
     function _getLocker() internal view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
@@ -141,6 +140,15 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     function pay(address token) external returns (uint128 payment) {
+        assembly ("memory-safe") {
+            if tload(_PAY_REENTRANCY_LOCK) {
+                // cast sig "PayReentrance()"
+                mstore(0, 0xced108be)
+                revert(0x1c, 0x04)
+            }
+            tstore(_PAY_REENTRANCY_LOCK, 1)
+        }
+
         (uint256 id,) = _requireLocker();
 
         assembly ("memory-safe") {
@@ -200,6 +208,10 @@ abstract contract FlashAccountant is IFlashAccountant {
 
         // The unary negative operator never fails because payment is less than max uint128
         _accountDebt(id, token, -int256(uint256(payment)));
+
+        assembly ("memory-safe") {
+            tstore(_PAY_REENTRANCY_LOCK, 0)
+        }
     }
 
     function withdraw(address token, address recipient, uint128 amount) external {

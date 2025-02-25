@@ -13,6 +13,36 @@ import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {Core} from "../src/Core.sol";
 
+contract DoubleCountingBugTest is FullTest {
+    function payCallback(uint256 id, address token) external {
+        if (id == 0) {
+            address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+        } else {
+            token0.transfer(address(core), 100);
+        }
+    }
+
+    function locked(uint256 id) external {
+        if (id == 0) {
+            core.pay(address(token0));
+            core.load(address(token0), bytes32(0), 100);
+            core.withdraw(address(token0), address(this), 2 * 100);
+        } else {
+            core.pay(address(token0));
+            core.save(address(this), address(token0), bytes32(0), 100);
+        }
+    }
+
+    function test_double_counting_bug() public {
+        token0.transfer(address(core), 100);
+
+        assertEq(token0.balanceOf(address(core)), 100);
+        vm.expectRevert(IFlashAccountant.PayReentrance.selector);
+        address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+        assertEq(token0.balanceOf(address(core)), 100);
+    }
+}
+
 contract CoreTest is FullTest {
     using CoreLib for *;
 

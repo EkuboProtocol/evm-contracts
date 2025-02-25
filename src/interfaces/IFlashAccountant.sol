@@ -18,6 +18,9 @@ interface IFlashAccountant {
     error LockerOnly();
     error NoPaymentMade();
     error DebtsNotZeroed(uint256 id);
+    // Thrown if the contract receives too much payment in the payment callback or from a direct native token transfer
+    error PaymentOverflow();
+    error PayReentrance();
 
     // Create a lock context
     // Any data passed after the function signature is passed through back to the caller after the locked function signature and data, with no additional encoding
@@ -33,6 +36,7 @@ interface IFlashAccountant {
 
     // Pays the given amount of token, by calling the payCallback function on the caller to afford them the opportunity to make the payment.
     // This function, unlike lock and forward, does not return any of the returndata from the callback.
+    // This function also cannot be re-entered like lock and forward.
     // Must be locked, as the contract accounts the payment against the current locker's debts.
     // Token must not be the NATIVE_TOKEN_ADDRESS, as the `balanceOf` calls will fail.
     // If you want to pay in the chain's native token, simply transfer it to this contract using a call.

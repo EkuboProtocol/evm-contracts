@@ -452,6 +452,13 @@ contract PositionsTest is FullTest {
         vm.snapshotGasLastCall("mintAndDeposit eth");
     }
 
+    function test_burn_can_be_minted() public {
+        uint256 id = positions.mint(bytes32(0));
+        positions.burn(id);
+        uint256 id2 = positions.mint(bytes32(0));
+        assertEq(id, id2);
+    }
+
     function test_gas_full_range_mintAndDeposit() public {
         PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 63, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
         token0.approve(address(positions), type(uint256).max);

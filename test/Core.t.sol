@@ -181,6 +181,32 @@ contract SavedBalancesTest is FullTest {
                 (bool success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token, amount));
                 assertTrue(success);
             }
+        } else if (length == 228) {
+            address saveTo;
+            address token0;
+            address token1;
+            bytes32 salt;
+            uint128 amount0;
+            uint128 amount1;
+            assembly ("memory-safe") {
+                saveTo := calldataload(36)
+                token0 := calldataload(68)
+                token1 := calldataload(100)
+                salt := calldataload(132)
+                amount0 := calldataload(164)
+                amount1 := calldataload(196)
+            }
+            if (saveTo == address(0)) {
+                core.load(token0, token1, salt, amount0, amount1);
+                core.withdraw(token0, address(this), amount0);
+                core.withdraw(token1, address(this), amount1);
+            } else {
+                core.save(saveTo, token0, token1, salt, amount0, amount1);
+                (bool success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token0, amount0));
+                assertTrue(success);
+                (success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token1, amount1));
+                assertTrue(success);
+            }
         } else {
             revert();
         }
@@ -197,5 +223,31 @@ contract SavedBalancesTest is FullTest {
             address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 50));
         assertTrue(success);
         assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 50);
+    }
+
+    function test_save_two_tokens() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 100, 75
+            )
+        );
+        assertTrue(success);
+        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 0);
+        assertEq(core.savedBalances(address(this), address(token1), bytes32(0)), 0);
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 100);
+        assertEq(s1, 75);
+
+        (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(uint256(1)));
+        assertEq(s0, 0);
+        assertEq(s1, 0);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 51, 60)
+        );
+        assertTrue(success);
+        (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 49);
+        assertEq(s1, 15);
     }
 }

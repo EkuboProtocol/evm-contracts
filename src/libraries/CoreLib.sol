@@ -184,6 +184,6 @@ library CoreLib {
     }
 
     function load(ICore core, address token, bytes32 salt, uint128 amount) internal {
-        core.load2(token, address(type(uint160).max), salt, amount, 0);
+        core.load(token, address(type(uint160).max), salt, amount, 0);
     }
 }

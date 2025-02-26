@@ -135,7 +135,10 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) public {
+    function load(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) public {
+        // note we do not check sort order because for save it must be sorted,
+        //  so balances will always be zero if token0 and token1 are not sorted
+        //  and this method will throw InsufficientSavedBalance for non-zero amount
         (uint256 id,) = _getLocker();
 
         bytes32 key = EfficientHashLib.hash(

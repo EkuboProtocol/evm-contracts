@@ -27,7 +27,17 @@ function twammCallPoints() pure returns (CallPoints memory) {
 }
 
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
+    error TickSpacingMustBeMaximum();
+
     using CoreLib for ICore;
+
+    struct PoolState {
+        uint64 lastVirtualOrderExecutionTime;
+        uint128 saleRateToken0;
+        uint128 saleRateToken1;
+    }
+
+    mapping(bytes32 poolId => PoolState) private poolState;
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -48,4 +58,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
         override
         returns (bytes memory result)
     {}
+
+    function beforeInitializePool(address, PoolKey memory key, int32) external override onlyCore {
+        if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+
+        poolState[key.toPoolId()] = PoolState(uint64(block.timestamp), 0, 0);
+    }
 }

@@ -2,49 +2,9 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Duration, InvalidDuration, toDuration, isTimeValid} from "../../src/math/time.sol";
+import {isTimeValid} from "../../src/math/time.sol";
 
 contract TimeTest is Test {
-    function test_toDuration_valid_start_end(uint256 start, uint256 end) public pure {
-        start = bound(start, 0, type(uint256).max - type(uint32).max);
-        end = bound(end, start + 1, start + type(uint32).max);
-
-        Duration d = toDuration(start, end);
-        assertEq(Duration.unwrap(d), end - start);
-    }
-
-    function td(uint256 start, uint256 end) external pure returns (Duration d) {
-        d = toDuration(start, end);
-    }
-
-    function test_td_fail() public {
-        vm.expectRevert(InvalidDuration.selector);
-        this.td(0, uint256(type(uint32).max) + 1);
-
-        vm.expectRevert(InvalidDuration.selector);
-        this.td(0, 0);
-
-        vm.expectRevert(InvalidDuration.selector);
-        this.td(1, 0);
-
-        vm.expectRevert(InvalidDuration.selector);
-        this.td(type(uint256).max, 0);
-
-        vm.expectRevert(InvalidDuration.selector);
-        this.td(type(uint256).max, type(uint256).max);
-
-        vm.expectRevert(InvalidDuration.selector);
-        this.td(type(uint256).max, type(uint256).max - 1);
-    }
-
-    function test_toDuration_valid_range(uint256 start, uint256 end) public pure {
-        start = bound(start, 0, type(uint256).max - type(uint32).max);
-        end = bound(end, start + 1, start + type(uint32).max);
-
-        Duration d = toDuration(start, end);
-        assertEq(Duration.unwrap(d), end - start);
-    }
-
     function test_isTimeValid_past_or_close_time() public pure {
         assertTrue(isTimeValid(0, 16));
         assertTrue(isTimeValid(8, 16));

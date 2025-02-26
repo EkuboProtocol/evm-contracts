@@ -135,26 +135,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    function load(address token, bytes32 salt, uint128 amount) external {
-        (uint256 id,) = _getLocker();
-
-        bytes32 key =
-            EfficientHashLib.hash(bytes32(uint256(uint160(msg.sender))), bytes32(uint256(uint160(token))), salt);
-
-        unchecked {
-            uint256 balance = savedBalances[key];
-            if (balance < amount) {
-                revert InsufficientSavedBalance();
-            }
-
-            // safe because we reverted if balance < amount
-            savedBalances[key] = balance - amount;
-
-            _accountDebt(id, token, -int256(uint256(amount)));
-        }
-    }
-
-    function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external {
+    function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) public {
         (uint256 id,) = _getLocker();
 
         bytes32 key = EfficientHashLib.hash(
@@ -223,23 +204,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
-    function save(address owner, address token, bytes32 salt, uint128 amount) external payable {
-        (uint256 id,) = _requireLocker();
-
-        bytes32 key = EfficientHashLib.hash(bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token))), salt);
-
-        // this is always safe because amount is a uint128 and savedBalances for a single token is a uint256
-        unchecked {
-            savedBalances[key] += amount;
-        }
-        _maybeAccountDebtToken0(id, token, int256(uint256(amount)));
-    }
-
     function save2(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
-        external
+        public
         payable
     {
-        if (token1 >= token0) revert SavedBalanceTokensNotSorted();
+        if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
         (uint256 id,) = _requireLocker();
 
@@ -271,7 +240,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         uint64 amount2,
         uint64 amount3
     ) external payable {
-        if (token1 >= token0 || token2 >= token1 || token3 >= token2) revert SavedBalanceTokensNotSorted();
+        if (token0 >= token1 || token1 >= token2 || token2 >= token3) revert SavedBalanceTokensNotSorted();
 
         (uint256 id,) = _requireLocker();
 

@@ -101,9 +101,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
         view
         returns (int32 tick, bool isInitialized);
 
-    // Loads a token from the saved balance of the caller as payment in the current context.
-    function load(address token, bytes32 salt, uint128 amount) external;
-
     // Loads 2 tokens from the saved balances of the caller as payment in the current context.
     function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external;
 
@@ -119,9 +116,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
         uint64 amount2,
         uint64 amount3
     ) external;
-
-    // Saves an amount of a token to be used later.
-    function save(address owner, address token, bytes32 salt, uint128 amount) external payable;
 
     // Saves an amount of 2 tokens to be used later, in a single slot.
     function save2(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)

@@ -15,6 +15,8 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Core} from "../src/Core.sol";
 
 contract DoubleCountingBugTest is FullTest {
+    using CoreLib for *;
+
     function payCallback(uint256 id, address token) external {
         if (id == 0) {
             address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));

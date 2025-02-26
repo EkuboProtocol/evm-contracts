@@ -80,16 +80,21 @@ library CoreLib {
     function savedBalances(ICore core, address owner, address token, bytes32 salt)
         internal
         view
-        returns (uint256 savedBalance)
+        returns (uint128 savedBalance)
     {
-        bytes32 key = EfficientHashLib.hash(bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token))), salt);
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(owner))),
+            bytes32(uint256(uint160(token))),
+            bytes32(uint256(type(uint160).max)),
+            salt
+        );
         assembly ("memory-safe") {
             mstore(0, key)
             mstore(32, 8)
             key := keccak256(0, 64)
         }
 
-        savedBalance = uint256(core.unsafeRead(key));
+        savedBalance = uint128(uint256(core.unsafeRead(key)) >> 128);
     }
 
     function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
@@ -172,5 +177,13 @@ library CoreLib {
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1) {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+    }
+
+    function save(ICore core, address owner, address token, bytes32 salt, uint128 amount) internal {
+        core.save2(owner, token, address(type(uint160).max), salt, amount, 0);
+    }
+
+    function load(ICore core, address token, bytes32 salt, uint128 amount) internal {
+        core.load2(token, address(type(uint160).max), salt, amount, 0);
     }
 }

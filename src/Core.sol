@@ -156,6 +156,28 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
     function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external {
         (uint256 id,) = _getLocker();
+
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(msg.sender))),
+            bytes32(uint256(uint160(token0))),
+            bytes32(uint256(uint160(token1))),
+            salt
+        );
+
+        unchecked {
+            uint256 packedBalance = savedBalances[key];
+            uint128 balance0 = uint128(packedBalance >> 128);
+            uint128 balance1 = uint128(packedBalance);
+            if (balance0 < amount0 || balance1 < amount1) {
+                revert InsufficientSavedBalance();
+            }
+
+            // safe because we reverted if balance < amount
+            savedBalances[key] = (uint256(balance0 - amount0) << 128) + (balance1 - amount1);
+
+            _accountDebt(id, token0, -int256(uint256(amount0)));
+            _accountDebt(id, token1, -int256(uint256(amount1)));
+        }
     }
 
     function load4(
@@ -170,6 +192,35 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         uint64 amount3
     ) external {
         (uint256 id,) = _getLocker();
+
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(msg.sender))),
+            bytes32(uint256(uint160(token0))),
+            bytes32(uint256(uint160(token1))),
+            bytes32(uint256(uint160(token2))),
+            bytes32(uint256(uint160(token3))),
+            salt
+        );
+
+        unchecked {
+            uint256 packedBalance = savedBalances[key];
+            uint64 balance0 = uint64(packedBalance >> 192);
+            uint64 balance1 = uint64(packedBalance >> 128);
+            uint64 balance2 = uint64(packedBalance >> 64);
+            uint64 balance3 = uint64(packedBalance);
+            if (balance0 < amount0 || balance1 < amount1 || balance2 < amount2 || balance3 < amount3) {
+                revert InsufficientSavedBalance();
+            }
+
+            // safe because we reverted if balance < amount
+            savedBalances[key] = (uint256(balance0 - amount0) << 192) + (uint256(balance1 - amount1) << 128)
+                + (uint256(balance2 - amount2) << 64) + uint256(balance3 - amount3);
+
+            _accountDebt(id, token0, -int256(uint256(amount0)));
+            _accountDebt(id, token1, -int256(uint256(amount1)));
+            _accountDebt(id, token2, -int256(uint256(amount2)));
+            _accountDebt(id, token3, -int256(uint256(amount3)));
+        }
     }
 
     function save(address owner, address token, bytes32 salt, uint128 amount) external payable {
@@ -198,12 +249,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
         uint256 packedBalancesCurrent = savedBalances[key];
 
-        uint128 packedBalancesCurrent0 = uint128(packedBalancesCurrent >> 128);
-        uint128 packedBalancesCurrent1 = uint128(packedBalancesCurrent);
+        uint128 balanceCurrent0 = uint128(packedBalancesCurrent >> 128);
+        uint128 balanceCurrent1 = uint128(packedBalancesCurrent);
 
         // we are using checked math here to protect the uint128 additions from overflowing
-        savedBalances[key] =
-            (uint256(packedBalancesCurrent0 + amount0) << 128) + uint256(packedBalancesCurrent1 + amount1);
+        savedBalances[key] = (uint256(balanceCurrent0 + amount0) << 128) + uint256(balanceCurrent1 + amount1);
 
         _maybeAccountDebtToken0(id, token0, int256(uint256(amount0)));
         _accountDebt(id, token1, int256(uint256(amount1)));
@@ -236,15 +286,14 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
         uint256 packedBalancesCurrent = savedBalances[key];
 
-        uint64 packedBalancesCurrent0 = uint64(packedBalancesCurrent >> 192);
-        uint64 packedBalancesCurrent1 = uint64(packedBalancesCurrent >> 128);
-        uint64 packedBalancesCurrent2 = uint64(packedBalancesCurrent >> 64);
-        uint64 packedBalancesCurrent3 = uint64(packedBalancesCurrent);
+        uint64 balanceCurrent0 = uint64(packedBalancesCurrent >> 192);
+        uint64 balanceCurrent1 = uint64(packedBalancesCurrent >> 128);
+        uint64 balanceCurrent2 = uint64(packedBalancesCurrent >> 64);
+        uint64 balanceCurrent3 = uint64(packedBalancesCurrent);
 
         // we are using checked math here to protect the uint64 additions from overflowing
-        savedBalances[key] = (uint256(packedBalancesCurrent0 + amount0) << 192)
-            + (uint256(packedBalancesCurrent1 + amount1) << 128) + (uint256(packedBalancesCurrent2) << 64)
-            + uint256(packedBalancesCurrent3);
+        savedBalances[key] = (uint256(balanceCurrent0 + amount0) << 192) + (uint256(balanceCurrent1 + amount1) << 128)
+            + (uint256(balanceCurrent2) << 64) + uint256(balanceCurrent3);
 
         _maybeAccountDebtToken0(id, token0, int256(uint256(amount0)));
         _accountDebt(id, token1, int256(uint256(amount1)));

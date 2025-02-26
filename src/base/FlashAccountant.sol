@@ -77,7 +77,7 @@ abstract contract FlashAccountant is IFlashAccountant {
             calldatacopy(add(free, 36), 4, sub(calldatasize(), 4))
 
             // Call the original caller with the packed data
-            let success := call(gas(), caller(), 0, free, calldatasize(), 0, 0)
+            let success := call(gas(), caller(), 0, free, add(calldatasize(), 32), 0, 0)
 
             // Pass through the error on failure
             if iszero(success) {

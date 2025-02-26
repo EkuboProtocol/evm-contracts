@@ -18,17 +18,15 @@ import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {TWAMM} from "../../src/extensions/TWAMM.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
-import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
+import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
-    using CoreLib for *;
-
     TWAMM internal twamm;
 
     uint256 positionId;
@@ -65,7 +63,13 @@ abstract contract BaseTWAMMTest is FullTest {
 }
 
 contract TWAMMTest is BaseTWAMMTest {
+    using TWAMMLib for *;
+
     function test_createPool() public {
-        createTwammPool(100, 0);
+        PoolKey memory key = createTwammPool(100, 0);
+        (uint32 lvoe, uint112 srt0, uint112 srt1) = twamm.poolState(key.toPoolId());
+        assertEq(lvoe, 1);
+        assertEq(srt0, 0);
+        assertEq(srt1, 0);
     }
 }

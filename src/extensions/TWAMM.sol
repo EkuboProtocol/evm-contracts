@@ -32,9 +32,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
     using CoreLib for ICore;
 
     struct PoolState {
-        uint64 lastVirtualOrderExecutionTime;
-        uint128 saleRateToken0;
-        uint128 saleRateToken1;
+        uint32 lastVirtualOrderExecutionTime;
+        // 80.32 numbers, meaning the maximum amount of either token sold per second is 1.2089258196E24
+        uint112 saleRateToken0;
+        uint112 saleRateToken1;
     }
 
     mapping(bytes32 poolId => PoolState) private poolState;
@@ -62,6 +63,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
     function beforeInitializePool(address, PoolKey memory key, int32) external override onlyCore {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
-        poolState[key.toPoolId()] = PoolState(uint64(block.timestamp), 0, 0);
+        poolState[key.toPoolId()] = PoolState(uint32(block.timestamp), 0, 0);
     }
 }

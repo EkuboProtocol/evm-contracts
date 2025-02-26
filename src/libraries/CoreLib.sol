@@ -7,6 +7,7 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
+import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -81,20 +82,61 @@ library CoreLib {
         view
         returns (uint256 savedBalance)
     {
-        bytes32 key;
+        bytes32 key = EfficientHashLib.hash(bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token))), salt);
         assembly ("memory-safe") {
-            mstore(0, owner)
+            mstore(0, key)
             mstore(32, 8)
-            key := keccak256(0, 64)
-            mstore(0, token)
-            mstore(32, key)
-            key := keccak256(0, 64)
-            mstore(0, salt)
-            mstore(32, key)
             key := keccak256(0, 64)
         }
 
         savedBalance = uint256(core.unsafeRead(key));
+    }
+
+    function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
+        internal
+        view
+        returns (uint128 savedBalance0, uint128 savedBalance1)
+    {
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
+        );
+        assembly ("memory-safe") {
+            mstore(0, key)
+            mstore(32, 8)
+            key := keccak256(0, 64)
+        }
+
+        savedBalance0 = uint128(uint256(core.unsafeRead(key)) >> 128);
+        savedBalance1 = uint128(uint256(core.unsafeRead(key)));
+    }
+
+    function savedBalances(
+        ICore core,
+        address owner,
+        address token0,
+        address token1,
+        address token2,
+        address token3,
+        bytes32 salt
+    ) internal view returns (uint64 savedBalance0, uint64 savedBalance1, uint64 savedBalance2, uint64 savedBalance3) {
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(owner))),
+            bytes32(uint256(uint160(token0))),
+            bytes32(uint256(uint160(token1))),
+            bytes32(uint256(uint160(token2))),
+            bytes32(uint256(uint160(token3))),
+            salt
+        );
+        assembly ("memory-safe") {
+            mstore(0, key)
+            mstore(32, 8)
+            key := keccak256(0, 64)
+        }
+
+        savedBalance0 = uint64(uint256(core.unsafeRead(key)) >> 192);
+        savedBalance1 = uint64(uint256(core.unsafeRead(key)) >> 128);
+        savedBalance2 = uint64(uint256(core.unsafeRead(key)) >> 64);
+        savedBalance3 = uint64(uint256(core.unsafeRead(key)));
     }
 
     function poolTicks(ICore core, bytes32 poolId, int32 tick)

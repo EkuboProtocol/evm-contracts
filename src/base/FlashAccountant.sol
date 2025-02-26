@@ -81,8 +81,8 @@ abstract contract FlashAccountant is IFlashAccountant {
 
             // Pass through the error on failure
             if iszero(success) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
             }
 
             // Undo the "locker" state changes
@@ -127,8 +127,8 @@ abstract contract FlashAccountant is IFlashAccountant {
 
             // Pass through the error on failure
             if iszero(success) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
             }
 
             tstore(add(_LOCKER_ADDRESSES_OFFSET, id), locker)
@@ -176,8 +176,8 @@ abstract contract FlashAccountant is IFlashAccountant {
             // Call the forwardee with the packed data
             // Pass through the error on failure
             if iszero(call(gas(), caller(), 0, free, add(32, calldatasize()), 0, 0)) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
             }
 
             // Arguments are still in scratch, we don't need to rewrite them

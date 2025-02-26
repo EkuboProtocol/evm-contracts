@@ -1,7 +1,7 @@
 {
-  "swap 100 token0 for eth": "55876",
-  "swap 100 token0 for token1": "51592",
-  "swap 100 wei of eth for token": "50673",
-  "swap 100 wei of eth for token full range": "48222",
-  "swap 100 wei of token for eth full range": "53337"
+  "swap 100 token0 for eth": "55996",
+  "swap 100 token0 for token1": "51712",
+  "swap 100 wei of eth for token": "50790",
+  "swap 100 wei of eth for token full range": "48323",
+  "swap 100 wei of token for eth full range": "53441"
 }

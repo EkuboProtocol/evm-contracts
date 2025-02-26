@@ -29,6 +29,7 @@ import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {ICore, UpdatePositionParameters, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
+import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 import {
     MIN_TICK,
     MAX_TICK,
@@ -63,7 +64,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         poolTickFeesPerLiquidityOutside;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
-    mapping(address owner => mapping(address token => mapping(bytes32 salt => uint256))) private savedBalances;
+    mapping(bytes32 key => uint256) private savedBalances;
 
     constructor(address owner) {
         _initializeOwner(owner);
@@ -137,31 +138,118 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     function load(address token, bytes32 salt, uint128 amount) external {
         (uint256 id,) = _getLocker();
 
+        bytes32 key =
+            EfficientHashLib.hash(bytes32(uint256(uint160(msg.sender))), bytes32(uint256(uint160(token))), salt);
+
         unchecked {
-            uint256 balance = savedBalances[msg.sender][token][salt];
+            uint256 balance = savedBalances[key];
             if (balance < amount) {
                 revert InsufficientSavedBalance();
             }
 
             // safe because we reverted if balance < amount
-            savedBalances[msg.sender][token][salt] = balance - amount;
+            savedBalances[key] = balance - amount;
 
             _accountDebt(id, token, -int256(uint256(amount)));
         }
+    }
 
-        emit LoadedBalance(msg.sender, token, salt, amount);
+    function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external {
+        (uint256 id,) = _getLocker();
+    }
+
+    function load4(
+        address token0,
+        address token1,
+        address token2,
+        address token3,
+        bytes32 salt,
+        uint64 amount0,
+        uint64 amount1,
+        uint64 amount2,
+        uint64 amount3
+    ) external {
+        (uint256 id,) = _getLocker();
     }
 
     function save(address owner, address token, bytes32 salt, uint128 amount) external payable {
         (uint256 id,) = _requireLocker();
 
-        unchecked {
-            // this is always safe because amount is a uint128 and savedBalances a uint256
-            savedBalances[owner][token][salt] += amount;
-            _maybeAccountDebtToken0(id, token, int256(uint256(amount)));
-        }
+        bytes32 key = EfficientHashLib.hash(bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token))), salt);
 
-        emit SavedBalance(owner, token, salt, amount);
+        // this is always safe because amount is a uint128 and savedBalances for a single token is a uint256
+        unchecked {
+            savedBalances[key] += amount;
+        }
+        _maybeAccountDebtToken0(id, token, int256(uint256(amount)));
+    }
+
+    function save2(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
+        external
+        payable
+    {
+        if (token1 >= token0) revert SavedBalanceTokensNotSorted();
+
+        (uint256 id,) = _requireLocker();
+
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
+        );
+
+        uint256 packedBalancesCurrent = savedBalances[key];
+
+        uint128 packedBalancesCurrent0 = uint128(packedBalancesCurrent >> 128);
+        uint128 packedBalancesCurrent1 = uint128(packedBalancesCurrent);
+
+        // we are using checked math here to protect the uint128 additions from overflowing
+        savedBalances[key] =
+            (uint256(packedBalancesCurrent0 + amount0) << 128) + uint256(packedBalancesCurrent1 + amount1);
+
+        _maybeAccountDebtToken0(id, token0, int256(uint256(amount0)));
+        _accountDebt(id, token1, int256(uint256(amount1)));
+    }
+
+    function save4(
+        address owner,
+        address token0,
+        address token1,
+        address token2,
+        address token3,
+        bytes32 salt,
+        uint64 amount0,
+        uint64 amount1,
+        uint64 amount2,
+        uint64 amount3
+    ) external payable {
+        if (token1 >= token0 || token2 >= token1 || token3 >= token2) revert SavedBalanceTokensNotSorted();
+
+        (uint256 id,) = _requireLocker();
+
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(owner))),
+            bytes32(uint256(uint160(token0))),
+            bytes32(uint256(uint160(token1))),
+            bytes32(uint256(uint160(token2))),
+            bytes32(uint256(uint160(token3))),
+            salt
+        );
+
+        uint256 packedBalancesCurrent = savedBalances[key];
+
+        uint64 packedBalancesCurrent0 = uint64(packedBalancesCurrent >> 192);
+        uint64 packedBalancesCurrent1 = uint64(packedBalancesCurrent >> 128);
+        uint64 packedBalancesCurrent2 = uint64(packedBalancesCurrent >> 64);
+        uint64 packedBalancesCurrent3 = uint64(packedBalancesCurrent);
+
+        // we are using checked math here to protect the uint64 additions from overflowing
+        savedBalances[key] = (uint256(packedBalancesCurrent0 + amount0) << 192)
+            + (uint256(packedBalancesCurrent1 + amount1) << 128) + (uint256(packedBalancesCurrent2) << 64)
+            + uint256(packedBalancesCurrent3);
+
+        _maybeAccountDebtToken0(id, token0, int256(uint256(amount0)));
+        _accountDebt(id, token1, int256(uint256(amount1)));
+        _accountDebt(id, token2, int256(uint256(amount2)));
+        _accountDebt(id, token3, int256(uint256(amount3)));
     }
 
     // Returns the pool fees per liquidity inside the given bounds.

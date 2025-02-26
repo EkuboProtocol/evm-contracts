@@ -11,6 +11,7 @@ import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Core} from "../src/Core.sol";
 
 contract DoubleCountingBugTest is FullTest {
@@ -137,5 +138,54 @@ contract CoreTest is FullTest {
 
         vm.expectRevert(ICore.PoolAlreadyInitialized.selector);
         core.initializePool(key, tick);
+    }
+}
+
+contract SavedBalancesTest is FullTest {
+    using CoreLib for *;
+
+    function payCallback(uint256 id, address token) external {
+        uint256 amount;
+        assembly ("memory-safe") {
+            amount := calldataload(68)
+        }
+        IERC20(token).transfer(address(core), amount);
+    }
+
+    function locked(uint256 id) external {
+        uint256 length;
+        assembly ("memory-safe") {
+            length := calldatasize()
+        }
+        // saving or loading 1 token
+        if (length == 164) {
+            address saveTo;
+            address token;
+            bytes32 salt;
+            uint128 amount;
+            assembly ("memory-safe") {
+                saveTo := calldataload(36)
+                token := calldataload(68)
+                salt := calldataload(100)
+                amount := calldataload(132)
+            }
+            if (saveTo == address(0)) {
+                core.load(token, salt, amount);
+                core.withdraw(token, address(this), amount);
+            } else {
+                core.save(saveTo, token, salt, amount);
+                address(core).call(abi.encodeWithSelector(core.pay.selector, token, amount));
+            }
+        } else {
+            revert();
+        }
+    }
+
+    function test_save_single_token() public {
+        address(core).call(abi.encodeWithSelector(core.lock.selector, address(this), address(token0), bytes32(0), 100));
+        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 100);
+
+        address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 50));
+        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 50);
     }
 }

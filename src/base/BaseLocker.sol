@@ -62,8 +62,8 @@ abstract contract BaseLocker is ILocker, IPayer {
 
             // If the call failed, pass through the revert
             if iszero(call(gas(), target, 0, result, add(len, 4), 0, 0)) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
+                returndatacopy(result, 0, returndatasize())
+                revert(result, returndatasize())
             }
 
             // Copy the entire return data into the space where the result is pointing
@@ -125,8 +125,8 @@ abstract contract BaseLocker is ILocker, IPayer {
 
                     // if it failed, pass through revert
                     if iszero(call(gas(), target, 0, free, 100, 0, 0)) {
-                        returndatacopy(0, 0, returndatasize())
-                        revert(0, returndatasize())
+                        returndatacopy(free, 0, returndatasize())
+                        revert(free, returndatasize())
                     }
                 }
             }
@@ -152,8 +152,8 @@ abstract contract BaseLocker is ILocker, IPayer {
 
             // If the call failed, pass through the revert
             if iszero(call(gas(), target, 0, result, add(36, len), 0, 0)) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
+                returndatacopy(result, 0, returndatasize())
+                revert(result, returndatasize())
             }
 
             // Copy the entire return data into the space where the result is pointing

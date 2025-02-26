@@ -161,7 +161,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
-    function save2(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
+    function save(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
         public
         payable
     {

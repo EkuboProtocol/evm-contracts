@@ -180,7 +180,7 @@ library CoreLib {
     }
 
     function save(ICore core, address owner, address token, bytes32 salt, uint128 amount) internal {
-        core.save2(owner, token, address(type(uint160).max), salt, amount, 0);
+        core.save(owner, token, address(type(uint160).max), salt, amount, 0);
     }
 
     function load(ICore core, address token, bytes32 salt, uint128 amount) internal {

@@ -105,7 +105,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external;
 
     // Saves an amount of 2 tokens to be used later, in a single slot.
-    function save2(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
+    function save(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
         external
         payable;
 

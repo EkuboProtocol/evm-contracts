@@ -104,37 +104,10 @@ interface ICore is IFlashAccountant, IExposedStorage {
     // Loads 2 tokens from the saved balances of the caller as payment in the current context.
     function load2(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external;
 
-    // Loads 4 tokens from the saved balances of the caller as payment in the current context.
-    function load4(
-        address token0,
-        address token1,
-        address token2,
-        address token3,
-        bytes32 salt,
-        uint64 amount0,
-        uint64 amount1,
-        uint64 amount2,
-        uint64 amount3
-    ) external;
-
     // Saves an amount of 2 tokens to be used later, in a single slot.
     function save2(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
         external
         payable;
-
-    // Saves an amount of 2 tokens to be used later, in a single slot.
-    function save4(
-        address owner,
-        address token0,
-        address token1,
-        address token2,
-        address token3,
-        bytes32 salt,
-        uint64 amount0,
-        uint64 amount1,
-        uint64 amount2,
-        uint64 amount3
-    ) external payable;
 
     // Returns the pool fees per liquidity inside the given bounds.
     function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)

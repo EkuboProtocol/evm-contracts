@@ -17,9 +17,10 @@ import {Core} from "../src/Core.sol";
 contract DoubleCountingBugTest is FullTest {
     using CoreLib for *;
 
-    function payCallback(uint256 id, address token) external {
+    function payCallback(uint256 id, address) external {
         if (id == 0) {
-            address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+            (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+            assertTrue(success);
         } else {
             token0.transfer(address(core), 100);
         }
@@ -41,7 +42,8 @@ contract DoubleCountingBugTest is FullTest {
 
         assertEq(token0.balanceOf(address(core)), 100);
         vm.expectRevert(IFlashAccountant.PayReentrance.selector);
-        address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+        (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+        assertFalse(success);
         assertEq(token0.balanceOf(address(core)), 100);
     }
 }
@@ -146,7 +148,7 @@ contract CoreTest is FullTest {
 contract SavedBalancesTest is FullTest {
     using CoreLib for *;
 
-    function payCallback(uint256 id, address token) external {
+    function payCallback(uint256, address token) external {
         uint256 amount;
         assembly ("memory-safe") {
             amount := calldataload(68)
@@ -154,7 +156,7 @@ contract SavedBalancesTest is FullTest {
         IERC20(token).transfer(address(core), amount);
     }
 
-    function locked(uint256 id) external {
+    function locked(uint256) external {
         uint256 length;
         assembly ("memory-safe") {
             length := calldatasize()
@@ -176,7 +178,8 @@ contract SavedBalancesTest is FullTest {
                 core.withdraw(token, address(this), amount);
             } else {
                 core.save(saveTo, token, salt, amount);
-                address(core).call(abi.encodeWithSelector(core.pay.selector, token, amount));
+                (bool success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token, amount));
+                assertTrue(success);
             }
         } else {
             revert();
@@ -184,10 +187,15 @@ contract SavedBalancesTest is FullTest {
     }
 
     function test_save_single_token() public {
-        address(core).call(abi.encodeWithSelector(core.lock.selector, address(this), address(token0), bytes32(0), 100));
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(this), address(token0), bytes32(0), 100)
+        );
+        assertTrue(success);
         assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 100);
 
-        address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 50));
+        (success,) =
+            address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 50));
+        assertTrue(success);
         assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 50);
     }
 }

@@ -156,8 +156,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 revert InsufficientSavedBalance();
             }
 
-            // safe because we reverted if balance < amount
-            savedBalances[key] = (uint256(balance0 - amount0) << 128) + (balance1 - amount1);
+            // unchecked is ok because we reverted if either balance < amount
+            savedBalances[key] = (uint256(balance0 - amount0) << 128) + uint256(balance1 - amount1);
 
             _accountDebt(id, token0, -int256(uint256(amount0)));
             _accountDebt(id, token1, -int256(uint256(amount1)));

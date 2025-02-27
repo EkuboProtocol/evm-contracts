@@ -327,6 +327,28 @@ contract SavedBalancesTest is FullTest {
         assertFalse(success);
     }
 
+    function test_cannot_save_same_token() public {
+        vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
+        core.save(address(this), address(0), address(0), bytes32(0), 0, 0);
+
+        vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
+        core.save(address(this), address(1), address(0), bytes32(0), 0, 0);
+    }
+
+    function test_cannot_load_same_token() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token0), bytes32(0), 1, 1)
+        );
+        assertFalse(success);
+    }
+
+    function test_can_load_same_token_no_op() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token0), bytes32(0), 0, 0)
+        );
+        assertTrue(success);
+    }
+
     function test_salt_separates_balances() public {
         (bool success,) = address(core).call(
             abi.encodeWithSelector(core.lock.selector, address(0xdeadbeef), address(token0), bytes32(uint256(1)), 1)

@@ -176,13 +176,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
         );
 
-        uint256 packedBalancesCurrent = savedBalances[key];
+        uint256 packedBalances = savedBalances[key];
 
-        uint128 balanceCurrent0 = uint128(packedBalancesCurrent >> 128);
-        uint128 balanceCurrent1 = uint128(packedBalancesCurrent);
+        uint128 balance0 = uint128(packedBalances >> 128);
+        uint128 balance1 = uint128(packedBalances);
 
         // we are using checked math here to protect the uint128 additions from overflowing
-        savedBalances[key] = (uint256(balanceCurrent0 + amount0) << 128) + uint256(balanceCurrent1 + amount1);
+        savedBalances[key] = (uint256(balance0 + amount0) << 128) + uint256(balance1 + amount1);
 
         _maybeAccountDebtToken0(id, token0, int256(uint256(amount0)));
         _accountDebt(id, token1, int256(uint256(amount1)));

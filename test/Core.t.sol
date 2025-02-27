@@ -306,4 +306,36 @@ contract SavedBalancesTest is FullTest {
         );
         assertFalse(success);
     }
+
+    function test_cannot_load_before_save_token0() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 1, 0)
+        );
+        assertFalse(success);
+    }
+
+    function test_cannot_load_before_save_token1() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 0, 1)
+        );
+        assertFalse(success);
+    }
+
+    function test_cannot_load_before_save() public {
+        (bool success,) =
+            address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 1));
+        assertFalse(success);
+    }
+
+    function test_salt_separates_balances() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0xdeadbeef), address(token0), bytes32(uint256(1)), 1)
+        );
+        assertTrue(success);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(uint256(2)), 1)
+        );
+        assertFalse(success);
+    }
 }

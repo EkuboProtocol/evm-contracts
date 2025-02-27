@@ -288,4 +288,22 @@ contract SavedBalancesTest is FullTest {
         assertEq(s0, 1);
         assertEq(s1, type(uint128).max);
     }
+
+    function test_load_must_comes_from_owner() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(0xdeadbeef), address(token0), address(token1), bytes32(0), 100, 100
+            )
+        );
+        assertTrue(success);
+
+        (uint128 s0, uint128 s1) = core.savedBalances(address(0xdeadbeef), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 100);
+        assertEq(s1, 100);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 1, 1)
+        );
+        assertFalse(success);
+    }
 }

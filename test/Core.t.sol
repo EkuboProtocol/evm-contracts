@@ -250,4 +250,42 @@ contract SavedBalancesTest is FullTest {
         assertEq(s0, 49);
         assertEq(s1, 15);
     }
+
+    function test_save_load_cannot_overflow_token0() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), type(uint128).max, 1
+            )
+        );
+        assertTrue(success);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 1, 0
+            )
+        );
+        assertFalse(success);
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, type(uint128).max);
+        assertEq(s1, 1);
+    }
+
+    function test_save_load_cannot_overflow_token1() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 1, type(uint128).max
+            )
+        );
+        assertTrue(success);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 0, 1
+            )
+        );
+        assertFalse(success);
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 1);
+        assertEq(s1, type(uint128).max);
+    }
 }

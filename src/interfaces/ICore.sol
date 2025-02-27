@@ -63,8 +63,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
     event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
-    event LoadedBalance(address owner, address token, bytes32 salt, uint128 amount);
-    event SavedBalance(address owner, address token, bytes32 salt, uint128 amount);
     event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
     event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
     event PositionUpdated(
@@ -81,6 +79,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
     error SqrtRatioLimitOutOfRange();
     error InvalidSqrtRatioLimit();
+    error SavedBalanceTokensNotSorted();
 
     // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
     // To withdraw the native token protocol fees, call with token = NATIVE_TOKEN_ADDRESS
@@ -102,11 +101,13 @@ interface ICore is IFlashAccountant, IExposedStorage {
         view
         returns (int32 tick, bool isInitialized);
 
-    // Loads from the saved balance of the contract to pay in the current lock context.
-    function load(address token, bytes32 salt, uint128 amount) external;
+    // Loads 2 tokens from the saved balances of the caller as payment in the current context.
+    function load(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external;
 
-    // Saves an amount of a token to be used later.
-    function save(address owner, address token, bytes32 salt, uint128 amount) external payable;
+    // Saves an amount of 2 tokens to be used later, in a single slot.
+    function save(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
+        external
+        payable;
 
     // Returns the pool fees per liquidity inside the given bounds.
     function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)

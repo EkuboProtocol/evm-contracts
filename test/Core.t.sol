@@ -11,12 +11,16 @@ import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Core} from "../src/Core.sol";
 
 contract DoubleCountingBugTest is FullTest {
-    function payCallback(uint256 id, address token) external {
+    using CoreLib for *;
+
+    function payCallback(uint256 id, address) external {
         if (id == 0) {
-            address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+            (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+            assertTrue(success);
         } else {
             token0.transfer(address(core), 100);
         }
@@ -38,7 +42,8 @@ contract DoubleCountingBugTest is FullTest {
 
         assertEq(token0.balanceOf(address(core)), 100);
         vm.expectRevert(IFlashAccountant.PayReentrance.selector);
-        address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+        (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
+        assertFalse(success);
         assertEq(token0.balanceOf(address(core)), 100);
     }
 }
@@ -137,5 +142,222 @@ contract CoreTest is FullTest {
 
         vm.expectRevert(ICore.PoolAlreadyInitialized.selector);
         core.initializePool(key, tick);
+    }
+}
+
+contract SavedBalancesTest is FullTest {
+    using CoreLib for *;
+
+    function payCallback(uint256, address token) external {
+        uint256 amount;
+        assembly ("memory-safe") {
+            amount := calldataload(68)
+        }
+        IERC20(token).transfer(address(core), amount);
+    }
+
+    function locked(uint256) external {
+        uint256 length;
+        assembly ("memory-safe") {
+            length := calldatasize()
+        }
+        // saving or loading 1 token
+        if (length == 164) {
+            address saveTo;
+            address token;
+            bytes32 salt;
+            uint128 amount;
+            assembly ("memory-safe") {
+                saveTo := calldataload(36)
+                token := calldataload(68)
+                salt := calldataload(100)
+                amount := calldataload(132)
+            }
+            if (saveTo == address(0)) {
+                core.load(token, salt, amount);
+                core.withdraw(token, address(this), amount);
+            } else {
+                core.save(saveTo, token, salt, amount);
+                (bool success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token, amount));
+                assertTrue(success);
+            }
+        } else if (length == 228) {
+            address saveTo;
+            address token0;
+            address token1;
+            bytes32 salt;
+            uint128 amount0;
+            uint128 amount1;
+            assembly ("memory-safe") {
+                saveTo := calldataload(36)
+                token0 := calldataload(68)
+                token1 := calldataload(100)
+                salt := calldataload(132)
+                amount0 := calldataload(164)
+                amount1 := calldataload(196)
+            }
+            if (saveTo == address(0)) {
+                core.load(token0, token1, salt, amount0, amount1);
+                core.withdraw(token0, address(this), amount0);
+                core.withdraw(token1, address(this), amount1);
+            } else {
+                core.save(saveTo, token0, token1, salt, amount0, amount1);
+                (bool success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token0, amount0));
+                assertTrue(success);
+                (success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token1, amount1));
+                assertTrue(success);
+            }
+        } else {
+            revert();
+        }
+    }
+
+    function test_save_single_token() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(this), address(token0), bytes32(0), 100)
+        );
+        assertTrue(success);
+        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 100);
+
+        (success,) =
+            address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 50));
+        assertTrue(success);
+        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 50);
+    }
+
+    function test_save_two_tokens() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 100, 75
+            )
+        );
+        assertTrue(success);
+        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 0);
+        assertEq(core.savedBalances(address(this), address(token1), bytes32(0)), 0);
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 100);
+        assertEq(s1, 75);
+
+        (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(uint256(1)));
+        assertEq(s0, 0);
+        assertEq(s1, 0);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 51, 60)
+        );
+        assertTrue(success);
+        (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 49);
+        assertEq(s1, 15);
+    }
+
+    function test_save_load_cannot_overflow_token0() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), type(uint128).max, 1
+            )
+        );
+        assertTrue(success);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 1, 0
+            )
+        );
+        assertFalse(success);
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, type(uint128).max);
+        assertEq(s1, 1);
+    }
+
+    function test_save_load_cannot_overflow_token1() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 1, type(uint128).max
+            )
+        );
+        assertTrue(success);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 0, 1
+            )
+        );
+        assertFalse(success);
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 1);
+        assertEq(s1, type(uint128).max);
+    }
+
+    function test_load_must_comes_from_owner() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(
+                core.lock.selector, address(0xdeadbeef), address(token0), address(token1), bytes32(0), 100, 100
+            )
+        );
+        assertTrue(success);
+
+        (uint128 s0, uint128 s1) = core.savedBalances(address(0xdeadbeef), address(token0), address(token1), bytes32(0));
+        assertEq(s0, 100);
+        assertEq(s1, 100);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 1, 1)
+        );
+        assertFalse(success);
+    }
+
+    function test_cannot_load_before_save_token0() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 1, 0)
+        );
+        assertFalse(success);
+    }
+
+    function test_cannot_load_before_save_token1() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 0, 1)
+        );
+        assertFalse(success);
+    }
+
+    function test_cannot_load_before_save() public {
+        (bool success,) =
+            address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 1));
+        assertFalse(success);
+    }
+
+    function test_cannot_save_same_token() public {
+        vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
+        core.save(address(this), address(0), address(0), bytes32(0), 0, 0);
+
+        vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
+        core.save(address(this), address(1), address(0), bytes32(0), 0, 0);
+    }
+
+    function test_cannot_load_same_token() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token0), bytes32(0), 1, 1)
+        );
+        assertFalse(success);
+    }
+
+    function test_can_load_same_token_no_op() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token0), bytes32(0), 0, 0)
+        );
+        assertTrue(success);
+    }
+
+    function test_salt_separates_balances() public {
+        (bool success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0xdeadbeef), address(token0), bytes32(uint256(1)), 1)
+        );
+        assertTrue(success);
+
+        (success,) = address(core).call(
+            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(uint256(2)), 1)
+        );
+        assertFalse(success);
     }
 }

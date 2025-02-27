@@ -7,6 +7,7 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
+import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -79,22 +80,39 @@ library CoreLib {
     function savedBalances(ICore core, address owner, address token, bytes32 salt)
         internal
         view
-        returns (uint256 savedBalance)
+        returns (uint128 savedBalance)
     {
-        bytes32 key;
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(owner))),
+            bytes32(uint256(uint160(token))),
+            bytes32(uint256(type(uint160).max)),
+            salt
+        );
         assembly ("memory-safe") {
-            mstore(0, owner)
+            mstore(0, key)
             mstore(32, 8)
-            key := keccak256(0, 64)
-            mstore(0, token)
-            mstore(32, key)
-            key := keccak256(0, 64)
-            mstore(0, salt)
-            mstore(32, key)
             key := keccak256(0, 64)
         }
 
-        savedBalance = uint256(core.unsafeRead(key));
+        savedBalance = uint128(uint256(core.unsafeRead(key)) >> 128);
+    }
+
+    function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
+        internal
+        view
+        returns (uint128 savedBalance0, uint128 savedBalance1)
+    {
+        bytes32 key = EfficientHashLib.hash(
+            bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
+        );
+        assembly ("memory-safe") {
+            mstore(0, key)
+            mstore(32, 8)
+            key := keccak256(0, 64)
+        }
+
+        savedBalance0 = uint128(uint256(core.unsafeRead(key)) >> 128);
+        savedBalance1 = uint128(uint256(core.unsafeRead(key)));
     }
 
     function poolTicks(ICore core, bytes32 poolId, int32 tick)
@@ -130,5 +148,13 @@ library CoreLib {
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1) {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+    }
+
+    function save(ICore core, address owner, address token, bytes32 salt, uint128 amount) internal {
+        core.save(owner, token, address(type(uint160).max), salt, amount, 0);
+    }
+
+    function load(ICore core, address token, bytes32 salt, uint128 amount) internal {
+        core.load(token, address(type(uint160).max), salt, amount, 0);
     }
 }

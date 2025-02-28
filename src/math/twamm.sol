@@ -23,7 +23,7 @@ function exp(uint128 x) pure returns (uint256) {
 
 // Computes e^x for x < 0x20000000000000000 as a fixed point 128.128 number
 function expInner(uint128 x) pure returns (uint256) {
-    require(x < 0x20000000000000000, "EXP_X_MAGNITUDE");
+    assert(x < 0x20000000000000000);
     unchecked {
         uint256 ratio = 0x100000000000000000000000000000000; // 2**128 in fixed–point 128.128
         if ((x & 0x1) != 0) {

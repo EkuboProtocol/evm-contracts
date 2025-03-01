@@ -2,61 +2,53 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {calculateSaleRate, calculateNextSqrtRatio} from "../../src/math/twamm.sol";
-import {SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {calculateSaleRate, calculateC, calculateAmountFromSaleRate} from "../../src/math/twamm.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 
 contract TwammTest is Test {
     function test_calculateSaleRate_examples() public pure {
         assertEq(calculateSaleRate(1000, 5), (1000 << 32) / 5);
     }
 
-    function test_calculateNextSqrtRatio_examples() public pure {
-        // token0SaleRate and token1SaleRate are always non-zero.
-        // liquidity is zero, price is sqrt_sale_ratio
-        SqrtRatio nextSqrtRatio = calculateNextSqrtRatio({
-            sqrtRatio: SqrtRatio.wrap(0),
-            liquidity: 0,
-            token0SaleRate: 1 << 32,
-            token1SaleRate: 1 << 32,
-            timeElapsed: 1,
-            fee: 0
-        });
-        // sqrtRatio = 1
-        assertEq(nextSqrtRatio.toFixed(), (1 << 128));
+    function test_calculateAmountFromSaleRate_examples() public pure {
+        // 100 per second
+        assertEq(calculateAmountFromSaleRate({saleRate: 100 << 32, duration: 3, roundUp: false}), 300);
+        assertEq(calculateAmountFromSaleRate({saleRate: 100 << 32, duration: 3, roundUp: true}), 300);
 
-        // c is zero since sqrtRatio == sqrt_sale_ratio, price is sqrt_sale_ratio
-        nextSqrtRatio = calculateNextSqrtRatio({
-            sqrtRatio: toSqrtRatio(1 << 128, false),
-            liquidity: (1 << 64),
-            token0SaleRate: (1 << 32),
-            token1SaleRate: (1 << 32),
-            timeElapsed: 1,
-            fee: 0
-        });
-        // sqrtRatio = 1
-        assertEq(nextSqrtRatio.toFixed(), (1 << 128));
+        // 62.5 per second
+        assertEq(calculateAmountFromSaleRate({saleRate: 125 << 31, duration: 3, roundUp: false}), 187);
+        assertEq(calculateAmountFromSaleRate({saleRate: 125 << 31, duration: 3, roundUp: true}), 188);
 
-        nextSqrtRatio = calculateNextSqrtRatio({
-            sqrtRatio: toSqrtRatio(1 << 128, false),
-            liquidity: 10_000 * 1000000000000000000,
-            token0SaleRate: 5000 * (1 << 32),
-            token1SaleRate: 500 * (1 << 32),
-            timeElapsed: 1,
-            fee: 0
-        });
-        // sqrtRatio ~= .99
-        assertEq(nextSqrtRatio.toFixed(), 340282366920938463305873545376503282647);
+        // nearly 0 per second
+        assertEq(calculateAmountFromSaleRate({saleRate: 1, duration: 3, roundUp: false}), 0);
+        assertEq(calculateAmountFromSaleRate({saleRate: 1, duration: 3, roundUp: true}), 1);
 
-        // very low liquidity
-        nextSqrtRatio = calculateNextSqrtRatio({
-            sqrtRatio: toSqrtRatio(1 << 128, false),
-            liquidity: 10,
-            token0SaleRate: 5000 * (1 << 32),
-            token1SaleRate: 500 * (1 << 32),
-            timeElapsed: 1,
-            fee: 0
-        });
-        // sqrtRatio will be sqrt_sale_ratio
-        assertEq(nextSqrtRatio.toFixed(), 107606732706330320687810575726449262521);
+        // nearly 0 per second
+        assertEq(calculateAmountFromSaleRate({saleRate: 1, duration: type(uint32).max, roundUp: false}), 0);
+        assertEq(calculateAmountFromSaleRate({saleRate: 1, duration: type(uint32).max, roundUp: true}), 1);
+
+        // max sale rate max duration
+        assertEq(
+            calculateAmountFromSaleRate({saleRate: type(uint112).max, duration: type(uint32).max, roundUp: false}),
+            5192296857325901808915867154513919
+        );
+        assertEq(
+            calculateAmountFromSaleRate({saleRate: type(uint112).max, duration: type(uint32).max, roundUp: true}),
+            5192296857325901808915867154513920
+        );
+    }
+
+    function test_calculateC_examples() public pure {
+        assertEq(calculateC(1 << 128, 1 << 129), 6148914691236517205);
+        assertEq(calculateC(1 << 128, 1 << 127), -6148914691236517205);
+        assertEq(calculateC(1 << 128, 1 << 128), 0);
+
+        // large difference
+        assertEq(calculateC(MAX_SQRT_RATIO.toFixed(), MIN_SQRT_RATIO.toFixed()), 447090492618910);
+        assertEq(calculateC(MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), -447090492618910);
+
+        // small difference, i.e. large denominator relative to numerator
+        assertEq(calculateC(MAX_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1), 0);
+        assertEq(calculateC(MIN_SQRT_RATIO.toFixed() + 1, MIN_SQRT_RATIO.toFixed()), 0);
     }
 }

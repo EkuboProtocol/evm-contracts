@@ -76,12 +76,14 @@ function calculateNextSqrtRatio(
             uint256 sqrtSaleRate = sqrtSaleRateWithoutFee - computeFee(uint128(sqrtSaleRateWithoutFee), fee);
 
             // (2 * t * sqrtSaleRate) / liquidity == (1 + 32 + 112) - 128 bits, cannot overflow
-            uint256 exponent = ((sqrtSaleRate * uint256(timeElapsed)) << 33) / uint256(liquidity);
-            if (exponent >= 1623313478486440542208) {
-                // if the exponent is larger than this value (~88), the exponent term dominates and the result is approximately the sell ratio
+            // uint256(12392656037) = Math.floor(Math.LOG2E * 2**33).
+            // this combines the doubling, the left shifting and the converting to a base 2 exponent into a single multiplication
+            uint256 exponent = (sqrtSaleRate * uint256(timeElapsed) * uint256(12392656037)) / uint256(liquidity);
+            if (exponent >= 0x400000000000000000) {
+                // if the exponent is larger than this value (64), the exponent term dominates and the result is approximately the sell ratio
                 sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
             } else {
-                int256 ePowExponent = int256(exp(uint128(exponent)) >> 64);
+                int256 ePowExponent = int256(exp(int128(int256(exponent))));
 
                 sqrtRatioNext = toSqrtRatio(
                     FixedPointMathLib.fullMulDiv(

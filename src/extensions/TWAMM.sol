@@ -10,7 +10,10 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
+import {BaseLocker} from "../base/BaseLocker.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {Bitmap} from "../math/bitmap.sol";
+import {findNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 function twammCallPoints() pure returns (CallPoints memory) {
@@ -26,10 +29,11 @@ function twammCallPoints() pure returns (CallPoints memory) {
     });
 }
 
-contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
-    error TickSpacingMustBeMaximum();
-
+contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
+    using {findNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for ICore;
+
+    error TickSpacingMustBeMaximum();
 
     struct OrdersState {
         uint32 lastVirtualOrderExecutionTime;
@@ -38,11 +42,22 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
         uint112 saleRateToken1;
     }
 
+    struct TimeSaleRateChanges {
+        // the number of orders referencing this timestamp
+        uint32 numOrders;
+        // the change of sale rate for token0 at this time
+        int112 saleRateDeltaToken0;
+        // the change of sale rate for token1 at this time
+        int112 saleRateDeltaToken1;
+    }
+
     mapping(bytes32 poolId => OrdersState) private ordersState;
+    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private initializedTimesBitmap;
+    mapping(bytes32 poolId => mapping(uint32 time => TimeSaleRateChanges)) private timeSaleRateDeltas;
 
-    constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
+    constructor(ICore core) BaseLocker(core) BaseExtension(core) BaseForwardee(core) {}
 
-    function getPoolKey(address token0, address token1, uint64 fee) public view returns (PoolKey memory) {
+    function getPoolKey(address token0, address token1, uint64 fee) external view returns (PoolKey memory) {
         return PoolKey({
             token0: token0,
             token1: token1,
@@ -59,7 +74,20 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
         }
     }
 
-    function _executeVirtualOrders() internal {}
+    function _executeVirtualOrders(PoolKey memory poolKey) internal {
+        bytes32 poolId = poolKey.toPoolId();
+        OrdersState memory state = ordersState[poolId];
+
+        uint32 time = state.lastVirtualOrderExecutionTime;
+
+        uint32 currentTime = uint32(block.timestamp);
+
+        while (time != currentTime) {
+            (uint32 nextTime, bool initialized) = initializedTimesBitmap[poolId].findNextInitializedTime(time);
+            // remember* we have to clear the order info slots as advance time!
+            // this saves gas and also
+        }
+    }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return twammCallPoints();
@@ -71,6 +99,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
         returns (bytes memory result)
     {}
 
+    function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {}
+
     function beforeInitializePool(address, PoolKey memory key, int32) external view override onlyCore {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
     }
@@ -79,5 +109,17 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
         bytes32 poolId = key.toPoolId();
         ordersState[poolId] = OrdersState(uint32(block.timestamp), 0, 0);
         _emitVirtualOrdersExecuted(poolId, 0, 0);
+    }
+
+    function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override onlyCore {
+        _executeVirtualOrders(poolKey);
+    }
+
+    function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory)
+        external
+        override
+        onlyCore
+    {
+        _executeVirtualOrders(poolKey);
     }
 }

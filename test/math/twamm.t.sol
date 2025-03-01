@@ -2,7 +2,12 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {calculateSaleRate, calculateC, calculateAmountFromSaleRate} from "../../src/math/twamm.sol";
+import {
+    calculateSaleRate,
+    calculateNextSqrtRatio,
+    calculateC,
+    calculateAmountFromSaleRate
+} from "../../src/math/twamm.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 
 contract TwammTest is Test {
@@ -50,5 +55,44 @@ contract TwammTest is Test {
         // small difference, i.e. large denominator relative to numerator
         assertEq(calculateC(MAX_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1), 0);
         assertEq(calculateC(MIN_SQRT_RATIO.toFixed() + 1, MIN_SQRT_RATIO.toFixed()), 0);
+    }
+
+    function test_gas_cost_calculateNextSqrtRatio() public {
+        vm.startSnapshotGas("calculateNextSqrtRatio");
+        calculateNextSqrtRatio({
+            sqrtRatio: toSqrtRatio(10_000 << 128, false),
+            liquidity: 10_000,
+            token0SaleRate: 458864027,
+            token1SaleRate: 280824784,
+            timeElapsed: 46_800,
+            fee: 0
+        });
+        vm.stopSnapshotGas();
+    }
+
+    function test_calculateNextSqrtRatio_examples() public pure {
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(10_000 << 128, false),
+                liquidity: 10_000,
+                token0SaleRate: 458864027,
+                token1SaleRate: 280824784,
+                timeElapsed: 46_800,
+                fee: 0
+            }).toFixed(),
+            714795237128251225756468394774807707648
+        );
+
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio((uint256(1) << 128) / 10_000, false),
+                liquidity: 1_000_000,
+                token0SaleRate: 707 << 32,
+                token1SaleRate: 179 << 32,
+                timeElapsed: 12,
+                fee: uint64((uint256(30) << 64) / 10_000)
+            }).toFixed(),
+            762756935914759524731213789079273472
+        );
     }
 }

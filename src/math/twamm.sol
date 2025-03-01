@@ -72,40 +72,23 @@ function calculateNextSqrtRatio(
             sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
         } else {
             uint256 sqrtSaleRateWithoutFee = FixedPointMathLib.sqrt(uint256(token0SaleRate) * token1SaleRate);
+            // max 112 bits
             uint256 sqrtSaleRate = sqrtSaleRateWithoutFee - computeFee(uint128(sqrtSaleRateWithoutFee), fee);
-            uint256 resultMul = (sqrtSaleRate * uint256(timeElapsed)) << 33;
 
-            // todo: we can do this rounding more efficiently with assembly
-            uint256 exponent =
-                roundUp ? resultMul / uint256(liquidity) : FixedPointMathLib.divUp(resultMul, uint256(liquidity));
+            // (2 * t * sqrtSaleRate) / liquidity == (1 + 32 + 112) - 128 bits, cannot overflow
+            uint256 exponent = ((sqrtSaleRate * uint256(timeElapsed)) << 33) / uint256(liquidity);
             if (exponent >= 1623313478486440542208) {
-                // if the exponent is larger than this value,
+                // if the exponent is larger than this value (~88), the exponent term dominates and the result is approximately the sell ratio
                 sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
             } else {
-                revert("todo");
-                // We use only the low 128 bits of exponent.
-                // int256 eVal = int256(exp(uint128(exponent)));
-                // int256 term1 = eVal > c ? eVal - c : 0;
-                // int256 term2 = eVal + c;
-                // uint256 scale;
-                // if (c < 0) {
-                //     scale = roundUp
-                //         ? FixedPointMathLib.mulDivUp(term2, X128, term1)
-                //         : FixedPointMathLib.mulDiv(term2, X128, term1);
-                // } else {
-                //     scale = roundUp
-                //         ? FixedPointMathLib.mulDivUp(term1, X128, term2)
-                //         : FixedPointMathLib.mulDiv(term1, X128, term2);
-                // }
-                // sqrtRatioNext = toSqrtRatio(
-                //     roundUp
-                //         ? FixedPointMathLib.mulDivUp(sqrtSaleRatio, scale, X128)
-                //         : FixedPointMathLib.mulDivN(sqrtSaleRatio, scale, 128),
-                //     roundUp
-                // );
-                // assert these cases never happen in the tests
-                // require(sqrtRatioNext < maxSqrtRatio(), "SQRT_RATIO_NEXT_TOO_HIGH");
-                // require(sqrtRatioNext >= minSqrtRatio(), "SQRT_RATIO_NEXT_TOO_LOW");
+                int256 ePowExponent = int256(exp(uint128(exponent)) >> 64);
+
+                sqrtRatioNext = toSqrtRatio(
+                    FixedPointMathLib.fullMulDiv(
+                        sqrtSaleRatio, FixedPointMathLib.abs(ePowExponent - c), FixedPointMathLib.abs(ePowExponent + c)
+                    ),
+                    roundUp
+                );
             }
         }
     }

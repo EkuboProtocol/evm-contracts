@@ -80,7 +80,7 @@ contract TwammTest is Test {
                 timeElapsed: 46_800,
                 fee: 0
             }).toFixed(),
-            714795237128251225756468394774807707648
+            714795237128251225756468394774807707648 // 2.1005944081
         );
 
         assertEq(
@@ -92,7 +92,55 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: uint64((uint256(30) << 64) / 10_000)
             }).toFixed(),
-            762756935914759524731213789079273472
+            762756935914759524731213789079273472 // 0.0022415412
+        );
+
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                token0SaleRate: 100_000 << 32,
+                token1SaleRate: 1 << 32,
+                timeElapsed: 12,
+                fee: 1 << 63
+            }).toFixed(),
+            212677851087912079602037861801072263168 // 0.6250040312
+        );
+
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                token0SaleRate: 100_000 << 32,
+                token1SaleRate: 1 << 32,
+                timeElapsed: 12,
+                fee: 0
+            }).toFixed(),
+            154676064190364586480054438699441586176 // 0.4545520992
+        );
+
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                token0SaleRate: 1 << 32,
+                token1SaleRate: 100_000 << 32,
+                timeElapsed: 12,
+                fee: 1 << 63
+            }).toFixed(),
+            544448275384598536713747415860313587712 // 1.5999896801
+        );
+
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                token0SaleRate: 1 << 32,
+                token1SaleRate: 100_000 << 32,
+                timeElapsed: 12,
+                fee: 0
+            }).toFixed(),
+            748610263930735346947947708916757954560 // 2.1999678405
         );
     }
 }

@@ -16,7 +16,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 function twammCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
-        afterInitializePool: false,
+        afterInitializePool: true,
         beforeUpdatePosition: true,
         afterUpdatePosition: false,
         beforeSwap: true,
@@ -31,14 +31,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
 
     using CoreLib for ICore;
 
-    struct PoolState {
+    struct OrdersState {
         uint32 lastVirtualOrderExecutionTime;
         // 80.32 numbers, meaning the maximum amount of either token sold per second is 1.2089258196E24
         uint112 saleRateToken0;
         uint112 saleRateToken1;
     }
 
-    mapping(bytes32 poolId => PoolState) private poolState;
+    mapping(bytes32 poolId => OrdersState) private ordersState;
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -50,6 +50,17 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
         });
     }
 
+    function _emitVirtualOrdersExecuted(bytes32 poolId, uint112 saleRateToken0, uint112 saleRateToken1) internal {
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(14, saleRateToken0)
+            mstore(28, saleRateToken1)
+            log0(0, 60)
+        }
+    }
+
+    function _executeVirtualOrders() internal {}
+
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return twammCallPoints();
     }
@@ -60,9 +71,13 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee {
         returns (bytes memory result)
     {}
 
-    function beforeInitializePool(address, PoolKey memory key, int32) external override onlyCore {
+    function beforeInitializePool(address, PoolKey memory key, int32) external view override onlyCore {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+    }
 
-        poolState[key.toPoolId()] = PoolState(uint32(block.timestamp), 0, 0);
+    function afterInitializePool(address, PoolKey memory key, int32, SqrtRatio) external override onlyCore {
+        bytes32 poolId = key.toPoolId();
+        ordersState[poolId] = OrdersState(uint32(block.timestamp), 0, 0);
+        _emitVirtualOrdersExecuted(poolId, 0, 0);
     }
 }

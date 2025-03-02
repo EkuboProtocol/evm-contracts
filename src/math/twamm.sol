@@ -45,13 +45,13 @@ function calculateC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int2
 function calculateNextSqrtRatio(
     SqrtRatio sqrtRatio,
     uint128 liquidity,
-    uint112 token0SaleRate,
-    uint112 token1SaleRate,
+    uint112 saleRateToken0,
+    uint112 saleRateToken1,
     uint32 timeElapsed,
     uint64 fee
 ) pure returns (SqrtRatio sqrtRatioNext) {
     unchecked {
-        uint256 saleRatio = (uint256(token1SaleRate) << 128) / token0SaleRate;
+        uint256 saleRatio = (uint256(saleRateToken1) << 128) / saleRateToken0;
         // we compute this value as a 64.128 number
         uint256 sqrtSaleRatio;
         if (saleRatio > type(uint128).max) {
@@ -71,7 +71,7 @@ function calculateNextSqrtRatio(
             // so we just assume it settles at the sale ratio
             sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
         } else {
-            uint256 sqrtSaleRateWithoutFee = FixedPointMathLib.sqrt(uint256(token0SaleRate) * token1SaleRate);
+            uint256 sqrtSaleRateWithoutFee = FixedPointMathLib.sqrt(uint256(saleRateToken0) * saleRateToken1);
             // max 112 bits
             uint256 sqrtSaleRate = sqrtSaleRateWithoutFee - computeFee(uint128(sqrtSaleRateWithoutFee), fee);
 

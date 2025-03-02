@@ -16,7 +16,7 @@ import {
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
-import {TWAMM} from "../../src/extensions/TWAMM.sol";
+import {TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
@@ -33,20 +33,7 @@ abstract contract BaseTWAMMTest is FullTest {
 
     function setUp() public virtual override {
         FullTest.setUp();
-        address deployAddress = address(
-            uint160(
-                CallPoints({
-                    beforeInitializePool: true,
-                    afterInitializePool: false,
-                    beforeUpdatePosition: true,
-                    afterUpdatePosition: false,
-                    beforeSwap: true,
-                    afterSwap: false,
-                    beforeCollectFees: false,
-                    afterCollectFees: false
-                }).toUint8()
-            ) << 152
-        );
+        address deployAddress = address(uint160(twammCallPoints().toUint8()) << 152);
         deployCodeTo("TWAMM.sol", abi.encode(core), deployAddress);
         twamm = TWAMM(deployAddress);
         positionId = positions.mint();

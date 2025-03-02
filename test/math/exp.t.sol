@@ -5,6 +5,24 @@ import {Test} from "forge-std/Test.sol";
 import {exp} from "../../src/math/exp.sol";
 
 contract ExpTest is Test {
+    function test_gas() public {
+        vm.startSnapshotGas("exp(0)");
+        exp(0);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("exp(1)");
+        exp(1 << 64);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("exp(10)");
+        exp(10 << 64);
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("exp(88)");
+        exp(88 << 64);
+        vm.stopSnapshotGas();
+    }
+
     function test_examples() public pure {
         // e^0 = 1
         assertEq(exp(0), 0x100000000000000000000000000000000);

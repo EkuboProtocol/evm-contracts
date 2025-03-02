@@ -174,6 +174,22 @@ contract TimeBitmapTest is Test {
         assertFalse(initialized);
     }
 
+    function test_findNextInitializedTime_wraps_less_than_max() public {
+        TimeBitmap tbm = new TimeBitmap();
+
+        (uint32 nextTime, bool initialized) = tbm.next(type(uint32).max - 16);
+        assertEq(nextTime, type(uint32).max - 15);
+        assertFalse(initialized);
+    }
+
+    function test_findNextInitializedTime_wraps_less_than_max_2() public {
+        TimeBitmap tbm = new TimeBitmap();
+
+        (uint32 nextTime, bool initialized) = tbm.next(type(uint32).max - 15);
+        assertEq(nextTime, 4080);
+        assertFalse(initialized);
+    }
+
     function findTimesInRange(TimeBitmap tbm, uint32 fromTime, uint32 endingTime)
         private
         view

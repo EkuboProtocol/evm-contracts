@@ -47,6 +47,17 @@ function orderId(OrderKey memory orderKey) pure returns (bytes32 id) {
     }
 }
 
+struct UpdateSaleRateParams {
+    bytes32 salt;
+    OrderKey orderKey;
+    int112 saleRateDelta;
+}
+
+struct CollectProceedsParams {
+    bytes32 salt;
+    OrderKey orderKey;
+}
+
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
     using {findNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for ICore;
@@ -61,9 +72,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
     }
 
     struct OrderData {
-        // todo: can we somehow pack this or avoid storing the snapshot?
+        // the current sale rate of the order
         uint112 saleRate;
-        uint256 rewardRateSnapshot;
+        // amount that has already been withdrawn
+        uint128 amountWithdrawn;
     }
 
     struct TimeInfo {
@@ -84,7 +96,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
     mapping(bytes32 poolId => mapping(uint32 time => FeesPerLiquidity)) private rewardRatesBefore;
 
     // Data for the individual orders
-    mapping(bytes32 orderId => OrderData) private orderData;
+    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderData))) private orderData;
 
     constructor(ICore core) BaseLocker(core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -113,10 +125,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
         uint32 currentTime = uint32(block.timestamp);
 
-        while (time != currentTime) {
-            (uint32 nextTime, bool initialized) = initializedTimesBitmap[poolId].findNextInitializedTime(time);
-            // remember* we have to clear the order info slots as advance time!
-            // this saves gas and also
+        if (time != currentTime) {
+            while (time != currentTime) {
+                (uint32 nextTime, bool initialized) = initializedTimesBitmap[poolId].findNextInitializedTime(time);
+                // remember* we have to clear the order info slots as advance time!
+                // this saves gas and also means people can have orders up to max uint32 duration since it will never wrap
+            }
+
+            _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1);
         }
     }
 
@@ -124,13 +140,28 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
         return twammCallPoints();
     }
 
+    ///////////////////////// Callbacks /////////////////////////
+
     function handleForwardData(uint256 id, address originalLocker, bytes memory data)
         internal
         override
         returns (bytes memory result)
-    {}
+    {
+        uint256 callType = abi.decode(data, (uint256));
 
+        if (callType == 0) {
+            (, UpdateSaleRateParams memory params) = abi.decode(data, (uint256, UpdateSaleRateParams));
+        } else if (callType == 1) {
+            (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
+        } else {
+            revert();
+        }
+    }
+
+    // Only happens as part of a swap in execute virtual orders
     function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {}
+
+    ///////////////////////// Extension call points /////////////////////////
 
     function beforeInitializePool(address, PoolKey memory key, int32) external view override onlyCore {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();

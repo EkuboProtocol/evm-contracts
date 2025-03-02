@@ -288,13 +288,15 @@ contract DoubleCountingNoLoadBugTest is Test {
         }
 
         if (nesting == 0) {
-            address(accountant).call(abi.encodeWithSelector(accountant.pay.selector, token, uint256(1)));
+            (bool success,) =
+                address(accountant).call(abi.encodeWithSelector(accountant.pay.selector, token, uint256(1)));
+            require(success);
         } else {
             token.transfer(address(accountant), 100);
         }
     }
 
-    function locked(uint256 id) external {
+    function locked(uint256) external {
         accountant.pay(address(token));
         accountant.withdraw(address(token), address(this), 200);
     }
@@ -304,7 +306,8 @@ contract DoubleCountingNoLoadBugTest is Test {
 
         assertEq(token.balanceOf(address(accountant)), 100);
         vm.expectRevert(IFlashAccountant.PayReentrance.selector);
-        address(accountant).call(abi.encodeWithSelector(IFlashAccountant.lock.selector, bytes32(0)));
+        (bool success,) = address(accountant).call(abi.encodeWithSelector(IFlashAccountant.lock.selector, bytes32(0)));
+        assertFalse(success);
         assertEq(token.balanceOf(address(accountant)), 100);
     }
 }

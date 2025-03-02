@@ -121,64 +121,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
     // Must be called for a pool key that is already initialized
     function _executeVirtualOrders(PoolKey memory poolKey) internal {
-        unchecked {
-            bytes32 poolId = poolKey.toPoolId();
-
-            PoolState memory state = poolState[poolId];
-            uint32 currentTime = uint32(block.timestamp);
-
-            // no-op if already executed in this block
-            if (state.lastVirtualOrderExecutionTime != currentTime) {
-                FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
-
-                while (state.lastVirtualOrderExecutionTime != currentTime) {
-                    (uint32 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
-                        .searchForNextInitializedTime(state.lastVirtualOrderExecutionTime, currentTime);
-
-                    uint32 timeElapsed = nextTime - state.lastVirtualOrderExecutionTime;
-
-                    if (state.saleRateToken0 != 0 && state.saleRateToken1 != 0) {
-                        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
-                        SqrtRatio sqrtRatioNext = calculateNextSqrtRatio({
-                            sqrtRatio: sqrtRatio,
-                            liquidity: liquidity,
-                            saleRateToken0: state.saleRateToken0,
-                            saleRateToken1: state.saleRateToken1,
-                            timeElapsed: timeElapsed,
-                            fee: poolKey.fee()
-                        });
-                    } else if (state.saleRateToken0 != 0 || state.saleRateToken1 != 0) {
-                        if (state.saleRateToken0 != 0) {
-                            // sell token0
-                        } else {
-                            // sell token1
-                        }
-                    }
-
-                    if (initialized) {
-                        poolRewardRatesBefore[poolId][nextTime] = rewardRates;
-
-                        TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
-
-                        // todo: we need to figure out how to handle overflow here
-
-                        state.saleRateToken0 = SafeCastLib.toUint112(
-                            uint256(int256(uint256(state.saleRateToken0)) + timeInfo.saleRateDeltaToken0)
-                        );
-                        state.saleRateToken1 = SafeCastLib.toUint112(
-                            uint256(int256(uint256(state.saleRateToken1)) + timeInfo.saleRateDeltaToken1)
-                        );
-
-                        // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
-                        // this helps reduce the cost of executing virtual orders.
-                        delete poolTimeInfos[poolId][nextTime];
-                        poolInitializedTimesBitmap[poolId].flipTime(nextTime);
-                    }
-                }
-
-                _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1);
-            }
-        }
+        // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
+        lock(abi.encode(poolKey));
     }
 
     // Must be called on a pool that is executed up to the current timestamp
@@ -205,15 +149,99 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
         if (callType == 0) {
             (, UpdateSaleRateParams memory params) = abi.decode(data, (uint256, UpdateSaleRateParams));
+
+            _executeVirtualOrdersFromWithinLock(_orderKeyToPoolKey(params.orderKey));
         } else if (callType == 1) {
             (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
+
+            _executeVirtualOrdersFromWithinLock(_orderKeyToPoolKey(params.orderKey));
         } else {
             revert();
         }
     }
 
+    function _orderKeyToPoolKey(OrderKey memory orderKey) internal returns (PoolKey memory poolKey) {
+        return orderKey.sellToken < orderKey.buyToken
+            ? PoolKey({
+                token0: orderKey.sellToken,
+                token1: orderKey.buyToken,
+                config: toConfig({_fee: orderKey.fee, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
+            })
+            : PoolKey({
+                token0: orderKey.buyToken,
+                token1: orderKey.sellToken,
+                config: toConfig({_fee: orderKey.fee, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
+            });
+    }
+
     // Only happens as part of a swap in execute virtual orders
-    function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {}
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        unchecked {
+            PoolKey memory poolKey = abi.decode(data, (PoolKey));
+
+            _executeVirtualOrdersFromWithinLock(poolKey);
+        }
+    }
+
+    function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey) internal {
+        bytes32 poolId = poolKey.toPoolId();
+
+        PoolState memory state = poolState[poolId];
+        uint32 currentTime = uint32(block.timestamp);
+
+        // no-op if already executed in this block
+        if (state.lastVirtualOrderExecutionTime != currentTime) {
+            FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
+
+            while (state.lastVirtualOrderExecutionTime != currentTime) {
+                (uint32 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(
+                    state.lastVirtualOrderExecutionTime, currentTime
+                );
+
+                uint32 timeElapsed = nextTime - state.lastVirtualOrderExecutionTime;
+
+                if (state.saleRateToken0 != 0 && state.saleRateToken1 != 0) {
+                    (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
+                    SqrtRatio sqrtRatioNext = calculateNextSqrtRatio({
+                        sqrtRatio: sqrtRatio,
+                        liquidity: liquidity,
+                        saleRateToken0: state.saleRateToken0,
+                        saleRateToken1: state.saleRateToken1,
+                        timeElapsed: timeElapsed,
+                        fee: poolKey.fee()
+                    });
+                } else if (state.saleRateToken0 != 0 || state.saleRateToken1 != 0) {
+                    if (state.saleRateToken0 != 0) {
+                        // sell token0
+                    } else {
+                        // sell token1
+                    }
+                }
+
+                if (initialized) {
+                    poolRewardRatesBefore[poolId][nextTime] = rewardRates;
+
+                    TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
+
+                    // todo: we need to figure out how to handle overflow here
+
+                    state.saleRateToken0 = SafeCastLib.toUint112(
+                        uint256(int256(uint256(state.saleRateToken0)) + timeInfo.saleRateDeltaToken0)
+                    );
+                    state.saleRateToken1 = SafeCastLib.toUint112(
+                        uint256(int256(uint256(state.saleRateToken1)) + timeInfo.saleRateDeltaToken1)
+                    );
+
+                    // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
+                    // this helps reduce the cost of executing virtual orders.
+                    delete poolTimeInfos[poolId][nextTime];
+                    poolInitializedTimesBitmap[poolId].flipTime(nextTime);
+                }
+            }
+
+            _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1);
+        }
+    }
 
     ///////////////////////// Extension call points /////////////////////////
 

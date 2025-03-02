@@ -8,7 +8,8 @@ import {
     timeToBitmapWordAndIndex,
     bitmapWordAndIndexToTime,
     flipTime,
-    findNextInitializedTime
+    findNextInitializedTime,
+    searchForNextInitializedTime
 } from "../../src/math/timeBitmap.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
@@ -27,6 +28,10 @@ contract TimeBitmap {
 
     function next(uint32 fromTime) public view returns (uint32, bool) {
         return findNextInitializedTime(map, fromTime);
+    }
+
+    function search(uint32 fromTime, uint32 untilTime) public view returns (uint32, bool) {
+        return searchForNextInitializedTime(map, fromTime, untilTime);
     }
 }
 
@@ -199,10 +204,8 @@ contract TimeBitmapTest is Test {
         finds = new uint32[](100);
         uint256 count = 0;
 
-        while (true) {
-            if (fromTime > endingTime) break;
-
-            (uint32 n, bool i) = tbm.next(fromTime);
+        while (fromTime != endingTime) {
+            (uint32 n, bool i) = tbm.search(fromTime, endingTime);
 
             if (i) {
                 finds[count++] = n;
@@ -214,6 +217,62 @@ contract TimeBitmapTest is Test {
         assembly ("memory-safe") {
             mstore(finds, count)
         }
+    }
+
+    function test_searchForNextInitializedTime() public {
+        TimeBitmap tbm = new TimeBitmap();
+
+        tbm.flip(16);
+        tbm.flip(96);
+        tbm.flip(800);
+        tbm.flip(992);
+        tbm.flip(8_992);
+        tbm.flip(10_000);
+        tbm.flip(type(uint32).max - 15);
+
+        (uint32 time, bool initialized) = tbm.search(0, 32);
+        assertEq(time, 16);
+        assertTrue(initialized);
+
+        (time, initialized) = tbm.search(96, 100);
+        assertEq(time, 100);
+        assertFalse(initialized);
+
+        (time, initialized) = tbm.search(96, 500);
+        assertEq(time, 500);
+        assertFalse(initialized);
+
+        (time, initialized) = tbm.search(150, 500);
+        assertEq(time, 500);
+        assertFalse(initialized);
+
+        (time, initialized) = tbm.search(150, 1000);
+        assertEq(time, 800);
+        assertTrue(initialized);
+
+        (time, initialized) = tbm.search(800, 1000);
+        assertEq(time, 992);
+        assertTrue(initialized);
+
+        (time, initialized) = tbm.search(1500, 8991);
+        assertEq(time, 8_991);
+        assertFalse(initialized);
+
+        (time, initialized) = tbm.search(1500, 25000);
+        assertEq(time, 8_992);
+        assertTrue(initialized);
+
+        (time, initialized) = tbm.search(type(uint32).max - 32, 32);
+        assertEq(time, type(uint32).max - 15);
+        assertTrue(initialized);
+
+        (time, initialized) = tbm.search(type(uint32).max - 15, 32);
+        assertEq(time, 16);
+        assertTrue(initialized);
+
+        (time, initialized) = tbm.search(type(uint32).max - 15, 14);
+        assertEq(time, 14);
+        assertFalse(initialized);
     }
 
     function test_timesAreFoundInRange() public {

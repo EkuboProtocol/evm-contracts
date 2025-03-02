@@ -41,3 +41,24 @@ function findNextInitializedTime(mapping(uint256 word => Bitmap bitmap) storage 
         return (bitmapWordAndIndexToTime(word, FixedPointMathLib.min(255, nextIndex)), nextIndex != 256);
     }
 }
+
+// Iteratively call findNextInitializedTime until we find an initialized time
+function searchForNextInitializedTime(
+    mapping(uint256 word => Bitmap bitmap) storage map,
+    uint32 fromTime,
+    uint32 untilTime
+) view returns (uint32 nextTime, bool isInitialized) {
+    unchecked {
+        while (true) {
+            (nextTime, isInitialized) = findNextInitializedTime(map, fromTime);
+            // Check using modular arithmetic: if the found time is beyond untilTime, stop.
+            if (nextTime - fromTime > untilTime - fromTime) {
+                return (untilTime, false);
+            }
+            if (isInitialized) {
+                return (nextTime, true);
+            }
+            fromTime = nextTime;
+        }
+    }
+}

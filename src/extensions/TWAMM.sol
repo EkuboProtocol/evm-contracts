@@ -13,7 +13,7 @@ import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {BaseLocker} from "../base/BaseLocker.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../math/bitmap.sol";
-import {findNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
+import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 
@@ -59,7 +59,7 @@ struct CollectProceedsParams {
 }
 
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
-    using {findNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
+    using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for ICore;
 
     error TickSpacingMustBeMaximum();
@@ -127,7 +127,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
         if (time != currentTime) {
             while (time != currentTime) {
-                (uint32 nextTime, bool initialized) = initializedTimesBitmap[poolId].findNextInitializedTime(time);
+                (uint32 nextTime, bool initialized) =
+                    initializedTimesBitmap[poolId].searchForNextInitializedTime(time, currentTime);
                 // remember* we have to clear the order info slots as advance time!
                 // this saves gas and also means people can have orders up to max uint32 duration since it will never wrap
             }

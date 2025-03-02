@@ -32,7 +32,7 @@ function twammCallPoints() pure returns (CallPoints memory) {
     });
 }
 
-using {orderId} for OrderKey global;
+using {toOrderId} for OrderKey global;
 
 struct OrderKey {
     address sellToken;
@@ -43,7 +43,7 @@ struct OrderKey {
     uint256 endTime;
 }
 
-function orderId(OrderKey memory orderKey) pure returns (bytes32 id) {
+function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
     assembly ("memory-safe") {
         id := keccak256(orderKey, 160)
     }

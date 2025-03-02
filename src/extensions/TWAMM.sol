@@ -75,7 +75,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
         // the current sale rate of the order
         uint112 saleRate;
         // amount that has already been withdrawn
-        uint128 amountWithdrawn;
+        uint256 rewardRateSnapshot;
     }
 
     struct TimeInfo {

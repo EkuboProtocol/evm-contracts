@@ -68,16 +68,14 @@ contract TimeBitmapHandler is StdUtils, StdAssertions {
                 }
 
                 // check the next from this time is the time after it
-                if (i != initializedTimes.length - 1) {
-                    uint32 nextTime = uint32(initializedTimes[i + 1] - 1);
+                uint32 nextTime = uint32(initializedTimes[(i + 1) % initializedTimes.length] - 1);
 
-                    (uint32 nextFound, bool nextFoundInitialized) = tbm.next(time);
-                    if (nextFoundInitialized) {
-                        assertEq(nextFound, nextTime);
-                    } else {
-                        assertLt(nextFound, nextTime);
-                    }
+                (uint32 nextFound, bool nextFoundInitialized) = tbm.next(time);
+                if (nextFoundInitialized) {
+                    assertEq(nextFound, nextTime);
                 }
+
+                assertLe(nextFound - time, 4096);
             }
         }
     }

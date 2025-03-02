@@ -15,6 +15,7 @@ import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} 
 import {Bitmap} from "../math/bitmap.sol";
 import {findNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 
 function twammCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -27,6 +28,23 @@ function twammCallPoints() pure returns (CallPoints memory) {
         beforeCollectFees: false,
         afterCollectFees: false
     });
+}
+
+using {orderId} for OrderKey global;
+
+struct OrderKey {
+    address sellToken;
+    address buyToken;
+    // todo: these could take up as few as 32+64+64=160 bits
+    uint64 fee;
+    uint256 startTime;
+    uint256 endTime;
+}
+
+function orderId(OrderKey memory orderKey) pure returns (bytes32 id) {
+    assembly ("memory-safe") {
+        id := keccak256(orderKey, 160)
+    }
 }
 
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
@@ -42,8 +60,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
         uint112 saleRateToken1;
     }
 
-    struct TimeSaleRateChanges {
-        // the number of orders referencing this timestamp
+    struct OrderData {
+        // todo: can we somehow pack this or avoid storing the snapshot?
+        uint112 saleRate;
+        uint256 rewardRateSnapshot;
+    }
+
+    struct TimeInfo {
+        // the number of orders referencing this timestamp. If non-zero, then the time is initialized.
         uint32 numOrders;
         // the change of sale rate for token0 at this time
         int112 saleRateDeltaToken0;
@@ -53,7 +77,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
     mapping(bytes32 poolId => OrdersState) private ordersState;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private initializedTimesBitmap;
-    mapping(bytes32 poolId => mapping(uint32 time => TimeSaleRateChanges)) private timeSaleRateDeltas;
+    mapping(bytes32 poolId => mapping(uint32 time => TimeInfo)) private timeInfos;
+
+    // The global reward rate and the reward rate before a given time are both used to
+    mapping(bytes32 poolId => FeesPerLiquidity) private rewardRates;
+    mapping(bytes32 poolId => mapping(uint32 time => FeesPerLiquidity)) private rewardRatesBefore;
+
+    // Data for the individual orders
+    mapping(bytes32 orderId => OrderData) private orderData;
 
     constructor(ICore core) BaseLocker(core) BaseExtension(core) BaseForwardee(core) {}
 

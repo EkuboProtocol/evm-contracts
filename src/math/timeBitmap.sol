@@ -38,12 +38,6 @@ function findNextInitializedTime(mapping(uint256 word => Bitmap bitmap) storage 
         // find the index of the previous tick in that word
         uint256 nextIndex = map[word].geSetBit(uint8(index));
 
-        // if we found one, return it
-        if (nextIndex != 256) {
-            (nextTime, isInitialized) = (bitmapWordAndIndexToTime(word, nextIndex), true);
-        } else {
-            // otherwise, return the time of the most significant bit in the word
-            nextTime = bitmapWordAndIndexToTime(word, 255);
-        }
+        return (bitmapWordAndIndexToTime(word, FixedPointMathLib.min(255, nextIndex)), nextIndex != 256);
     }
 }

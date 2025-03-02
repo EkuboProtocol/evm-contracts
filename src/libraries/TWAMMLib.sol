@@ -8,7 +8,7 @@ import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 library TWAMMLib {
     using ExposedStorageLib for *;
 
-    function ordersState(TWAMM twamm, bytes32 poolId)
+    function poolState(TWAMM twamm, bytes32 poolId)
         internal
         view
         returns (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1)

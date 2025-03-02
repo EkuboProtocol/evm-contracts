@@ -62,8 +62,8 @@ contract TwammTest is Test {
         calculateNextSqrtRatio({
             sqrtRatio: toSqrtRatio(10_000 << 128, false),
             liquidity: 10_000,
-            token0SaleRate: 458864027,
-            token1SaleRate: 280824784,
+            saleRateToken0: 458864027,
+            saleRateToken1: 280824784,
             timeElapsed: 46_800,
             fee: 0
         });
@@ -75,8 +75,8 @@ contract TwammTest is Test {
             calculateNextSqrtRatio({
                 sqrtRatio: toSqrtRatio(10_000 << 128, false),
                 liquidity: 10_000,
-                token0SaleRate: 458864027,
-                token1SaleRate: 280824784,
+                saleRateToken0: 458864027,
+                saleRateToken1: 280824784,
                 timeElapsed: 46_800,
                 fee: 0
             }).toFixed(),
@@ -87,8 +87,8 @@ contract TwammTest is Test {
             calculateNextSqrtRatio({
                 sqrtRatio: toSqrtRatio((uint256(1) << 128) / 10_000, false),
                 liquidity: 1_000_000,
-                token0SaleRate: 707 << 32,
-                token1SaleRate: 179 << 32,
+                saleRateToken0: 707 << 32,
+                saleRateToken1: 179 << 32,
                 timeElapsed: 12,
                 fee: uint64((uint256(30) << 64) / 10_000)
             }).toFixed(),
@@ -99,8 +99,8 @@ contract TwammTest is Test {
             calculateNextSqrtRatio({
                 sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
                 liquidity: 1_000_000,
-                token0SaleRate: 100_000 << 32,
-                token1SaleRate: 1 << 32,
+                saleRateToken0: 100_000 << 32,
+                saleRateToken1: 1 << 32,
                 timeElapsed: 12,
                 fee: 1 << 63
             }).toFixed(),
@@ -111,8 +111,8 @@ contract TwammTest is Test {
             calculateNextSqrtRatio({
                 sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
                 liquidity: 1_000_000,
-                token0SaleRate: 100_000 << 32,
-                token1SaleRate: 1 << 32,
+                saleRateToken0: 100_000 << 32,
+                saleRateToken1: 1 << 32,
                 timeElapsed: 12,
                 fee: 0
             }).toFixed(),
@@ -123,8 +123,8 @@ contract TwammTest is Test {
             calculateNextSqrtRatio({
                 sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
                 liquidity: 1_000_000,
-                token0SaleRate: 1 << 32,
-                token1SaleRate: 100_000 << 32,
+                saleRateToken0: 1 << 32,
+                saleRateToken1: 100_000 << 32,
                 timeElapsed: 12,
                 fee: 1 << 63
             }).toFixed(),
@@ -135,8 +135,8 @@ contract TwammTest is Test {
             calculateNextSqrtRatio({
                 sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
                 liquidity: 1_000_000,
-                token0SaleRate: 1 << 32,
-                token1SaleRate: 100_000 << 32,
+                saleRateToken0: 1 << 32,
+                saleRateToken1: 100_000 << 32,
                 timeElapsed: 12,
                 fee: 0
             }).toFixed(),

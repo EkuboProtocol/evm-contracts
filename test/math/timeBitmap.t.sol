@@ -111,6 +111,9 @@ contract TimeBitmapTest is Test {
         TimeBitmap tbm = new TimeBitmap();
         tbm.flip(0);
         vm.snapshotGasLastCall("flip(0)");
+
+        tbm.flip(16);
+        vm.snapshotGasLastCall("flip(16) in same map");
     }
 
     function test_gas_next() public {

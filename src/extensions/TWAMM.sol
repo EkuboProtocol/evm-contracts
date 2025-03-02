@@ -15,11 +15,13 @@ import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} 
 import {Bitmap} from "../math/bitmap.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
+import {calculateNextSqrtRatio} from "../math/twamm.sol";
 
 function twammCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
-        beforeInitializePool: true,
+        beforeInitializePool: false,
         afterInitializePool: true,
         beforeUpdatePosition: true,
         afterUpdatePosition: false,
@@ -64,17 +66,17 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
     error TickSpacingMustBeMaximum();
 
-    struct OrdersState {
+    struct PoolState {
         uint32 lastVirtualOrderExecutionTime;
         // 80.32 numbers, meaning the maximum amount of either token sold per second is 1.2089258196E24
         uint112 saleRateToken0;
         uint112 saleRateToken1;
     }
 
-    struct OrderData {
+    struct OrderState {
         // the current sale rate of the order
         uint112 saleRate;
-        // amount that has already been withdrawn
+        // reward rate for the order range at the last time it was touched
         uint256 rewardRateSnapshot;
     }
 
@@ -87,16 +89,16 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
         int112 saleRateDeltaToken1;
     }
 
-    mapping(bytes32 poolId => OrdersState) private ordersState;
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private initializedTimesBitmap;
-    mapping(bytes32 poolId => mapping(uint32 time => TimeInfo)) private timeInfos;
+    mapping(bytes32 poolId => PoolState) private poolState;
+    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTimesBitmap;
+    mapping(bytes32 poolId => mapping(uint32 time => TimeInfo)) private poolTimeInfos;
 
     // The global reward rate and the reward rate before a given time are both used to
-    mapping(bytes32 poolId => FeesPerLiquidity) private rewardRates;
-    mapping(bytes32 poolId => mapping(uint32 time => FeesPerLiquidity)) private rewardRatesBefore;
+    mapping(bytes32 poolId => FeesPerLiquidity) private poolRewardRates;
+    mapping(bytes32 poolId => mapping(uint32 time => FeesPerLiquidity)) private poolRewardRatesBefore;
 
-    // Data for the individual orders
-    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderData))) private orderData;
+    // Current state of each individual order
+    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) private orderState;
 
     constructor(ICore core) BaseLocker(core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -117,24 +119,75 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    // Must be called for a pool key that is already initialized
     function _executeVirtualOrders(PoolKey memory poolKey) internal {
-        bytes32 poolId = poolKey.toPoolId();
-        OrdersState memory state = ordersState[poolId];
+        unchecked {
+            bytes32 poolId = poolKey.toPoolId();
 
-        uint32 time = state.lastVirtualOrderExecutionTime;
+            PoolState memory state = poolState[poolId];
+            uint32 currentTime = uint32(block.timestamp);
 
-        uint32 currentTime = uint32(block.timestamp);
+            // no-op if already executed in this block
+            if (state.lastVirtualOrderExecutionTime != currentTime) {
+                FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
-        if (time != currentTime) {
-            while (time != currentTime) {
-                (uint32 nextTime, bool initialized) =
-                    initializedTimesBitmap[poolId].searchForNextInitializedTime(time, currentTime);
-                // remember* we have to clear the order info slots as advance time!
-                // this saves gas and also means people can have orders up to max uint32 duration since it will never wrap
+                while (state.lastVirtualOrderExecutionTime != currentTime) {
+                    (uint32 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
+                        .searchForNextInitializedTime(state.lastVirtualOrderExecutionTime, currentTime);
+
+                    uint32 timeElapsed = nextTime - state.lastVirtualOrderExecutionTime;
+
+                    if (state.saleRateToken0 != 0 && state.saleRateToken1 != 0) {
+                        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
+                        SqrtRatio sqrtRatioNext = calculateNextSqrtRatio({
+                            sqrtRatio: sqrtRatio,
+                            liquidity: liquidity,
+                            saleRateToken0: state.saleRateToken0,
+                            saleRateToken1: state.saleRateToken1,
+                            timeElapsed: timeElapsed,
+                            fee: poolKey.fee()
+                        });
+                    } else if (state.saleRateToken0 != 0 || state.saleRateToken1 != 0) {
+                        if (state.saleRateToken0 != 0) {
+                            // sell token0
+                        } else {
+                            // sell token1
+                        }
+                    }
+
+                    if (initialized) {
+                        poolRewardRatesBefore[poolId][nextTime] = rewardRates;
+
+                        TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
+
+                        // todo: we need to figure out how to handle overflow here
+
+                        state.saleRateToken0 = SafeCastLib.toUint112(
+                            uint256(int256(uint256(state.saleRateToken0)) + timeInfo.saleRateDeltaToken0)
+                        );
+                        state.saleRateToken1 = SafeCastLib.toUint112(
+                            uint256(int256(uint256(state.saleRateToken1)) + timeInfo.saleRateDeltaToken1)
+                        );
+
+                        // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
+                        // this helps reduce the cost of executing virtual orders.
+                        delete poolTimeInfos[poolId][nextTime];
+                        poolInitializedTimesBitmap[poolId].flipTime(nextTime);
+                    }
+                }
+
+                _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1);
             }
-
-            _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1);
         }
+    }
+
+    // Must be called on a pool that is executed up to the current timestamp
+    function _getOrderInfo(address owner, bytes32 salt, OrderKey memory orderKey)
+        internal
+        view
+        returns (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount)
+    {
+        // todo: implement
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -164,13 +217,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
     ///////////////////////// Extension call points /////////////////////////
 
-    function beforeInitializePool(address, PoolKey memory key, int32) external view override onlyCore {
-        if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
-    }
-
     function afterInitializePool(address, PoolKey memory key, int32, SqrtRatio) external override onlyCore {
+        if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+
         bytes32 poolId = key.toPoolId();
-        ordersState[poolId] = OrdersState(uint32(block.timestamp), 0, 0);
+        poolState[poolId] = PoolState(uint32(block.timestamp), 0, 0);
         _emitVirtualOrdersExecuted(poolId, 0, 0);
     }
 

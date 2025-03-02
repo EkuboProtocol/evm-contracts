@@ -54,7 +54,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_createPool() public {
         PoolKey memory key = createTwammPool(100, 0);
-        (uint32 lvoe, uint112 srt0, uint112 srt1) = twamm.ordersState(key.toPoolId());
+        (uint32 lvoe, uint112 srt0, uint112 srt1) = twamm.poolState(key.toPoolId());
         assertEq(lvoe, 1);
         assertEq(srt0, 0);
         assertEq(srt1, 0);

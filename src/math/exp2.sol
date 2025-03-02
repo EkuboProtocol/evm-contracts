@@ -3,13 +3,7 @@ pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/**
- * Calculate binary exponent of x.  Revert on overflow.
- *
- * @param x signed 64.64-bit fixed point number
- * @return signed 64.64-bit fixed point number
- */
-function exp(int128 x) pure returns (int128) {
+function exp2(int128 x) pure returns (uint128) {
     unchecked {
         require(x < 0x400000000000000000); // Overflow
 
@@ -211,8 +205,8 @@ function exp(int128 x) pure returns (int128) {
         }
 
         result >>= uint256(int256(63 - (x >> 64)));
-        require(result <= uint256(int256(0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)));
+        require(result <= type(uint128).max);
 
-        return int128(int256(result));
+        return uint128(result);
     }
 }

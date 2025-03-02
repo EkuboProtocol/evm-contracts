@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 import {computeFee} from "./fee.sol";
-import {exp} from "./exp.sol";
+import {exp2} from "./exp2.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 error SaleRateOverflow();
@@ -83,7 +83,7 @@ function calculateNextSqrtRatio(
                 // if the exponent is larger than this value (64), the exponent term dominates and the result is approximately the sell ratio
                 sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
             } else {
-                int256 ePowExponent = int256(exp(int128(int256(exponent))));
+                int256 ePowExponent = int256(uint256(exp2(int128(int256(exponent)))));
 
                 sqrtRatioNext = toSqrtRatio(
                     FixedPointMathLib.fullMulDiv(

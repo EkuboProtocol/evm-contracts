@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {LibBit} from "solady/utils/LibBit.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {console} from "forge-std/console.sol";
 
 function isTimeValid(uint256 currentTime, uint256 time) pure returns (bool) {
     unchecked {

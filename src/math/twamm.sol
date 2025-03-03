@@ -20,19 +20,15 @@ function computeSaleRate(uint128 amount, uint32 duration) pure returns (uint112)
 
 // Computes amount from sale rate: (saleRate * duration) >> 32, with optional rounding.
 // Cannot overflow since max sale rate times max result fits in 112 bits
-function computeAmountFromSaleRate(uint112 saleRate, uint32 duration, bool roundUp) pure returns (uint256 amount) {
+function computeAmountFromSaleRate(uint112 saleRate, uint32 duration, bool roundUp) pure returns (uint128 amount) {
     assembly ("memory-safe") {
         amount := shr(32, add(mul(saleRate, duration), mul(0xffffffff, roundUp)))
     }
 }
 
-error RewardAmountOverflow();
-
 // Computes reward amount = (rewardRate * saleRate) >> 128.
 function computeRewardAmount(uint256 rewardRate, uint112 saleRate) pure returns (uint128) {
-    uint256 reward = FixedPointMathLib.fullMulDivN(rewardRate, saleRate, 128);
-    if (reward > type(uint128).max) revert RewardAmountOverflow();
-    return uint128(reward);
+    return uint128(FixedPointMathLib.fullMulDivN(rewardRate, saleRate, 128));
 }
 
 // Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.64 number

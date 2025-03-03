@@ -11,6 +11,10 @@ function isTimeValid(uint256 currentTime, uint256 time) pure returns (bool) {
         if (time <= currentTime) {
             stepSize = 16;
         } else {
+            // cannot be too far in the future
+            if (time - currentTime > type(uint32).max) {
+                return false;
+            }
             stepSize = uint256(1) << FixedPointMathLib.max(4, (((LibBit.fls(time - currentTime)) / 4) * 4));
         }
 

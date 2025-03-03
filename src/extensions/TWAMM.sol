@@ -5,6 +5,7 @@ import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, toConfig} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../types/positionKey.sol";
+import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -17,7 +18,8 @@ import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
-import {computeNextSqrtRatio} from "../math/twamm.sol";
+import {computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount} from "../math/twamm.sol";
+import {isTimeValid} from "../math/time.sol";
 
 function twammCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -60,11 +62,13 @@ struct CollectProceedsParams {
     OrderKey orderKey;
 }
 
-contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
+contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for ICore;
 
     error TickSpacingMustBeMaximum();
+    error OrderAlreadyEnded();
+    error InvalidTimestamps();
 
     struct PoolState {
         uint32 lastVirtualOrderExecutionTime;
@@ -91,16 +95,16 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
     mapping(bytes32 poolId => PoolState) private poolState;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTimesBitmap;
-    mapping(bytes32 poolId => mapping(uint32 time => TimeInfo)) private poolTimeInfos;
+    mapping(bytes32 poolId => mapping(uint256 time => TimeInfo)) private poolTimeInfos;
 
     // The global reward rate and the reward rate before a given time are both used to
     mapping(bytes32 poolId => FeesPerLiquidity) private poolRewardRates;
-    mapping(bytes32 poolId => mapping(uint32 time => FeesPerLiquidity)) private poolRewardRatesBefore;
+    mapping(bytes32 poolId => mapping(uint256 time => FeesPerLiquidity)) private poolRewardRatesBefore;
 
     // Current state of each individual order
     mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) private orderState;
 
-    constructor(ICore core) BaseLocker(core) BaseExtension(core) BaseForwardee(core) {}
+    constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
     function getPoolKey(address token0, address token1, uint64 fee) external view returns (PoolKey memory) {
         return PoolKey({
@@ -122,16 +126,106 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
     // Must be called for a pool key that is already initialized
     function _executeVirtualOrders(PoolKey memory poolKey) internal {
         // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
-        lock(abi.encode(poolKey));
+        // so we call lock on the core contract with the pool key after it
+        address target = address(core);
+        assembly ("memory-safe") {
+            let o := mload(0x40)
+            mstore(o, shl(224, 0xf83d08ba))
+            mcopy(add(o, 4), poolKey, 96)
+
+            // If the call failed, pass through the revert
+            if iszero(call(gas(), target, 0, o, 100, 0, 0)) {
+                returndatacopy(o, 0, returndatasize())
+                revert(o, returndatasize())
+            }
+        }
     }
 
     // Must be called on a pool that is executed up to the current timestamp
     function _getOrderInfo(address owner, bytes32 salt, OrderKey memory orderKey)
         internal
         view
-        returns (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount)
+        returns (uint112 saleRate, uint256 rewardRateInside, uint128 remainingSellAmount, uint128 purchasedAmount)
     {
-        // todo: implement
+        OrderState memory order = orderState[owner][salt][orderKey.toOrderId()];
+
+        unchecked {
+            saleRate = order.saleRate;
+            rewardRateInside = _getRewardRateInside(
+                _orderKeyToPoolKey(orderKey).toPoolId(),
+                orderKey.startTime,
+                orderKey.endTime,
+                orderKey.sellToken > orderKey.buyToken
+            );
+            remainingSellAmount = computeAmountFromSaleRate(
+                order.saleRate,
+                uint32(
+                    FixedPointMathLib.max(orderKey.endTime, block.timestamp)
+                        - FixedPointMathLib.max(orderKey.startTime, block.timestamp)
+                ),
+                false
+            );
+
+            purchasedAmount = computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, saleRate);
+        }
+    }
+
+    function _getRewardRateInside(bytes32 poolId, uint256 startTime, uint256 endTime, bool isToken1)
+        internal
+        view
+        returns (uint256 result)
+    {
+        assembly ("memory-safe") {
+            switch gt(timestamp(), endTime)
+            case 1 {
+                mstore(0, poolId)
+                mstore(32, 4)
+                // hash poolId,4 and store at 32
+                mstore(32, keccak256(0, 64))
+
+                // now put start time at 0 for hashing
+                mstore(0, startTime)
+
+                let rewardRateStart := sload(add(keccak256(0, 64), isToken1))
+
+                mstore(0, endTime)
+                let rewardRateEnd := sload(add(keccak256(0, 64), isToken1))
+
+                result := sub(rewardRateEnd, rewardRateStart)
+            }
+            default {
+                switch gt(timestamp(), startTime)
+                case 1 {
+                    mstore(0, poolId)
+                    mstore(32, 3)
+                    let rewardRateCurrent := sload(add(keccak256(0, 64), isToken1))
+
+                    mstore(32, 4)
+                    // hash poolId,4 and store at 32
+                    mstore(32, keccak256(0, 64))
+                    // now put time at 0 for hashing
+                    mstore(0, startTime)
+
+                    result := sub(rewardRateCurrent, sload(add(keccak256(0, 64), isToken1)))
+                }
+                default {
+                    // less than or equal to start time
+                    // returns 0
+                }
+            }
+        }
+    }
+
+    function locked(uint256) external override onlyCore {
+        PoolKey memory poolKey;
+        assembly ("memory-safe") {
+            poolKey := mload(0x40)
+            // copy the poolkey out of calldata at the free memory pointer
+            calldatacopy(poolKey, 36, 96)
+            // points the free memory pointer at pointer + 96
+            mstore(poolKey, add(poolKey, 96))
+        }
+        _executeVirtualOrdersFromWithinLock(poolKey);
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -150,7 +244,20 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
         if (callType == 0) {
             (, UpdateSaleRateParams memory params) = abi.decode(data, (uint256, UpdateSaleRateParams));
 
-            _executeVirtualOrdersFromWithinLock(_orderKeyToPoolKey(params.orderKey));
+            if (params.orderKey.endTime >= block.timestamp) revert OrderAlreadyEnded();
+
+            if (
+                !isTimeValid(params.orderKey.startTime, block.timestamp)
+                    || !isTimeValid(params.orderKey.endTime, block.timestamp)
+            ) {
+                revert InvalidTimestamps();
+            }
+
+            PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
+            _executeVirtualOrdersFromWithinLock(poolKey);
+
+            (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount, uint128 rewardAmount) =
+                _getOrderInfo(originalLocker, params.salt, params.orderKey);
         } else if (callType == 1) {
             (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
 
@@ -172,15 +279,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
                 token1: orderKey.sellToken,
                 config: toConfig({_fee: orderKey.fee, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
             });
-    }
-
-    // Only happens as part of a swap in execute virtual orders
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        unchecked {
-            PoolKey memory poolKey = abi.decode(data, (PoolKey));
-
-            _executeVirtualOrdersFromWithinLock(poolKey);
-        }
     }
 
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey) internal {

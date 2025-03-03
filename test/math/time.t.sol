@@ -52,4 +52,8 @@ contract TimeTest is Test {
         assertFalse(isTimeValid(256, 4352));
         assertTrue(isTimeValid(257, 4352));
     }
+
+    function test_isTimeValid_too_far_in_future() public pure {
+        assertFalse(isTimeValid(0, type(uint32).max + 1));
+    }
 }

@@ -44,36 +44,48 @@ contract QuoteDataFetcher is UsesCore {
                 bytes32 poolId = poolKeys[i].toPoolId();
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
 
-                int256 minTick;
-                int256 maxTick;
-                TickDelta[] memory ticks;
-                if (poolKeys[i].tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
-                    int256 rangeSize =
-                        int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].tickSpacing())) * 256;
-                    minTick = int256(tick) - rangeSize;
-                    maxTick = int256(tick) + rangeSize;
+                if (!sqrtRatio.isZero()) {
+                    int256 minTick;
+                    int256 maxTick;
+                    TickDelta[] memory ticks;
+                    if (poolKeys[i].tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
+                        int256 rangeSize =
+                            int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].tickSpacing())) * 256;
+                        minTick = int256(tick) - rangeSize;
+                        maxTick = int256(tick) + rangeSize;
 
-                    if (minTick < MIN_TICK) {
+                        if (minTick < MIN_TICK) {
+                            minTick = MIN_TICK;
+                        }
+                        if (maxTick > MAX_TICK) {
+                            maxTick = MAX_TICK;
+                        }
+                        ticks = _getInitializedTicksInRange(
+                            poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing()
+                        );
+                    } else {
                         minTick = MIN_TICK;
-                    }
-                    if (maxTick > MAX_TICK) {
                         maxTick = MAX_TICK;
                     }
-                    ticks =
-                        _getInitializedTicksInRange(poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing());
-                } else {
-                    minTick = MIN_TICK;
-                    maxTick = MAX_TICK;
-                }
 
-                results[i] = QuoteData({
-                    tick: tick,
-                    sqrtRatio: sqrtRatio,
-                    liquidity: liquidity,
-                    minTick: int32(minTick),
-                    maxTick: int32(maxTick),
-                    ticks: ticks
-                });
+                    results[i] = QuoteData({
+                        tick: tick,
+                        sqrtRatio: sqrtRatio,
+                        liquidity: liquidity,
+                        minTick: int32(minTick),
+                        maxTick: int32(maxTick),
+                        ticks: ticks
+                    });
+                } else {
+                    results[i] = QuoteData({
+                        tick: tick,
+                        sqrtRatio: sqrtRatio,
+                        liquidity: liquidity,
+                        minTick: MIN_TICK,
+                        maxTick: MAX_TICK,
+                        ticks: new TickDelta[](0)
+                    });
+                }
             }
         }
     }

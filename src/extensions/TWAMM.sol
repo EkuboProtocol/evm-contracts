@@ -17,7 +17,7 @@ import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
-import {calculateNextSqrtRatio} from "../math/twamm.sol";
+import {computeNextSqrtRatio} from "../math/twamm.sol";
 
 function twammCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -160,7 +160,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
-    function _orderKeyToPoolKey(OrderKey memory orderKey) internal returns (PoolKey memory poolKey) {
+    function _orderKeyToPoolKey(OrderKey memory orderKey) internal view returns (PoolKey memory poolKey) {
         return orderKey.sellToken < orderKey.buyToken
             ? PoolKey({
                 token0: orderKey.sellToken,
@@ -202,7 +202,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, BaseLocker {
 
                 if (state.saleRateToken0 != 0 && state.saleRateToken1 != 0) {
                     (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
-                    SqrtRatio sqrtRatioNext = calculateNextSqrtRatio({
+                    SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                         sqrtRatio: sqrtRatio,
                         liquidity: liquidity,
                         saleRateToken0: state.saleRateToken0,

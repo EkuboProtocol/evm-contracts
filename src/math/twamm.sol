@@ -18,6 +18,19 @@ function computeSaleRate(uint128 amount, uint32 duration) pure returns (uint112)
     }
 }
 
+error SaleRateDeltaOverflow();
+
+function addSaleRateDelta(uint112 saleRate, int112 saleRateDelta) pure returns (uint112 result) {
+    assembly ("memory-safe") {
+        result := add(saleRate, saleRateDelta)
+        // if any of the upper bits are non-zero, revert
+        if and(result, shl(112, 0xffffffffffffffffffffffffffffffffffff)) {
+            mstore(0, shl(224, 0xc902643d))
+            revert(0, 4)
+        }
+    }
+}
+
 // Computes amount from sale rate: (saleRate * duration) >> 32, with optional rounding.
 // Cannot overflow since max sale rate times max result fits in 112 bits
 function computeAmountFromSaleRate(uint112 saleRate, uint32 duration, bool roundUp) pure returns (uint128 amount) {

@@ -18,7 +18,9 @@ import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
-import {computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount} from "../math/twamm.sol";
+import {
+    computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount, addSaleRateDelta
+} from "../math/twamm.sol";
 import {isTimeValid} from "../math/time.sol";
 
 function twammCallPoints() pure returns (CallPoints memory) {
@@ -66,9 +68,12 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for ICore;
 
+    event OrderUpdated(address owner, bytes32 salt, OrderKey orderKey, int112 saleRateDelta);
+
     error TickSpacingMustBeMaximum();
     error OrderAlreadyEnded();
     error InvalidTimestamps();
+    error MustCollectProceedsBeforeCanceling();
 
     struct PoolState {
         uint32 lastVirtualOrderExecutionTime;
@@ -216,6 +221,33 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
+    function _updateTime(bytes32 poolId, uint256 time, int112 saleRateDelta, bool isToken1, int256 numOrdersChange)
+        internal
+    {
+        TimeInfo memory timeInfo = poolTimeInfos[poolId][time];
+
+        bool flip;
+        assembly ("memory-safe") {
+            let numOrders := mload(timeInfo)
+            let numOrdersNext := add(numOrders, numOrdersChange)
+            flip := eq(iszero(numOrders), iszero(numOrdersNext))
+
+            mstore(timeInfo, numOrdersNext)
+        }
+
+        if (flip) {
+            poolInitializedTimesBitmap[poolId].flipTime(uint32(time));
+        }
+
+        if (isToken1) {
+            timeInfo.saleRateDeltaToken1 += saleRateDelta;
+        } else {
+            timeInfo.saleRateDeltaToken0 += saleRateDelta;
+        }
+
+        poolTimeInfos[poolId][time] = timeInfo;
+    }
+
     function locked(uint256) external override onlyCore {
         PoolKey memory poolKey;
         assembly ("memory-safe") {
@@ -234,36 +266,91 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
     ///////////////////////// Callbacks /////////////////////////
 
-    function handleForwardData(uint256 id, address originalLocker, bytes memory data)
+    function handleForwardData(uint256, address originalLocker, bytes memory data)
         internal
         override
         returns (bytes memory result)
     {
-        uint256 callType = abi.decode(data, (uint256));
+        unchecked {
+            uint256 callType = abi.decode(data, (uint256));
 
-        if (callType == 0) {
-            (, UpdateSaleRateParams memory params) = abi.decode(data, (uint256, UpdateSaleRateParams));
+            if (callType == 0) {
+                (, UpdateSaleRateParams memory params) = abi.decode(data, (uint256, UpdateSaleRateParams));
 
-            if (params.orderKey.endTime >= block.timestamp) revert OrderAlreadyEnded();
+                if (params.orderKey.endTime <= block.timestamp) revert OrderAlreadyEnded();
 
-            if (
-                !isTimeValid(params.orderKey.startTime, block.timestamp)
-                    || !isTimeValid(params.orderKey.endTime, block.timestamp)
-            ) {
-                revert InvalidTimestamps();
+                if (
+                    !isTimeValid(params.orderKey.startTime, block.timestamp)
+                        || !isTimeValid(params.orderKey.endTime, block.timestamp)
+                        || params.orderKey.startTime >= params.orderKey.endTime
+                ) {
+                    revert InvalidTimestamps();
+                }
+
+                PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
+                bytes32 poolId = poolKey.toPoolId();
+                _executeVirtualOrdersFromWithinLock(poolKey);
+
+                (uint112 saleRate, uint256 rewardRateSnapshot, uint128 remainingSellAmount, uint128 purchasedAmount) =
+                    _getOrderInfo(originalLocker, params.salt, params.orderKey);
+
+                uint112 saleRateNext = addSaleRateDelta(saleRate, params.saleRateDelta);
+
+                if (saleRateNext == 0 && purchasedAmount != 0) {
+                    revert MustCollectProceedsBeforeCanceling();
+                }
+
+                uint256 rewardRateSnapshotAdjusted;
+                int256 numOrdersChange;
+                assembly ("memory-safe") {
+                    // if saleRateNext is 0, the adjusted amount is just rewardRateSnapshot because div returns 0 for 0 denominator
+                    rewardRateSnapshotAdjusted :=
+                        mul(
+                            sub(rewardRateSnapshot, div(shl(128, purchasedAmount), saleRateNext)),
+                            // if saleRateNext is zero, write 0 for the reward rate snapshot adjusted
+                            iszero(iszero(saleRateNext))
+                        )
+
+                    // if current is zero, and next is zero, then 1-1 = 0
+                    // if current is nonzero, and next is nonzero, then 0-0 = 0
+                    // if current is zero, and next is nonzero, then we get 1-0 = 1
+                    // if current is nonzero, and next is zero, then we get 0-1 = -1 = (type(uint256).max)
+                    numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
+                }
+
+                orderState[originalLocker][params.salt][params.orderKey.toOrderId()] =
+                    OrderState({saleRate: saleRateNext, rewardRateSnapshot: rewardRateSnapshotAdjusted});
+
+                bool isToken1 = params.orderKey.sellToken > params.orderKey.buyToken;
+
+                if (block.timestamp < params.orderKey.startTime) {
+                    _updateTime(poolId, params.orderKey.startTime, params.saleRateDelta, isToken1, numOrdersChange);
+                    _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
+                } else {
+                    // we know block.timestamp < params.orderKey.endTime because we validate that first
+                    // and we know the order is active, so we have to apply its delta to the current pool state
+                    if (isToken1) {
+                        poolState[poolId].saleRateToken1 =
+                            addSaleRateDelta(poolState[poolId].saleRateToken1, params.saleRateDelta);
+                    } else {
+                        poolState[poolId].saleRateToken0 =
+                            addSaleRateDelta(poolState[poolId].saleRateToken0, params.saleRateDelta);
+                    }
+
+                    // only update the end time
+                    _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
+                }
+
+                // todo: accumulate the deltas
+
+                emit OrderUpdated(originalLocker, params.salt, params.orderKey, params.saleRateDelta);
+            } else if (callType == 1) {
+                (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
+
+                _executeVirtualOrdersFromWithinLock(_orderKeyToPoolKey(params.orderKey));
+            } else {
+                revert();
             }
-
-            PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
-            _executeVirtualOrdersFromWithinLock(poolKey);
-
-            (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount, uint128 rewardAmount) =
-                _getOrderInfo(originalLocker, params.salt, params.orderKey);
-        } else if (callType == 1) {
-            (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
-
-            _executeVirtualOrdersFromWithinLock(_orderKeyToPoolKey(params.orderKey));
-        } else {
-            revert();
         }
     }
 

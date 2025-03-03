@@ -7,7 +7,9 @@ import {
     computeNextSqrtRatio,
     computeC,
     computeAmountFromSaleRate,
-    computeSqrtSaleRatio
+    computeSqrtSaleRatio,
+    addSaleRateDelta,
+    SaleRateDeltaOverflow
 } from "../../src/math/twamm.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -15,6 +17,21 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 contract TwammTest is Test {
     function test_computeSaleRate_examples() public pure {
         assertEq(computeSaleRate(1000, 5), (1000 << 32) / 5);
+    }
+
+    function wrapped_addSaleRateDelta(uint112 saleRate, int112 delta) external pure {
+        addSaleRateDelta(saleRate, delta);
+    }
+
+    function test_addSaleRateDelta_invariants(uint112 saleRate, int112 delta) public {
+        int256 expected = int256(uint256(saleRate)) + delta;
+        if (expected < 0 || expected > int256(uint256(type(uint112).max))) {
+            vm.expectRevert(SaleRateDeltaOverflow.selector);
+            this.wrapped_addSaleRateDelta(saleRate, delta);
+        } else {
+            uint112 result = addSaleRateDelta(saleRate, delta);
+            assertEq(int256(uint256(result)), expected);
+        }
     }
 
     function test_computeAmountFromSaleRate_examples() public pure {

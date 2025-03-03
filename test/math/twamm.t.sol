@@ -230,6 +230,7 @@ contract TwammTest is Test {
         });
 
         // it should always be within the min/max sqrt ratio which represents 2**-128 to 2**128
+        // this is because the sale ratio is bounded to 2**-112 to 2**112
         assertGe(sqrtRatioNext.toFixed(), MIN_SQRT_RATIO.toFixed());
         assertLe(sqrtRatioNext.toFixed(), MAX_SQRT_RATIO.toFixed());
 

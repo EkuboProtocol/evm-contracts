@@ -5,6 +5,7 @@ import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 import {computeFee} from "./fee.sol";
 import {exp2} from "./exp2.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {console} from "forge-std/console.sol";
 
 error SaleRateOverflow();
 
@@ -85,12 +86,18 @@ function calculateNextSqrtRatio(
             } else {
                 int256 ePowExponent = int256(uint256(exp2(int128(int256(exponent)))));
 
-                sqrtRatioNext = toSqrtRatio(
-                    FixedPointMathLib.fullMulDiv(
-                        sqrtSaleRatio, FixedPointMathLib.abs(ePowExponent - c), FixedPointMathLib.abs(ePowExponent + c)
-                    ),
-                    roundUp
+                uint256 sqrtRatioNextFixed = FixedPointMathLib.fullMulDiv(
+                    sqrtSaleRatio, FixedPointMathLib.abs(ePowExponent - c), FixedPointMathLib.abs(ePowExponent + c)
                 );
+
+                // we should never exceed the sale ratio
+                if (roundUp) {
+                    sqrtRatioNextFixed = FixedPointMathLib.max(sqrtRatioNextFixed, sqrtSaleRatio);
+                } else {
+                    sqrtRatioNextFixed = FixedPointMathLib.min(sqrtRatioNextFixed, sqrtSaleRatio);
+                }
+
+                sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, roundUp);
             }
         }
     }

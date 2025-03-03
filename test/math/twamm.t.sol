@@ -191,4 +191,33 @@ contract TwammTest is Test {
             107606732706330320687810575739503247360 // ~= 0.316227766
         );
     }
+
+    function test_calculateNextSqrtRatio_always_within_bounds(
+        uint256 sqrtRatioFixed,
+        uint128 liquidity,
+        uint112 saleRateToken0,
+        uint112 saleRateToken1,
+        uint32 timeElapsed,
+        uint64 fee
+    ) public pure {
+        // valid starting sqrt ratio
+        SqrtRatio sqrtRatio =
+            toSqrtRatio(bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+
+        // if either is 0, we cannot use this method
+        saleRateToken0 = uint112(bound(saleRateToken0, 1, type(uint112).max));
+        saleRateToken1 = uint112(bound(saleRateToken1, 1, type(uint112).max));
+
+        SqrtRatio sqrtRatioNext = calculateNextSqrtRatio({
+            sqrtRatio: sqrtRatio,
+            liquidity: liquidity,
+            saleRateToken0: saleRateToken0,
+            saleRateToken1: saleRateToken1,
+            timeElapsed: timeElapsed,
+            fee: fee
+        });
+
+        assertGe(sqrtRatioNext.toFixed(), MIN_SQRT_RATIO.toFixed());
+        assertLe(sqrtRatioNext.toFixed(), MAX_SQRT_RATIO.toFixed());
+    }
 }

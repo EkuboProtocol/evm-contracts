@@ -9,6 +9,7 @@ import {
     calculateAmountFromSaleRate
 } from "../../src/math/twamm.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TwammTest is Test {
     function test_calculateSaleRate_examples() public pure {
@@ -80,7 +81,7 @@ contract TwammTest is Test {
                 timeElapsed: 46_800,
                 fee: 0
             }).toFixed(),
-            714795237128251225756468394774807707648 // 2.1005944081
+            714795237151155238153964311638230171648 // 2.1005944081
         );
 
         assertEq(
@@ -92,7 +93,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: uint64((uint256(30) << 64) / 10_000)
             }).toFixed(),
-            762756935914759524731213789079273472 // 0.0022415412
+            762756935888947508383216320167018496 // 0.0022415412
         );
 
         assertEq(
@@ -104,7 +105,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 1 << 63
             }).toFixed(),
-            212677851087912079602037861801072263168 // 0.6250040312
+            212677851090737003826538964680546713600 // 0.6250040312
         );
 
         assertEq(
@@ -116,7 +117,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 0
             }).toFixed(),
-            154676064190364586480054438699441586176 // 0.4545520992
+            154676064193352917687218418238521081856 // 0.4545520992
         );
 
         assertEq(
@@ -128,7 +129,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 1 << 63
             }).toFixed(),
-            544448275384598536713747415860313587712 // 1.5999896801
+            544448275377366823995421509933439385600 // 1.5999896801
         );
 
         assertEq(
@@ -140,7 +141,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 0
             }).toFixed(),
-            748610263930735346947947708916757954560 // 2.1999678405
+            748610263916272246764287404709823643648 // 2.1999678405
         );
 
         assertEq(
@@ -152,7 +153,31 @@ contract TwammTest is Test {
                 timeElapsed: 360,
                 fee: 922337203685477580
             }).toFixed(),
-            286548851173862825647937607814392024282431488 // 842,091.3894737111
+            286548851173856260816719751938951829696544768 // 842,091.3894737111
+        );
+
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(1 << 128, false),
+                liquidity: 10,
+                saleRateToken0: 5000 << 32,
+                saleRateToken1: 500 << 32,
+                timeElapsed: 1,
+                fee: 0
+            }).toFixed(),
+            107606732706330320687810575739503247360 // ~= 0.316227766
+        );
+
+        assertEq(
+            calculateNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(286363514177267035440548892163466107483369185, false),
+                liquidity: 130385243018985227,
+                saleRateToken0: 1917585044284,
+                saleRateToken1: 893194653345642013054241177,
+                timeElapsed: 360,
+                fee: 922337203685477580
+            }).toFixed(),
+            286548851173856260816719751938951829696544768 // 842,091.3894737111
         );
 
         assertEq(
@@ -195,5 +220,13 @@ contract TwammTest is Test {
 
         assertGe(sqrtRatioNext.toFixed(), MIN_SQRT_RATIO.toFixed());
         assertLe(sqrtRatioNext.toFixed(), MAX_SQRT_RATIO.toFixed());
+
+        uint256 saleRatio = FixedPointMathLib.sqrt((uint256(saleRateToken1) << 144) / uint256(saleRateToken0)) << 56;
+
+        if (saleRatio > sqrtRatio.toFixed()) {
+            assertGe(sqrtRatioNext.toFixed(), sqrtRatio.toFixed());
+        } else {
+            assertLe(sqrtRatioNext.toFixed(), sqrtRatio.toFixed());
+        }
     }
 }

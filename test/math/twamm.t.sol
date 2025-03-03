@@ -193,6 +193,17 @@ contract TwammTest is Test {
         );
     }
 
+    function test_calculateNextSqrtRatio_always_within_bounds_0() public pure {
+        test_calculateNextSqrtRatio_always_within_bounds(
+            40804391198510682395386066027183367945789451008295010214769,
+            417285290670760742141,
+            type(uint112).max,
+            1,
+            type(uint32).max,
+            0
+        );
+    }
+
     function test_calculateNextSqrtRatio_always_within_bounds(
         uint256 sqrtRatioFixed,
         uint128 liquidity,
@@ -218,6 +229,7 @@ contract TwammTest is Test {
             fee: fee
         });
 
+        // it should always be within the min/max sqrt ratio which represents 2**-128 to 2**128
         assertGe(sqrtRatioNext.toFixed(), MIN_SQRT_RATIO.toFixed());
         assertLe(sqrtRatioNext.toFixed(), MAX_SQRT_RATIO.toFixed());
 

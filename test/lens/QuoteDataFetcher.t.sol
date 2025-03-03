@@ -35,11 +35,14 @@ contract QuoteDataFetcherTest is FullTest {
         (, uint128 liqF) = createPosition(poolKeyFull, Bounds(MIN_TICK, MAX_TICK), 5000, 5000);
         (, uint128 liqG) = createPosition(poolKeyFull, Bounds(MIN_TICK, MAX_TICK), 7500, 7500);
 
-        PoolKey[] memory keys = new PoolKey[](2);
+        PoolKey memory poolKeyNoLiquidity = createPool({tick: -693147, fee: 0, tickSpacing: 100});
+
+        PoolKey[] memory keys = new PoolKey[](3);
         keys[0] = poolKey;
         keys[1] = poolKeyFull;
+        keys[2] = poolKeyNoLiquidity;
         QuoteData[] memory qd = qdf.getQuoteData(keys, 1);
-        assertEq(qd.length, 2);
+        assertEq(qd.length, 3);
         assertEq(qd[0].liquidity, liqA + liqB);
         assertTrue(qd[0].sqrtRatio == tickToSqrtRatio(10));
         assertEq(qd[0].minTick, -1270);
@@ -68,5 +71,12 @@ contract QuoteDataFetcherTest is FullTest {
         assertEq(qd[1].maxTick, MAX_TICK);
         assertEq(qd[1].tick, 693147);
         assertEq(qd[1].ticks.length, 0);
+
+        assertEq(qd[2].liquidity, 0);
+        assertTrue(qd[2].sqrtRatio == tickToSqrtRatio(-693147));
+        assertEq(qd[2].minTick, -718747);
+        assertEq(qd[2].maxTick, -667547);
+        assertEq(qd[2].tick, -693147);
+        assertEq(qd[2].ticks.length, 0);
     }
 }

@@ -9,6 +9,7 @@ import {
     calculateAmountFromSaleRate
 } from "../../src/math/twamm.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TwammTest is Test {
     function test_calculateSaleRate_examples() public pure {
@@ -219,5 +220,13 @@ contract TwammTest is Test {
 
         assertGe(sqrtRatioNext.toFixed(), MIN_SQRT_RATIO.toFixed());
         assertLe(sqrtRatioNext.toFixed(), MAX_SQRT_RATIO.toFixed());
+
+        uint256 saleRatio = FixedPointMathLib.sqrt((uint256(saleRateToken1) << 144) / uint256(saleRateToken0)) << 56;
+
+        if (saleRatio > sqrtRatio.toFixed()) {
+            assertGe(sqrtRatioNext.toFixed(), sqrtRatio.toFixed());
+        } else {
+            assertLe(sqrtRatioNext.toFixed(), sqrtRatio.toFixed());
+        }
     }
 }

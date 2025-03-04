@@ -76,8 +76,16 @@ contract TwammTest is Test {
         assertEq(computeC(MIN_SQRT_RATIO.toFixed() + 1, MIN_SQRT_RATIO.toFixed()), 0);
     }
 
+    function test_computeSqrtSaleRatio_examples() public pure {
+        assertEq(computeSqrtSaleRatio(1, 1), uint256(1) << 128);
+        assertEq(computeSqrtSaleRatio(100, 1), 34028236692093846346337460743176821142);
+        assertEq(computeSqrtSaleRatio(1, 100), 3402823669209384634633746074317682114560);
+        assertEq(computeSqrtSaleRatio(type(uint112).max, 1), 4722366482869645213696);
+        assertEq(computeSqrtSaleRatio(1, type(uint112).max), 24519928653854221733733552434404944576644526926077100032);
+    }
+
     function test_gas_cost_computeNextSqrtRatio() public {
-        vm.startSnapshotGas("computeNextSqrtRatio");
+        vm.startSnapshotGas("computeNextSqrtRatio_0");
         computeNextSqrtRatio({
             sqrtRatio: toSqrtRatio(10_000 << 128, false),
             liquidity: 10_000,
@@ -85,6 +93,28 @@ contract TwammTest is Test {
             saleRateToken1: 280824784,
             timeElapsed: 46_800,
             fee: 0
+        });
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("computeNextSqrtRatio_1");
+        computeNextSqrtRatio({
+            sqrtRatio: toSqrtRatio((uint256(1) << 128) / 10_000, false),
+            liquidity: 1_000_000,
+            saleRateToken0: 707 << 32,
+            saleRateToken1: 179 << 32,
+            timeElapsed: 12,
+            fee: uint64((uint256(30) << 64) / 10_000)
+        });
+        vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("computeNextSqrtRatio_2");
+        computeNextSqrtRatio({
+            sqrtRatio: toSqrtRatio(286363514177267035440548892163466107483369185, false),
+            liquidity: 130385243018985227,
+            saleRateToken0: 1917585044284,
+            saleRateToken1: 893194653345642013054241177,
+            timeElapsed: 360,
+            fee: 922337203685477580
         });
         vm.stopSnapshotGas();
     }

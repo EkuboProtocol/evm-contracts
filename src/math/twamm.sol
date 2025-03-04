@@ -5,7 +5,7 @@ import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 import {computeFee} from "./fee.sol";
 import {exp2} from "./exp2.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {console} from "forge-std/console.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 
 error SaleRateOverflow();
 
@@ -53,15 +53,24 @@ function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256
 }
 
 // Returns a 64.128 number representing the sqrt sale ratio
+// Assumes both saleRateToken0 and saleRateToken1 are nonzero
 function computeSqrtSaleRatio(uint112 saleRateToken0, uint112 saleRateToken1) pure returns (uint256 sqrtSaleRatio) {
-    uint256 saleRatio = (uint256(saleRateToken1) << 128) / saleRateToken0;
-    if (saleRatio > type(uint128).max) {
-        sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 16) << 56;
-    } else {
-        sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 128);
+    unchecked {
+        uint256 saleRatio = (uint256(saleRateToken1) << 128) / saleRateToken0;
+
+        if (saleRatio > type(uint192).max) {
+            sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 16) << 56;
+        } else if (saleRatio > type(uint128).max) {
+            // we know it only has 192 bits, so we can shift it 64 before rooting to get more precision
+            sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 64) << 32;
+        } else {
+            // full precision
+            sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 128);
+        }
     }
 }
 
+// This function should never be called with either of saleRateToken0 = 0 or saleRateToken1 = 0
 function computeNextSqrtRatio(
     SqrtRatio sqrtRatio,
     uint128 liquidity,
@@ -71,6 +80,7 @@ function computeNextSqrtRatio(
     uint64 fee
 ) pure returns (SqrtRatio sqrtRatioNext) {
     unchecked {
+        // assert(saleRateToken0 != 0 && saleRateToken1 != 0);
         uint256 sqrtSaleRatio = computeSqrtSaleRatio(saleRateToken0, saleRateToken1);
 
         uint256 sqrtRatioFixed = sqrtRatio.toFixed();

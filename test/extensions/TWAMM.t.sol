@@ -22,7 +22,6 @@ import {UsesCore} from "../../src/base/UsesCore.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
-import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -56,7 +55,7 @@ contract TWAMMTest is BaseTWAMMTest {
     using TWAMMLib for *;
 
     function test_createPool_fails_not_full_range() public {
-        vm.expectRevert(FullRangeOnlyPool.selector);
+        vm.expectRevert(TWAMM.TickSpacingMustBeMaximum.selector);
         createPool(address(token0), address(token1), 0, 0, 1, address(twamm));
     }
 
@@ -73,7 +72,7 @@ contract TWAMMTest is BaseTWAMMTest {
 contract TWAMMInternalMethodsTests is TWAMM, Test {
     constructor() TWAMM(new Core(address(0xdeadbeef))) {}
 
-    function _registerInConstructor() internal override returns (bool) {
+    function _registerInConstructor() internal pure override returns (bool) {
         return false;
     }
 

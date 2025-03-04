@@ -15,7 +15,7 @@ abstract contract BaseExtension is UsesCore, IExtension {
         if (_registerInConstructor()) core.registerExtension(getCallPoints());
     }
 
-    function _registerInConstructor() internal virtual returns (bool) {
+    function _registerInConstructor() internal pure virtual returns (bool) {
         return true;
     }
 

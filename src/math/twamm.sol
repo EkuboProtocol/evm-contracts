@@ -33,7 +33,7 @@ function addSaleRateDelta(uint112 saleRate, int112 saleRateDelta) pure returns (
 
 // Computes amount from sale rate: (saleRate * duration) >> 32, with optional rounding.
 // Cannot overflow since max sale rate times max result fits in 112 bits
-function computeAmountFromSaleRate(uint112 saleRate, uint32 duration, bool roundUp) pure returns (uint128 amount) {
+function computeAmountFromSaleRate(uint112 saleRate, uint32 duration, bool roundUp) pure returns (uint112 amount) {
     assembly ("memory-safe") {
         amount := shr(32, add(mul(saleRate, duration), mul(0xffffffff, roundUp)))
     }

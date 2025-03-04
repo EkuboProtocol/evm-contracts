@@ -114,12 +114,24 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
-    function _emitVirtualOrdersExecuted(bytes32 poolId, uint112 saleRateToken0, uint112 saleRateToken1) internal {
+    function _emitVirtualOrdersExecuted(
+        bytes32 poolId,
+        uint112 saleRateToken0,
+        uint112 saleRateToken1,
+        uint112 volume0,
+        uint112 volume1
+    ) internal {
         assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(14, saleRateToken0)
-            mstore(28, saleRateToken1)
-            log0(0, 60)
+            let o := mload(0x40)
+
+            // by writing it backwards, we overwrite only the empty bits with each subsequent write
+            mstore(add(o, 56), volume1)
+            mstore(add(o, 42), volume0)
+            mstore(add(o, 28), saleRateToken1)
+            mstore(add(o, 14), saleRateToken0)
+            mstore(o, poolId)
+
+            log0(o, 88)
         }
     }
 
@@ -434,62 +446,103 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     }
 
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey) internal {
-        bytes32 poolId = poolKey.toPoolId();
+        unchecked {
+            bytes32 poolId = poolKey.toPoolId();
 
-        PoolState memory state = poolState[poolId];
-        uint32 currentTime = uint32(block.timestamp);
+            PoolState memory state = poolState[poolId];
+            uint32 currentTime = uint32(block.timestamp);
 
-        // no-op if already executed in this block
-        if (state.lastVirtualOrderExecutionTime != currentTime) {
-            FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
+            // no-op if already executed in this block
+            if (state.lastVirtualOrderExecutionTime != currentTime) {
+                FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
-            while (state.lastVirtualOrderExecutionTime != currentTime) {
-                (uint32 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(
-                    state.lastVirtualOrderExecutionTime, currentTime
-                );
+                uint112 volume0;
+                uint112 volume1;
 
-                uint32 timeElapsed = nextTime - state.lastVirtualOrderExecutionTime;
+                int128 totalDelta0;
+                int128 totalDelta1;
 
-                if (state.saleRateToken0 != 0 && state.saleRateToken1 != 0) {
-                    (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
-                    SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
-                        sqrtRatio: sqrtRatio,
-                        liquidity: liquidity,
-                        saleRateToken0: state.saleRateToken0,
-                        saleRateToken1: state.saleRateToken1,
-                        timeElapsed: timeElapsed,
-                        fee: poolKey.fee()
+                while (state.lastVirtualOrderExecutionTime != currentTime) {
+                    (uint32 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
+                        .searchForNextInitializedTime(state.lastVirtualOrderExecutionTime, currentTime);
+
+                    uint32 timeElapsed = nextTime - state.lastVirtualOrderExecutionTime;
+
+                    uint112 amount0 = computeAmountFromSaleRate({
+                        saleRate: state.saleRateToken0,
+                        duration: timeElapsed,
+                        roundUp: false
                     });
-                } else if (state.saleRateToken0 != 0 || state.saleRateToken1 != 0) {
-                    if (state.saleRateToken0 != 0) {
-                        // sell token0
-                    } else {
-                        // sell token1
+
+                    uint112 amount1 = computeAmountFromSaleRate({
+                        saleRate: state.saleRateToken1,
+                        duration: timeElapsed,
+                        roundUp: false
+                    });
+
+                    volume0 += amount0;
+                    volume1 += amount1;
+
+                    int128 delta0;
+                    int128 delta1;
+
+                    if (amount0 != 0 && amount1 != 0) {
+                        (SqrtRatio sqrtRatio,, uint128 liquidity) = core.poolState(poolId);
+                        SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
+                            sqrtRatio: sqrtRatio,
+                            liquidity: liquidity,
+                            saleRateToken0: state.saleRateToken0,
+                            saleRateToken1: state.saleRateToken1,
+                            timeElapsed: timeElapsed,
+                            fee: poolKey.fee()
+                        });
+
+                        if (sqrtRatioNext > sqrtRatio) {
+                            (delta0, delta1) =
+                                core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
+                        } else {
+                            (delta0, delta1) =
+                                core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
+                        }
+
+                        delta0 += int128(uint128(amount0));
+                        delta1 += int128(uint128(amount1));
+                    } else if (state.saleRateToken0 != 0 || state.saleRateToken1 != 0) {
+                        if (state.saleRateToken0 != 0) {
+                            // sell token0
+                        } else {
+                            // sell token1
+                        }
                     }
+
+                    if (initialized) {
+                        poolRewardRatesBefore[poolId][nextTime] = rewardRates;
+
+                        TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
+
+                        // todo: we need to figure out how to handle overflow here
+
+                        state.saleRateToken0 = SafeCastLib.toUint112(
+                            uint256(int256(uint256(state.saleRateToken0)) + timeInfo.saleRateDeltaToken0)
+                        );
+                        state.saleRateToken1 = SafeCastLib.toUint112(
+                            uint256(int256(uint256(state.saleRateToken1)) + timeInfo.saleRateDeltaToken1)
+                        );
+
+                        // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
+                        // this helps reduce the cost of executing virtual orders.
+                        delete poolTimeInfos[poolId][nextTime];
+                        poolInitializedTimesBitmap[poolId].flipTime(nextTime);
+                    }
+
+                    totalDelta0 += delta0;
+                    totalDelta1 += delta1;
+
+                    state.lastVirtualOrderExecutionTime = nextTime;
                 }
 
-                if (initialized) {
-                    poolRewardRatesBefore[poolId][nextTime] = rewardRates;
-
-                    TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
-
-                    // todo: we need to figure out how to handle overflow here
-
-                    state.saleRateToken0 = SafeCastLib.toUint112(
-                        uint256(int256(uint256(state.saleRateToken0)) + timeInfo.saleRateDeltaToken0)
-                    );
-                    state.saleRateToken1 = SafeCastLib.toUint112(
-                        uint256(int256(uint256(state.saleRateToken1)) + timeInfo.saleRateDeltaToken1)
-                    );
-
-                    // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
-                    // this helps reduce the cost of executing virtual orders.
-                    delete poolTimeInfos[poolId][nextTime];
-                    poolInitializedTimesBitmap[poolId].flipTime(nextTime);
-                }
+                _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1, volume0, volume1);
             }
-
-            _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1);
         }
     }
 
@@ -500,7 +553,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
         bytes32 poolId = key.toPoolId();
         poolState[poolId] = PoolState(uint32(block.timestamp), 0, 0);
-        _emitVirtualOrdersExecuted(poolId, 0, 0);
+        _emitVirtualOrdersExecuted(poolId, 0, 0, 0, 0);
     }
 
     function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override onlyCore {

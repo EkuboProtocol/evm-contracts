@@ -192,4 +192,18 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -1, isToken1: true, numOrdersChange: 0});
     }
+
+    function test_updateTime_flip_time_overflows_uint32() public {
+        bytes32 poolId = bytes32(0);
+
+        uint256 time = uint256(type(uint32).max) + 17;
+        assert(time % 16 == 0);
+
+        _updateTime({poolId: poolId, time: time, saleRateDelta: 1, isToken1: false, numOrdersChange: 1});
+
+        (uint32 nextTime, bool initialized) =
+            poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(uint32(time - 15), uint32(time + 15));
+        assertEq(nextTime, uint32(time));
+        assertEq(initialized, true);
+    }
 }

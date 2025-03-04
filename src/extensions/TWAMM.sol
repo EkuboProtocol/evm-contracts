@@ -18,6 +18,7 @@ import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
+import {computeFee} from "../math/fee.sol";
 import {
     computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount, addSaleRateDelta
 } from "../math/twamm.sol";
@@ -341,9 +342,53 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
                 }
 
-                // todo: accumulate the deltas
+                // the amount required for executing at the next sale rate for the remaining duration of the order
+                uint256 amountRequired = computeAmountFromSaleRate({
+                    saleRate: saleRateNext,
+                    duration: uint32(
+                        params.orderKey.endTime - FixedPointMathLib.max(block.timestamp, params.orderKey.startTime)
+                    ),
+                    roundUp: true
+                });
+
+                // subtract the remaining sell amount to get the delta
+                int256 amountDelta;
+                assembly ("memory-safe") {
+                    amountDelta := sub(amountRequired, remainingSellAmount)
+                }
+
+                // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
+                if (amountDelta < 0) {
+                    // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
+                    uint128 amountAbs = uint128(uint256(-amountDelta));
+                    uint128 fee = computeFee(amountAbs, poolKey.fee());
+                    if (isToken1) {
+                        core.accumulateAsFees(poolKey, 0, fee);
+                        core.load(address(poolKey.token0), address(poolKey.token1), bytes32(0), 0, amountAbs);
+                    } else {
+                        core.accumulateAsFees(poolKey, fee, 0);
+                        core.load(address(poolKey.token0), address(poolKey.token1), bytes32(0), amountAbs, 0);
+                    }
+
+                    amountDelta += int256(int128(fee));
+                } else {
+                    // downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
+                    uint128 amountAbs = uint128(uint256(amountDelta));
+
+                    if (isToken1) {
+                        core.save(
+                            address(this), address(poolKey.token0), address(poolKey.token1), bytes32(0), 0, amountAbs
+                        );
+                    } else {
+                        core.save(
+                            address(this), address(poolKey.token0), address(poolKey.token1), bytes32(0), amountAbs, 0
+                        );
+                    }
+                }
 
                 emit OrderUpdated(originalLocker, params.salt, params.orderKey, params.saleRateDelta);
+
+                result = abi.encode(amountDelta);
             } else if (callType == 1) {
                 (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
 

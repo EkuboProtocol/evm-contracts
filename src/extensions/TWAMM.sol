@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, toConfig} from "../types/poolKey.sol";
-import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../types/positionKey.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
@@ -114,24 +114,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
-    function _emitVirtualOrdersExecuted(
-        bytes32 poolId,
-        uint112 saleRateToken0,
-        uint112 saleRateToken1,
-        uint112 volume0,
-        uint112 volume1
-    ) internal {
+    function _emitVirtualOrdersExecuted(bytes32 poolId, uint112 saleRateToken0, uint112 saleRateToken1) internal {
         assembly ("memory-safe") {
-            let o := mload(0x40)
-
             // by writing it backwards, we overwrite only the empty bits with each subsequent write
-            mstore(add(o, 56), volume1)
-            mstore(add(o, 42), volume0)
-            mstore(add(o, 28), saleRateToken1)
-            mstore(add(o, 14), saleRateToken0)
-            mstore(o, poolId)
+            mstore(28, saleRateToken1)
+            mstore(14, saleRateToken0)
+            mstore(0, poolId)
 
-            log0(o, 88)
+            log0(0, 60)
         }
     }
 
@@ -456,9 +446,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             if (state.lastVirtualOrderExecutionTime != currentTime) {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
-                uint112 volume0;
-                uint112 volume1;
-
                 int128 totalDelta0;
                 int128 totalDelta1;
 
@@ -480,12 +467,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         roundUp: false
                     });
 
-                    volume0 += amount0;
-                    volume1 += amount1;
-
                     int128 delta0;
                     int128 delta1;
 
+                    // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
                         (SqrtRatio sqrtRatio,, uint128 liquidity) = core.poolState(poolId);
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
@@ -505,14 +490,26 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
-                        delta0 += int128(uint128(amount0));
-                        delta1 += int128(uint128(amount1));
-                    } else if (state.saleRateToken0 != 0 || state.saleRateToken1 != 0) {
-                        if (state.saleRateToken0 != 0) {
-                            // sell token0
+                        delta0 -= int128(uint128(amount0));
+                        delta1 -= int128(uint128(amount1));
+                    } else if (amount0 != 0 || amount1 != 0) {
+                        if (amount0 != 0) {
+                            (delta0, delta1) =
+                                core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            // sell token1
+                            (delta0, delta1) =
+                                core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
+                    }
+
+                    // some amount of token0 came out the pool
+                    if (delta0 < 0) {
+                        rewardRates.value0 += (uint256(-int256(delta0)) << 128) / state.saleRateToken1;
+                    }
+
+                    // some amount of token1 came out the pool
+                    if (delta1 < 0) {
+                        rewardRates.value1 += (uint256(-int256(delta1)) << 128) / state.saleRateToken0;
                     }
 
                     if (initialized) {
@@ -541,7 +538,27 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     state.lastVirtualOrderExecutionTime = nextTime;
                 }
 
-                _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1, volume0, volume1);
+                poolRewardRates[poolId] = rewardRates;
+                poolState[poolId] = state;
+
+                core.save(
+                    address(this),
+                    poolKey.token0,
+                    poolKey.token1,
+                    bytes32(0),
+                    uint128(uint256(-FixedPointMathLib.min(totalDelta0, 0))),
+                    uint128(uint256(-FixedPointMathLib.min(totalDelta1, 0)))
+                );
+
+                core.load(
+                    poolKey.token0,
+                    poolKey.token1,
+                    bytes32(0),
+                    uint128(uint256(FixedPointMathLib.max(totalDelta0, 0))),
+                    uint128(uint256(FixedPointMathLib.max(totalDelta1, 0)))
+                );
+
+                _emitVirtualOrdersExecuted(poolId, state.saleRateToken0, state.saleRateToken1);
             }
         }
     }
@@ -553,7 +570,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
         bytes32 poolId = key.toPoolId();
         poolState[poolId] = PoolState(uint32(block.timestamp), 0, 0);
-        _emitVirtualOrdersExecuted(poolId, 0, 0, 0, 0);
+        _emitVirtualOrdersExecuted(poolId, 0, 0);
     }
 
     function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override onlyCore {

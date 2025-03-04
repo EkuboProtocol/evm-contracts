@@ -130,12 +130,6 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
         (amount0, amount1) = withdraw(id, poolKey, bounds, liquidity, address(msg.sender), true);
     }
 
-    // Can be used to refund some gas after withdrawing
-    // The NFT ID can be re-minted by the original minter after it is burned
-    function burn(uint256 id) external payable authorizedForNft(id) {
-        _burn(id);
-    }
-
     function maybeInitializePool(PoolKey memory poolKey, int32 tick)
         external
         payable

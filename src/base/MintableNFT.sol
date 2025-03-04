@@ -32,8 +32,8 @@ abstract contract MintableNFT is ERC721 {
             mstore(add(free, 64), chainid())
             mstore(add(free, 96), address())
 
-            // we use the first 48 bits only so it fits in most integer types
-            result := shr(208, keccak256(free, 128))
+            // we use the first 128 bits so it's not as long
+            result := shr(128, keccak256(free, 128))
         }
     }
 
@@ -55,5 +55,11 @@ abstract contract MintableNFT is ERC721 {
     function mint(bytes32 salt) public payable returns (uint256 id) {
         id = saltToId(msg.sender, salt);
         _mint(msg.sender, id);
+    }
+
+    // Can be used to refund some gas after the NFT is no longer needed.
+    // The NFT ID can be re-minted by the original minter after it is burned.
+    function burn(uint256 id) external payable authorizedForNft(id) {
+        _burn(id);
     }
 }

@@ -70,6 +70,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
     event OrderUpdated(address owner, bytes32 salt, OrderKey orderKey, int112 saleRateDelta);
 
+    error TimeNumOrdersOverflow();
     error TickSpacingMustBeMaximum();
     error OrderAlreadyEnded();
     error InvalidTimestamps();
@@ -221,8 +222,15 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         bool flip;
         assembly ("memory-safe") {
             let numOrders := mload(timeInfo)
+            // note we assume this will never overflow, since it would require 2**32 separate orders to be placed
             let numOrdersNext := add(numOrders, numOrdersChange)
-            flip := eq(iszero(numOrders), iszero(numOrdersNext))
+
+            if gt(numOrdersNext, 0xffffffff) {
+                mstore(0, shl(224, 0x6916a952))
+                revert(0, 4)
+            }
+
+            flip := iszero(eq(iszero(numOrders), iszero(numOrdersNext)))
 
             mstore(timeInfo, numOrdersNext)
         }

@@ -27,6 +27,8 @@ import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {Test} from "forge-std/Test.sol";
+import {searchForNextInitializedTime, flipTime} from "../../src/math/timeBitmap.sol";
+import {Bitmap} from "../../src/math/bitmap.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -70,6 +72,8 @@ contract TWAMMTest is BaseTWAMMTest {
 
 // Note the inheritance order matters because Test contains storage variables
 contract TWAMMInternalMethodsTests is TWAMM, Test {
+    using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
+
     constructor() TWAMM(new Core(address(0xdeadbeef))) {}
 
     function _registerInConstructor() internal pure override returns (bool) {
@@ -116,5 +120,76 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(50, 100);
         assertEq(_getRewardRateInside(poolId, 100, 200, true), 60);
+    }
+
+    function test_updateTime_flips_time() public {
+        bytes32 poolId = bytes32(0);
+
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
+
+        assertEq(poolTimeInfos[poolId][96].numOrders, 1);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0, 100);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1, 0);
+
+        (uint32 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        assertEq(time, 96);
+        assertEq(initialized, true);
+
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
+
+        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        assertEq(time, 1000);
+        assertEq(initialized, false);
+    }
+
+    function test_updateTime_flips_time_two_orders_one_removed() public {
+        bytes32 poolId = bytes32(0);
+
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: 55, isToken1: true, numOrdersChange: 1});
+
+        assertEq(poolTimeInfos[poolId][96].numOrders, 2);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0, 100);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1, 55);
+
+        (uint32 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        assertEq(time, 96);
+        assertEq(initialized, true);
+
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
+
+        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        assertEq(time, 96);
+        assertEq(initialized, true);
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_updateTime_reverts_if_max_num_orders_exceeded() public {
+        bytes32 poolId = bytes32(0);
+
+        poolTimeInfos[poolId][96].numOrders = type(uint32).max;
+        vm.expectRevert(TWAMM.TimeNumOrdersOverflow.selector);
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_updateTime_reverts_if_max_sale_rate_delta_exceeded() public {
+        bytes32 poolId = bytes32(0);
+
+        poolTimeInfos[poolId][96].saleRateDeltaToken0 = type(int112).max;
+        vm.expectRevert();
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: 1, isToken1: false, numOrdersChange: 0});
+
+        poolTimeInfos[poolId][96].saleRateDeltaToken1 = type(int112).max;
+        vm.expectRevert();
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: 1, isToken1: true, numOrdersChange: 0});
+
+        poolTimeInfos[poolId][96].saleRateDeltaToken0 = type(int112).min;
+        vm.expectRevert();
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: -1, isToken1: false, numOrdersChange: 0});
+
+        poolTimeInfos[poolId][96].saleRateDeltaToken1 = type(int112).min;
+        vm.expectRevert();
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: -1, isToken1: true, numOrdersChange: 0});
     }
 }

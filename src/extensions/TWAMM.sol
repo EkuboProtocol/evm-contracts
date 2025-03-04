@@ -98,26 +98,18 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         int112 saleRateDeltaToken1;
     }
 
-    mapping(bytes32 poolId => PoolState) private poolState;
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTimesBitmap;
-    mapping(bytes32 poolId => mapping(uint256 time => TimeInfo)) private poolTimeInfos;
+    mapping(bytes32 poolId => PoolState) internal poolState;
+    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
+    mapping(bytes32 poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
 
     // The global reward rate and the reward rate before a given time are both used to
-    mapping(bytes32 poolId => FeesPerLiquidity) private poolRewardRates;
-    mapping(bytes32 poolId => mapping(uint256 time => FeesPerLiquidity)) private poolRewardRatesBefore;
+    mapping(bytes32 poolId => FeesPerLiquidity) internal poolRewardRates;
+    mapping(bytes32 poolId => mapping(uint256 time => FeesPerLiquidity)) internal poolRewardRatesBefore;
 
     // Current state of each individual order
-    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) private orderState;
+    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) internal orderState;
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
-
-    function getPoolKey(address token0, address token1, uint64 fee) external view returns (PoolKey memory) {
-        return PoolKey({
-            token0: token0,
-            token1: token1,
-            config: toConfig({_fee: fee, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
-        });
-    }
 
     function _emitVirtualOrdersExecuted(bytes32 poolId, uint112 saleRateToken0, uint112 saleRateToken1) internal {
         assembly ("memory-safe") {

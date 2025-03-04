@@ -12,7 +12,11 @@ abstract contract BaseExtension is UsesCore, IExtension {
     error CallPointNotImplemented();
 
     constructor(ICore core) UsesCore(core) {
-        core.registerExtension(getCallPoints());
+        if (_registerInConstructor()) core.registerExtension(getCallPoints());
+    }
+
+    function _registerInConstructor() internal virtual returns (bool) {
+        return true;
     }
 
     function getCallPoints() internal virtual returns (CallPoints memory);

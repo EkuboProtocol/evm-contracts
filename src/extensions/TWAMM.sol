@@ -70,6 +70,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     using CoreLib for ICore;
 
     event OrderUpdated(address owner, bytes32 salt, OrderKey orderKey, int112 saleRateDelta);
+    event OrderProceedsWithdrawn(address owner, bytes32 salt, OrderKey orderKey, uint128 amount);
 
     error TimeNumOrdersOverflow();
     error TickSpacingMustBeMaximum();
@@ -289,7 +290,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 }
 
                 PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
-                bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey);
 
                 (uint112 saleRate, uint256 rewardRateSnapshot, uint128 remainingSellAmount, uint128 purchasedAmount) =
@@ -304,7 +304,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 uint256 rewardRateSnapshotAdjusted;
                 int256 numOrdersChange;
                 assembly ("memory-safe") {
-                    // if saleRateNext is 0, the adjusted amount is just rewardRateSnapshot because div returns 0 for 0 denominator
                     rewardRateSnapshotAdjusted :=
                         mul(
                             sub(rewardRateSnapshot, div(shl(128, purchasedAmount), saleRateNext)),
@@ -323,6 +322,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     OrderState({saleRate: saleRateNext, rewardRateSnapshot: rewardRateSnapshotAdjusted});
 
                 bool isToken1 = params.orderKey.sellToken > params.orderKey.buyToken;
+
+                bytes32 poolId = poolKey.toPoolId();
 
                 if (block.timestamp < params.orderKey.startTime) {
                     _updateTime(poolId, params.orderKey.startTime, params.saleRateDelta, isToken1, numOrdersChange);
@@ -392,7 +393,26 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             } else if (callType == 1) {
                 (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
 
-                _executeVirtualOrdersFromWithinLock(_orderKeyToPoolKey(params.orderKey));
+                PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
+                _executeVirtualOrdersFromWithinLock(poolKey);
+
+                (, uint256 rewardRateSnapshot,, uint128 purchasedAmount) =
+                    _getOrderInfo(originalLocker, params.salt, params.orderKey);
+
+                orderState[originalLocker][params.salt][params.orderKey.toOrderId()].rewardRateSnapshot =
+                    rewardRateSnapshot;
+
+                if (purchasedAmount != 0) {
+                    (uint128 amount0, uint128 amount1) = params.orderKey.sellToken > params.orderKey.buyToken
+                        ? (purchasedAmount, uint128(0))
+                        : (uint128(0), purchasedAmount);
+
+                    core.load(poolKey.token0, poolKey.token1, bytes32(0), amount0, amount1);
+                }
+
+                emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, purchasedAmount);
+
+                result = abi.encode(purchasedAmount);
             } else {
                 revert();
             }

@@ -5,7 +5,6 @@ import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 import {computeFee} from "./fee.sol";
 import {exp2} from "./exp2.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {LibBit} from "solady/utils/LibBit.sol";
 
 error SaleRateOverflow();
 

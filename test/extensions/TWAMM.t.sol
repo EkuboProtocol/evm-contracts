@@ -25,7 +25,6 @@ import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {LibBytes} from "solady/utils/LibBytes.sol";
 import {Test} from "forge-std/Test.sol";
 import {searchForNextInitializedTime, flipTime} from "../../src/math/timeBitmap.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";

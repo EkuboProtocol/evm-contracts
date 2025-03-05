@@ -21,11 +21,31 @@ contract ExpTest is Test {
         vm.startSnapshotGas("exp2(63)");
         exp2((63 << 64) - 1);
         vm.stopSnapshotGas();
+
+        vm.startSnapshotGas("exp2(63.999...)");
+        exp2(0x400000000000000000 - 1);
+        vm.stopSnapshotGas();
     }
 
-    function test_exp2(int128 x) public {
-        x = int128(bound(x, type(int128).min, 0x400000000000000000));
+    function test_exp2_examples_positive() public pure {
+        assertEq(exp2(0), 1 << 64);
+        assertEq(exp2(1 << 64), 2 << 64);
+        assertEq(exp2(2 << 64), 4 << 64);
+        assertEq(exp2(4 << 64), 16 << 64);
+        assertEq(exp2(8 << 64), 256 << 64);
+        assertEq(exp2(16 << 64), 65536 << 64);
+        assertEq(exp2(63 << 64), 9223372036854775808 << 64);
+        // 2**63.5
+        // https://www.wolframalpha.com/input?i=floor%28%282**63.5%29*2**64%29
+        assertEq(exp2((127 << 64) / 2), 240615969168004511545033772477625056927);
+    }
 
-        exp2(x);
+    function test_exp2_examples_negative() public pure {
+        assertEq(exp2(-1 << 64), 1 << 63);
+        assertEq(exp2(-2 << 64), 1 << 62);
+        assertEq(exp2(-4 << 64), 1 << 60);
+        assertEq(exp2(-8 << 64), 1 << 56);
+        assertEq(exp2(-16 << 64), 1 << 48);
+        assertEq(exp2(-63 << 64), 2);
     }
 }

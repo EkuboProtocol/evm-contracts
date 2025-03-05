@@ -104,6 +104,62 @@ contract OrdersTest is BaseTWAMMTest {
         assertEq(orders.collectProceeds(id1, key1, address(this)), 98);
     }
 
+    function test_createOrder_sell_both_tokens_sale_rate_dominated() public {
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        vm.warp(1);
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key0 =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
+        OrderKey memory key1 =
+            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2e18, type(uint112).max);
+
+        advanceTime(15);
+
+        // both get a better price!
+        assertEq(orders.collectProceeds(id0, key0, address(this)), 1999999999999995636);
+        assertEq(orders.collectProceeds(id1, key1, address(this)), 1000000000000002926);
+    }
+
+    function test_createOrder_sell_both_tokens_liquidity_dominated() public {
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        vm.warp(1);
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key0 =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1000, type(uint112).max);
+        OrderKey memory key1 =
+            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2000, type(uint112).max);
+
+        advanceTime(15);
+
+        // both get a better price!
+        assertEq(orders.collectProceeds(id0, key0, address(this)), 998);
+        assertEq(orders.collectProceeds(id1, key1, address(this)), 1947);
+    }
+
     function test_createOrder_stop_order() public {
         // 5% fee pool
         uint64 fee = uint64((uint256(5) << 64) / 100);

@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+// Adapted from https://github.com/abdk-consulting/abdk-libraries-solidity/blob/5e1e7c11b35f8313d3f7ce11c1b86320d7c0b554/ABDKMath64x64.sol#L508
 function exp2(int128 x) pure returns (uint128) {
     unchecked {
         require(x < 0x400000000000000000); // Overflow

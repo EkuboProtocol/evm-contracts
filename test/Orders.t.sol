@@ -129,4 +129,52 @@ contract OrdersTest is BaseTWAMMTest {
         advanceTime(8);
         assertEq(orders.collectProceeds(id, key, address(this)), 18);
     }
+
+    function test_gas_costs_single_sided() public {
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        vm.warp(1);
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
+        vm.snapshotGasLastCall("mintAndIncreaseSellAmount(first order)");
+
+        advanceTime(8);
+
+        token0.approve(address(router), type(uint256).max);
+        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        vm.snapshotGasLastCall("swap and executeVirtualOrders single sided");
+    }
+
+    function test_gas_costs_double_sided() public {
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        vm.warp(1);
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key0 =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
+        OrderKey memory key1 =
+            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
+        vm.snapshotGasLastCall("mintAndIncreaseSellAmount(second order)");
+
+        advanceTime(8);
+
+        token0.approve(address(router), type(uint256).max);
+        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        vm.snapshotGasLastCall("swap and executeVirtualOrders double sided");
+    }
 }

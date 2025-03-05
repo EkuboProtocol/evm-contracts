@@ -33,7 +33,7 @@ abstract contract MintableNFT is ERC721 {
             mstore(add(free, 96), address())
 
             // we use the first 128 bits so it's not as long
-            result := shr(128, keccak256(free, 128))
+            result := shr(208, keccak256(free, 128))
         }
     }
 

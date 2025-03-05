@@ -157,7 +157,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 _orderKeyToPoolKey(orderKey).toPoolId(),
                 orderKey.startTime,
                 orderKey.endTime,
-                orderKey.sellToken > orderKey.buyToken
+                orderKey.sellToken < orderKey.buyToken
             );
             remainingSellAmount = computeAmountFromSaleRate(
                 order.saleRate,
@@ -256,10 +256,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         PoolKey memory poolKey;
         assembly ("memory-safe") {
             poolKey := mload(0x40)
+            mstore(0x40, add(poolKey, 96))
+
             // copy the poolkey out of calldata at the free memory pointer
             calldatacopy(poolKey, 36, 96)
             // points the free memory pointer at pointer + 96
-            mstore(poolKey, add(poolKey, 96))
         }
         _executeVirtualOrdersFromWithinLock(poolKey);
     }
@@ -284,8 +285,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 if (params.orderKey.endTime <= block.timestamp) revert OrderAlreadyEnded();
 
                 if (
-                    !isTimeValid(params.orderKey.startTime, block.timestamp)
-                        || !isTimeValid(params.orderKey.endTime, block.timestamp)
+                    !isTimeValid(block.timestamp, params.orderKey.startTime)
+                        || !isTimeValid(block.timestamp, params.orderKey.endTime)
                         || params.orderKey.startTime >= params.orderKey.endTime
                 ) {
                     revert InvalidTimestamps();
@@ -490,6 +491,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
+                        totalDelta0 += delta0;
+                        totalDelta1 += delta1;
+
                         delta0 -= int128(uint128(amount0));
                         delta1 -= int128(uint128(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
@@ -500,6 +504,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                             (delta0, delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
+
+                        totalDelta0 += delta0;
+                        totalDelta1 += delta1;
                     }
 
                     // some amount of token0 came out the pool
@@ -531,9 +538,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         delete poolTimeInfos[poolId][nextTime];
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
-
-                    totalDelta0 += delta0;
-                    totalDelta1 += delta1;
 
                     state.lastVirtualOrderExecutionTime = nextTime;
                 }

@@ -9,7 +9,7 @@ import {LibBit} from "solady/utils/LibBit.sol";
 
 error SaleRateOverflow();
 
-// Computes sale rate = (amount << 32) / duration, and tries to cast it to 112 bits.
+// Computes sale rate = (amount << 32) / duration and casts it to a uint112. Reverts on overflow.
 function computeSaleRate(uint128 amount, uint32 duration) pure returns (uint112) {
     unchecked {
         uint256 saleRate = (uint256(amount) << 32) / duration;
@@ -24,7 +24,8 @@ function addSaleRateDelta(uint112 saleRate, int112 saleRateDelta) pure returns (
     assembly ("memory-safe") {
         result := add(saleRate, saleRateDelta)
         // if any of the upper bits are non-zero, revert
-        if and(result, shl(112, 0xffffffffffffffffffffffffffffffffffff)) {
+        if shr(112, result) {
+            // cast sig "SaleRateDeltaOverflow()"
             mstore(0, shl(224, 0xc902643d))
             revert(0, 4)
         }

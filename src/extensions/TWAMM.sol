@@ -526,12 +526,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                         // todo: we need to figure out how to handle overflow here
 
-                        state.saleRateToken0 = SafeCastLib.toUint112(
-                            uint256(int256(uint256(state.saleRateToken0)) + timeInfo.saleRateDeltaToken0)
-                        );
-                        state.saleRateToken1 = SafeCastLib.toUint112(
-                            uint256(int256(uint256(state.saleRateToken1)) + timeInfo.saleRateDeltaToken1)
-                        );
+                        state.saleRateToken0 = addSaleRateDelta(state.saleRateToken0, timeInfo.saleRateDeltaToken0);
+                        state.saleRateToken1 = addSaleRateDelta(state.saleRateToken1, timeInfo.saleRateDeltaToken1);
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
                         // this helps reduce the cost of executing virtual orders.

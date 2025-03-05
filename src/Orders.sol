@@ -23,6 +23,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
     error InvalidDuration();
     error OrderAlreadyEnded();
     error MaxSaleRateExceeded();
+    error MinimumRefund();
 
     TWAMM public immutable twamm;
 
@@ -79,9 +80,15 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         uint112 minRefund,
         address recipient
     ) public authorizedForNft(id) returns (uint112 refund) {
-        refund = abi.decode(
-            lock(abi.encode(bytes1(0xdd), recipient, id, orderKey, -int256(uint256(saleRateDecrease)), minRefund)),
-            (uint112)
+        refund = uint112(
+            uint256(
+                -abi.decode(
+                    lock(
+                        abi.encode(bytes1(0xdd), recipient, id, orderKey, -int256(uint256(saleRateDecrease)), minRefund)
+                    ),
+                    (int256)
+                )
+            )
         );
     }
 
@@ -121,6 +128,8 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
             } else {
                 withdraw(orderKey.sellToken, uint128(uint256(-amount)), recipientOrPayer);
             }
+
+            result = abi.encode(amount);
         } else if (callType == 0xff) {
             (, uint256 id, OrderKey memory orderKey, address recipient) =
                 abi.decode(data, (bytes1, uint256, OrderKey, address));

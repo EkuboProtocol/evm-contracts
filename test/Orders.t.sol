@@ -103,4 +103,30 @@ contract OrdersTest is BaseTWAMMTest {
         assertEq(orders.collectProceeds(id0, key0, address(this)), 98);
         assertEq(orders.collectProceeds(id1, key1, address(this)), 98);
     }
+
+    function test_createOrder_stop_order() public {
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        vm.warp(1);
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
+
+        advanceTime(8);
+
+        assertEq(orders.decreaseSaleRate(id, key, saleRate / 2, 20, address(this)), 20);
+        assertEq(orders.collectProceeds(id, key, address(this)), 47);
+
+        advanceTime(8);
+        assertEq(orders.collectProceeds(id, key, address(this)), 18);
+    }
 }

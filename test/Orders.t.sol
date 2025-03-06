@@ -290,4 +290,30 @@ contract OrdersTest is BaseTWAMMTest {
         router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided");
     }
+
+    function test_gas_costs_double_sided_order_crossed() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key0 =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
+        OrderKey memory key1 =
+            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
+
+        advanceTime(15);
+
+        token0.approve(address(router), type(uint256).max);
+        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        vm.snapshotGasLastCall("swap and executeVirtualOrders double sided crossed");
+    }
 }

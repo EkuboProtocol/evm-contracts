@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
+import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
@@ -63,6 +64,11 @@ contract DeployStatefulScript is Script {
         new Oracle{
             salt: findExtensionSalt(
                 salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()
+            )
+        }(core);
+        new TWAMM{
+            salt: findExtensionSalt(
+                salt, keccak256(abi.encodePacked(type(TWAMM).creationCode, abi.encode(core))), twammCallPoints()
             )
         }(core);
 

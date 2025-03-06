@@ -79,20 +79,16 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
         uint256 quotient = shiftedAmountAbs / liquidity;
 
         if (amount < 0) {
-            if (quotient > sqrtRatio) {
+            if (quotient >= sqrtRatio) {
                 // Underflow => return 0
                 return SqrtRatio.wrap(0);
             }
 
             uint256 sqrtRatioNextFixed = sqrtRatio - quotient;
 
-            // If remainder is non-zero, we do one more step down (rounding).
-            // If sqrtRatioNext == 0 => can't go lower => return 0
-            if ((shiftedAmountAbs % liquidity) != 0) {
-                if (sqrtRatioNextFixed == 0) {
-                    return SqrtRatio.wrap(0);
-                }
-                sqrtRatioNextFixed -= 1;
+            assembly ("memory-safe") {
+                // subtraction of 1 is safe because sqrtRatio > quotient => sqrtRatio - quotient >= 1
+                sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidity))))
             }
 
             sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);

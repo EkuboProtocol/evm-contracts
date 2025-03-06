@@ -148,7 +148,8 @@ contract SqrtRatioTest is Test {
                 if (SqrtRatio.unwrap(sqrtRatioNext) == 0) {
                     assertLe(
                         FixedPointMathLib.fullMulDivN(sqrtRatioFixed, liquidity, 128),
-                        uint128(-amount),
+                        // we add one here because it's possible that sqrt ratio next happens to equal 0 without underflow
+                        uint128(-amount) + 1,
                         "insufficient amount available"
                     );
                 } else {
@@ -171,5 +172,14 @@ contract SqrtRatioTest is Test {
                 assertEq(amount, 0);
             }
         }
+    }
+
+    function test_example_failed_solidity() public view {
+        test_nextSqrtRatioFromAmount0_compared_amount0Delta(
+            1 << 127, 340282366920938463463374607431768211455, -170141183460469231731687303715884105726
+        );
+        test_nextSqrtRatioFromAmount1_compared_amount1Delta(
+            1 << 127, 340282366920938463463374607431768211455, -170141183460469231731687303715884105726
+        );
     }
 }

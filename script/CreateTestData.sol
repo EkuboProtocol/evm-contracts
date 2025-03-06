@@ -126,22 +126,22 @@ contract CreateTestDataScript is Script {
                 sellToken: address(token),
                 buyToken: NATIVE_TOKEN_ADDRESS,
                 fee: uint64((uint256(100) << 64) / 10_000),
-                startTime: (block.timestamp / 16) * 16,
+                startTime: 0,
                 endTime: (block.timestamp / 16) * 16 + 240
             }),
             100e18,
-            0
+            type(uint112).max
         );
         orders.mintAndIncreaseSellAmount{value: 0.005e18}(
             OrderKey({
-                sellToken: address(token),
-                buyToken: NATIVE_TOKEN_ADDRESS,
+                sellToken: NATIVE_TOKEN_ADDRESS,
+                buyToken: address(token),
                 fee: uint64((uint256(100) << 64) / 10_000),
-                startTime: (block.timestamp / 16) * 16,
-                endTime: (block.timestamp / 16) * 16 + 8_192
+                startTime: 0,
+                endTime: ((block.timestamp / 8_192) + 2) * 8_192
             }),
-            100e18,
-            0
+            0.005e18,
+            type(uint112).max
         );
     }
 

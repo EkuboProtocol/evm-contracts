@@ -42,8 +42,8 @@ abstract contract BaseTWAMMTest is FullTest {
         positionId = positions.mint();
     }
 
-    function advanceTime(uint32 by) internal returns (uint64 next) {
-        next = uint64(vm.getBlockTimestamp() + by);
+    function advanceTime(uint32 by) internal returns (uint256 next) {
+        next = vm.getBlockTimestamp() + by;
         vm.warp(next);
     }
 
@@ -98,6 +98,16 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(50, 100);
         assertEq(_getRewardRateInside(poolId, 100, 200, false), 100);
+    }
+
+    function test_getRewardRateInside_at_end_time() public {
+        bytes32 poolId = bytes32(0);
+
+        poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(25, 30);
+        poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(50, 75);
+        vm.warp(200);
+        assertEq(_getRewardRateInside(poolId, 100, 200, false), 25);
+        assertEq(_getRewardRateInside(poolId, 100, 200, true), 45);
     }
 
     function test_getRewardRateInside_token1() public {

@@ -41,8 +41,8 @@ abstract contract BaseOracleTest is FullTest {
         positionId = positions.mint();
     }
 
-    function advanceTime(uint32 by) internal returns (uint64 next) {
-        next = uint64(vm.getBlockTimestamp() + by);
+    function advanceTime(uint32 by) internal returns (uint256 next) {
+        next = vm.getBlockTimestamp() + by;
         vm.warp(next);
     }
 
@@ -602,7 +602,7 @@ contract OracleTest is BaseOracleTest {
     }
 
     function test_getExtrapolatedSnapshots() public {
-        uint64 poolCreationTime = advanceTime(5);
+        uint64 poolCreationTime = uint64(advanceTime(5));
 
         oracle.expandCapacity(address(token1), 5);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);

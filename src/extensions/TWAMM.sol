@@ -148,7 +148,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     function _getOrderInfo(address owner, bytes32 salt, OrderKey memory orderKey)
         internal
         view
-        returns (uint112 saleRate, uint256 rewardRateInside, uint128 remainingSellAmount, uint128 purchasedAmount)
+        returns (uint112 saleRate, uint256 rewardRateInside, uint128 purchasedAmount)
     {
         OrderState memory order = orderState[owner][salt][orderKey.toOrderId()];
 
@@ -159,14 +159,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 orderKey.startTime,
                 orderKey.endTime,
                 orderKey.sellToken < orderKey.buyToken
-            );
-            remainingSellAmount = computeAmountFromSaleRate(
-                order.saleRate,
-                uint32(
-                    FixedPointMathLib.max(orderKey.endTime, block.timestamp)
-                        - FixedPointMathLib.max(orderKey.startTime, block.timestamp)
-                ),
-                false
             );
 
             purchasedAmount = computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, saleRate);
@@ -179,8 +171,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         returns (uint256 result)
     {
         assembly ("memory-safe") {
-            switch gt(timestamp(), endTime)
-            case 1 {
+            // if block.timestamp >= endTime
+            switch lt(timestamp(), endTime)
+            case 0 {
                 mstore(0, poolId)
                 mstore(32, 4)
                 // hash poolId,4 and store at 32
@@ -197,6 +190,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 result := sub(rewardRateEnd, rewardRateStart)
             }
             default {
+                // else if block.timestamp > startTime
+                //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
                 switch gt(timestamp(), startTime)
                 case 1 {
                     mstore(0, poolId)
@@ -308,7 +303,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
                 _executeVirtualOrdersFromWithinLock(poolKey);
 
-                (uint112 saleRate, uint256 rewardRateSnapshot, uint128 remainingSellAmount, uint128 purchasedAmount) =
+                (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
                     _getOrderInfo(originalLocker, params.salt, params.orderKey);
 
                 uint112 saleRateNext = addSaleRateDelta(saleRate, params.saleRateDelta);
@@ -359,17 +354,19 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
                 }
 
+                // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
+                uint32 durationRemaining =
+                    uint32(params.orderKey.endTime - FixedPointMathLib.max(block.timestamp, params.orderKey.startTime));
+
                 // the amount required for executing at the next sale rate for the remaining duration of the order
-                uint256 amountRequired = computeAmountFromSaleRate({
-                    saleRate: saleRateNext,
-                    duration: uint32(
-                        params.orderKey.endTime - FixedPointMathLib.max(block.timestamp, params.orderKey.startTime)
-                    ),
-                    roundUp: true
-                });
+                uint256 amountRequired =
+                    computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
 
                 // subtract the remaining sell amount to get the delta
                 int256 amountDelta;
+
+                uint256 remainingSellAmount = computeAmountFromSaleRate(saleRate, durationRemaining, true);
+
                 assembly ("memory-safe") {
                     amountDelta := sub(amountRequired, remainingSellAmount)
                 }
@@ -412,7 +409,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
                 _executeVirtualOrdersFromWithinLock(poolKey);
 
-                (, uint256 rewardRateSnapshot,, uint128 purchasedAmount) =
+                (, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
                     _getOrderInfo(originalLocker, params.salt, params.orderKey);
 
                 orderState[originalLocker][params.salt][params.orderKey.toOrderId()].rewardRateSnapshot =
@@ -535,16 +532,17 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     }
 
                     if (initialized) {
-                        poolRewardRatesBefore[poolId][nextTime] = rewardRates;
+                        uint256 realTimeCrossed = block.timestamp + nextTime - currentTime;
+                        poolRewardRatesBefore[poolId][realTimeCrossed] = rewardRates;
 
-                        TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
+                        TimeInfo memory timeInfo = poolTimeInfos[poolId][realTimeCrossed];
 
                         saleRateToken0 = addSaleRateDelta(saleRateToken0, timeInfo.saleRateDeltaToken0);
                         saleRateToken1 = addSaleRateDelta(saleRateToken1, timeInfo.saleRateDeltaToken1);
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
                         // this helps reduce the cost of executing virtual orders.
-                        delete poolTimeInfos[poolId][nextTime];
+                        delete poolTimeInfos[poolId][realTimeCrossed];
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
 

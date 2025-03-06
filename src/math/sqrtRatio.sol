@@ -87,7 +87,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
             uint256 sqrtRatioNextFixed = sqrtRatio - quotient;
 
             assembly ("memory-safe") {
-                // subtraction is safe because sqrtRatio > quotient => sqrtRatio - quotient > 1
+                // subtraction of 1 is safe because sqrtRatio > quotient => sqrtRatio - quotient >= 1
                 sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidity))))
             }
 

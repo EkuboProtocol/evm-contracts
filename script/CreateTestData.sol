@@ -9,13 +9,15 @@ import {TestToken} from "../test/TestToken.sol";
 import {MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
+import {Orders} from "../src/Orders.sol";
+import {OrderKey} from "../src/extensions/TWAMM.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {maxBounds} from "../test/SolvencyInvariantTest.t.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract CreateTestDataScript is Script {
-    function generateTestData(Positions positions, Router router, Oracle oracle) private {
+    function generateTestData(Positions positions, Router router, Oracle oracle, Orders orders) private {
         TestToken token = new TestToken(vm.getWallets()[0]);
 
         token.approve(address(router), type(uint256).max);
@@ -102,6 +104,45 @@ contract CreateTestDataScript is Script {
             0.03e18,
             300e18
         );
+
+        // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH, twamm pool
+        createPool(
+            baseSalt++,
+            positions,
+            NATIVE_TOKEN_ADDRESS,
+            address(token),
+            uint64((uint256(100) << 64) / 10_000),
+            0,
+            maxBounds(0),
+            address(orders.twamm()),
+            8517197,
+            0.03e18,
+            300e18
+        );
+
+        token.approve(address(orders), type(uint256).max);
+        orders.mintAndIncreaseSellAmount(
+            OrderKey({
+                sellToken: address(token),
+                buyToken: NATIVE_TOKEN_ADDRESS,
+                fee: uint64((uint256(100) << 64) / 10_000),
+                startTime: (block.timestamp / 16) * 16,
+                endTime: (block.timestamp / 16) * 16 + 240
+            }),
+            100e18,
+            0
+        );
+        orders.mintAndIncreaseSellAmount{value: 0.005e18}(
+            OrderKey({
+                sellToken: address(token),
+                buyToken: NATIVE_TOKEN_ADDRESS,
+                fee: uint64((uint256(100) << 64) / 10_000),
+                startTime: (block.timestamp / 16) * 16,
+                endTime: (block.timestamp / 16) * 16 + 8_192
+            }),
+            100e18,
+            0
+        );
     }
 
     function createPool(
@@ -141,9 +182,10 @@ contract CreateTestDataScript is Script {
 
         address payable positions = payable(vm.envAddress("POSITIONS_ADDRESS"));
         address payable router = payable(vm.envAddress("ROUTER_ADDRESS"));
+        address payable orders = payable(vm.envAddress("ORDERS_ADDRESS"));
         address oracle = vm.envAddress("ORACLE_ADDRESS");
 
-        generateTestData(Positions(positions), Router(router), Oracle(oracle));
+        generateTestData(Positions(positions), Router(router), Oracle(oracle), Orders(orders));
 
         vm.stopBroadcast();
     }

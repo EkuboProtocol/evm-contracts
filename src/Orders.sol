@@ -45,6 +45,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     function mintAndIncreaseSellAmount(OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)
         public
+        payable
         returns (uint256 id, uint112 saleRate)
     {
         id = mint();
@@ -53,6 +54,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     function increaseSellAmount(uint256 id, OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)
         public
+        payable
         authorizedForNft(id)
         returns (uint112 saleRate)
     {
@@ -79,7 +81,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         uint112 saleRateDecrease,
         uint112 minRefund,
         address recipient
-    ) public authorizedForNft(id) returns (uint112 refund) {
+    ) public payable authorizedForNft(id) returns (uint112 refund) {
         refund = uint112(
             uint256(
                 -abi.decode(
@@ -94,6 +96,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)
         public
+        payable
         authorizedForNft(id)
         returns (uint128 proceeds)
     {

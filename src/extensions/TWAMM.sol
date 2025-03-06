@@ -131,24 +131,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
-    // Must be called for a pool key that is already initialized
-    function _executeVirtualOrders(PoolKey memory poolKey) internal {
-        // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
-        // so we call lock on the core contract with the pool key after it
-        address target = address(core);
-        assembly ("memory-safe") {
-            let o := mload(0x40)
-            mstore(o, shl(224, 0xf83d08ba))
-            mcopy(add(o, 4), poolKey, 96)
-
-            // If the call failed, pass through the revert
-            if iszero(call(gas(), target, 0, o, 100, 0, 0)) {
-                returndatacopy(o, 0, returndatasize())
-                revert(o, returndatasize())
-            }
-        }
-    }
-
     // Must be called on a pool that is executed up to the current timestamp
     function _getOrderInfo(address owner, bytes32 salt, OrderKey memory orderKey)
         internal
@@ -593,6 +575,24 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
+    // Must be called for a pool key that is already initialized
+    function _lockAndExecuteVirtualOrders(PoolKey memory poolKey) internal {
+        // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
+        // so we call lock on the core contract with the pool key after it
+        address target = address(core);
+        assembly ("memory-safe") {
+            let o := mload(0x40)
+            mstore(o, shl(224, 0xf83d08ba))
+            mcopy(add(o, 4), poolKey, 96)
+
+            // If the call failed, pass through the revert
+            if iszero(call(gas(), target, 0, o, 100, 0, 0)) {
+                returndatacopy(o, 0, returndatasize())
+                revert(o, returndatasize())
+            }
+        }
+    }
+
     ///////////////////////// Extension call points /////////////////////////
 
     function afterInitializePool(address, PoolKey memory key, int32, SqrtRatio) external override onlyCore {
@@ -606,7 +606,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     }
 
     function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override onlyCore {
-        _executeVirtualOrders(poolKey);
+        _lockAndExecuteVirtualOrders(poolKey);
     }
 
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory)
@@ -614,6 +614,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         override
         onlyCore
     {
-        _executeVirtualOrders(poolKey);
+        _lockAndExecuteVirtualOrders(poolKey);
     }
 }

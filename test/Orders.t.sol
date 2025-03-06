@@ -17,7 +17,7 @@ import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
-import {OrderKey} from "../src/extensions/TWAMM.sol";
+import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
 
 contract OrdersTest is BaseTWAMMTest {
     Orders internal orders;
@@ -239,6 +239,48 @@ contract OrdersTest is BaseTWAMMTest {
 
         advanceTime(8);
         assertEq(orders.collectProceeds(id, key, address(this)), 18);
+    }
+
+    function test_createOrder_non_existent_pool(uint256 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: address(token0),
+            buyToken: address(token1),
+            fee: fee,
+            startTime: time - 1,
+            endTime: time + 15
+        });
+
+        vm.expectRevert(TWAMM.PoolNotInitialized.selector);
+        orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
+    }
+
+    function test_collectProceeds_non_existent_pool(uint256 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: address(token0),
+            buyToken: address(token1),
+            fee: fee,
+            startTime: time - 1,
+            endTime: time + 15
+        });
+
+        uint256 id = orders.mint();
+
+        vm.expectRevert(TWAMM.PoolNotInitialized.selector);
+        orders.collectProceeds(id, key, address(this));
     }
 
     function test_gas_costs_single_sided() public {

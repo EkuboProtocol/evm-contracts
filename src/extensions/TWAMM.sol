@@ -78,6 +78,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     error InvalidTimestamps();
     error MustCollectProceedsBeforeCanceling();
     error MaxSaleRateDeltaPerTick();
+    error PoolNotInitialized();
 
     struct PoolState {
         uint32 lastVirtualOrderExecutionTime;
@@ -112,6 +113,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
     // Current state of each individual order
     mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) internal orderState;
+
+    // Auxiliary mapping that just indicates whether a pool is indeed initialized
+    // This is only checked in the case that lastVirtualOrderExecutionTime is zero
+    mapping(bytes32 poolId => bool) poolInitialized;
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -459,6 +464,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     (state.lastVirtualOrderExecutionTime, state.saleRateToken0, state.saleRateToken1);
             }
 
+            // check the pool is initialized iff this is zero, otherwise we know it's initialized
+            if (lastVirtualOrderExecutionTime == 0) {
+                if (!poolInitialized[poolId]) revert PoolNotInitialized();
+            }
+
             uint32 currentTime = uint32(block.timestamp);
 
             // no-op if already executed in this block
@@ -590,6 +600,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
         bytes32 poolId = key.toPoolId();
         poolState[poolId] = PoolState(uint32(block.timestamp), 0, 0);
+        // we need this extra mapping since pool state can be zero for an initialized pool
+        poolInitialized[poolId] = true;
         _emitVirtualOrdersExecuted(poolId, 0, 0);
     }
 

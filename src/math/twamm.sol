@@ -106,7 +106,7 @@ function computeNextSqrtRatio(
                 // if the exponent is larger than this value (64), the exponent term dominates and the result is approximately the sell ratio
                 sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
             } else {
-                int256 ePowExponent = int256(uint256(exp2(int128(int256(exponent)))));
+                int256 ePowExponent = int256(uint256(exp2(uint128(exponent))));
 
                 uint256 sqrtRatioNextFixed = FixedPointMathLib.fullMulDiv(
                     sqrtSaleRatio, FixedPointMathLib.abs(ePowExponent - c), FixedPointMathLib.abs(ePowExponent + c)

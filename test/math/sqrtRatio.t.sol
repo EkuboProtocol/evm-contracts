@@ -70,8 +70,8 @@ contract SqrtRatioTest is Test {
         uint128 liquidity,
         int128 amount
     ) public view {
-        vm.assumeNoRevert();
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
+        liquidity = uint128(bound(liquidity, 1, type(uint128).max));
         SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
         sqrtRatioFixed = sqrtRatio.toFixed();
 
@@ -135,8 +135,8 @@ contract SqrtRatioTest is Test {
         uint128 liquidity,
         int128 amount
     ) public view {
-        vm.assumeNoRevert();
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
+        liquidity = uint128(bound(liquidity, 1, type(uint128).max));
 
         SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
         sqrtRatioFixed = sqrtRatio.toFixed();
@@ -157,7 +157,6 @@ contract SqrtRatioTest is Test {
                         "insufficient amount available"
                     );
                 } else {
-                    vm.assumeNoRevert();
                     assertLe(
                         uint128(-amount),
                         this.a1d(sqrtRatio, sqrtRatioNext, liquidity, false),

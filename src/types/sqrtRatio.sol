@@ -51,6 +51,11 @@ function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
 
 error ValueOverflowsSqrtRatioContainer();
 
+// If passing a value greater than this constant with roundUp = true, toSqrtRatio will overflow
+// For roundUp = false, the constant is type(uint192).max
+uint256 constant MAX_FIXED_VALUE_ROUND_UP =
+    0x1000000000000000000000000000000000000000000000000 - 0x4000000000000000000000000;
+
 // Converts a 64.128 value into the compact SqrtRatio representation
 function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {

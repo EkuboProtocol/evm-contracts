@@ -84,11 +84,15 @@ contract SqrtRatioTest is Test {
                 assertGt(sqrtRatioNext.toFixed(), sqrtRatioFixed, "next price increasing");
                 if (SqrtRatio.unwrap(sqrtRatioNext) == type(uint96).max) {
                     // if we overflowed, the amount in the pool is not enough to support the trade
-                    assertLe(
-                        (uint256(liquidity) << 128) / sqrtRatioFixed,
-                        uint128(-amount),
-                        "the amount available for current liquidity is too low"
-                    );
+                    uint256 amountAvailable = (uint256(liquidity) << 128) / sqrtRatioFixed;
+                    if (amountAvailable > uint128(-amount)) {
+                        uint256 roundedAmountAvailable = amount0Delta(sqrtRatio, MAX_SQRT_RATIO, liquidity, false);
+                        assertLe(
+                            roundedAmountAvailable,
+                            uint128(-amount),
+                            "the amount available for the liquidity is too low"
+                        );
+                    }
                 } else {
                     vm.assumeNoRevert();
                     assertLe(

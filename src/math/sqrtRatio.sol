@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
+import {SqrtRatio, toSqrtRatio, MAX_FIXED_VALUE_ROUND_UP} from "../types/sqrtRatio.sol";
 
 error ZeroLiquidityNextSqrtRatioFromAmount0();
 
@@ -41,7 +41,13 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
 
             uint256 denominator = liquidityX128 - product;
 
-            sqrtRatioNext = toSqrtRatio(FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator), true);
+            uint256 resultFixed = FixedPointMathLib.fullMulDivUp(liquidityX128, sqrtRatio, denominator);
+
+            if (resultFixed > MAX_FIXED_VALUE_ROUND_UP) {
+                return SqrtRatio.wrap(type(uint96).max);
+            }
+
+            sqrtRatioNext = toSqrtRatio(resultFixed, true);
         }
     } else {
         uint256 denominator;

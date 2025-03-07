@@ -16,7 +16,7 @@ import {
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
-import {Oracle} from "../../src/extensions/Oracle.sol";
+import {Oracle, oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {TestToken} from "../TestToken.sol";
@@ -35,27 +35,14 @@ abstract contract BaseOracleTest is FullTest {
 
     function setUp() public virtual override {
         FullTest.setUp();
-        address deployAddress = address(
-            uint160(
-                CallPoints({
-                    beforeInitializePool: true,
-                    afterInitializePool: false,
-                    beforeUpdatePosition: true,
-                    afterUpdatePosition: false,
-                    beforeSwap: true,
-                    afterSwap: false,
-                    beforeCollectFees: false,
-                    afterCollectFees: false
-                }).toUint8()
-            ) << 152
-        );
+        address deployAddress = address(uint160(oracleCallPoints().toUint8()) << 152);
         deployCodeTo("Oracle.sol", abi.encode(core), deployAddress);
         oracle = Oracle(deployAddress);
         positionId = positions.mint();
     }
 
-    function advanceTime(uint32 by) internal returns (uint64 next) {
-        next = uint64(vm.getBlockTimestamp() + by);
+    function advanceTime(uint32 by) internal returns (uint256 next) {
+        next = vm.getBlockTimestamp() + by;
         vm.warp(next);
     }
 
@@ -615,7 +602,7 @@ contract OracleTest is BaseOracleTest {
     }
 
     function test_getExtrapolatedSnapshots() public {
-        uint64 poolCreationTime = advanceTime(5);
+        uint64 poolCreationTime = uint64(advanceTime(5));
 
         oracle.expandCapacity(address(token1), 5);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);

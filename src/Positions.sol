@@ -15,22 +15,22 @@ import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
-import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
+import {MintableNFT} from "./base/MintableNFT.sol";
 
-contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, ERC721 {
-    error Unauthorized(address caller, uint256 id);
+contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();
 
     using CoreLib for ICore;
 
-    ITokenURIGenerator public immutable tokenURIGenerator;
-
-    constructor(ICore core, ITokenURIGenerator _tokenURIGenerator) BaseLocker(core) UsesCore(core) {
-        tokenURIGenerator = _tokenURIGenerator;
-    }
+    constructor(ICore core, ITokenURIGenerator tokenURIGenerator)
+        MintableNFT(tokenURIGenerator)
+        BaseLocker(core)
+        UsesCore(core)
+    {}
 
     function name() public pure override returns (string memory) {
         return "Ekubo Positions";
@@ -38,50 +38,6 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
 
     function symbol() public pure override returns (string memory) {
         return "ekuPo";
-    }
-
-    function tokenURI(uint256 id) public view override returns (string memory) {
-        return tokenURIGenerator.generateTokenURI(id);
-    }
-
-    modifier authorizedForNft(uint256 id) {
-        if (!_isApprovedOrOwner(msg.sender, id)) {
-            revert Unauthorized(msg.sender, id);
-        }
-        _;
-    }
-
-    function saltToId(address minter, bytes32 salt) public view returns (uint256 result) {
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-            mstore(free, minter)
-            mstore(add(free, 32), salt)
-            mstore(add(free, 64), chainid())
-            mstore(add(free, 96), address())
-
-            // we use the first 48 bits only so it fits in most integer types
-            result := shr(208, keccak256(free, 128))
-        }
-    }
-
-    function mint() public payable returns (uint256 id) {
-        // generates a pseudorandom salt
-        // note this can have encounter conflicts if a sender sends two identical transactions in the same block
-        // that happen to consume exactly the same amount of gas
-        bytes32 salt;
-        assembly ("memory-safe") {
-            mstore(0, prevrandao())
-            mstore(32, gas())
-            salt := keccak256(0, 64)
-        }
-        id = mint(salt);
-    }
-
-    // Mints an NFT for the caller with the ID given by shr(192, keccak256(minter, salt))
-    // This prevents us from having to store a counter of how many were minted
-    function mint(bytes32 salt) public payable returns (uint256 id) {
-        id = saltToId(msg.sender, salt);
-        _mint(msg.sender, id);
     }
 
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
@@ -172,12 +128,6 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
         returns (uint128 amount0, uint128 amount1)
     {
         (amount0, amount1) = withdraw(id, poolKey, bounds, liquidity, address(msg.sender), true);
-    }
-
-    // Can be used to refund some gas after withdrawing
-    // The NFT ID can be re-minted by the original minter after it is burned
-    function burn(uint256 id) external payable authorizedForNft(id) {
-        _burn(id);
     }
 
     function maybeInitializePool(PoolKey memory poolKey, int32 tick)

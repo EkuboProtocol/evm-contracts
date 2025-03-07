@@ -2,7 +2,15 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {SqrtRatio, toSqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, ONE} from "../../src/types/sqrtRatio.sol";
+import {
+    SqrtRatio,
+    toSqrtRatio,
+    MIN_SQRT_RATIO,
+    MAX_SQRT_RATIO,
+    ONE,
+    MAX_FIXED_VALUE_ROUND_UP,
+    ValueOverflowsSqrtRatioContainer
+} from "../../src/types/sqrtRatio.sol";
 
 contract SqrtRatioTypeTest is Test {
     function test_min_max_sqrt_ratio_isValid() public pure {
@@ -62,6 +70,38 @@ contract SqrtRatioTypeTest is Test {
             340282366920938463463374607414588342272,
             "rounded down != ONE"
         );
+
+        assertEq(
+            toSqrtRatio(MAX_FIXED_VALUE_ROUND_UP, true).toFixed(),
+            6277101735386680763835789422890753766045298094089858711552,
+            "rounded down != ONE"
+        );
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_toSqrtRatio_fails_if_greater_than_MAX_FIXED_VALUE_ROUND_UP() public {
+        vm.expectRevert(ValueOverflowsSqrtRatioContainer.selector);
+        toSqrtRatio(MAX_FIXED_VALUE_ROUND_UP + 1, true);
+    }
+
+    function test_toSqrtRatio_succeeds_if_greater_than_MAX_FIXED_VALUE_ROUND_UP_DOWN() public pure {
+        assertEq(
+            toSqrtRatio(MAX_FIXED_VALUE_ROUND_UP + 1, false).toFixed(),
+            6277101735386680763835789422890753766045298094089858711552
+        );
+    }
+
+    function test_toSqrtRatio_succeeds_uint192_max_round_down() public pure {
+        assertEq(
+            toSqrtRatio(uint256(type(uint192).max), false).toFixed(),
+            6277101735386680763835789422890753766045298094089858711552
+        );
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_toSqrtRatio_fails_if_greater_than_uint192_max_round_down() public {
+        vm.expectRevert(ValueOverflowsSqrtRatioContainer.selector);
+        toSqrtRatio(uint256(type(uint192).max) + 1, false);
     }
 
     function check_lt(SqrtRatio a, SqrtRatio b) public pure {

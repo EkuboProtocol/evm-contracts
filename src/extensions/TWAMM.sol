@@ -4,19 +4,16 @@ pragma solidity =0.8.28;
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, toConfig} from "../types/poolKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
-import {PositionKey, Bounds} from "../types/positionKey.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
-import {BaseLocker} from "../base/BaseLocker.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../math/bitmap.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {computeFee} from "../math/fee.sol";
 import {
@@ -67,7 +64,7 @@ struct CollectProceedsParams {
 
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
-    using CoreLib for ICore;
+    using CoreLib for *;
 
     event OrderUpdated(address owner, bytes32 salt, OrderKey orderKey, int112 saleRateDelta);
     event OrderProceedsWithdrawn(address owner, bytes32 salt, OrderKey orderKey, uint128 amount);
@@ -77,7 +74,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     error OrderAlreadyEnded();
     error InvalidTimestamps();
     error MustCollectProceedsBeforeCanceling();
-    error MaxSaleRateDeltaPerTick();
+    error MaxSaleRateDeltaPerTime();
     error PoolNotInitialized();
 
     struct PoolState {
@@ -206,10 +203,16 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         pure
         returns (int112 saleRateDeltaNext)
     {
-        // checked addition, no overflow of int112 type
-        saleRateDeltaNext = saleRateDelta + saleRateDeltaChange;
-        if (FixedPointMathLib.abs(saleRateDeltaNext) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
-            revert MaxSaleRateDeltaPerTick();
+        unchecked {
+            int256 result = int256(saleRateDelta) + saleRateDeltaChange;
+
+            // checked addition, no overflow of int112 type
+            if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
+                revert MaxSaleRateDeltaPerTime();
+            }
+
+            // we know cast is safe because abs(result) is less than MAX_ABS_VALUE_SALE_RATE_DELTA which fits in a int112
+            saleRateDeltaNext = int112(result);
         }
     }
 
@@ -338,6 +341,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     }
 
                     // only update the end time
+                    // todo: what if params.saleRateDelta is type(int112).min?
                     _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
                 }
 

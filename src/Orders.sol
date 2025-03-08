@@ -5,15 +5,10 @@ import {ERC721} from "solady/tokens/ERC721.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
-import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
-import {Position} from "./types/position.sol";
-import {tickToSqrtRatio} from "./math/ticks.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
-import {SqrtRatio} from "./types/sqrtRatio.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {TWAMM, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
 import {computeSaleRate} from "./math/twamm.sol";
 import {MintableNFT} from "./base/MintableNFT.sol";
@@ -94,6 +89,14 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         );
     }
 
+    function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease)
+        external
+        payable
+        returns (uint112 refund)
+    {
+        refund = decreaseSaleRate(id, orderKey, saleRateDecrease, 0, msg.sender);
+    }
+
     function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)
         public
         payable
@@ -101,6 +104,10 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         returns (uint128 proceeds)
     {
         proceeds = abi.decode(lock(abi.encode(bytes1(0xff), id, orderKey, recipient)), (uint128));
+    }
+
+    function collectProceeds(uint256 id, OrderKey memory orderKey) external payable returns (uint128 proceeds) {
+        proceeds = collectProceeds(id, orderKey, msg.sender);
     }
 
     error UnexpectedCallTypeByte(bytes1 b);

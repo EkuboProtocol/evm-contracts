@@ -4,8 +4,6 @@ pragma solidity =0.8.28;
 import {UpdatePositionParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
-import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
-import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {
     MIN_TICK,
@@ -24,10 +22,11 @@ import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
-import {Vm} from "forge-std/Vm.sol";
 import {Test} from "forge-std/Test.sol";
 import {searchForNextInitializedTime, flipTime} from "../../src/math/timeBitmap.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";
+import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -60,10 +59,11 @@ contract TWAMMTest is BaseTWAMMTest {
         createPool(address(token0), address(token1), 0, 0, 1, address(twamm));
     }
 
-    function test_createPool() public {
+    function test_createPool(uint256 time) public {
+        vm.warp(time);
         PoolKey memory key = createTwammPool(100, 0);
         (uint32 lvoe, uint112 srt0, uint112 srt1) = twamm.poolState(key.toPoolId());
-        assertEq(lvoe, 1);
+        assertEq(lvoe, uint32(time));
         assertEq(srt0, 0);
         assertEq(srt1, 0);
     }
@@ -77,6 +77,15 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
     function _registerInConstructor() internal pure override returns (bool) {
         return false;
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_addConstrainSaleRateDelta(int112 saleRateDelta, int112 saleRateDeltaChange) public {
+        int256 result = int256(saleRateDelta) + saleRateDeltaChange;
+        if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
+            vm.expectRevert(MaxSaleRateDeltaPerTime.selector);
+        }
+        assertEq(_addConstrainSaleRateDelta(saleRateDelta, saleRateDeltaChange), result);
     }
 
     function test_getRewardRateInside_token0() public {

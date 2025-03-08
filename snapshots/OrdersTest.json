@@ -1,6 +1,6 @@
 {
-  "mintAndIncreaseSellAmount(first order)": "170264",
-  "mintAndIncreaseSellAmount(second order)": "82130",
+  "mintAndIncreaseSellAmount(first order)": "170337",
+  "mintAndIncreaseSellAmount(second order)": "82203",
   "swap and executeVirtualOrders double sided": "107440",
   "swap and executeVirtualOrders double sided crossed": "153047",
   "swap and executeVirtualOrders single sided": "94953"

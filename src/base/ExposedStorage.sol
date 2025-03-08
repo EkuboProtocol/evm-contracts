@@ -4,17 +4,17 @@ pragma solidity =0.8.28;
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 
 abstract contract ExposedStorage is IExposedStorage {
-    function sload(bytes32 slot) external view returns (bytes32) {
+    function sload() external view {
         assembly ("memory-safe") {
-            mstore(0, sload(slot))
-            return(0, 32)
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } { mstore(sub(i, 4), sload(calldataload(i))) }
+            return(0, sub(calldatasize(), 4))
         }
     }
 
-    function tload(bytes32 slot) external view returns (bytes32) {
+    function tload() external view {
         assembly ("memory-safe") {
-            mstore(0, tload(slot))
-            return(0, 32)
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } { mstore(sub(i, 4), tload(calldataload(i))) }
+            return(0, sub(calldatasize(), 4))
         }
     }
 }

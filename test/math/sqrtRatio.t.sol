@@ -9,40 +9,6 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {console} from "forge-std/console.sol";
 
 contract SqrtRatioTest is Test {
-    // wrapper for the purpose of vm.assumeNoRevert
-    function nsrfa0(SqrtRatio sqrtRatio, uint128 liquidity, int128 amount)
-        external
-        pure
-        returns (SqrtRatio sqrtRatioNext)
-    {
-        return nextSqrtRatioFromAmount0(sqrtRatio, liquidity, amount);
-    }
-
-    // wrapper for the purpose of vm.assumeNoRevert
-    function nsrfa1(SqrtRatio sqrtRatio, uint128 liquidity, int128 amount)
-        external
-        pure
-        returns (SqrtRatio sqrtRatioNext)
-    {
-        return nextSqrtRatioFromAmount1(sqrtRatio, liquidity, amount);
-    }
-
-    function a0d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
-        external
-        pure
-        returns (uint128 amount0)
-    {
-        amount0 = amount0Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
-    }
-
-    function a1d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
-        external
-        pure
-        returns (uint128 amount1)
-    {
-        amount1 = amount1Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
-    }
-
     function assertSqrtRatioEq(SqrtRatio a, SqrtRatio b) private pure {
         assertEq(SqrtRatio.unwrap(a), SqrtRatio.unwrap(b), "sqrtRatioEq");
     }
@@ -69,13 +35,13 @@ contract SqrtRatioTest is Test {
         uint256 sqrtRatioFixed,
         uint128 liquidity,
         int128 amount
-    ) public view {
+    ) public pure {
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
         liquidity = uint128(bound(liquidity, 1, type(uint128).max));
         SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
         sqrtRatioFixed = sqrtRatio.toFixed();
 
-        SqrtRatio sqrtRatioNext = this.nsrfa0(sqrtRatio, liquidity, amount);
+        SqrtRatio sqrtRatioNext = nextSqrtRatioFromAmount0(sqrtRatio, liquidity, amount);
 
         unchecked {
             // this assertion ensures that the next sqrt ratio we compute is either sufficient to produce the requested amount0,
@@ -94,17 +60,21 @@ contract SqrtRatioTest is Test {
                         );
                     }
                 } else {
-                    vm.assumeNoRevert();
-                    assertLe(
-                        uint128(-amount),
-                        this.a0d(sqrtRatio, sqrtRatioNext, liquidity, false),
-                        "amount taken out is less than the delta"
+                    uint256 result0 = FixedPointMathLib.fullMulDiv(
+                        (uint256(liquidity) << 128),
+                        (sqrtRatioNext.toFixed() - sqrtRatio.toFixed()),
+                        sqrtRatioNext.toFixed()
                     );
+                    uint256 amountAvailable = result0 / sqrtRatio.toFixed();
+
+                    assertLe(uint128(-amount), amountAvailable, "amount taken out is less than the delta");
                 }
             } else if (amount > 0) {
                 assertLe(SqrtRatio.unwrap(sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio), "sqrt ratio decreased");
                 assertGe(
-                    uint128(amount), this.a0d(sqrtRatio, sqrtRatioNext, liquidity, true), "the amount is g.e. the delta"
+                    uint128(amount),
+                    amount0Delta(sqrtRatio, sqrtRatioNext, liquidity, true),
+                    "the amount is g.e. the delta"
                 );
             } else {
                 assertEq(SqrtRatio.unwrap(sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio), "price did not move");
@@ -134,14 +104,14 @@ contract SqrtRatioTest is Test {
         uint256 sqrtRatioFixed,
         uint128 liquidity,
         int128 amount
-    ) public view {
+    ) public pure {
         sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
         liquidity = uint128(bound(liquidity, 1, type(uint128).max));
 
         SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
         sqrtRatioFixed = sqrtRatio.toFixed();
 
-        SqrtRatio sqrtRatioNext = this.nsrfa1(sqrtRatio, liquidity, amount);
+        SqrtRatio sqrtRatioNext = nextSqrtRatioFromAmount1(sqrtRatio, liquidity, amount);
 
         // this assertion ensures that the next sqrt ratio we compute is either sufficient to produce the requested amount0,
         // or more than the amount required to move to that price
@@ -159,7 +129,7 @@ contract SqrtRatioTest is Test {
                 } else {
                     assertLe(
                         uint128(-amount),
-                        this.a1d(sqrtRatio, sqrtRatioNext, liquidity, false),
+                        amount1Delta(sqrtRatio, sqrtRatioNext, liquidity, false),
                         "amount taken out is less than the delta"
                     );
                 }
@@ -167,7 +137,7 @@ contract SqrtRatioTest is Test {
                 assertGe(SqrtRatio.unwrap(sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio), "ratio increases for token1 > 0");
                 assertGe(
                     uint128(amount),
-                    this.a1d(sqrtRatio, sqrtRatioNext, liquidity, true),
+                    amount1Delta(sqrtRatio, sqrtRatioNext, liquidity, true),
                     "sqrt ratio increase is rounded down"
                 );
             } else {

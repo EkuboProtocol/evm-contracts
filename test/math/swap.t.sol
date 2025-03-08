@@ -38,9 +38,11 @@ contract SwapTest is Test {
     ) public view {
         SqrtRatio sqrtRatio =
             toSqrtRatio(bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
-        SqrtRatio sqrtRatioLimit =
-            toSqrtRatio(bound(sqrtRatioLimitFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
         bool increasing = isPriceIncreasing(amount, isToken1);
+        // put the sqrt ratio limit in the right direction
+        SqrtRatio sqrtRatioLimit = increasing
+            ? toSqrtRatio(bound(sqrtRatioLimitFixed, sqrtRatio.toFixed(), MAX_SQRT_RATIO.toFixed()), true)
+            : toSqrtRatio(bound(sqrtRatioLimitFixed, MIN_SQRT_RATIO.toFixed(), sqrtRatio.toFixed()), false);
 
         vm.assumeNoRevert();
         SwapResult memory result = this.sr(sqrtRatio, liquidity, sqrtRatioLimit, amount, isToken1, fee);

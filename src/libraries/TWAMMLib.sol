@@ -20,7 +20,7 @@ library TWAMMLib {
             key := keccak256(0, 64)
         }
 
-        bytes32 s = twamm.unsafeRead(key);
+        bytes32 s = twamm.sload(key);
 
         assembly ("memory-safe") {
             lastVirtualOrderExecutionTime := and(s, 0xffffffff)

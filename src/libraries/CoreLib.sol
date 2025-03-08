@@ -21,7 +21,7 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        registered = uint256(core.unsafeRead(key)) != 0;
+        registered = uint256(core.sload(key)) != 0;
     }
 
     function protocolFeesCollected(ICore core, address token) internal view returns (uint256 amountCollected) {
@@ -32,7 +32,7 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        amountCollected = uint256(core.unsafeRead(key));
+        amountCollected = uint256(core.sload(key));
     }
 
     function poolState(ICore core, bytes32 poolId)
@@ -47,7 +47,7 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        bytes32 p = core.unsafeRead(key);
+        bytes32 p = core.sload(key);
 
         assembly ("memory-safe") {
             sqrtRatio := and(p, 0xffffffffffffffffffffffff)
@@ -71,10 +71,10 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        position.liquidity = uint128(uint256(core.unsafeRead(key)));
-        position.feesPerLiquidityInsideLast = FeesPerLiquidity(
-            uint256(core.unsafeRead(bytes32(uint256(key) + 1))), uint256(core.unsafeRead(bytes32(uint256(key) + 2)))
-        );
+        (bytes32 v0, bytes32 v1, bytes32 v2) = core.sload(key, bytes32(uint256(key) + 1), bytes32(uint256(key) + 2));
+
+        position.liquidity = uint128(uint256(v0));
+        position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 
     function savedBalances(ICore core, address owner, address token, bytes32 salt)
@@ -94,7 +94,7 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        savedBalance = uint128(uint256(core.unsafeRead(key)) >> 128);
+        savedBalance = uint128(uint256(core.sload(key)) >> 128);
     }
 
     function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
@@ -111,8 +111,10 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        savedBalance0 = uint128(uint256(core.unsafeRead(key)) >> 128);
-        savedBalance1 = uint128(uint256(core.unsafeRead(key)));
+        uint256 value = uint256(core.sload(key));
+
+        savedBalance0 = uint128(value >> 128);
+        savedBalance1 = uint128(value);
     }
 
     function poolTicks(ICore core, bytes32 poolId, int32 tick)
@@ -130,7 +132,7 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        bytes32 data = core.unsafeRead(key);
+        bytes32 data = core.sload(key);
 
         // takes only least significant 128 bits
         liquidityDelta = int128(uint128(uint256(data)));

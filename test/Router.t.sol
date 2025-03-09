@@ -156,12 +156,14 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
 
-        vm.expectRevert(SafeCastLib.Overflow.selector);
-        router.swap(
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: type(int128).max}),
             type(int256).min
         );
+        assertEq(delta0, type(int128).max);
+        assertEq(delta1, type(int128).min);
     }
 
     function test_swap_delta_overflows_int128_container_token1_in() public {
@@ -169,12 +171,14 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
 
-        vm.expectRevert(SafeCastLib.Overflow.selector);
-        router.swap(
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: type(int128).max}),
             type(int256).min
         );
+        assertEq(delta0, type(int128).min);
+        assertEq(delta1, type(int128).max);
     }
 
     function test_basicSwap_token1_in_slippage_check_failed(CallPoints memory callPoints) public {

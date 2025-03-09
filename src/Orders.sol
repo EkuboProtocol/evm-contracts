@@ -47,21 +47,20 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         saleRate = increaseSellAmount(id, orderKey, amount, maxSaleRate);
     }
 
-    function increaseSellAmount(uint256 id, OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)
+    function increaseSellAmount(uint256 id, OrderKey memory orderKey, uint128 amount, uint112 maxSaleRate)
         public
         payable
         authorizedForNft(id)
         returns (uint112 saleRate)
     {
-        if (orderKey.endTime <= orderKey.startTime || orderKey.endTime - orderKey.startTime > type(uint32).max) {
+        uint256 realStart = FixedPointMathLib.max(block.timestamp, orderKey.startTime);
+        if (orderKey.endTime <= realStart || orderKey.endTime - realStart > type(uint32).max) {
             revert InvalidDuration();
         }
 
         if (orderKey.endTime <= block.timestamp) revert OrderAlreadyEnded();
 
-        saleRate = computeSaleRate(
-            amount, uint32(orderKey.endTime - FixedPointMathLib.max(block.timestamp, orderKey.startTime))
-        );
+        saleRate = computeSaleRate(amount, uint32(orderKey.endTime - realStart));
 
         if (saleRate > maxSaleRate) {
             revert MaxSaleRateExceeded();

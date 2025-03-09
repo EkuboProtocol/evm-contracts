@@ -19,17 +19,19 @@ import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
 
-contract OrdersTest is BaseTWAMMTest {
+abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;
     BaseURLTokenURIGenerator internal tokenUriGenerator;
 
-    function setUp() public override {
+    function setUp() public virtual override {
         BaseTWAMMTest.setUp();
 
         tokenUriGenerator = new BaseURLTokenURIGenerator(address(this), "orders://");
         orders = new Orders(core, twamm, tokenUriGenerator);
     }
+}
 
+contract OrdersTest is BaseOrdersTest {
     function boundTime(uint256 time, uint32 offset) internal pure returns (uint256) {
         return ((bound(time, offset, type(uint256).max - type(uint32).max) / 16) * 16) + offset;
     }

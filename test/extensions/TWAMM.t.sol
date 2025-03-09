@@ -31,14 +31,11 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
 
-    uint256 positionId;
-
     function setUp() public virtual override {
         FullTest.setUp();
         address deployAddress = address(uint160(twammCallPoints().toUint8()) << 152);
         deployCodeTo("TWAMM.sol", abi.encode(core), deployAddress);
         twamm = TWAMM(deployAddress);
-        positionId = positions.mint();
     }
 
     function advanceTime(uint32 by) internal returns (uint256 next) {

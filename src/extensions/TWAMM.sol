@@ -129,13 +129,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     }
 
     // Must be called on a pool that is executed up to the current timestamp
-    function _getOrderInfo(
-        OrderKey memory orderKey,
-        OrderState storage order,
-        bytes32 poolId,
-        address owner,
-        bytes32 salt
-    ) internal view returns (uint112 saleRate, uint256 rewardRateInside, uint128 purchasedAmount) {
+    function _getOrderInfo(OrderKey memory orderKey, OrderState storage order, bytes32 poolId)
+        internal
+        view
+        returns (uint112 saleRate, uint256 rewardRateInside, uint128 purchasedAmount)
+    {
         unchecked {
             saleRate = order.saleRate;
             rewardRateInside = _getRewardRateInside(
@@ -293,7 +291,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 bytes32 poolId = poolKey.toPoolId();
                 OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
                 (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
-                    _getOrderInfo(params.orderKey, order, poolId, originalLocker, params.salt);
+                    _getOrderInfo(params.orderKey, order, poolId);
 
                 uint112 saleRateNext = addSaleRateDelta(saleRate, params.saleRateDelta);
 
@@ -400,8 +398,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 bytes32 poolId = poolKey.toPoolId();
 
                 OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
-                (, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
-                    _getOrderInfo(params.orderKey, order, poolId, originalLocker, params.salt);
+                (, uint256 rewardRateSnapshot, uint128 purchasedAmount) = _getOrderInfo(params.orderKey, order, poolId);
 
                 order.rewardRateSnapshot = rewardRateSnapshot;
 
@@ -527,7 +524,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     }
 
                     if (initialized) {
-                        uint256 realTimeCrossed = block.timestamp + nextTime - currentTime;
+                        uint256 realTimeCrossed = block.timestamp - uint256(currentTime - nextTime);
                         poolRewardRatesBefore[poolId][realTimeCrossed] = rewardRates;
 
                         TimeInfo memory timeInfo = poolTimeInfos[poolId][realTimeCrossed];

@@ -285,13 +285,13 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            if (sig != Orders.OrderAlreadyEnded.selector) {
+            if (sig != Orders.OrderAlreadyEnded.selector && sig != TWAMM.MustCollectProceedsBeforeCanceling.selector) {
                 revert UnexpectedError(err);
             }
         }
     }
 
-    function collectOrderProceeds(uint256 orderIndex, uint112 amount) public ifPoolExists {
+    function collectOrderProceeds(uint256 orderIndex) public ifPoolExists {
         if (activeOrders.length == 0) return;
         OrderInfo storage order = activeOrders[bound(orderIndex, 0, activeOrders.length - 1)];
 
@@ -338,6 +338,10 @@ contract TWAMMInvariantTest is BaseOrdersTest {
         token1.transfer(address(handler), type(uint256).max - type(uint128).max);
 
         targetContract(address(handler));
+
+        bytes4[] memory excluded = new bytes4[](1);
+        excluded[0] = Handler.checkAllPoolsHaveValidPriceAndTick.selector;
+        excludeSelector(FuzzSelector(address(handler), excluded));
     }
 
     function invariant_allPoolsHaveValidStates() public view {

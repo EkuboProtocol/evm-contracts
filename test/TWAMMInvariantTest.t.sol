@@ -273,6 +273,38 @@ contract Handler is StdUtils, StdAssertions {
         }
     }
 
+    function decreaseOrderSaleRate(uint256 orderIndex, uint112 amount) public ifPoolExists {
+        if (activeOrders.length == 0) return;
+        OrderInfo storage order = activeOrders[bound(orderIndex, 0, activeOrders.length - 1)];
+        amount = uint112(bound(amount, 0, order.saleRate));
+
+        try orders.decreaseSaleRate(ordersId, order.orderKey, amount, 0, address(this)) returns (uint112) {
+            order.saleRate -= amount;
+        } catch (bytes memory err) {
+            bytes4 sig;
+            assembly ("memory-safe") {
+                sig := mload(add(err, 32))
+            }
+            if (sig != Orders.OrderAlreadyEnded.selector) {
+                revert UnexpectedError(err);
+            }
+        }
+    }
+
+    function collectOrderProceeds(uint256 orderIndex, uint112 amount) public ifPoolExists {
+        if (activeOrders.length == 0) return;
+        OrderInfo storage order = activeOrders[bound(orderIndex, 0, activeOrders.length - 1)];
+
+        try orders.collectProceeds(ordersId, order.orderKey, address(this)) returns (uint128) {}
+        catch (bytes memory err) {
+            bytes4 sig;
+            assembly ("memory-safe") {
+                sig := mload(add(err, 32))
+            }
+            revert UnexpectedError(err);
+        }
+    }
+
     function checkAllPoolsHaveValidPriceAndTick() public view {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
             PoolKey memory poolKey = allPoolKeys[i];

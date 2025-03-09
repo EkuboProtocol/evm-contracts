@@ -8,6 +8,7 @@ import {
     computeC,
     computeAmountFromSaleRate,
     computeSqrtSaleRatio,
+    computeRewardAmount,
     addSaleRateDelta,
     SaleRateDeltaOverflow,
     SaleRateOverflow
@@ -45,6 +46,15 @@ contract TwammTest is Test {
             uint112 result = addSaleRateDelta(saleRate, delta);
             assertEq(int256(uint256(result)), expected);
         }
+    }
+
+    function test_computeRewardAmount() public pure {
+        assertEq(computeRewardAmount({rewardRate: 0, saleRate: 0}), 0);
+        assertEq(computeRewardAmount({rewardRate: type(uint256).max, saleRate: 0}), 0);
+        assertEq(computeRewardAmount({rewardRate: type(uint256).max, saleRate: 1}), type(uint128).max);
+        assertEq(computeRewardAmount({rewardRate: type(uint256).max, saleRate: type(uint112).max}), type(uint128).max);
+        // overflows the uint128 container
+        assertEq(computeRewardAmount({rewardRate: 1 << 146, saleRate: 1 << 110}), 0);
     }
 
     function test_computeAmountFromSaleRate_examples() public pure {

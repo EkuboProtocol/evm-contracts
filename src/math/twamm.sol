@@ -40,6 +40,8 @@ function computeAmountFromSaleRate(uint112 saleRate, uint32 duration, bool round
 }
 
 // Computes reward amount = (rewardRate * saleRate) >> 128.
+// While this can overflow, it's only used for computing the rewards for an order. In that case the order will receive no tokens,
+//  but it could only happen if the token has a total supply greater than type(uint128).max
 function computeRewardAmount(uint256 rewardRate, uint112 saleRate) pure returns (uint128) {
     return uint128(FixedPointMathLib.fullMulDivN(rewardRate, saleRate, 128));
 }
@@ -58,14 +60,15 @@ function computeSqrtSaleRatio(uint112 saleRateToken0, uint112 saleRateToken1) pu
     unchecked {
         uint256 saleRatio = (uint256(saleRateToken1) << 128) / saleRateToken0;
 
-        if (saleRatio > type(uint192).max) {
-            sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 16) << 56;
-        } else if (saleRatio > type(uint128).max) {
+        if (saleRatio <= type(uint128).max) {
+            // full precision for small ratios
+            sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 128);
+        } else if (saleRatio <= type(uint192).max) {
             // we know it only has 192 bits, so we can shift it 64 before rooting to get more precision
             sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 64) << 32;
         } else {
-            // full precision
-            sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 128);
+            // we assume it has max 240 bits, since saleRateToken1 is 112 bits and we shifted left 128
+            sqrtSaleRatio = FixedPointMathLib.sqrt(saleRatio << 16) << 56;
         }
     }
 }
@@ -80,7 +83,8 @@ function computeNextSqrtRatio(
     uint64 fee
 ) pure returns (SqrtRatio sqrtRatioNext) {
     unchecked {
-        // assert(saleRateToken0 != 0 && saleRateToken1 != 0);
+        // the below is assumed:
+        //  assert(saleRateToken0 != 0 && saleRateToken1 != 0);
         uint256 sqrtSaleRatio = computeSqrtSaleRatio(saleRateToken0, saleRateToken1);
 
         uint256 sqrtRatioFixed = sqrtRatio.toFixed();

@@ -129,20 +129,17 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     }
 
     // Must be called on a pool that is executed up to the current timestamp
-    function _getOrderInfo(address owner, bytes32 salt, OrderKey memory orderKey)
-        internal
-        view
-        returns (uint112 saleRate, uint256 rewardRateInside, uint128 purchasedAmount)
-    {
-        OrderState memory order = orderState[owner][salt][orderKey.toOrderId()];
-
+    function _getOrderInfo(
+        OrderKey memory orderKey,
+        OrderState storage order,
+        bytes32 poolId,
+        address owner,
+        bytes32 salt
+    ) internal view returns (uint112 saleRate, uint256 rewardRateInside, uint128 purchasedAmount) {
         unchecked {
             saleRate = order.saleRate;
             rewardRateInside = _getRewardRateInside(
-                _orderKeyToPoolKey(orderKey).toPoolId(),
-                orderKey.startTime,
-                orderKey.endTime,
-                orderKey.sellToken < orderKey.buyToken
+                poolId, orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
             );
 
             purchasedAmount = computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, saleRate);
@@ -293,8 +290,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
                 _executeVirtualOrdersFromWithinLock(poolKey);
 
+                bytes32 poolId = poolKey.toPoolId();
+                OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
                 (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
-                    _getOrderInfo(originalLocker, params.salt, params.orderKey);
+                    _getOrderInfo(params.orderKey, order, poolId, originalLocker, params.salt);
 
                 uint112 saleRateNext = addSaleRateDelta(saleRate, params.saleRateDelta);
 
@@ -319,12 +318,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
                 }
 
-                orderState[originalLocker][params.salt][params.orderKey.toOrderId()] =
-                    OrderState({saleRate: saleRateNext, rewardRateSnapshot: rewardRateSnapshotAdjusted});
+                order.saleRate = saleRateNext;
+                order.rewardRateSnapshot = rewardRateSnapshotAdjusted;
 
                 bool isToken1 = params.orderKey.sellToken > params.orderKey.buyToken;
-
-                bytes32 poolId = poolKey.toPoolId();
 
                 if (block.timestamp < params.orderKey.startTime) {
                     _updateTime(poolId, params.orderKey.startTime, params.saleRateDelta, isToken1, numOrdersChange);
@@ -400,11 +397,13 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
                 _executeVirtualOrdersFromWithinLock(poolKey);
 
-                (, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
-                    _getOrderInfo(originalLocker, params.salt, params.orderKey);
+                bytes32 poolId = poolKey.toPoolId();
 
-                orderState[originalLocker][params.salt][params.orderKey.toOrderId()].rewardRateSnapshot =
-                    rewardRateSnapshot;
+                OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
+                (, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
+                    _getOrderInfo(params.orderKey, order, poolId, originalLocker, params.salt);
+
+                order.rewardRateSnapshot = rewardRateSnapshot;
 
                 if (purchasedAmount != 0) {
                     (uint128 amount0, uint128 amount1) = params.orderKey.sellToken > params.orderKey.buyToken

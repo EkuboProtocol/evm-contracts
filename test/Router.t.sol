@@ -18,6 +18,7 @@ import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;
@@ -147,6 +148,32 @@ contract RouterTest is FullTest {
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             -200
+        );
+    }
+
+    function test_swap_delta_overflows_int128_container_token0_in() public {
+        PoolKey memory poolKey = createPool({tick: MAX_TICK, fee: 0, tickSpacing: 0});
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
+
+        vm.expectRevert(SafeCastLib.Overflow.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: type(int128).max}),
+            type(int256).min
+        );
+    }
+
+    function test_swap_delta_overflows_int128_container_token1_in() public {
+        PoolKey memory poolKey = createPool({tick: MIN_TICK, fee: 0, tickSpacing: 0});
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
+
+        vm.expectRevert(SafeCastLib.Overflow.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: type(int128).max}),
+            type(int256).min
         );
     }
 

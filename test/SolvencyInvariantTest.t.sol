@@ -311,6 +311,10 @@ contract SolvencyInvariantTest is FullTest {
         token1.transfer(address(handler), type(uint256).max - type(uint128).max);
 
         targetContract(address(handler));
+        bytes4[] memory excluded = new bytes4[](2);
+        excluded[0] = Handler.checkAllPoolsHavePositiveBalance.selector;
+        excluded[1] = Handler.checkAllPoolsHaveValidPriceAndTick.selector;
+        excludeSelector(FuzzSelector(address(handler), excluded));
     }
 
     function invariant_allPoolsHaveValidStates() public view {

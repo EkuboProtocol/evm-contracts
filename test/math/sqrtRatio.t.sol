@@ -147,7 +147,7 @@ contract SqrtRatioTest is Test {
         }
     }
 
-    function test_example_failed_solidity() public view {
+    function test_example_failed_solidity() public pure {
         test_nextSqrtRatioFromAmount0_compared_amount0Delta(
             1 << 127, 340282366920938463463374607431768211455, -170141183460469231731687303715884105726
         );

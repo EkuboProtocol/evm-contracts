@@ -229,6 +229,22 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
             flip := iszero(eq(iszero(numOrders), iszero(numOrdersNext)))
 
+            // write the poolRewardRatesBefore[poolId][time] = (1,1); if it's in the future
+            // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
+            if and(flip, lt(timestamp(), time)) {
+                mstore(0, poolId)
+                mstore(32, 4)
+                // hash poolId,4 and store at 32
+                mstore(32, keccak256(0, 64))
+
+                // now put time at 0 for hashing
+                mstore(0, time)
+                let slot0 := keccak256(0, 64)
+
+                sstore(slot0, iszero(numOrders))
+                sstore(add(slot0, 1), iszero(numOrders))
+            }
+
             mstore(timeInfo, numOrdersNext)
         }
 

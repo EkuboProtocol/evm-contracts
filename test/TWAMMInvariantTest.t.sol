@@ -236,15 +236,17 @@ contract Handler is StdUtils, StdAssertions {
         uint112 amount,
         bool isToken1
     ) public ifPoolExists {
-        PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
-        uint256 startTime;
-        uint256 endTime;
+        amount = isToken1
+            ? uint112(bound(amount, 0, SafeTransferLib.balanceOf(address(token1), address(this))))
+            : uint112(bound(amount, 0, SafeTransferLib.balanceOf(address(token0), address(this))));
+
+        if (amount == 0) return;
 
         approximateDuration = uint24(bound(approximateDuration, 16, type(uint24).max));
 
-        amount = isToken1
-            ? uint112(bound(amount, 1, SafeTransferLib.balanceOf(address(token1), address(this))))
-            : uint112(bound(amount, 1, SafeTransferLib.balanceOf(address(token0), address(this))));
+        PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
+        uint256 startTime;
+        uint256 endTime;
 
         if (startDelay == 0) {
             startTime = 0;

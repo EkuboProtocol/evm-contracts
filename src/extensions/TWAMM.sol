@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, toConfig} from "../types/poolKey.sol";
+import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
@@ -29,7 +30,7 @@ function twammCallPoints() pure returns (CallPoints memory) {
         afterUpdatePosition: false,
         beforeSwap: true,
         afterSwap: false,
-        beforeCollectFees: false,
+        beforeCollectFees: true,
         afterCollectFees: false
     });
 }
@@ -262,19 +263,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         poolTimeInfos[poolId][time] = timeInfo;
     }
 
-    function locked(uint256) external override onlyCore {
-        PoolKey memory poolKey;
-        assembly ("memory-safe") {
-            poolKey := mload(0x40)
-            // points the free memory pointer at pointer + 96
-            mstore(0x40, add(poolKey, 96))
-
-            // copy the poolkey out of calldata at the free memory pointer
-            calldatacopy(poolKey, 36, 96)
-        }
-        _executeVirtualOrdersFromWithinLock(poolKey);
-    }
-
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return twammCallPoints();
     }
@@ -303,9 +291,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 }
 
                 PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
-                _executeVirtualOrdersFromWithinLock(poolKey);
-
                 bytes32 poolId = poolKey.toPoolId();
+                _executeVirtualOrdersFromWithinLock(poolKey, poolId);
+
                 OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
                 (uint112 saleRate, uint256 rewardRateSnapshot, uint128 purchasedAmount) =
                     _getOrderInfo(params.orderKey, order, poolId);
@@ -410,9 +398,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
 
                 PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
-                _executeVirtualOrdersFromWithinLock(poolKey);
-
                 bytes32 poolId = poolKey.toPoolId();
+                _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
                 OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
                 (, uint256 rewardRateSnapshot, uint128 purchasedAmount) = _getOrderInfo(params.orderKey, order, poolId);
@@ -450,10 +437,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             });
     }
 
-    function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey) internal {
+    function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, bytes32 poolId) internal {
         unchecked {
-            bytes32 poolId = poolKey.toPoolId();
-
             uint32 lastVirtualOrderExecutionTime;
             uint112 saleRateToken0;
             uint112 saleRateToken1;
@@ -463,7 +448,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     (state.lastVirtualOrderExecutionTime, state.saleRateToken0, state.saleRateToken1);
             }
 
-            // check the pool is initialized iff this is zero, otherwise we know it's initialized
+            // check the pool is initialized iff this is zero, otherwise we know it's initialized and avoid the SLOAD
             if (lastVirtualOrderExecutionTime == 0) {
                 if (!poolInitialized[poolId]) revert PoolNotInitialized();
             }
@@ -473,9 +458,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             // no-op if already executed in this block
             if (lastVirtualOrderExecutionTime != currentTime) {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
-
-                int128 totalSwapDelta0;
-                int128 totalSwapDelta1;
 
                 while (lastVirtualOrderExecutionTime != currentTime) {
                     (uint32 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
@@ -489,8 +471,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint112 amount1 =
                         computeAmountFromSaleRate({saleRate: saleRateToken1, duration: timeElapsed, roundUp: false});
 
-                    int128 delta0;
-                    int128 delta1;
+                    int128 swapDelta0;
+                    int128 swapDelta1;
+                    int128 rewardDelta0;
+                    int128 rewardDelta1;
 
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
@@ -505,39 +489,36 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         });
 
                         if (sqrtRatioNext > sqrtRatio) {
-                            (delta0, delta1) =
+                            (swapDelta0, swapDelta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
                         } else {
-                            (delta0, delta1) =
+                            (swapDelta0, swapDelta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
-                        totalSwapDelta0 += delta0;
-                        totalSwapDelta1 += delta1;
-
-                        delta0 -= int128(uint128(amount0));
-                        delta1 -= int128(uint128(amount1));
+                        rewardDelta0 = swapDelta0 - int128(uint128(amount0));
+                        rewardDelta1 = swapDelta1 - int128(uint128(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (delta0, delta1) =
+                            (swapDelta0, swapDelta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (delta0, delta1) =
+                            (swapDelta0, swapDelta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
-                        totalSwapDelta0 += delta0;
-                        totalSwapDelta1 += delta1;
+                        rewardDelta0 = swapDelta0;
+                        rewardDelta1 = swapDelta1;
                     }
 
                     // some amount of token0 came out the pool
-                    if (delta0 < 0) {
-                        rewardRates.value0 += (uint256(-int256(delta0)) << 128) / saleRateToken1;
+                    if (rewardDelta0 < 0) {
+                        rewardRates.value0 += (uint256(-int256(rewardDelta0)) << 128) / saleRateToken1;
                     }
 
                     // some amount of token1 came out the pool
-                    if (delta1 < 0) {
-                        rewardRates.value1 += (uint256(-int256(delta1)) << 128) / saleRateToken0;
+                    if (rewardDelta1 < 0) {
+                        rewardRates.value1 += (uint256(-int256(rewardDelta1)) << 128) / saleRateToken0;
                     }
 
                     if (initialized) {
@@ -556,6 +537,27 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     }
 
                     lastVirtualOrderExecutionTime = nextTime;
+
+                    if (swapDelta0 < 0 || swapDelta1 < 0) {
+                        core.save(
+                            address(this),
+                            poolKey.token0,
+                            poolKey.token1,
+                            bytes32(0),
+                            uint128(uint256(-FixedPointMathLib.min(swapDelta0, 0))),
+                            uint128(uint256(-FixedPointMathLib.min(swapDelta1, 0)))
+                        );
+                    }
+
+                    if (swapDelta0 > 0 || swapDelta1 > 0) {
+                        core.load(
+                            poolKey.token0,
+                            poolKey.token1,
+                            bytes32(0),
+                            uint128(uint256(FixedPointMathLib.max(swapDelta0, 0))),
+                            uint128(uint256(FixedPointMathLib.max(swapDelta1, 0)))
+                        );
+                    }
                 }
 
                 poolRewardRates[poolId] = rewardRates;
@@ -570,30 +572,25 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     )
                 }
 
-                core.save(
-                    address(this),
-                    poolKey.token0,
-                    poolKey.token1,
-                    bytes32(0),
-                    uint128(uint256(-FixedPointMathLib.min(totalSwapDelta0, 0))),
-                    uint128(uint256(-FixedPointMathLib.min(totalSwapDelta1, 0)))
-                );
-
-                core.load(
-                    poolKey.token0,
-                    poolKey.token1,
-                    bytes32(0),
-                    uint128(uint256(FixedPointMathLib.max(totalSwapDelta0, 0))),
-                    uint128(uint256(FixedPointMathLib.max(totalSwapDelta1, 0)))
-                );
-
                 _emitVirtualOrdersExecuted(poolId, saleRateToken0, saleRateToken1);
             }
         }
     }
 
-    // Must be called for a pool key that is already initialized
-    function _lockAndExecuteVirtualOrders(PoolKey memory poolKey) internal {
+    function locked(uint256) external override onlyCore {
+        PoolKey memory poolKey;
+        assembly ("memory-safe") {
+            poolKey := mload(0x40)
+            // points the free memory pointer at pointer + 96
+            mstore(0x40, add(poolKey, 96))
+
+            // copy the poolkey out of calldata at the free memory pointer
+            calldatacopy(poolKey, 36, 96)
+        }
+        _executeVirtualOrdersFromWithinLock(poolKey, poolKey.toPoolId());
+    }
+
+    function lockAndExecuteVirtualOrders(PoolKey memory poolKey) public {
         // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
         // so we call lock on the core contract with the pool key after it
         address target = address(core);
@@ -622,15 +619,15 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         _emitVirtualOrdersExecuted(poolId, 0, 0);
     }
 
-    function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override onlyCore {
-        _lockAndExecuteVirtualOrders(poolKey);
+    function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override {
+        lockAndExecuteVirtualOrders(poolKey);
     }
 
-    function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory)
-        external
-        override
-        onlyCore
-    {
-        _lockAndExecuteVirtualOrders(poolKey);
+    function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory) external override {
+        lockAndExecuteVirtualOrders(poolKey);
+    }
+
+    function beforeCollectFees(address, PoolKey memory poolKey, bytes32, Bounds memory) external override {
+        lockAndExecuteVirtualOrders(poolKey);
     }
 }

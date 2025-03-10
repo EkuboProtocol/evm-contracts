@@ -73,7 +73,6 @@ abstract contract BaseOracleTest is FullTest {
         PoolKey memory pk =
             PoolKey(NATIVE_TOKEN_ADDRESS, token, toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
         Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
-        // todo: finish this for the price fetcher tests
         (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);
 
         (SqrtRatio sqrtRatio,,) = core.poolState(pk.toPoolId());

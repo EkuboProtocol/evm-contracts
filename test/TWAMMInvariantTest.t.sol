@@ -25,6 +25,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBit} from "solady/utils/LibBit.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract Handler is StdUtils, StdAssertions {
     using CoreLib for *;
@@ -142,6 +143,7 @@ contract Handler is StdUtils, StdAssertions {
                 sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
+                    && sig != SafeTransferLib.TransferFromFailed.selector
             ) {
                 revert UnexpectedError(err);
             }
@@ -207,6 +209,7 @@ contract Handler is StdUtils, StdAssertions {
                 sig != Router.PartialSwapsDisallowed.selector && sig != 0xffffffff && sig != 0x00000000
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
                     && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71 && sig != SafeCastLib.Overflow.selector
+                    && sig != SafeTransferLib.TransferFromFailed.selector
             ) {
                 revert UnexpectedError(err);
             }
@@ -238,6 +241,10 @@ contract Handler is StdUtils, StdAssertions {
         uint256 endTime;
 
         approximateDuration = uint24(bound(approximateDuration, 16, type(uint24).max));
+
+        amount = isToken1
+            ? uint112(bound(amount, 1, SafeTransferLib.balanceOf(address(token1), address(this))))
+            : uint112(bound(amount, 1, SafeTransferLib.balanceOf(address(token0), address(this))));
 
         if (startDelay == 0) {
             startTime = 0;
@@ -334,8 +341,9 @@ contract TWAMMInvariantTest is BaseOrdersTest {
         // funding core makes it easier for pools to become insolvent randomly if there is a bug
         token0.transfer(address(core), type(uint128).max);
         token1.transfer(address(core), type(uint128).max);
-        token0.transfer(address(handler), type(uint256).max - type(uint128).max);
-        token1.transfer(address(handler), type(uint256).max - type(uint128).max);
+        // for the purpose of our twamm invariants, we assume tokens do not have a total supply g.t. type(uint128).max
+        token0.transfer(address(handler), type(uint128).max);
+        token1.transfer(address(handler), type(uint128).max);
 
         targetContract(address(handler));
 

@@ -546,8 +546,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
             unchecked {
                 int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(amount < 0, 1, type(uint256).max));
-                int128 calculatedAmountDelta =
-                    SafeCastLib.toInt128(calculatedAmountSign * int256(uint256(calculatedAmount)));
+                int128 calculatedAmountDelta = SafeCastLib.toInt128(
+                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(uint256(calculatedAmount)))
+                );
 
                 (delta0, delta1) = isToken1
                     ? (calculatedAmountDelta, amount - amountRemaining)

@@ -38,27 +38,13 @@ contract ExposedStorageTest is Test {
         bytes32 value1,
         bytes32 value2
     ) public {
-        // prevent slot1 and slot2 from being equal
-        if (slot1 == slot0) {
-            slot1 = bytes32(uint256(slot0) + 1);
-        }
-        if (slot2 == slot1 || slot2 == slot0) {
-            slot2 = bytes32(uint256(slot1) + 1);
-        }
+        SlotValues[] memory items = new SlotValues[](3);
+        items[0] = SlotValues(slot0, value0);
+        items[1] = SlotValues(slot1, value1);
+        items[2] = SlotValues(slot2, value2);
 
-        TestTarget tt = new TestTarget();
-        assertEq(tt.sload(slot0), 0);
-        assertEq(tt.sload(slot1), 0);
-        assertEq(tt.sload(slot2), 0);
-
-        tt.sstore(slot0, value0);
-        tt.sstore(slot1, value1);
-        tt.sstore(slot2, value2);
-
-        (bytes32 v2, bytes32 v0, bytes32 v1) = tt.sload(slot2, slot0, slot1);
-        assertEq(v0, value0);
-        assertEq(v1, value1);
-        assertEq(v2, value2);
+        test_storage_write_many(items, false);
+        test_storage_write_many(items, true);
     }
 
     struct SlotValues {

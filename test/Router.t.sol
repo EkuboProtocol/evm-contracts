@@ -14,6 +14,7 @@ import {
 } from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
+import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
@@ -179,6 +180,46 @@ contract RouterTest is FullTest {
         );
         assertEq(delta0, type(int128).min);
         assertEq(delta1, type(int128).max);
+    }
+
+    function test_swap_liquidity_overflow_token0() public {
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
+
+        (, uint128 liquidity0) =
+            createPosition(poolKey, Bounds(-1, 5), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity1) =
+            createPosition(poolKey, Bounds(0, 6), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity2) =
+            createPosition(poolKey, Bounds(1, 7), (type(uint128).max >> 20), (type(uint128).max >> 20));
+
+        assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
+
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(2), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: type(int128).max}),
+            type(int256).min
+        );
+    }
+
+    function test_swap_liquidity_overflow_token1() public {
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
+
+        (, uint128 liquidity0) =
+            createPosition(poolKey, Bounds(-5, 1), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity1) =
+            createPosition(poolKey, Bounds(-6, 0), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity2) =
+            createPosition(poolKey, Bounds(-7, -1), (type(uint128).max >> 20), (type(uint128).max >> 20));
+
+        assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
+
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-2), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: type(int128).max}),
+            type(int256).min
+        );
     }
 
     function test_basicSwap_token1_in_slippage_check_failed(CallPoints memory callPoints) public {
@@ -491,6 +532,34 @@ contract RouterTest is FullTest {
             type(int256).min
         );
         vm.snapshotGasLastCall("swap 100 token0 for eth");
+    }
+
+    function test_swap_cross_tick_eth_for_token1() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, Bounds(-200, 200), 1000, 1000);
+
+        router.swap{value: 1500}(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 1500}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
+    }
+
+    function test_swap_cross_tick_token1_for_eth() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, Bounds(-200, 200), 1000, 1000);
+
+        token1.approve(address(router), 1500);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 1500}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
     }
 
     function test_swap_eth_for_token_gas() public {

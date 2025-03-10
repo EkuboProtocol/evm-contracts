@@ -3,5 +3,7 @@
   "swap 100 token0 for token1": "51620",
   "swap 100 wei of eth for token": "50698",
   "swap 100 wei of eth for token full range": "48231",
-  "swap 100 wei of token for eth full range": "53346"
+  "swap 100 wei of token for eth full range": "53346",
+  "swap crossing one tick token1 for eth": "55965",
+  "swap crossing two ticks eth for token1": "50762"
 }

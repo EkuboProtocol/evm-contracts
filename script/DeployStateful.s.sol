@@ -56,13 +56,9 @@ contract DeployStatefulScript is Script {
         vm.startBroadcast();
 
         Core core = new Core{salt: salt}(owner);
-
-        // we deploy with empty url so it has the same address across chains
-        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{
-            salt: keccak256(abi.encodePacked(type(Positions).creationCode, salt))
-        }(owner, "");
+        // we deploy with empty url so it has the same address
+        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: salt}(owner, "");
         tokenURIGenerator.setBaseURL(baseUrl);
-
         new Positions{salt: salt}(core, tokenURIGenerator);
         new Oracle{
             salt: findExtensionSalt(

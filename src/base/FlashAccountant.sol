@@ -21,11 +21,16 @@ abstract contract FlashAccountant is IFlashAccountant {
     function _getLocker() internal view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
             let current := tload(_CURRENT_LOCKER_SLOT)
-            // id in upper 96 bits, locker in bottom 160 bits
+
+            if iszero(current) {
+                // cast sig "NotLocked()"
+                mstore(0, shl(224, 0x1834e265))
+                revert(0, 4)
+            }
+
             id := sub(shr(160, current), 1)
-            locker := sub(current, id)
+            locker := shr(96, shl(96, current))
         }
-        if (id == type(uint256).max) revert NotLocked();
     }
 
     function _requireLocker() internal view returns (uint256 id, address locker) {
@@ -109,7 +114,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state
         assembly ("memory-safe") {
-            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, id), to))
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), to))
 
             let free := mload(0x40)
 
@@ -129,7 +134,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 revert(free, returndatasize())
             }
 
-            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, id), locker))
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), locker))
 
             // Directly return whatever the subcall returned
             returndatacopy(free, 0, returndatasize())

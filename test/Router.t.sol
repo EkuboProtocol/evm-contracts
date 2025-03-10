@@ -530,6 +530,34 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 token0 for eth");
     }
 
+    function test_swap_cross_tick_eth_for_token1() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, Bounds(-200, 200), 1000, 1000);
+
+        router.swap{value: 1500}(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 1500}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
+    }
+
+    function test_swap_cross_tick_token1_for_eth() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, Bounds(-200, 200), 1000, 1000);
+
+        token1.approve(address(router), 1500);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 1500}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
+    }
+
     function test_swap_eth_for_token_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);

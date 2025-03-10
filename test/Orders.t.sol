@@ -19,7 +19,6 @@ import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
-import {console} from "forge-std/console.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;

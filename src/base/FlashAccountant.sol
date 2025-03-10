@@ -5,15 +5,11 @@ import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {IPayer, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-// todo: should anyone be able to pay for any lock?
 abstract contract FlashAccountant is IFlashAccountant {
     // These are randomly selected offsets so that they do not accidentally overlap with any other base contract's use of transient storage
 
-    // cast keccak "FlashAccountant#LOCKER_COUNT"
-    uint256 private constant _LOCKER_COUNT_SLOT = 0xdfe868523f8ede687139be83247bb2178878f1f7e5f4163159d5efcacd490ee8;
-    // cast keccak "FlashAccountant#LOCKER_ADDRESS_OFFSET"
-    uint256 private constant _LOCKER_ADDRESSES_OFFSET =
-        0x62f1193cf979f3b3e5310bfcb479bd02c801c390b7d4b953d62823a220c07066;
+    // cast keccak "FlashAccountant#CURRENT_LOCKER_SLOT"
+    uint256 private constant _CURRENT_LOCKER_SLOT = 0x07cc7f5195d862f505d6b095c82f92e00cfc1766f5bca4383c28dc5fca1555fd;
     // cast keccak "FlashAccountant#NONZERO_DEBT_COUNT_OFFSET"
     uint256 private constant _NONZERO_DEBT_COUNT_OFFSET =
         0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d;
@@ -24,8 +20,10 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     function _getLocker() internal view returns (uint256 id, address locker) {
         assembly ("memory-safe") {
-            id := sub(tload(_LOCKER_COUNT_SLOT), 1)
-            locker := tload(add(_LOCKER_ADDRESSES_OFFSET, id))
+            let current := tload(_CURRENT_LOCKER_SLOT)
+            // id in upper 96 bits, locker in bottom 160 bits
+            id := sub(shr(160, current), 1)
+            locker := sub(current, id)
         }
         if (id == type(uint256).max) revert NotLocked();
     }
@@ -63,11 +61,12 @@ abstract contract FlashAccountant is IFlashAccountant {
     // The entrypoint for all operations on the core contract
     function lock() external {
         assembly ("memory-safe") {
-            let id := tload(_LOCKER_COUNT_SLOT)
+            let current := tload(_CURRENT_LOCKER_SLOT)
+
+            let id := shr(160, current)
+
             // store the count
-            tstore(_LOCKER_COUNT_SLOT, add(id, 1))
-            // store the address of the locker
-            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), caller())
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), caller()))
 
             let free := mload(0x40)
             // Prepare call to locked(uint256) -> selector 0xb45a3c0e
@@ -86,8 +85,7 @@ abstract contract FlashAccountant is IFlashAccountant {
             }
 
             // Undo the "locker" state changes
-            tstore(_LOCKER_COUNT_SLOT, id)
-            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), 0)
+            tstore(_CURRENT_LOCKER_SLOT, current)
 
             // Check if something is nonzero
             let nonzeroDebtCount := tload(add(_NONZERO_DEBT_COUNT_OFFSET, id))
@@ -111,7 +109,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state
         assembly ("memory-safe") {
-            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), to)
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, id), to))
 
             let free := mload(0x40)
 
@@ -131,7 +129,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 revert(free, returndatasize())
             }
 
-            tstore(add(_LOCKER_ADDRESSES_OFFSET, id), locker)
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, id), locker))
 
             // Directly return whatever the subcall returned
             returndatacopy(free, 0, returndatasize())
@@ -149,7 +147,7 @@ abstract contract FlashAccountant is IFlashAccountant {
             tstore(_PAY_REENTRANCY_LOCK, 1)
         }
 
-        (uint256 id,) = _requireLocker();
+        (uint256 id,) = _getLocker();
 
         assembly ("memory-safe") {
             let free := mload(0x40)

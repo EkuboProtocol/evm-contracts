@@ -473,8 +473,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                     int128 swapDelta0;
                     int128 swapDelta1;
-                    int128 rewardDelta0;
-                    int128 rewardDelta1;
+                    int256 rewardDelta0;
+                    int256 rewardDelta1;
 
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
@@ -491,13 +491,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         if (sqrtRatioNext > sqrtRatio) {
                             (swapDelta0, swapDelta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
-                        } else {
+                        } else if (sqrtRatioNext < sqrtRatio) {
                             (swapDelta0, swapDelta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
-                        rewardDelta0 = swapDelta0 - int128(uint128(amount0));
-                        rewardDelta1 = swapDelta1 - int128(uint128(amount1));
+                        // this cannot overflow because swapDelta0 is constrained to type(int128) and
+                        rewardDelta0 = int256(swapDelta0) - int256(uint256(amount0));
+                        rewardDelta1 = int256(swapDelta1) - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
                             (swapDelta0, swapDelta1) =
@@ -511,14 +512,12 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         rewardDelta1 = swapDelta1;
                     }
 
-                    // some amount of token0 came out the pool
                     if (rewardDelta0 < 0) {
-                        rewardRates.value0 += (uint256(-int256(rewardDelta0)) << 128) / saleRateToken1;
+                        rewardRates.value0 += (uint256(-rewardDelta0) << 128) / saleRateToken1;
                     }
 
-                    // some amount of token1 came out the pool
                     if (rewardDelta1 < 0) {
-                        rewardRates.value1 += (uint256(-int256(rewardDelta1)) << 128) / saleRateToken0;
+                        rewardRates.value1 += (uint256(-rewardDelta1) << 128) / saleRateToken0;
                     }
 
                     if (initialized) {
@@ -577,6 +576,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
+    // Executes virtual orders for the specified initialized pool key. Protected because it is only called by core.
     function locked(uint256) external override onlyCore {
         PoolKey memory poolKey;
         assembly ("memory-safe") {
@@ -590,6 +590,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         _executeVirtualOrdersFromWithinLock(poolKey, poolKey.toPoolId());
     }
 
+    // Locks core and executes virtual orders for the given pool key. The pool key must of course use this extension,
+    // which is checked in the locked callback.
     function lockAndExecuteVirtualOrders(PoolKey memory poolKey) public {
         // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
         // so we call lock on the core contract with the pool key after it
@@ -609,6 +611,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
     ///////////////////////// Extension call points /////////////////////////
 
+    // This method must be protected because it sets state directly
     function afterInitializePool(address, PoolKey memory key, int32, SqrtRatio) external override onlyCore {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
@@ -619,14 +622,17 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         _emitVirtualOrdersExecuted(poolId, 0, 0);
     }
 
+    // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
     function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override {
         lockAndExecuteVirtualOrders(poolKey);
     }
 
+    // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory) external override {
         lockAndExecuteVirtualOrders(poolKey);
     }
 
+    // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
     function beforeCollectFees(address, PoolKey memory poolKey, bytes32, Bounds memory) external override {
         lockAndExecuteVirtualOrders(poolKey);
     }

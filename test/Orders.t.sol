@@ -383,7 +383,12 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(164154);
 
-        positions.withdraw(pID, poolKey, bounds, 0, address(this), true);
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
+        assertEq(saleRateToken0, saleRateOrder1);
+        assertEq(saleRateToken1, saleRateOrder0);
     }
 
     function test_gas_costs_single_sided() public {

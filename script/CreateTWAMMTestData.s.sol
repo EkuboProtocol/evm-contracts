@@ -2,20 +2,20 @@
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Positions} from "../src/Positions.sol";
-import {Oracle} from "../src/extensions/Oracle.sol";
 import {TestToken} from "../test/TestToken.sol";
 import {MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {SlippageChecker} from "../src/base/SlippageChecker.sol";
 import {Router, RouteNode, TokenAmount} from "../src/Router.sol";
+import {Orders} from "../src/Orders.sol";
+import {OrderKey} from "../src/extensions/TWAMM.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {maxBounds} from "../test/SolvencyInvariantTest.t.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
-contract CreateTestDataScript is Script {
-    function generateTestData(Positions positions, Router router, Oracle oracle) private {
+contract CreateTWAMMTestDataScript is Script {
+    function generateTestData(Positions positions, Router router, Orders orders) private {
         TestToken token = new TestToken(vm.getWallets()[0]);
 
         token.approve(address(router), type(uint256).max);
@@ -23,84 +23,43 @@ contract CreateTestDataScript is Script {
 
         uint256 baseSalt = uint256(keccak256(abi.encode(token)));
 
-        // 30 basis points fee, 0.6% tick spacing, starting price of 5k, 0.01 ETH
-        PoolKey memory poolKey = createPool(
-            baseSalt++,
-            positions,
-            NATIVE_TOKEN_ADDRESS,
-            address(token),
-            uint64((uint256(30) << 64) / 10_000),
-            5982,
-            maxBounds(5982),
-            address(0),
-            8517197,
-            0.01e18,
-            50e18
-        );
-
-        // 2 example swaps, back and forth, twice, to demonstrate gas usage
-        for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
-
-            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
-        }
-
-        // 30 basis points fee, full range tick spacing
-        poolKey = createPool(
-            baseSalt++,
-            positions,
-            NATIVE_TOKEN_ADDRESS,
-            address(token),
-            uint64((uint256(30) << 64) / 10_000),
-            FULL_RANGE_ONLY_TICK_SPACING,
-            maxBounds(FULL_RANGE_ONLY_TICK_SPACING),
-            address(0),
-            8517197,
-            0.01e18,
-            50e18
-        );
-
-        // 2 example swaps, back and forth, twice, to demonstrate gas usage
-        for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
-
-            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
-        }
-
-        poolKey = createPool(
-            baseSalt++,
-            positions,
-            NATIVE_TOKEN_ADDRESS,
-            address(token),
-            0,
-            FULL_RANGE_ONLY_TICK_SPACING,
-            maxBounds(FULL_RANGE_ONLY_TICK_SPACING),
-            address(oracle),
-            4605172,
-            0.01e18,
-            1e18
-        );
-
-        // 2 example swaps, back and forth, twice, to demonstrate gas usage
-        for (uint256 i = 0; i < 2; i++) {
-            router.swap{value: 100000}(poolKey, false, 100000, SqrtRatio.wrap(0), 0);
-
-            router.swap(poolKey, true, 100000 * 5000, SqrtRatio.wrap(0), 0);
-        }
-
-        // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH, just for routing testing
+        // 100 basis points fee, 2% tick spacing, starting price of 10k, 0.03 ETH, twamm pool
         createPool(
             baseSalt++,
             positions,
             NATIVE_TOKEN_ADDRESS,
             address(token),
             uint64((uint256(100) << 64) / 10_000),
-            19802,
-            maxBounds(19802),
-            address(0),
+            0,
+            maxBounds(0),
+            address(orders.twamm()),
             8517197,
             0.03e18,
             300e18
+        );
+
+        token.approve(address(orders), type(uint256).max);
+        orders.mintAndIncreaseSellAmount(
+            OrderKey({
+                sellToken: address(token),
+                buyToken: NATIVE_TOKEN_ADDRESS,
+                fee: uint64((uint256(100) << 64) / 10_000),
+                startTime: 0,
+                endTime: (block.timestamp / 16) * 16 + 240
+            }),
+            100e18,
+            type(uint112).max
+        );
+        orders.mintAndIncreaseSellAmount{value: 0.005e18}(
+            OrderKey({
+                sellToken: NATIVE_TOKEN_ADDRESS,
+                buyToken: address(token),
+                fee: uint64((uint256(100) << 64) / 10_000),
+                startTime: 0,
+                endTime: ((block.timestamp / 8_192) + 2) * 8_192
+            }),
+            0.005e18,
+            type(uint112).max
         );
     }
 
@@ -141,9 +100,9 @@ contract CreateTestDataScript is Script {
 
         address payable positions = payable(vm.envAddress("POSITIONS_ADDRESS"));
         address payable router = payable(vm.envAddress("ROUTER_ADDRESS"));
-        address oracle = vm.envAddress("ORACLE_ADDRESS");
+        address payable orders = payable(vm.envAddress("ORDERS_ADDRESS"));
 
-        generateTestData(Positions(positions), Router(router), Oracle(oracle));
+        generateTestData(Positions(positions), Router(router), Orders(orders));
 
         vm.stopBroadcast();
     }

@@ -14,6 +14,7 @@ import {
 } from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
+import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
@@ -173,6 +174,46 @@ contract RouterTest is FullTest {
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: type(int128).max}),
+            type(int256).min
+        );
+    }
+
+    function test_swap_liquidity_overflow_token0() public {
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
+
+        (, uint128 liquidity0) =
+            createPosition(poolKey, Bounds(-1, 5), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity1) =
+            createPosition(poolKey, Bounds(0, 6), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity2) =
+            createPosition(poolKey, Bounds(1, 7), (type(uint128).max >> 20), (type(uint128).max >> 20));
+
+        assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
+
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(2), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: type(int128).max}),
+            type(int256).min
+        );
+    }
+
+    function test_swap_liquidity_overflow_token1() public {
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
+
+        (, uint128 liquidity0) =
+            createPosition(poolKey, Bounds(-5, 1), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity1) =
+            createPosition(poolKey, Bounds(-6, 0), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity2) =
+            createPosition(poolKey, Bounds(-7, -1), (type(uint128).max >> 20), (type(uint128).max >> 20));
+
+        assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
+
+        vm.expectRevert(LiquidityDeltaOverflow.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-2), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: type(int128).max}),
             type(int256).min
         );
     }

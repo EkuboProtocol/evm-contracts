@@ -5,8 +5,6 @@ import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
-import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
-import {Orders} from "../src/Orders.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
@@ -44,14 +42,11 @@ contract DeployStatefulScript is Script {
     function run() public {
         address owner = vm.getWallets()[0];
 
-        string memory positionsBaseUrl;
-        string memory ordersBaseUrl;
+        string memory baseUrl;
         if (block.chainid == 1) {
-            positionsBaseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/positions/nft/"));
-            ordersBaseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/orders/nft/"));
+            baseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/positions/nft/"));
         } else if (block.chainid == 11155111) {
-            positionsBaseUrl = vm.envOr("BASE_URL", string("https://eth-sepolia-api.ekubo.org/positions/nft/"));
-            ordersBaseUrl = vm.envOr("BASE_URL", string("https://eth-sepolia-api.ekubo.org/orders/nft/"));
+            baseUrl = vm.envOr("BASE_URL", string("https://eth-sepolia-api.ekubo.org/positions/nft/"));
         } else {
             revert UnrecognizedChainId(block.chainid);
         }
@@ -63,28 +58,17 @@ contract DeployStatefulScript is Script {
         Core core = new Core{salt: salt}(owner);
 
         // we deploy with empty url so it has the same address across chains
-        BaseURLTokenURIGenerator positionsTokenURIGenerator = new BaseURLTokenURIGenerator{
+        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{
             salt: keccak256(abi.encodePacked(type(Positions).creationCode, salt))
         }(owner, "");
-        positionsTokenURIGenerator.setBaseURL(positionsBaseUrl);
+        tokenURIGenerator.setBaseURL(baseUrl);
 
-        new Positions{salt: salt}(core, positionsTokenURIGenerator);
+        new Positions{salt: salt}(core, tokenURIGenerator);
         new Oracle{
             salt: findExtensionSalt(
                 salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()
             )
         }(core);
-        TWAMM twamm = new TWAMM{
-            salt: findExtensionSalt(
-                salt, keccak256(abi.encodePacked(type(TWAMM).creationCode, abi.encode(core))), twammCallPoints()
-            )
-        }(core);
-
-        BaseURLTokenURIGenerator ordersTokenURIGenerator =
-            new BaseURLTokenURIGenerator{salt: keccak256(abi.encodePacked(type(Orders).creationCode, salt))}(owner, "");
-        ordersTokenURIGenerator.setBaseURL(ordersBaseUrl);
-
-        new Orders{salt: salt}(core, twamm, ordersTokenURIGenerator);
 
         vm.stopBroadcast();
     }

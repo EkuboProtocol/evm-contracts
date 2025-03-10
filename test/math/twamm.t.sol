@@ -86,6 +86,10 @@ contract TwammTest is Test {
     }
 
     function test_computeC_examples() public pure {
+        assertEq(computeC(0, 0), 0);
+        assertEq(computeC(0, 1), (1 << 64));
+        assertEq(computeC(1, 0), -(1 << 64));
+
         assertEq(computeC(1 << 128, 1 << 129), 6148914691236517205);
         assertEq(computeC(1 << 128, 1 << 127), -6148914691236517205);
         assertEq(computeC(1 << 128, 1 << 128), 0);
@@ -97,6 +101,16 @@ contract TwammTest is Test {
         // small difference, i.e. large denominator relative to numerator
         assertEq(computeC(MAX_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1), 0);
         assertEq(computeC(MIN_SQRT_RATIO.toFixed() + 1, MIN_SQRT_RATIO.toFixed()), 0);
+
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 15}), 0x3333333333333333);
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 20}), 0x5555555555555555);
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 30}), 0x8000000000000000);
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 190}), 0xe666666666666666);
+
+        assertEq(computeC({sqrtRatio: 15, sqrtSaleRatio: 10}), -0x3333333333333333);
+        assertEq(computeC({sqrtRatio: 20, sqrtSaleRatio: 10}), -0x5555555555555555);
+        assertEq(computeC({sqrtRatio: 30, sqrtSaleRatio: 10}), -0x8000000000000000);
+        assertEq(computeC({sqrtRatio: 190, sqrtSaleRatio: 10}), -0xe666666666666666);
     }
 
     function test_computeSqrtSaleRatio_examples() public pure {
@@ -249,6 +263,18 @@ contract TwammTest is Test {
                 fee: 922337203685477580
             }).toFixed(),
             286548851173856260816719751938951829696544768 // 842,091.3894737111
+        );
+
+        assertEq(
+            computeNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(404353500025976246415094160170803, false),
+                liquidity: 130385243018985227,
+                saleRateToken0: 893194653345642013054241177,
+                saleRateToken1: 1917585044284,
+                timeElapsed: 360,
+                fee: 922337203685477580
+            }).toFixed(),
+            404091968133776522516099158245376 // 842,091.3894737111
         );
 
         assertEq(

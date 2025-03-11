@@ -36,10 +36,6 @@ contract OrdersTest is BaseOrdersTest {
     using CoreLib for *;
     using TWAMMLib for *;
 
-    function boundTime(uint256 time, uint32 offset) internal pure returns (uint256) {
-        return ((bound(time, offset, type(uint256).max - type(uint32).max) / 16) * 16) + offset;
-    }
-
     function test_createOrder_sell_token0_only(uint256 time) public {
         time = boundTime(time, 1);
         vm.warp(time);

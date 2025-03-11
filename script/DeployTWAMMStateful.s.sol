@@ -8,7 +8,7 @@ import {Orders} from "../src/Orders.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {findExtensionSalt} from "./DeployStateful.s.sol";
 
-contract DeployTWAMMScript is Script {
+contract DeployTWAMMStatefulScript is Script {
     error UnrecognizedChainId(uint256 chainId);
 
     function run() public {

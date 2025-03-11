@@ -63,6 +63,29 @@ struct CollectProceedsParams {
     OrderKey orderKey;
 }
 
+function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
+    assembly ("memory-safe") {
+        poolKey := mload(0x40)
+
+        let sellToken := mload(orderKey)
+        let buyToken := mload(add(orderKey, 32))
+        let fee := mload(add(orderKey, 64))
+
+        let xoredTokens := xor(sellToken, buyToken)
+        let sellIsZero := gt(buyToken, sellToken)
+
+        let token0 := xor(sellToken, mul(xoredTokens, iszero(sellIsZero)))
+        let token1 := xor(sellToken, mul(xoredTokens, sellIsZero))
+
+        mstore(poolKey, token0)
+        mstore(add(poolKey, 32), token1)
+        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, fee)))
+
+        // move free memory pointer forward 96 bits
+        mstore(0x40, add(poolKey, 96))
+    }
+}
+
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
@@ -231,7 +254,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             flip := iszero(eq(iszero(numOrders), iszero(numOrdersNext)))
 
             // write the poolRewardRatesBefore[poolId][time] = (1,1)
-            // we assume this is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
+            // we assume `_updateTime` is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
             // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
             if flip {
                 mstore(0, poolId)
@@ -263,6 +286,18 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         poolTimeInfos[poolId][time] = timeInfo;
     }
 
+    // This is inteded to be used as a view method, but for accurate order info we have to first execute virtual orders
+    function executeVirtualOrdersAndGetOrderInfo(address owner, bytes32 salt, OrderKey memory orderKey)
+        external
+        returns (uint112 saleRate, uint256 rewardRateInside, uint128 purchasedAmount)
+    {
+        PoolKey memory poolKey = orderKeyToPoolKey(orderKey, address(this));
+        lockAndExecuteVirtualOrders(poolKey);
+
+        OrderState storage order = orderState[owner][salt][orderKey.toOrderId()];
+        (saleRate, rewardRateInside, purchasedAmount) = _getOrderInfo(orderKey, order, poolKey.toPoolId());
+    }
+
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return twammCallPoints();
     }
@@ -290,7 +325,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     revert InvalidTimestamps();
                 }
 
-                PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
+                PoolKey memory poolKey = orderKeyToPoolKey(params.orderKey, address(this));
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
@@ -356,7 +391,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 // subtract the remaining sell amount to get the delta
                 int256 amountDelta;
 
-                uint256 remainingSellAmount = computeAmountFromSaleRate(saleRate, durationRemaining, true);
+                uint256 remainingSellAmount =
+                    computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
 
                 assembly ("memory-safe") {
                     amountDelta := sub(amountRequired, remainingSellAmount)
@@ -397,7 +433,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             } else if (callType == 1) {
                 (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
 
-                PoolKey memory poolKey = _orderKeyToPoolKey(params.orderKey);
+                PoolKey memory poolKey = orderKeyToPoolKey(params.orderKey, address(this));
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
@@ -421,20 +457,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 revert();
             }
         }
-    }
-
-    function _orderKeyToPoolKey(OrderKey memory orderKey) internal view returns (PoolKey memory poolKey) {
-        return orderKey.sellToken < orderKey.buyToken
-            ? PoolKey({
-                token0: orderKey.sellToken,
-                token1: orderKey.buyToken,
-                config: toConfig({_fee: orderKey.fee, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
-            })
-            : PoolKey({
-                token0: orderKey.buyToken,
-                token1: orderKey.sellToken,
-                config: toConfig({_fee: orderKey.fee, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
-            });
     }
 
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, bytes32 poolId) internal {

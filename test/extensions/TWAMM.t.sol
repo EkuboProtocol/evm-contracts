@@ -14,7 +14,7 @@ import {
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
-import {TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
+import {TWAMM, OrderKey, orderKeyToPoolKey, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {Core} from "../../src/Core.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {TestToken} from "../TestToken.sol";
@@ -78,6 +78,20 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
     function _registerInConstructor() internal pure override returns (bool) {
         return false;
+    }
+
+    function test_orderKeyToPoolKey(OrderKey memory orderKey, address twamm) public pure {
+        PoolKey memory pk = orderKeyToPoolKey(orderKey, twamm);
+        if (orderKey.sellToken > orderKey.buyToken) {
+            assertEq(pk.token0, orderKey.buyToken);
+            assertEq(pk.token1, orderKey.sellToken);
+        } else {
+            assertEq(pk.token0, orderKey.sellToken);
+            assertEq(pk.token1, orderKey.buyToken);
+        }
+        assertEq(pk.fee(), orderKey.fee);
+        assertEq(pk.tickSpacing(), 0);
+        assertEq(pk.extension(), twamm);
     }
 
     /// forge-config: default.allow_internal_expect_revert = true

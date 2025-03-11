@@ -172,6 +172,48 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id1, key1, address(this)), 1000000000000002926);
     }
 
+    function test_createOrder_sell_both_tokens_getOrderInfo(uint256 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key0 = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            fee: fee,
+            startTime: time - 1,
+            endTime: time + 15
+        });
+        (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
+        OrderKey memory key1 = OrderKey({
+            sellToken: poolKey.token1,
+            buyToken: poolKey.token0,
+            fee: fee,
+            startTime: time - 1,
+            endTime: time + 63
+        });
+        (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2e18, type(uint112).max);
+
+        advanceTime(15);
+
+        (uint128 remainingSellAmount0, uint128 purchasedAmount0) = orders.executeVirtualOrdersAndGetOrderInfo(id0, key0);
+        assertEq(remainingSellAmount0, 0, "remainingSellAmount0");
+        assertEq(purchasedAmount0, 0.476190476190479288e18, "purchasedAmount0");
+        (uint128 remainingSellAmount1, uint128 purchasedAmount1) = orders.executeVirtualOrdersAndGetOrderInfo(id1, key1);
+        assertEq(remainingSellAmount1, 1.52380952380952381e18, "remainingSellAmount1");
+        assertEq(purchasedAmount1, 0.999999999999995269e18, "purchasedAmount1");
+    }
+
     function test_createOrder_sell_both_tokens_liquidity_dominated(uint256 time) public {
         time = boundTime(time, 1);
         vm.warp(time);

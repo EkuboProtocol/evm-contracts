@@ -28,4 +28,28 @@ library TWAMMLib {
             saleRateToken1 := shr(144, s)
         }
     }
+
+    function orderState(TWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
+        internal
+        view
+        returns (uint112 saleRate, uint256 rewardRateSnapshot)
+    {
+        bytes32 key;
+
+        assembly ("memory-safe") {
+            mstore(0, owner)
+            mstore(32, 0)
+
+            mstore(32, keccak256(0, 64))
+            mstore(0, salt)
+
+            mstore(32, keccak256(0, 64))
+            mstore(0, orderId)
+
+            key := keccak256(0, 64)
+        }
+
+        saleRate = uint112(uint256(twamm.sload(key)));
+        rewardRateSnapshot = uint256(twamm.sload(bytes32(uint256(key) + 1)));
+    }
 }

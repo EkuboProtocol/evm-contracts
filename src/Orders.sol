@@ -9,8 +9,8 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
-import {TWAMM, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
-import {computeSaleRate} from "./math/twamm.sol";
+import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
+import {computeSaleRate, computeAmountFromSaleRate} from "./math/twamm.sol";
 import {MintableNFT} from "./base/MintableNFT.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -107,6 +107,22 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     function collectProceeds(uint256 id, OrderKey memory orderKey) external payable returns (uint128 proceeds) {
         proceeds = collectProceeds(id, orderKey, msg.sender);
+    }
+
+    // This is really a view method, but for accurate order info we best use
+    function executeVirtualOrdersAndGetOrderInfo(uint256 id, OrderKey memory orderKey)
+        external
+        returns (uint128 remainingSellAmount, uint128 purchasedAmount)
+    {
+        uint112 saleRate;
+        (saleRate,, purchasedAmount) = twamm.executeVirtualOrdersAndGetOrderInfo(address(this), bytes32(id), orderKey);
+        if (saleRate != 0 && block.timestamp < orderKey.endTime) {
+            remainingSellAmount = computeAmountFromSaleRate({
+                saleRate: saleRate,
+                duration: uint32(orderKey.endTime - FixedPointMathLib.max(orderKey.startTime, block.timestamp)),
+                roundUp: true
+            });
+        }
     }
 
     error UnexpectedCallTypeByte(bytes1 b);

@@ -7,7 +7,7 @@ import {SqrtRatio} from "../types/sqrtRatio.sol";
 error Amount0DeltaOverflow();
 error Amount1DeltaOverflow();
 
-function sortSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB)
+function sortAndConvertToFixedSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB)
     pure
     returns (uint256 sqrtRatioLower, uint256 sqrtRatioUpper)
 {
@@ -21,7 +21,7 @@ function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
     returns (uint128 amount0)
 {
     unchecked {
-        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         if (roundUp) {
             uint256 result0 = FixedPointMathLib.fullMulDivUp(
@@ -46,12 +46,17 @@ function amount1Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
     returns (uint128 amount1)
 {
     unchecked {
-        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         uint256 difference = sqrtRatioUpper - sqrtRatioLower;
 
         if (roundUp) {
-            uint256 result = FixedPointMathLib.fullMulDivUp(difference, liquidity, 1 << 128);
+            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity, 128);
+            assembly {
+                // addition is safe from overflow because the result of fullMulDivN will never equal type(uint256).max
+                result :=
+                    add(result, iszero(iszero(mulmod(difference, liquidity, 0x100000000000000000000000000000000))))
+            }
             if (result > type(uint128).max) revert Amount1DeltaOverflow();
             amount1 = uint128(result);
         } else {

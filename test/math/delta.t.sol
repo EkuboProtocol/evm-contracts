@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {
     amount0Delta,
     amount1Delta,
-    sortSqrtRatios,
+    sortAndConvertToFixedSqrtRatios,
     Amount0DeltaOverflow,
     Amount1DeltaOverflow
 } from "../../src/math/delta.sol";
@@ -16,7 +16,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
 contract DeltaTest is Test {
     function check_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public pure {
         vm.assume(a.isValid() && b.isValid());
-        (uint256 c, uint256 d) = sortSqrtRatios(a, b);
+        (uint256 c, uint256 d) = sortAndConvertToFixedSqrtRatios(a, b);
 
         if (a < b) {
             assertTrue(a.toFixed() == c);
@@ -64,7 +64,7 @@ contract DeltaTest is Test {
             toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
         SqrtRatio sqrtRatioB =
             toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
-        (sqrtRatioAFixed, sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+        (sqrtRatioAFixed, sqrtRatioBFixed) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         vm.assumeNoRevert();
         uint128 amount = this.a0d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
@@ -109,7 +109,7 @@ contract DeltaTest is Test {
             toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
         SqrtRatio sqrtRatioB =
             toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
-        (sqrtRatioAFixed, sqrtRatioBFixed) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+        (sqrtRatioAFixed, sqrtRatioBFixed) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         vm.assumeNoRevert();
         uint128 amount = this.a1d(sqrtRatioA, sqrtRatioB, liquidity, roundUp);

@@ -11,6 +11,9 @@ struct Position {
 
 using {fees} for Position global;
 
+/// @dev Returns the fee amounts of token0 and token1 owed to a position based on the given fees per liquidity inside snapshot
+///      Note if the computed fees overflows the uint128 type, it will return only the lower 128 bits. It is assumed that accumulated
+///      fees will never exceed type(uint128).max.
 function fees(Position memory position, FeesPerLiquidity memory feesPerLiquidityInside)
     pure
     returns (uint128, uint128)

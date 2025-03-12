@@ -19,7 +19,7 @@ function isSet(Bitmap bitmap, uint8 index) pure returns (bool yes) {
     }
 }
 
-// Returns the index of the bit that is set and less or equally significant to index, or 256 if no such bit exists.
+// Returns the index of the most significant bit that is set _and_ less or equally significant to index, or 256 if no such bit exists.
 function leSetBit(Bitmap bitmap, uint8 index) pure returns (uint256) {
     unchecked {
         uint256 masked;
@@ -30,7 +30,7 @@ function leSetBit(Bitmap bitmap, uint8 index) pure returns (uint256) {
     }
 }
 
-// Returns the index of the next bit that is set and more or equally significant to index, or 256 if no such bit exists.
+// Returns the index of the least significant bit that is set _and_ more or equally significant to index, or 256 if no such bit exists.
 function geSetBit(Bitmap bitmap, uint8 index) pure returns (uint256) {
     unchecked {
         uint256 masked;

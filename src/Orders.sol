@@ -5,16 +5,20 @@ import {ERC721} from "solady/tokens/ERC721.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
+import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
+import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
-import {computeSaleRate, computeAmountFromSaleRate} from "./math/twamm.sol";
+import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
 import {MintableNFT} from "./base/MintableNFT.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
+    using TWAMMLib for *;
+
     error InvalidDuration();
     error OrderAlreadyEnded();
     error MaxSaleRateExceeded();
@@ -109,19 +113,50 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         proceeds = collectProceeds(id, orderKey, msg.sender);
     }
 
-    // This is really a view method, but for accurate order info we best use
-    function executeVirtualOrdersAndGetOrderInfo(uint256 id, OrderKey memory orderKey)
+    function executeVirtualOrdersAndGetCurrentOrderInfo(uint256 id, OrderKey memory orderKey)
         external
-        returns (uint128 remainingSellAmount, uint128 purchasedAmount)
+        returns (uint112 saleRate, uint128 amountSold, uint128 remainingSellAmount, uint128 purchasedAmount)
     {
-        uint112 saleRate;
-        (saleRate,, purchasedAmount) = twamm.executeVirtualOrdersAndGetOrderInfo(address(this), bytes32(id), orderKey);
-        if (saleRate != 0 && block.timestamp < orderKey.endTime) {
-            remainingSellAmount = computeAmountFromSaleRate({
-                saleRate: saleRate,
-                duration: uint32(orderKey.endTime - FixedPointMathLib.max(orderKey.startTime, block.timestamp)),
-                roundUp: true
-            });
+        unchecked {
+            PoolKey memory poolKey = orderKeyToPoolKey(orderKey, address(twamm));
+            twamm.lockAndExecuteVirtualOrders(poolKey);
+
+            uint32 lastUpdateTime;
+            uint256 rewardRateSnapshot;
+            (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
+                twamm.orderState(address(this), bytes32(id), orderKey.toOrderId());
+
+            uint256 rewardRateInside = twamm.getRewardRateInside(
+                poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
+            );
+
+            purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
+
+            if (saleRate != 0) {
+                if (block.timestamp > orderKey.startTime) {
+                    uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
+
+                    uint32 secondsSinceOrderStart = uint32(block.timestamp - orderKey.startTime);
+
+                    uint32 totalOrderDuration = uint32(orderKey.endTime - orderKey.startTime);
+
+                    uint32 saleDuration = uint32(
+                        FixedPointMathLib.min(
+                            FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart), totalOrderDuration
+                        )
+                    );
+
+                    amountSold +=
+                        computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false});
+                }
+                if (block.timestamp < orderKey.endTime) {
+                    remainingSellAmount = computeAmountFromSaleRate({
+                        saleRate: saleRate,
+                        duration: uint32(orderKey.endTime - FixedPointMathLib.max(orderKey.startTime, block.timestamp)),
+                        roundUp: true
+                    });
+                }
+            }
         }
     }
 

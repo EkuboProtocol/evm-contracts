@@ -103,56 +103,56 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         assertEq(_addConstrainSaleRateDelta(saleRateDelta, saleRateDeltaChange), result);
     }
 
-    function test_getRewardRateInside_token0() public {
+    function testgetRewardRateInside_token0() public {
         bytes32 poolId = bytes32(0);
 
         vm.warp(99);
-        assertEq(_getRewardRateInside(poolId, 100, 200, false), 0);
+        assertEq(getRewardRateInside(poolId, 100, 200, false), 0);
 
         vm.warp(150);
-        assertEq(_getRewardRateInside(poolId, 100, 200, false), 0);
+        assertEq(getRewardRateInside(poolId, 100, 200, false), 0);
 
         poolRewardRates[poolId] = FeesPerLiquidity(100, 75);
-        assertEq(_getRewardRateInside(poolId, 100, 200, false), 100);
+        assertEq(getRewardRateInside(poolId, 100, 200, false), 100);
 
         poolRewardRates[poolId] = FeesPerLiquidity(300, 450);
         poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(150, 150);
         vm.warp(250);
-        assertEq(_getRewardRateInside(poolId, 100, 200, false), 150);
+        assertEq(getRewardRateInside(poolId, 100, 200, false), 150);
 
         poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(50, 100);
-        assertEq(_getRewardRateInside(poolId, 100, 200, false), 100);
+        assertEq(getRewardRateInside(poolId, 100, 200, false), 100);
     }
 
-    function test_getRewardRateInside_at_end_time() public {
+    function testgetRewardRateInside_at_end_time() public {
         bytes32 poolId = bytes32(0);
 
         poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(25, 30);
         poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(50, 75);
         vm.warp(200);
-        assertEq(_getRewardRateInside(poolId, 100, 200, false), 25);
-        assertEq(_getRewardRateInside(poolId, 100, 200, true), 45);
+        assertEq(getRewardRateInside(poolId, 100, 200, false), 25);
+        assertEq(getRewardRateInside(poolId, 100, 200, true), 45);
     }
 
-    function test_getRewardRateInside_token1() public {
+    function testgetRewardRateInside_token1() public {
         bytes32 poolId = bytes32(0);
 
         vm.warp(99);
-        assertEq(_getRewardRateInside(poolId, 100, 200, true), 0);
+        assertEq(getRewardRateInside(poolId, 100, 200, true), 0);
 
         vm.warp(150);
-        assertEq(_getRewardRateInside(poolId, 100, 200, true), 0);
+        assertEq(getRewardRateInside(poolId, 100, 200, true), 0);
 
         poolRewardRates[poolId] = FeesPerLiquidity(100, 75);
-        assertEq(_getRewardRateInside(poolId, 100, 200, true), 75);
+        assertEq(getRewardRateInside(poolId, 100, 200, true), 75);
 
         poolRewardRates[poolId] = FeesPerLiquidity(300, 450);
         poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(150, 160);
         vm.warp(250);
-        assertEq(_getRewardRateInside(poolId, 100, 200, true), 160);
+        assertEq(getRewardRateInside(poolId, 100, 200, true), 160);
 
         poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(50, 100);
-        assertEq(_getRewardRateInside(poolId, 100, 200, true), 60);
+        assertEq(getRewardRateInside(poolId, 100, 200, true), 60);
     }
 
     function test_updateTime_flips_time() public {

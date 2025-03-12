@@ -32,13 +32,13 @@ library TWAMMLib {
     function orderState(TWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
         internal
         view
-        returns (uint112 saleRate, uint256 rewardRateSnapshot)
+        returns (uint112 saleRate, uint32 lastUpdateTime, uint112 amountSold, uint256 rewardRateSnapshot)
     {
         bytes32 key;
 
         assembly ("memory-safe") {
             mstore(0, owner)
-            mstore(32, 0)
+            mstore(32, 5)
 
             mstore(32, keccak256(0, 64))
             mstore(0, salt)
@@ -49,7 +49,10 @@ library TWAMMLib {
             key := keccak256(0, 64)
         }
 
-        saleRate = uint112(uint256(twamm.sload(key)));
+        uint256 v0 = uint256(twamm.sload(key));
+        saleRate = uint112(v0);
+        lastUpdateTime = uint32(v0 >> 112);
+        amountSold = uint112(v0 >> 144);
         rewardRateSnapshot = uint256(twamm.sload(bytes32(uint256(key) + 1)));
     }
 }

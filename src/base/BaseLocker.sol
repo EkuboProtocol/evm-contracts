@@ -120,6 +120,7 @@ abstract contract BaseLocker is ILocker, IPayer {
                     // selector of pay(address)
                     mstore(free, shl(224, 0x0c11dedd))
                     mstore(add(free, 4), token)
+                    // additional data is appended to the payCallback
                     mstore(add(free, 36), from)
                     mstore(add(free, 68), amount)
 

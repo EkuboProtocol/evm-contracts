@@ -51,7 +51,12 @@ function amount1Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
         uint256 difference = sqrtRatioUpper - sqrtRatioLower;
 
         if (roundUp) {
-            uint256 result = FixedPointMathLib.fullMulDivUp(difference, liquidity, 1 << 128);
+            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity, 128);
+            assembly {
+                // addition is safe from overflow because the result of fullMulDivN will never equal type(uint256).max
+                result :=
+                    add(result, iszero(iszero(mulmod(difference, liquidity, 0x100000000000000000000000000000000))))
+            }
             if (result > type(uint128).max) revert Amount1DeltaOverflow();
             amount1 = uint128(result);
         } else {

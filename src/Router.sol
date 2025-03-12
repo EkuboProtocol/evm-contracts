@@ -36,6 +36,9 @@ struct Delta {
     int128 amount1;
 }
 
+/// @title Ekubo Router
+/// @author Moody Salem <moody@ekubo.org>
+/// @notice Enables swapping and quoting against pools in Ekubo Protocol
 contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker {
     using CoreLib for *;
 

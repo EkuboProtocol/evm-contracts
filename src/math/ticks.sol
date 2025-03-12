@@ -15,7 +15,7 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
 
         uint256 ratio;
         assembly ("memory-safe") {
-            ratio := sub(0x100000000000000000000000000000000, mul(and(t, 0x1), 170141055854687974526380422256581))
+            ratio := sub(0x100000000000000000000000000000000, mul(and(t, 0x1), 0x8637b66cd638344daef276cd7c5))
         }
 
         if ((t & 0x2) != 0) {

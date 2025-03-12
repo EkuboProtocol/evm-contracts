@@ -86,6 +86,9 @@ function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns
     }
 }
 
+/// @title Ekubo TWAMM
+/// @author Moody Salem <moody@ekubo.org>
+/// @notice Extension for Ekubo Protocol that enables creation of DCA orders that are executed over time
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;

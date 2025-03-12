@@ -6,7 +6,7 @@ import {IPayer, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 abstract contract FlashAccountant is IFlashAccountant {
-    // These are randomly selected offsets so that they do not accidentally overlap with any other base contract's use of transient storage
+    // These offsets are selected so that they do not accidentally overlap with any other base contract's use of transient storage
 
     // cast keccak "FlashAccountant#CURRENT_LOCKER_SLOT"
     uint256 private constant _CURRENT_LOCKER_SLOT = 0x07cc7f5195d862f505d6b095c82f92e00cfc1766f5bca4383c28dc5fca1555fd;

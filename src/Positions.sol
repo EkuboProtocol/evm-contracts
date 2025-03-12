@@ -20,6 +20,9 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {MintableNFT} from "./base/MintableNFT.sol";
 
+/// @title Ekubo Positions
+/// @author Moody Salem <moody@ekubo.org>
+/// @notice Tracks liquidity positions in Ekubo Protocol
 contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();

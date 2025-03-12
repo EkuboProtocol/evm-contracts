@@ -39,6 +39,9 @@ import {
 } from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 
+/// @title Ekubo Protocol
+/// @author Moody Salem <moody@ekubo.org>
+/// @notice Singleton holding all the tokens and containing all the possible operations in Ekubo Protocol
 contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 

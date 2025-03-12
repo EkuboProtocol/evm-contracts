@@ -109,12 +109,11 @@ abstract contract BaseLocker is ILocker, IPayer {
     }
 
     function pay(address from, address token, uint256 amount) internal {
-        address target = address(accountant);
-
         if (amount != 0) {
             if (token == NATIVE_TOKEN_ADDRESS) {
                 SafeTransferLib.safeTransferETH(address(accountant), amount);
             } else {
+                address target = address(accountant);
                 assembly ("memory-safe") {
                     let free := mload(0x40)
                     // selector of pay(address)

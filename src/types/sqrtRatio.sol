@@ -138,6 +138,6 @@ function max(SqrtRatio a, SqrtRatio b) pure returns (SqrtRatio r) {
 
 function min(SqrtRatio a, SqrtRatio b) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {
-        r := xor(a, mul(xor(a, b), slt(b, a)))
+        r := xor(a, mul(xor(a, b), lt(b, a)))
     }
 }

@@ -135,6 +135,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                     results[i] = new Delta[](s.route.length);
 
                     TokenAmount memory tokenAmount = s.tokenAmount;
+                    totalSpecified += tokenAmount.amount;
 
                     for (uint256 j = 0; j < s.route.length; j++) {
                         RouteNode memory node = s.route[j];
@@ -159,10 +160,6 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         (int128 delta0, int128 delta1) =
                             core.swap(0, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
                         results[i][j] = Delta(delta0, delta1);
-
-                        if (j == 0) {
-                            totalSpecified += tokenAmount.amount;
-                        }
 
                         if (isToken1) {
                             if (delta1 != tokenAmount.amount) revert PartialSwapsDisallowed();

@@ -12,12 +12,14 @@ abstract contract SlippageChecker {
     error MinimumOutputNotReceived(address token, uint256 minimumOutput);
     error MaximumInputExceeded(address token, uint256 maximumInput);
 
+    // cast keccak "SlippageChecker#balanceKey"
+    uint256 private constant _BALANCE_KEY_OFFSET = 0x2ea13d3f0340a613d1765d6e239004eca4cb7efa2e253d1e113c4d333b8db7c8;
+
     function balanceKey(address token, address account) private pure returns (bytes32 key) {
         assembly ("memory-safe") {
             mstore(0, token)
             mstore(32, account)
-            // 0x2ea13d3f0340a613d1765d6e239004eca4cb7efa2e253d1e113c4d333b8db7c8 == `cast keccak "SlippageChecker#balanceKey"`
-            key := add(keccak256(0, 64), 0x2ea13d3f0340a613d1765d6e239004eca4cb7efa2e253d1e113c4d333b8db7c8)
+            key := add(keccak256(0, 64), _BALANCE_KEY_OFFSET)
         }
     }
 

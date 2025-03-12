@@ -42,7 +42,7 @@ function toUint8(CallPoints memory callPoints) pure returns (uint8 b) {
                                     add(mload(callPoints), mul(128, mload(add(callPoints, 32)))),
                                     mul(64, mload(add(callPoints, 64)))
                                 ),
-                                mul(mload(add(callPoints, 96)), 32)
+                                mul(32, mload(add(callPoints, 96)))
                             ),
                             mul(16, mload(add(callPoints, 128)))
                         ),

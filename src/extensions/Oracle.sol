@@ -184,6 +184,9 @@ contract Oracle is ExposedStorage, BaseExtension {
     // Minimal set of efficient view methods that expose the data
 
     // Given a logical index [0, count), returns the snapshot from storage
+    /// @dev Because the snapshots array is circular, the index of the most recently written snapshot can be any value in [0,c.count).
+    ///      To simplify the code, we operate on the logical indices, rather than the actual indices.
+    ///      For logical indices, the most recently written value is always at logicalIndex = c.count-1 and the earliest snapshot is always at logicalIndex = 0.
     function _getSnapshotLogical(Counts memory c, address token, uint256 logicalIndex)
         internal
         view
@@ -195,6 +198,7 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     // Searches the logical range [min, maxExclusive) for the latest snapshot with timestamp <= time.
+    /// @dev See _getSnapshotLogical for an explanation of logical indices.
     function searchRangeForPrevious(
         Counts memory c,
         address token,
@@ -264,15 +268,15 @@ contract Oracle is ExposedStorage, BaseExtension {
                 } else {
                     // Use the next snapshot.
                     Snapshot memory next = _getSnapshotLogical(c, token, logicalIndex + 1);
-                    tick = int32(
-                        (next.tickCumulative - snapshot.tickCumulative)
-                            / int64(uint64(next.timestamp - snapshot.timestamp))
-                    );
+
+                    uint32 timestampDifference = next.timestamp - snapshot.timestamp;
+
+                    tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timestampDifference)));
                     liquidity = uint128(
                         (type(uint128).max)
                             / (
                                 (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
-                                    / (next.timestamp - snapshot.timestamp)
+                                    / timestampDifference
                             )
                     );
                 }

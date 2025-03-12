@@ -12,16 +12,16 @@ error InvalidNumIntervals();
 error InvalidPeriod();
 
 // Gets the timestamps for the snapshots that must be fetched for the given period [endTime - (numIntervals * period), endTime]
-function getTimestampsForPeriod(uint64 endTime, uint32 numIntervals, uint32 period)
+function getTimestampsForPeriod(uint256 endTime, uint32 numIntervals, uint32 period)
     pure
-    returns (uint64[] memory timestamps)
+    returns (uint256[] memory timestamps)
 {
     if (numIntervals == 0 || numIntervals == type(uint32).max) revert InvalidNumIntervals();
     if (period == 0) revert InvalidPeriod();
 
-    timestamps = new uint64[](numIntervals + 1);
+    timestamps = new uint256[](numIntervals + 1);
     for (uint256 i = 0; i <= numIntervals;) {
-        timestamps[i] = uint64(endTime - ((numIntervals - i) * period));
+        timestamps[i] = endTime - (numIntervals - i) * period;
         unchecked {
             i++;
         }
@@ -34,23 +34,21 @@ contract PriceFetcher {
     error VolatilityRequiresMoreIntervals();
 
     Oracle public immutable oracle;
-    uint64 private immutable _timestampOffset;
 
     constructor(Oracle _oracle) {
         oracle = _oracle;
-        _timestampOffset = oracle.timestampOffset();
     }
 
     function getEarliestSnapshotTimestamp(address token) private view returns (uint256) {
-        if (token == NATIVE_TOKEN_ADDRESS) return _timestampOffset;
+        if (token == NATIVE_TOKEN_ADDRESS) return 0;
 
         (, uint64 count,) = oracle.counts(token);
         if (count == 0) {
             // if there are no snapshots, return a timestamp that will never be considered valid
             return type(uint256).max;
         }
-        (uint32 secondsSinceOffset,,) = oracle.snapshots(token, 0);
-        return _timestampOffset + secondsSinceOffset;
+        (uint32 timestamp,,) = oracle.snapshots(token, 0);
+        return block.timestamp - (uint32(block.timestamp) - timestamp);
     }
 
     function getMaximumObservationPeriod(address token) private view returns (uint32) {
@@ -117,7 +115,7 @@ contract PriceFetcher {
                 (int32 tickSign, address otherToken) =
                     baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
 
-                uint64[] memory timestamps = getTimestampsForPeriod(endTime, numIntervals, period);
+                uint256[] memory timestamps = getTimestampsForPeriod(endTime, numIntervals, period);
                 averages = new PeriodAverage[](numIntervals);
 
                 Oracle.Observation[] memory observations =

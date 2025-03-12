@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {amount0Delta, amount1Delta, sortSqrtRatios} from "./delta.sol";
+import {amount0Delta, amount1Delta, sortAndConvertToFixedSqrtRatios} from "./delta.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 /**
@@ -70,7 +70,7 @@ function maxLiquidity(
     uint128 amount1
 ) pure returns (uint128) {
     uint256 sqrtRatio = _sqrtRatio.toFixed();
-    (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortSqrtRatios(sqrtRatioA, sqrtRatioB);
+    (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
 
     if (sqrtRatio <= sqrtRatioLower) {
         return uint128(

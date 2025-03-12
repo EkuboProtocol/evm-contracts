@@ -18,6 +18,7 @@ function tickToBitmapWordAndIndex(int32 tick, uint32 tickSpacing) pure returns (
 }
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
+/// @dev This function is only safe if tickSpacing is between 1 and MAX_TICK_SPACING, and word/index correspond to the results of tickToBitmapWordAndIndex for a tick between MIN_TICK and MAX_TICK
 function bitmapWordAndIndexToTick(uint256 word, uint256 index, uint32 tickSpacing) pure returns (int32 tick) {
     assembly ("memory-safe") {
         let rawIndex := add(mul(word, 256), index)

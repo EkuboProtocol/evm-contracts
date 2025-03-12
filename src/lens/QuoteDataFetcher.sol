@@ -22,7 +22,7 @@ struct QuoteData {
     uint128 liquidity;
     int32 minTick;
     int32 maxTick;
-    // all the initialized ticks within minTickSpacings of the current tick
+    // all the initialized ticks within minBitmapsSearched of the current tick
     TickDelta[] ticks;
 }
 
@@ -33,7 +33,9 @@ contract QuoteDataFetcher is UsesCore {
 
     constructor(ICore core) UsesCore(core) {}
 
-    function getQuoteData(PoolKey[] calldata poolKeys, uint32 minTickSpacings)
+    /// @param minBitmapsSearched indicates the minimum number of initialized tick bitmaps the current tick should be searched for tick data
+    /// @dev We use the unit of bitmaps (i.e. tickSpacings * 256) because that's a rough approximation of how the gas cost of this function scales
+    function getQuoteData(PoolKey[] calldata poolKeys, uint32 minBitmapsSearched)
         external
         view
         returns (QuoteData[] memory results)
@@ -50,7 +52,7 @@ contract QuoteDataFetcher is UsesCore {
                     TickDelta[] memory ticks;
                     if (poolKeys[i].tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                         int256 rangeSize =
-                            int256(uint256(minTickSpacings)) * int256(uint256(poolKeys[i].tickSpacing())) * 256;
+                            int256(uint256(minBitmapsSearched)) * int256(uint256(poolKeys[i].tickSpacing())) * 256;
                         minTick = int256(tick) - rangeSize;
                         maxTick = int256(tick) + rangeSize;
 

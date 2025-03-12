@@ -65,7 +65,15 @@ contract Oracle is ExposedStorage, BaseExtension {
             assembly ("memory-safe") {
                 mstore(0, shl(96, token))
                 mstore(
-                    20, or(or(shl(224, mload(snapshot)), shl(64, mload(add(snapshot, 32)))), mload(add(snapshot, 64)))
+                    20,
+                    or(
+                        or(
+                            shl(224, mload(snapshot)),
+                            // shl 96 and then 32 clears upper 96 bits
+                            shr(32, shl(96, mload(add(snapshot, 32))))
+                        ),
+                        and(mload(add(snapshot, 64)), 0xffffffffffffffff)
+                    )
                 )
                 log0(0, 52)
             }
@@ -199,9 +207,8 @@ contract Oracle is ExposedStorage, BaseExtension {
                 revert NoPreviousSnapshotExists(token, time);
             }
 
-            uint32 searchTime = uint32(time);
             uint32 current = uint32(block.timestamp);
-            uint32 targetDiff = current - searchTime;
+            uint32 targetDiff = current - uint32(time);
 
             uint256 left = logicalMin;
             uint256 right = logicalMaxExclusive - 1;
@@ -223,11 +230,13 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
     // Returns the snapshot with greatest timestamp ≤ the given time.
 
-    function findPreviousSnapshot(address token, uint64 time)
+    function findPreviousSnapshot(address token, uint256 time)
         public
         view
         returns (uint256 count, uint256 logicalIndex, Snapshot memory snapshot)
     {
+        if (time > block.timestamp) revert FutureTime();
+
         Counts memory c = counts[token];
         count = c.count;
         (logicalIndex, snapshot) = searchRangeForPrevious(c, token, time, 0, count);
@@ -241,7 +250,6 @@ contract Oracle is ExposedStorage, BaseExtension {
         uint256 logicalIndex,
         Snapshot memory snapshot
     ) private view returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) {
-        if (atTime > block.timestamp) revert FutureTime();
         unchecked {
             secondsPerLiquidityCumulative = snapshot.secondsPerLiquidityCumulative;
             tickCumulative = snapshot.tickCumulative;
@@ -276,11 +284,13 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     // Returns cumulative snapshot values at time `atTime`.
-    function extrapolateSnapshot(address token, uint64 atTime)
+    function extrapolateSnapshot(address token, uint256 atTime)
         public
         view
         returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative)
     {
+        if (atTime > block.timestamp) revert FutureTime();
+
         Counts memory c = counts[token];
         (uint256 logicalIndex, Snapshot memory snapshot) = searchRangeForPrevious(c, token, atTime, 0, c.count);
         (secondsPerLiquidityCumulative, tickCumulative) =
@@ -312,6 +322,9 @@ contract Oracle is ExposedStorage, BaseExtension {
             uint256 lastTimestamp;
             for (uint256 i = 0; i < timestamps.length; i++) {
                 uint256 timestamp = timestamps[i];
+
+                if (timestamp > block.timestamp) revert FutureTime();
+
                 if (timestamp < lastTimestamp) {
                     revert TimestampsNotSorted();
                 }

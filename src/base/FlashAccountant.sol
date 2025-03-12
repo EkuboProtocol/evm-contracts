@@ -210,7 +210,9 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
 
         // The unary negative operator never fails because payment is less than max uint128
-        _accountDebt(id, token, -int256(uint256(payment)));
+        unchecked {
+            _accountDebt(id, token, -int256(uint256(payment)));
+        }
 
         assembly ("memory-safe") {
             tstore(_PAY_REENTRANCY_LOCK, 0)

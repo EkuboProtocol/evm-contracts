@@ -19,7 +19,7 @@ contract PriceFetcherTest is BaseOracleTest {
     }
 
     function test_getTimestampsForPeriod() public pure {
-        uint64[] memory result = getTimestampsForPeriod({endTime: 100, numIntervals: 7, period: 5});
+        uint256[] memory result = getTimestampsForPeriod({endTime: 100, numIntervals: 7, period: 5});
         assertEq(result.length, 8);
         assertEq(result[0], 65);
         assertEq(result[1], 70);
@@ -34,7 +34,7 @@ contract PriceFetcherTest is BaseOracleTest {
     function _getTimestampsForPeriod(uint64 endTime, uint32 numIntervals, uint32 period)
         external
         pure
-        returns (uint64[] memory timestamps)
+        returns (uint256[] memory timestamps)
     {
         timestamps = getTimestampsForPeriod({endTime: endTime, numIntervals: numIntervals, period: period});
     }

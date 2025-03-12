@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey, toConfig} from "../types/poolKey.sol";
+import {PoolKey, toConfig, Config} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../types/positionKey.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
@@ -30,20 +30,16 @@ contract Oracle is ExposedStorage, BaseExtension {
     error FeeMustBeZero();
     error TickSpacingMustBeMaximum();
     error FutureTime();
-    error NoPreviousSnapshotExists(address token, uint64 time);
+    error NoPreviousSnapshotExists(address token, uint256 time);
     error EndTimeLessThanStartTime();
     error TimestampsNotSorted();
     error ZeroTimestampsProvided();
 
     using CoreLib for ICore;
 
-    // all snapshots are taken with respect to this snapshot.
-    // this allows the contract to function for 2^32-1 seconds from the time it is deployed before it must be redeployed
-    // that is equivalent to 136.102208 years, so if it is deployed in 2025, it must be redeployed in the year 2161
-    uint64 public immutable timestampOffset;
-
     struct Snapshot {
-        uint32 secondsSinceOffset;
+        // the truncated least significant 32 bits of the timestamp when this was snapshot was written
+        uint32 timestamp;
         // can be used to compute harmonic mean liquidity over a period of time, in order to determine the safety of the oracle
         uint160 secondsPerLiquidityCumulative;
         // can be used to compute a time weighted average tick over a period of time
@@ -52,55 +48,45 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     struct Counts {
         // The index of the last snapshot that was written
-        uint64 index;
-        // The number of snapshots that are currently stored
-        uint64 count;
-        // The maximum number of snapshots that will be stored
-        uint64 capacity;
+        uint32 index;
+        // The number of snapshots that have been written for the pool
+        uint32 count;
+        // The maximum number of snapshots that will be stored for the token
+        uint32 capacity;
     }
 
     mapping(address token => Counts) public counts;
     mapping(address token => mapping(uint256 index => Snapshot snapshot)) public snapshots;
 
-    constructor(ICore core) BaseExtension(core) {
-        // This assumption is used throughout the code, so we assert it in the constructor so that everything fails if it isn't held
-        assert(NATIVE_TOKEN_ADDRESS == address(0));
-        timestampOffset = uint64(block.timestamp);
-    }
+    constructor(ICore core) BaseExtension(core) {}
 
     function _emitSnapshotEvent(address token, Snapshot memory snapshot) private {
         unchecked {
-            uint64 ts = timestampOffset + snapshot.secondsSinceOffset;
             assembly ("memory-safe") {
-                let free := mload(0x40)
-                mstore(free, shl(96, token))
-                mstore(add(free, 20), shl(192, ts))
-                mstore(add(free, 28), mload(add(snapshot, 44)))
-                mstore(add(free, 48), mload(add(snapshot, 88)))
-                log0(free, 56)
+                mstore(0, shl(96, token))
+                mstore(
+                    20,
+                    or(
+                        or(
+                            shl(224, mload(snapshot)),
+                            // shl 96 and then 32 clears upper 96 bits
+                            shr(32, shl(96, mload(add(snapshot, 32))))
+                        ),
+                        and(mload(add(snapshot, 64)), 0xffffffffffffffff)
+                    )
+                )
+                log0(0, 52)
             }
         }
     }
 
     // The only allowed pool key for the given token
     function getPoolKey(address token) public view returns (PoolKey memory) {
-        return PoolKey({
-            token0: NATIVE_TOKEN_ADDRESS,
-            token1: token,
-            config: toConfig({_fee: 0, _tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, _extension: address(this)})
-        });
-    }
-
-    function secondsSinceOffset() public view returns (uint32) {
-        unchecked {
-            return uint32(uint64(block.timestamp) - timestampOffset);
+        Config config;
+        assembly ("memory-safe") {
+            config := shl(96, address())
         }
-    }
-
-    function secondsSinceOffsetToTimestamp(uint32 sso) public view returns (uint64) {
-        unchecked {
-            return timestampOffset + sso;
-        }
+        return PoolKey({token0: NATIVE_TOKEN_ADDRESS, token1: token, config: config});
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -113,10 +99,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             // we know count is always g.t. 0 in the places this is called
             Snapshot memory last = snapshots[token][c.index];
 
-            uint32 sso = secondsSinceOffset();
-            uint32 lastSso = last.secondsSinceOffset;
-
-            uint32 timePassed = sso - lastSso;
+            uint32 timePassed = uint32(block.timestamp) - last.timestamp;
             if (timePassed == 0) return;
 
             (, int32 tick, uint128 liquidity) = core.poolState(poolId);
@@ -133,7 +116,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             }
 
             Snapshot memory snapshot = Snapshot({
-                secondsSinceOffset: sso,
+                timestamp: uint32(block.timestamp),
                 secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative
                     + ((uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity))),
                 tickCumulative: last.tickCumulative + int64(uint64(timePassed)) * tick
@@ -155,9 +138,8 @@ contract Oracle is ExposedStorage, BaseExtension {
 
         // in case expandCapacity is called before the pool is initialized:
         //  remember we have the capacity since the snapshot storage has been initialized
-        counts[token] = Counts({index: 0, count: 1, capacity: uint64(FixedPointMathLib.max(1, counts[token].capacity))});
-        uint32 sso = secondsSinceOffset();
-        Snapshot memory snapshot = Snapshot(sso, 0, 0);
+        counts[token] = Counts({index: 0, count: 1, capacity: uint32(FixedPointMathLib.max(1, counts[token].capacity))});
+        Snapshot memory snapshot = Snapshot(uint32(block.timestamp), 0, 0);
         snapshots[token][0] = snapshot;
 
         _emitSnapshotEvent(token, snapshot);
@@ -184,7 +166,7 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     // Expands the capacity of the list of snapshots for the given token
-    function expandCapacity(address token, uint64 minCapacity) external returns (uint64 capacity) {
+    function expandCapacity(address token, uint32 minCapacity) external returns (uint32 capacity) {
         Counts memory c = counts[token];
 
         if (c.capacity < minCapacity) {
@@ -215,48 +197,50 @@ contract Oracle is ExposedStorage, BaseExtension {
         return snapshots[token][physicalIndex];
     }
 
-    // Searches the logical range [min, maxExclusive) for the snapshot with secondsSinceOffset <= target.
+    // Searches the logical range [min, maxExclusive) for the latest snapshot with timestamp <= time.
     /// @dev See _getSnapshotLogical for an explanation of logical indices.
     function searchRangeForPrevious(
         Counts memory c,
         address token,
-        uint64 time,
+        uint256 time,
         uint256 logicalMin,
         uint256 logicalMaxExclusive
     ) private view returns (uint256 logicalIndex, Snapshot memory snapshot) {
         unchecked {
-            if (time < timestampOffset || logicalMin >= logicalMaxExclusive) {
+            if (logicalMin >= logicalMaxExclusive) {
                 revert NoPreviousSnapshotExists(token, time);
             }
-            // Our snapshot times are stored as uint32 relative to timestampOffset.
-            assert(time < timestampOffset + type(uint32).max);
-            uint32 targetSso = uint32(time - timestampOffset);
+
+            uint32 current = uint32(block.timestamp);
+            uint32 targetDiff = current - uint32(time);
 
             uint256 left = logicalMin;
             uint256 right = logicalMaxExclusive - 1;
             while (left < right) {
                 uint256 mid = (left + right + 1) >> 1;
                 Snapshot memory midSnapshot = _getSnapshotLogical(c, token, mid);
-                if (midSnapshot.secondsSinceOffset <= targetSso) {
+                if (current - midSnapshot.timestamp >= targetDiff) {
                     left = mid;
                 } else {
                     right = mid - 1;
                 }
             }
             snapshot = _getSnapshotLogical(c, token, left);
-            if (snapshot.secondsSinceOffset > targetSso) {
+            if (current - snapshot.timestamp < targetDiff) {
                 revert NoPreviousSnapshotExists(token, time);
             }
             return (left, snapshot);
         }
     }
-
     // Returns the snapshot with greatest timestamp ≤ the given time.
-    function findPreviousSnapshot(address token, uint64 time)
+
+    function findPreviousSnapshot(address token, uint256 time)
         public
         view
         returns (uint256 count, uint256 logicalIndex, Snapshot memory snapshot)
     {
+        if (time > block.timestamp) revert FutureTime();
+
         Counts memory c = counts[token];
         count = c.count;
         (logicalIndex, snapshot) = searchRangeForPrevious(c, token, time, 0, count);
@@ -266,15 +250,14 @@ contract Oracle is ExposedStorage, BaseExtension {
     function extrapolateSnapshotInternal(
         Counts memory c,
         address token,
-        uint64 atTime,
+        uint256 atTime,
         uint256 logicalIndex,
         Snapshot memory snapshot
     ) private view returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) {
-        if (atTime > block.timestamp) revert FutureTime();
         unchecked {
             secondsPerLiquidityCumulative = snapshot.secondsPerLiquidityCumulative;
             tickCumulative = snapshot.tickCumulative;
-            uint32 timePassed = uint32(atTime - timestampOffset - snapshot.secondsSinceOffset);
+            uint32 timePassed = uint32(atTime) - snapshot.timestamp;
             if (timePassed != 0) {
                 int32 tick;
                 uint128 liquidity;
@@ -286,14 +269,14 @@ contract Oracle is ExposedStorage, BaseExtension {
                     // Use the next snapshot.
                     Snapshot memory next = _getSnapshotLogical(c, token, logicalIndex + 1);
 
-                    uint32 timeDifference = next.secondsSinceOffset - snapshot.secondsSinceOffset;
+                    uint32 timestampDifference = next.timestamp - snapshot.timestamp;
 
-                    tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timeDifference)));
+                    tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timestampDifference)));
                     liquidity = uint128(
                         (type(uint128).max)
                             / (
                                 (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
-                                    / timeDifference
+                                    / timestampDifference
                             )
                     );
                 }
@@ -305,11 +288,13 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     // Returns cumulative snapshot values at time `atTime`.
-    function extrapolateSnapshot(address token, uint64 atTime)
+    function extrapolateSnapshot(address token, uint256 atTime)
         public
         view
         returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative)
     {
+        if (atTime > block.timestamp) revert FutureTime();
+
         Counts memory c = counts[token];
         (uint256 logicalIndex, Snapshot memory snapshot) = searchRangeForPrevious(c, token, atTime, 0, c.count);
         (secondsPerLiquidityCumulative, tickCumulative) =
@@ -322,15 +307,15 @@ contract Oracle is ExposedStorage, BaseExtension {
     }
 
     // Returns extrapolated snapshots at each of the provided sorted timestamps.
-    function getExtrapolatedSnapshotsForSortedTimestamps(address token, uint64[] memory timestamps)
+    function getExtrapolatedSnapshotsForSortedTimestamps(address token, uint256[] memory timestamps)
         public
         view
         returns (Observation[] memory observations)
     {
         unchecked {
             if (timestamps.length == 0) revert ZeroTimestampsProvided();
-            uint64 startTime = timestamps[0];
-            uint64 endTime = timestamps[timestamps.length - 1];
+            uint256 startTime = timestamps[0];
+            uint256 endTime = timestamps[timestamps.length - 1];
             if (endTime < startTime) revert EndTimeLessThanStartTime();
 
             Counts memory c = counts[token];
@@ -338,9 +323,12 @@ contract Oracle is ExposedStorage, BaseExtension {
             (uint256 indexLast,) = searchRangeForPrevious(c, token, endTime, indexFirst, c.count);
 
             observations = new Observation[](timestamps.length);
-            uint64 lastTimestamp;
+            uint256 lastTimestamp;
             for (uint256 i = 0; i < timestamps.length; i++) {
-                uint64 timestamp = timestamps[i];
+                uint256 timestamp = timestamps[i];
+
+                if (timestamp > block.timestamp) revert FutureTime();
+
                 if (timestamp < lastTimestamp) {
                     revert TimestampsNotSorted();
                 }

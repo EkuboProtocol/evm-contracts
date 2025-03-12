@@ -250,8 +250,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                         sstore(slot0, add(sload(slot0), v))
                     }
                     if amount1 {
+                        let slot1 := add(slot0, 1)
                         let v := div(shl(128, amount1), liquidity)
-                        sstore(add(slot0, 1), add(sload(add(slot0, 1)), v))
+                        sstore(slot1, add(sload(slot1), v))
                     }
                 }
             }

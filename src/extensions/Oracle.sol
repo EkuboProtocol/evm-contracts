@@ -281,15 +281,15 @@ contract Oracle is ExposedStorage, BaseExtension {
                 } else {
                     // Use the next snapshot.
                     Snapshot memory next = _getSnapshotLogical(c, token, logicalIndex + 1);
-                    tick = int32(
-                        (next.tickCumulative - snapshot.tickCumulative)
-                            / int64(uint64(next.secondsSinceOffset - snapshot.secondsSinceOffset))
-                    );
+
+                    uint32 timeDifference = next.secondsSinceOffset - snapshot.secondsSinceOffset;
+
+                    tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timeDifference)));
                     liquidity = uint128(
                         (type(uint128).max)
                             / (
                                 (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
-                                    / (next.secondsSinceOffset - snapshot.secondsSinceOffset)
+                                    / timeDifference
                             )
                     );
                 }

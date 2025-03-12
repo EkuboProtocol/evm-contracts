@@ -126,13 +126,13 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
             (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
                 twamm.orderState(address(this), bytes32(id), orderKey.toOrderId());
 
-            uint256 rewardRateInside = twamm.getRewardRateInside(
-                poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
-            );
-
-            purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
-
             if (saleRate != 0) {
+                uint256 rewardRateInside = twamm.getRewardRateInside(
+                    poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
+                );
+
+                purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
+
                 if (block.timestamp > orderKey.startTime) {
                     uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
 

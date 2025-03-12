@@ -337,7 +337,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                             // this will never overflow for a well behaved token since protocol fees are stored as uint256
                             protocolFeesCollected[poolKey.token0] += protocolFees0;
 
-                            // protocolFees0 is at most equal to delta0, so this will maximally reach 0 and no overflow/underflow check is needed
+                            // magnitude of protocolFees0 is at most equal to -delta0, so after addition delta0 will maximally reach 0 and no overflow/underflow check is needed
                             // in addition, casting is safe because computed fee is never g.t. the input amount, which is an int128
                             delta0 += int128(protocolFees0);
                         }

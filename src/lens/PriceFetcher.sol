@@ -21,7 +21,7 @@ function getTimestampsForPeriod(uint64 endTime, uint32 numIntervals, uint32 peri
 
     timestamps = new uint64[](numIntervals + 1);
     for (uint256 i = 0; i <= numIntervals;) {
-        timestamps[i] = uint64(endTime - ((numIntervals - i) * period));
+        timestamps[i] = uint64(endTime - (uint64(numIntervals - i) * period));
         unchecked {
             i++;
         }

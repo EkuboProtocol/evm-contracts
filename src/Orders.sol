@@ -16,6 +16,9 @@ import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from ".
 import {MintableNFT} from "./base/MintableNFT.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+/// @title Ekubo Orders
+/// @author Moody Salem <moody@ekubo.org>
+/// @notice Tracks TWAMM orders in Ekubo Protocol
 contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
     using TWAMMLib for *;
 

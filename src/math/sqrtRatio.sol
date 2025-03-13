@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SqrtRatio, toSqrtRatio, MAX_FIXED_VALUE_ROUND_UP} from "../types/sqrtRatio.sol";
+import {SqrtRatio, toSqrtRatio, toSqrtRatioUp, MAX_FIXED_VALUE_ROUND_UP} from "../types/sqrtRatio.sol";
 
 error ZeroLiquidityNextSqrtRatioFromAmount0();
 
@@ -47,7 +47,7 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
                 return SqrtRatio.wrap(type(uint96).max);
             }
 
-            sqrtRatioNext = toSqrtRatio(resultFixed, true);
+            sqrtRatioNext = toSqrtRatioUp(resultFixed);
         }
     } else {
         uint256 denominator;
@@ -59,7 +59,7 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
             denominator = denominatorP1 + amountAbs;
         }
 
-        sqrtRatioNext = toSqrtRatio(FixedPointMathLib.divUp(liquidityX128, denominator), true);
+        sqrtRatioNext = toSqrtRatioUp(FixedPointMathLib.divUp(liquidityX128, denominator));
     }
 }
 
@@ -97,13 +97,13 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
                 sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidity))))
             }
 
-            sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);
+            sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed);
         } else {
             uint256 sum = sqrtRatio + quotient;
             if (sum < sqrtRatio || sum > type(uint192).max) {
                 return SqrtRatio.wrap(type(uint96).max);
             }
-            sqrtRatioNext = toSqrtRatio(sum, false);
+            sqrtRatioNext = toSqrtRatio(sum);
         }
     }
 }

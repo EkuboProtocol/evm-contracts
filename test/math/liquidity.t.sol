@@ -41,12 +41,11 @@ contract LiquidityTest is Test {
         uint256 sqrtRatioLowerFixed,
         uint256 sqrtRatioUpperFixed
     ) public view {
-        SqrtRatio sqrtRatio =
-            toSqrtRatio(bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        SqrtRatio sqrtRatio = toSqrtRatio(bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
         SqrtRatio sqrtRatioLower =
-            toSqrtRatio(bound(sqrtRatioLowerFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+            toSqrtRatio(bound(sqrtRatioLowerFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
         SqrtRatio sqrtRatioUpper =
-            toSqrtRatio(bound(sqrtRatioUpperFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+            toSqrtRatio(bound(sqrtRatioUpperFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
 
         vm.assumeNoRevert();
         (int128 delta0, int128 delta1) = this.amountDeltas(sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
@@ -72,21 +71,21 @@ contract LiquidityTest is Test {
 
     function test_liquidityDeltaToAmountDelta_low_price_in_range() public pure {
         (int128 amount0, int128 amount1) =
-            liquidityDeltaToAmountDelta(toSqrtRatio(1 << 96, false), 10000, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+            liquidityDeltaToAmountDelta(toSqrtRatio(1 << 96), 10000, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
         assertEq(amount0, 42949672960000, "amount0");
         assertEq(amount1, 1, "amount1");
     }
 
     function test_liquidityDeltaToAmountDelta_low_price_in_range_withdraw() public pure {
         (int128 amount0, int128 amount1) =
-            liquidityDeltaToAmountDelta(toSqrtRatio(1 << 96, false), -10000, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+            liquidityDeltaToAmountDelta(toSqrtRatio(1 << 96), -10000, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
         assertEq(amount0, -42949672959999, "amount0");
         assertEq(amount1, 0, "amount1");
     }
 
     function test_liquidityDeltaToAmountDelta_high_price_in_range() public pure {
         (int128 amount0, int128 amount1) =
-            liquidityDeltaToAmountDelta(toSqrtRatio(1 << 160, false), 10000, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+            liquidityDeltaToAmountDelta(toSqrtRatio(1 << 160), 10000, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
         assertEq(amount0, 1, "amount0");
         assertEq(amount1, 42949672960000, "amount1");
     }
@@ -101,7 +100,7 @@ contract LiquidityTest is Test {
 
     function test_liquidityDeltaToAmountDelta_concentrated_out_of_range_low() public pure {
         (int128 amount0, int128 amount1) = liquidityDeltaToAmountDelta(
-            toSqrtRatio(1 << 96, false),
+            toSqrtRatio(1 << 96),
             10000,
             tickToSqrtRatio(TICKS_IN_ONE_PERCENT * -100),
             tickToSqrtRatio(TICKS_IN_ONE_PERCENT * 100)
@@ -112,7 +111,7 @@ contract LiquidityTest is Test {
 
     function test_liquidityDeltaToAmountDelta_concentrated_out_of_range_high() public pure {
         (int128 amount0, int128 amount1) = liquidityDeltaToAmountDelta(
-            toSqrtRatio(1 << 160, false),
+            toSqrtRatio(1 << 160),
             10000,
             tickToSqrtRatio(TICKS_IN_ONE_PERCENT * -100),
             tickToSqrtRatio(TICKS_IN_ONE_PERCENT * 100)
@@ -194,12 +193,11 @@ contract LiquidityTest is Test {
         amount0 = uint128(bound(amount0, 0, type(uint8).max));
         amount1 = uint128(bound(amount1, 0, type(uint8).max));
         // creates a minimum separation of .0001%, which causes it to overflow liquidity less often
-        SqrtRatio sqrtRatio =
-            toSqrtRatio(bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        SqrtRatio sqrtRatio = toSqrtRatio(bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
         SqrtRatio sqrtRatioLower =
-            toSqrtRatio(bound(sqrtRatioLowerFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1), false);
+            toSqrtRatio(bound(sqrtRatioLowerFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1));
         SqrtRatio sqrtRatioUpper =
-            toSqrtRatio(bound(sqrtRatioUpperFixed, sqrtRatioLower.toFixed() + 1, MAX_SQRT_RATIO.toFixed()), false);
+            toSqrtRatio(bound(sqrtRatioUpperFixed, sqrtRatioLower.toFixed() + 1, MAX_SQRT_RATIO.toFixed()));
 
         // this can overflow in some cases
         vm.assumeNoRevert();

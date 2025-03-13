@@ -6,7 +6,7 @@ import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio, toSqrtRatioUp} from "../../src/types/sqrtRatio.sol";
 import {
     MIN_TICK,
     MAX_TICK,
@@ -56,7 +56,7 @@ abstract contract BaseOracleTest is FullTest {
             TestToken(poolKey.token1).approve(address(router), type(uint256).max);
             router.swap(poolKey, false, type(int128).min, targetRatio, 0);
         } else if (tick > targetTick) {
-            SqrtRatio targetRatio = toSqrtRatio(tickToSqrtRatio(targetTick).toFixed() + 1, true);
+            SqrtRatio targetRatio = toSqrtRatioUp(tickToSqrtRatio(targetTick).toFixed() + 1);
             vm.deal(address(router), amount0Delta(sqrtRatio, targetRatio, liquidity, true));
             router.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }

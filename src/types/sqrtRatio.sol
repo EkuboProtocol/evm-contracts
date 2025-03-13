@@ -57,41 +57,45 @@ uint256 constant MAX_FIXED_VALUE_ROUND_UP =
     0x1000000000000000000000000000000000000000000000000 - 0x4000000000000000000000000;
 
 // Converts a 64.128 value into the compact SqrtRatio representation
-function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r) {
+function toSqrtRatio(uint256 sqrtRatio) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {
-        let addend := mul(roundUp, 0x3)
-
-        // lt 2**96 after rounding up
-        switch lt(sqrtRatio, sub(0x1000000000000000000000000, addend))
-        case 1 { r := shr(2, add(sqrtRatio, addend)) }
-        default {
-            // 2**34 - 1
-            addend := mul(roundUp, 0x3ffffffff)
-            // lt 2**128 after rounding up
-            switch lt(sqrtRatio, sub(0x100000000000000000000000000000000, addend))
-            case 1 { r := or(TWO_POW_94, shr(34, add(sqrtRatio, addend))) }
-            default {
-                addend := mul(roundUp, 0x3ffffffffffffffff)
-                // lt 2**160 after rounding up
-                switch lt(sqrtRatio, sub(0x10000000000000000000000000000000000000000, addend))
-                case 1 { r := or(TWO_POW_95, shr(66, add(sqrtRatio, addend))) }
-                default {
-                    // 2**98 - 1
-                    addend := mul(roundUp, 0x3ffffffffffffffffffffffff)
-                    switch lt(sqrtRatio, sub(0x1000000000000000000000000000000000000000000000000, addend))
-                    case 1 { r := or(BIT_MASK, shr(98, add(sqrtRatio, addend))) }
-                    default {
-                        // cast sig "ValueOverflowsSqrtRatioContainer()"
-                        mstore(0, shl(224, 0xa10459f4))
-                        revert(0, 4)
-                    }
-                }
-            }
+        let s := 2
+        let e := 0
+        let f := iszero(iszero(shr(128, sqrtRatio)))
+        s := add(s, shl(6, f))
+        e := add(shl(1, f), e)
+        f := iszero(iszero(shr(add(s, 94), sqrtRatio)))
+        s := add(s, shl(5, f))
+        e := add(f, e)
+        sqrtRatio := shr(s, sqrtRatio)
+        if shr(94, sqrtRatio) {
+            mstore(0, shl(224, 0xa10459f4))
+            revert(0, 4)
         }
+        r := or(shl(94, e), sqrtRatio)
     }
 }
 
+function toSqrtRatioUp(uint256 sqrtRatio) pure returns (SqrtRatio r) {
+    assembly ("memory-safe") {
+        let s := 2
+        let e := 0
+        let f := iszero(iszero(shr(128, sqrtRatio)))
+        s := add(s, shl(6, f))
+        e := add(shl(1, f), e)
+        f := iszero(iszero(shr(add(s, 94), sqrtRatio)))
+        s := add(s, shl(5, f))
+        e := add(f, e)
+        sqrtRatio := shr(s, add(sqrtRatio, sub(shl(s, 1), 1)))
+        if shr(94, sqrtRatio) {
+            mstore(0, shl(224, 0xa10459f4))
+            revert(0, 4)
+        }
+        r := or(shl(94, e), sqrtRatio)
+    }
+}
 // Returns the 64.128 representation of the given sqrt ratio
+
 function toFixed(SqrtRatio sqrtRatio) pure returns (uint256 r) {
     assembly ("memory-safe") {
         r := shl(add(2, shr(89, and(sqrtRatio, BIT_MASK))), and(sqrtRatio, not(BIT_MASK)))

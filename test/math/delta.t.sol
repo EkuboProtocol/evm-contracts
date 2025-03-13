@@ -36,16 +36,13 @@ contract DeltaTest is Test {
         assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
         assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
 
-        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255, false), ONE, 1000000, false), 1000);
+        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255), ONE, 1000000, false), 1000);
         assertEq(
-            amount0Delta(toSqrtRatio((1 << 128) + 34028236692093846346337460743176821145, false), ONE, 1e18, true),
+            amount0Delta(toSqrtRatio((1 << 128) + 34028236692093846346337460743176821145), ONE, 1e18, true),
             90909090909090910
         );
-        assertEq(
-            amount0Delta(toSqrtRatio((1 << 128) + 340622989910849312776150758189957120, false), ONE, 1000000, false),
-            999
-        );
-        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255, false), ONE, 1000000, true), 1001);
+        assertEq(amount0Delta(toSqrtRatio((1 << 128) + 340622989910849312776150758189957120), ONE, 1000000, false), 999);
+        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255), ONE, 1000000, true), 1001);
     }
 
     function a0d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
@@ -60,10 +57,8 @@ contract DeltaTest is Test {
         public
         view
     {
-        SqrtRatio sqrtRatioA =
-            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
-        SqrtRatio sqrtRatioB =
-            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        SqrtRatio sqrtRatioA = toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
+        SqrtRatio sqrtRatioB = toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
         (sqrtRatioAFixed, sqrtRatioBFixed) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         vm.assumeNoRevert();
@@ -87,7 +82,7 @@ contract DeltaTest is Test {
         assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
 
         assertEq(
-            amount1Delta(ONE, toSqrtRatio(309347606291762239512158734028880192232, false), 1000000000000000000, true),
+            amount1Delta(ONE, toSqrtRatio(309347606291762239512158734028880192232), 1000000000000000000, true),
             90909090909090910
         );
         assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 340274119756928397675478831269759003622);
@@ -105,10 +100,8 @@ contract DeltaTest is Test {
         public
         view
     {
-        SqrtRatio sqrtRatioA =
-            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
-        SqrtRatio sqrtRatioB =
-            toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        SqrtRatio sqrtRatioA = toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
+        SqrtRatio sqrtRatioB = toSqrtRatio(bound(sqrtRatioAFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()));
         (sqrtRatioAFixed, sqrtRatioBFixed) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
 
         vm.assumeNoRevert();

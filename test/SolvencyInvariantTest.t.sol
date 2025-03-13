@@ -229,10 +229,10 @@ contract Handler is StdUtils, StdAssertions {
 
         if (increasing) {
             sqrtRatioLimit =
-                toSqrtRatio(bound(SqrtRatio.unwrap(sqrtRatioLimit), price.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+                toSqrtRatio(bound(SqrtRatio.unwrap(sqrtRatioLimit), price.toFixed(), MAX_SQRT_RATIO.toFixed()));
         } else {
             sqrtRatioLimit =
-                toSqrtRatio(bound(SqrtRatio.unwrap(sqrtRatioLimit), MIN_SQRT_RATIO.toFixed(), price.toFixed()), false);
+                toSqrtRatio(bound(SqrtRatio.unwrap(sqrtRatioLimit), MIN_SQRT_RATIO.toFixed(), price.toFixed()));
         }
 
         skipAhead = bound(skipAhead, 0, type(uint8).max);

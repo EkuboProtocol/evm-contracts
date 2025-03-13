@@ -98,14 +98,14 @@ contract TicksTest is Test {
         tick = boundTick(tick);
         vm.assume(tick > MIN_TICK);
 
-        SqrtRatio sqrtRatio = toSqrtRatio(tickToSqrtRatio(tick).toFixed() - 1, false);
+        SqrtRatio sqrtRatio = toSqrtRatio(tickToSqrtRatio(tick).toFixed() - 1);
         int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
         assertEq(tickCalculated, tick - 1);
     }
 
     function test_sqrtRatioToTick_within_bounds(uint256 _sqrtRatio) public pure {
         _sqrtRatio = bound(_sqrtRatio, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1);
-        SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio, false);
+        SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio);
 
         int32 tick = sqrtRatioToTick(sqrtRatio);
         assertGe(sqrtRatio.toFixed(), tickToSqrtRatio(tick).toFixed());

@@ -29,7 +29,13 @@ function bitmapWordAndIndexToTick(uint256 word, uint256 index, uint32 tickSpacin
 // Flips the tick in the bitmap from true to false or vice versa
 function flipTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 tick, uint32 tickSpacing) {
     (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
-    map[word] = map[word].toggle(uint8(index));
+    assembly ("memory-safe") {
+        mstore(0, word)
+        mstore(32, map.slot)
+        let k := keccak256(0, 64)
+        let v := sload(k)
+        sstore(k, xor(v, shl(index, 1)))
+    }
 }
 
 function findNextInitializedTick(

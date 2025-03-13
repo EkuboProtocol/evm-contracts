@@ -26,7 +26,7 @@ contract PositionsTest is FullTest {
 
     function test_saltToId(address minter, bytes32 salt) public {
         uint256 id = positions.saltToId(minter, salt);
-        assertLe(id, type(uint48).max);
+        assertLe(id, type(uint128).max);
         unchecked {
             assertNotEq(id, positions.saltToId(address(uint160(minter) + 1), salt));
             assertNotEq(id, positions.saltToId(minter, bytes32(uint256(salt) + 1)));

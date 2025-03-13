@@ -105,24 +105,39 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     function maybeInsertSnapshot(bytes32 poolId, address token) private {
         unchecked {
-            Counts storage c = counts[token];
+            bytes32 countsSlot;
+
+            uint256 index;
+            uint256 count;
+            uint256 capacity;
+
+            assembly ("memory-safe") {
+                mstore(0, token)
+                mstore(32, 0)
+                countsSlot := keccak256(0, 64)
+
+                let packed := sload(countsSlot)
+                index := and(packed, 0xffffffff)
+                count := and(shr(32, packed), 0xffffffff)
+                capacity := and(shr(64, packed), 0xffffffff)
+            }
+
+            mapping(uint256 => Snapshot) storage tSnapshots = snapshots[token];
+
             // we know count is always g.t. 0 in the places this is called
-            Snapshot memory last = snapshots[token][c.index];
+            Snapshot memory last = tSnapshots[index];
 
             uint32 timePassed = uint32(block.timestamp) - last.timestamp;
             if (timePassed == 0) return;
 
             (, int32 tick, uint128 liquidity) = core.poolState(poolId);
 
-            if (c.index == c.count - 1) {
-                if (c.capacity > c.count) {
-                    c.index = c.count;
-                    c.count++;
-                } else {
-                    c.index = 0;
-                }
-            } else {
-                c.index++;
+            assembly ("memory-safe") {
+                let isLastIndex := eq(index, sub(count, 1))
+                let incrementCount := and(isLastIndex, gt(capacity, count))
+
+                count := add(count, incrementCount)
+                index := mod(add(index, 1), count)
             }
 
             Snapshot memory snapshot = Snapshot({
@@ -132,7 +147,12 @@ contract Oracle is ExposedStorage, BaseExtension {
                 tickCumulative: last.tickCumulative + int64(uint64(timePassed)) * tick
             });
 
-            snapshots[token][c.index] = snapshot;
+            tSnapshots[index] = snapshot;
+
+            assembly ("memory-safe") {
+                // capacity, count and index are all only set/modified from assembly so we know there is no dirty upper bits
+                sstore(countsSlot, or(or(shl(64, capacity), shl(32, count)), index))
+            }
 
             _emitSnapshotEvent(token, snapshot);
         }
@@ -323,11 +343,12 @@ contract Oracle is ExposedStorage, BaseExtension {
             for (uint256 i = 0; i < timestamps.length; i++) {
                 uint256 timestamp = timestamps[i];
 
-                if (timestamp > block.timestamp) revert FutureTime();
-
                 if (timestamp < lastTimestamp) {
                     revert TimestampsNotSorted();
+                } else if (timestamp > block.timestamp) {
+                    revert FutureTime();
                 }
+
                 (uint256 logicalIndex, Snapshot memory snapshot) =
                     searchRangeForPrevious(c, token, timestamp, indexFirst, indexLast + 1);
                 (uint160 spcCumulative, int64 tcCumulative) =

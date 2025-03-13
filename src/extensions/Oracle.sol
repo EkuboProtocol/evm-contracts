@@ -269,7 +269,7 @@ contract Oracle is ExposedStorage, BaseExtension {
 
                     tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timestampDifference)));
                     liquidity = uint128(
-                        (type(uint128).max)
+                        uint256(1 << 128)
                             / (
                                 (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
                                     / timestampDifference

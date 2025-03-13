@@ -26,6 +26,7 @@ import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
@@ -70,16 +71,15 @@ abstract contract BaseOracleTest is FullTest {
         poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
     }
 
-    function updateOraclePoolLiquidity(address token, uint128 liquidityNext)
-        internal
-        returns (uint128 liquidityAfter)
-    {
+    function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128 liquidity) {
         PoolKey memory pk =
             PoolKey(NATIVE_TOKEN_ADDRESS, token, toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
-        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
-        (uint128 liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, bounds);
+        {
+            (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, Bounds(MIN_TICK, MAX_TICK));
+        }
 
         (SqrtRatio sqrtRatio,,) = core.poolState(pk.toPoolId());
+
         if (liquidity < liquidityNext) {
             (int128 d0, int128 d1) = liquidityDeltaToAmountDelta(
                 sqrtRatio, int128(liquidityNext - liquidity), MIN_SQRT_RATIO, MAX_SQRT_RATIO
@@ -88,12 +88,14 @@ abstract contract BaseOracleTest is FullTest {
             TestToken(token).approve(address(positions), type(uint256).max);
 
             vm.deal(address(positions), uint128(d0));
-            positions.deposit(positionId, pk, bounds, uint128(d0), uint128(d1), liquidityNext - liquidity - 1);
-            (,, liquidityAfter) = core.poolState(pk.toPoolId());
-            assertApproxEqAbs(liquidityAfter, liquidityNext, 1, "liquidity after");
+            positions.deposit(
+                positionId, pk, Bounds(MIN_TICK, MAX_TICK), uint128(d0), uint128(d1), liquidityNext - liquidity - 1
+            );
+            (,, liquidity) = core.poolState(pk.toPoolId());
+            assertApproxEqAbs(liquidity, liquidityNext, 1, "liquidity after");
         } else if (liquidity > liquidityNext) {
-            positions.withdraw(positionId, pk, bounds, liquidity - liquidityNext);
-            liquidityAfter = liquidityNext;
+            positions.withdraw(positionId, pk, Bounds(MIN_TICK, MAX_TICK), liquidity - liquidityNext);
+            liquidity = liquidityNext;
         }
     }
 
@@ -210,9 +212,8 @@ contract OracleTest is BaseOracleTest {
 
     struct DataPoint {
         uint16 advanceTimeBy;
-        bool expandCapacityFirst;
         uint8 minCapacity;
-        uint128 liquidity;
+        uint56 liquidity;
         int32 tick;
     }
 
@@ -233,21 +234,15 @@ contract OracleTest is BaseOracleTest {
 
         uint32 totalTimePassed;
 
-        uint64 capacity = 1;
+        uint32 capacity = 1;
 
         for (uint256 i = 0; i < points.length; i++) {
             points[i].tick = int32(bound(points[i].tick, MIN_TICK, MAX_TICK));
-            points[i].liquidity = uint128(bound(points[i].liquidity, 0, type(uint64).max >> 1));
             advanceTime(points[i].advanceTimeBy);
             totalTimePassed += points[i].advanceTimeBy;
-            if (points[i].expandCapacityFirst) {
-                capacity = oracle.expandCapacity(token, points[i].minCapacity);
-            }
-            points[i].liquidity = updateOraclePoolLiquidity(token, points[i].liquidity);
+            capacity = oracle.expandCapacity(token, points[i].minCapacity);
+            points[i].liquidity = uint56(updateOraclePoolLiquidity(token, points[i].liquidity));
             movePrice(poolKey, points[i].tick);
-            if (!points[i].expandCapacityFirst) {
-                oracle.expandCapacity(token, points[i].minCapacity);
-            }
         }
 
         checkOffset = uint32(bound(checkOffset, 0, totalTimePassed * 2));
@@ -267,13 +262,37 @@ contract OracleTest is BaseOracleTest {
             // todo: verify the computation using the full list of points
             uint256 i = 0;
             uint256 time = startTime;
-            int32 tick;
-            uint128 liquidty;
+
+            int32 tick = startingTick;
+            uint128 liquidity = 0;
+
+            int64 tickCumulativeExpected;
+            uint160 secondsPerLiquidityCumulativeExpected;
+
             while (i < points.length) {
+                // time is the end time of the period
+                if (time >= timeToCheck) {
+                    break;
+                }
+
                 DataPoint memory point = points[i++];
+
+                uint256 timePassed = FixedPointMathLib.min(time + point.advanceTimeBy, timeToCheck) - time;
+
+                tickCumulativeExpected += int64(uint64(timePassed)) * tick;
+                secondsPerLiquidityCumulativeExpected +=
+                    (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
+
+                tick = point.tick;
+                liquidity = point.liquidity;
+
                 time += point.advanceTimeBy;
-                if (time < timeToCheck) {}
             }
+
+            assertEq(tickCumulative, tickCumulativeExpected, "tickCumulative");
+            assertEq(
+                secondsPerLiquidityCumulative, secondsPerLiquidityCumulativeExpected, "secondsPerLiquidityCumulative"
+            );
         }
     }
 

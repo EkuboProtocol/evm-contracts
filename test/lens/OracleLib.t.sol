@@ -26,7 +26,6 @@ import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
-import {console} from "forge-std/console.sol";
 import {BaseOracleTest} from "../extensions/Oracle.t.sol";
 
 contract OracleLibTest is BaseOracleTest {

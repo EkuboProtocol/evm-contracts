@@ -279,6 +279,7 @@ contract OracleTest is BaseOracleTest {
 
             int64 tickCumulativeExpected;
             uint160 secondsPerLiquidityCumulativeExpected;
+            uint256 secondsPerLiquidityTolerance = 1;
 
             while (i < points.length) {
                 // time is the end time of the period
@@ -294,6 +295,12 @@ contract OracleTest is BaseOracleTest {
                 secondsPerLiquidityCumulativeExpected +=
                     (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
 
+                // an observation was not written for this, so the seconds per liquidity accumulator can be off from the calculated by the rounding error
+                // since each time we do an addition of time passed / liquidity, we divide and round down
+                if (liquidity == point.liquidity && tick == point.tick) {
+                    secondsPerLiquidityTolerance += 1;
+                }
+
                 tick = point.tick;
                 liquidity = point.liquidity;
 
@@ -301,8 +308,11 @@ contract OracleTest is BaseOracleTest {
             }
 
             assertEq(tickCumulative, tickCumulativeExpected, "tickCumulative");
-            assertEq(
-                secondsPerLiquidityCumulative, secondsPerLiquidityCumulativeExpected, "secondsPerLiquidityCumulative"
+            assertApproxEqAbs(
+                secondsPerLiquidityCumulative,
+                secondsPerLiquidityCumulativeExpected,
+                secondsPerLiquidityTolerance,
+                "secondsPerLiquidityCumulative"
             );
         }
     }
@@ -792,7 +802,8 @@ contract OracleTest is BaseOracleTest {
         );
         assertEq(
             observations[5].secondsPerLiquidityCumulative,
-            ((uint256(10) << 128) / liquidity) + ((uint256(5) << 128) / liquidity2)
+            // rounded down
+            ((uint256(10) << 128) / liquidity) + ((uint256(5) << 128) / liquidity2) - 1
         );
         assertEq(
             observations[6].secondsPerLiquidityCumulative,

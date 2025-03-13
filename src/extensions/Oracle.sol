@@ -274,12 +274,14 @@ contract Oracle is ExposedStorage, BaseExtension {
             tickCumulative = snapshot.tickCumulative;
             uint32 timePassed = uint32(atTime) - snapshot.timestamp;
             if (timePassed != 0) {
-                int32 tick;
-                uint128 liquidity;
                 if (logicalIndex == c.count - 1) {
                     // Use current pool state.
                     bytes32 poolId = getPoolKey(token).toPoolId();
-                    (, tick, liquidity) = core.poolState(poolId);
+                    (, int32 tick, uint128 liquidity) = core.poolState(poolId);
+
+                    tickCumulative += int64(tick) * int64(uint64(timePassed));
+                    secondsPerLiquidityCumulative +=
+                        (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
                 } else {
                     // Use the next snapshot.
                     Snapshot memory next =
@@ -287,18 +289,17 @@ contract Oracle is ExposedStorage, BaseExtension {
 
                     uint32 timestampDifference = next.timestamp - snapshot.timestamp;
 
-                    tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timestampDifference)));
-                    liquidity = uint128(
-                        uint256(1 << 128)
-                            / (
-                                (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
-                                    / timestampDifference
-                            )
+                    tickCumulative += int64(
+                        int256(uint256(timePassed)) * (next.tickCumulative - snapshot.tickCumulative)
+                            / int256(uint256(timestampDifference))
+                    );
+                    secondsPerLiquidityCumulative += uint160(
+                        (
+                            uint256(timePassed)
+                                * (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
+                        ) / timestampDifference
                     );
                 }
-                tickCumulative += int64(tick) * int64(uint64(timePassed));
-                secondsPerLiquidityCumulative +=
-                    (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
             }
         }
     }

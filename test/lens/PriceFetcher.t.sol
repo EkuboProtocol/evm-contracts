@@ -211,7 +211,7 @@ contract PriceFetcherTest is BaseOracleTest {
         assertEq(averages[2].tick, 5545176); // +19
         assertEq(averages[3].tick, 5545176); // +24
 
-        assertEq(averages[0].liquidity, 3461);
+        assertEq(averages[0].liquidity, 3462);
         assertEq(averages[1].liquidity, 5625);
         assertEq(averages[2].liquidity, 11642);
         assertEq(averages[3].liquidity, 11646);

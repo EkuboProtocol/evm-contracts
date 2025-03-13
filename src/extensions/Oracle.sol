@@ -25,6 +25,16 @@ function oracleCallPoints() pure returns (CallPoints memory) {
     });
 }
 
+/// @dev Because the snapshots array is circular, the index of the most recently written snapshot can be any value in [0,c.count).
+///      To simplify the code, we operate on the logical indices, rather than the actual indices.
+///      For logical indices, the most recently written value is always at logicalIndex = c.count-1 and the earliest snapshot is always at logicalIndex = 0.
+function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logicalIndex) pure returns (uint32) {
+    // We assume index < count and logicalIndex < count
+    unchecked {
+        return uint32((index + 1 + logicalIndex) % count);
+    }
+}
+
 contract Oracle is ExposedStorage, BaseExtension {
     error PairsWithNativeTokenOnly();
     error FeeMustBeZero();
@@ -95,7 +105,7 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     function maybeInsertSnapshot(bytes32 poolId, address token) private {
         unchecked {
-            Counts memory c = counts[token];
+            Counts storage c = counts[token];
             // we know count is always g.t. 0 in the places this is called
             Snapshot memory last = snapshots[token][c.index];
 
@@ -123,7 +133,6 @@ contract Oracle is ExposedStorage, BaseExtension {
             });
 
             snapshots[token][c.index] = snapshot;
-            counts[token] = c;
 
             _emitSnapshotEvent(token, snapshot);
         }
@@ -181,22 +190,6 @@ contract Oracle is ExposedStorage, BaseExtension {
         capacity = c.capacity;
     }
 
-    // Minimal set of efficient view methods that expose the data
-
-    // Given a logical index [0, count), returns the snapshot from storage
-    /// @dev Because the snapshots array is circular, the index of the most recently written snapshot can be any value in [0,c.count).
-    ///      To simplify the code, we operate on the logical indices, rather than the actual indices.
-    ///      For logical indices, the most recently written value is always at logicalIndex = c.count-1 and the earliest snapshot is always at logicalIndex = 0.
-    function _getSnapshotLogical(Counts memory c, address token, uint256 logicalIndex)
-        internal
-        view
-        returns (Snapshot memory)
-    {
-        uint256 first = (c.index + c.capacity - (c.count - 1)) % c.capacity;
-        uint256 physicalIndex = (first + logicalIndex) % c.capacity;
-        return snapshots[token][physicalIndex];
-    }
-
     // Searches the logical range [min, maxExclusive) for the latest snapshot with timestamp <= time.
     /// @dev See _getSnapshotLogical for an explanation of logical indices.
     function searchRangeForPrevious(
@@ -214,18 +207,20 @@ contract Oracle is ExposedStorage, BaseExtension {
             uint32 current = uint32(block.timestamp);
             uint32 targetDiff = current - uint32(time);
 
+            mapping(uint256 => Snapshot) storage tSnapshots = snapshots[token];
+
             uint256 left = logicalMin;
             uint256 right = logicalMaxExclusive - 1;
             while (left < right) {
                 uint256 mid = (left + right + 1) >> 1;
-                Snapshot memory midSnapshot = _getSnapshotLogical(c, token, mid);
+                Snapshot memory midSnapshot = tSnapshots[logicalIndexToStorageIndex(c.index, c.count, mid)];
                 if (current - midSnapshot.timestamp >= targetDiff) {
                     left = mid;
                 } else {
                     right = mid - 1;
                 }
             }
-            snapshot = _getSnapshotLogical(c, token, left);
+            snapshot = tSnapshots[logicalIndexToStorageIndex(c.index, c.count, left)];
             if (current - snapshot.timestamp < targetDiff) {
                 revert NoPreviousSnapshotExists(token, time);
             }
@@ -267,13 +262,14 @@ contract Oracle is ExposedStorage, BaseExtension {
                     (, tick, liquidity) = core.poolState(poolId);
                 } else {
                     // Use the next snapshot.
-                    Snapshot memory next = _getSnapshotLogical(c, token, logicalIndex + 1);
+                    Snapshot memory next =
+                        snapshots[token][logicalIndexToStorageIndex(c.index, c.count, logicalIndex + 1)];
 
                     uint32 timestampDifference = next.timestamp - snapshot.timestamp;
 
                     tick = int32((next.tickCumulative - snapshot.tickCumulative) / int64(uint64(timestampDifference)));
                     liquidity = uint128(
-                        (type(uint128).max)
+                        uint256(1 << 128)
                             / (
                                 (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
                                     / timestampDifference

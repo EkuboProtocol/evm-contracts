@@ -49,8 +49,13 @@ function computeRewardAmount(uint256 rewardRate, uint112 saleRate) pure returns 
 // Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.64 number
 // Note that the sqrtRatio is assumed to be between 2**192 and 2**-64, while sqrtSaleRatio values are assumed to be between 2**184 and 2**-72
 function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256 c) {
+    uint256 unsigned = FixedPointMathLib.fullMulDiv(
+        FixedPointMathLib.dist(sqrtRatio, sqrtSaleRatio), (1 << 128), sqrtRatio + sqrtSaleRatio
+    );
     assembly ("memory-safe") {
-        c := sdiv(shl(64, sub(sqrtSaleRatio, sqrtRatio)), add(sqrtSaleRatio, sqrtRatio))
+        let negativeMult := sub(0, lt(sqrtSaleRatio, sqrtRatio))
+
+        c := add(mul(negativeMult, unsigned), mul(iszero(negativeMult), unsigned))
     }
 }
 
@@ -110,7 +115,7 @@ function computeNextSqrtRatio(
                 // if the exponent is larger than this value (64), the exponent term dominates and the result is approximately the sell ratio
                 sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
             } else {
-                int256 ePowExponent = int256(uint256(exp2(uint128(exponent))));
+                int256 ePowExponent = int256(uint256(exp2(uint128(exponent))) << 64);
 
                 uint256 sqrtRatioNextFixed = FixedPointMathLib.fullMulDiv(
                     sqrtSaleRatio, FixedPointMathLib.abs(ePowExponent - c), FixedPointMathLib.abs(ePowExponent + c)

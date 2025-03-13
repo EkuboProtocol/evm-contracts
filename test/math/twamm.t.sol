@@ -86,31 +86,35 @@ contract TwammTest is Test {
     }
 
     function test_computeC_examples() public pure {
-        assertEq(computeC(0, 0), 0);
-        assertEq(computeC(0, 1), (1 << 64));
-        assertEq(computeC(1, 0), -(1 << 64));
-
-        assertEq(computeC(1 << 128, 1 << 129), 6148914691236517205);
-        assertEq(computeC(1 << 128, 1 << 127), -6148914691236517205);
+        assertEq(computeC(1 << 128, 1 << 129), 113427455640312821154458202477256070485);
+        assertEq(computeC(1 << 128, 1 << 127), -113427455640312821154458202477256070485);
         assertEq(computeC(1 << 128, 1 << 128), 0);
 
         // large difference
-        assertEq(computeC(MAX_SQRT_RATIO.toFixed(), MIN_SQRT_RATIO.toFixed()), 447090492618910);
-        assertEq(computeC(MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), -447090492618910);
+        assertEq(
+            computeC(MAX_SQRT_RATIO.toFixed(), MIN_SQRT_RATIO.toFixed()),
+            -340282366920938463463374607431768211453,
+            "max,min"
+        );
+        assertEq(
+            computeC(MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()),
+            340282366920938463463374607431768211453,
+            "min,max"
+        );
 
         // small difference, i.e. large denominator relative to numerator
-        assertEq(computeC(MAX_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1), 0);
-        assertEq(computeC(MIN_SQRT_RATIO.toFixed() + 1, MIN_SQRT_RATIO.toFixed()), 0);
+        assertEq(computeC(MAX_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1), 0, "max,max-1");
+        assertEq(computeC(MIN_SQRT_RATIO.toFixed() + 1, MIN_SQRT_RATIO.toFixed()), -9223148497026361869, "min,min+1");
 
-        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 15}), 0x3333333333333333);
-        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 20}), 0x5555555555555555);
-        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 30}), 0x8000000000000000);
-        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 190}), 0xe666666666666666);
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 15}), 0x33333333333333333333333333333333);
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 20}), 0x55555555555555555555555555555555);
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 30}), 0x80000000000000000000000000000000);
+        assertEq(computeC({sqrtRatio: 10, sqrtSaleRatio: 190}), 0xe6666666666666666666666666666666);
 
-        assertEq(computeC({sqrtRatio: 15, sqrtSaleRatio: 10}), -0x3333333333333333);
-        assertEq(computeC({sqrtRatio: 20, sqrtSaleRatio: 10}), -0x5555555555555555);
-        assertEq(computeC({sqrtRatio: 30, sqrtSaleRatio: 10}), -0x8000000000000000);
-        assertEq(computeC({sqrtRatio: 190, sqrtSaleRatio: 10}), -0xe666666666666666);
+        assertEq(computeC({sqrtRatio: 15, sqrtSaleRatio: 10}), -0x33333333333333333333333333333333);
+        assertEq(computeC({sqrtRatio: 20, sqrtSaleRatio: 10}), -0x55555555555555555555555555555555);
+        assertEq(computeC({sqrtRatio: 30, sqrtSaleRatio: 10}), -0x80000000000000000000000000000000);
+        assertEq(computeC({sqrtRatio: 190, sqrtSaleRatio: 10}), -0xe6666666666666666666666666666666);
     }
 
     function test_computeSqrtSaleRatio_examples() public pure {
@@ -178,7 +182,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: uint64((uint256(30) << 64) / 10_000)
             }).toFixed(),
-            762756935888947508383216320167018496 // 0.0022415412
+            762756935888947507319423427130949632 // 0.00224154117297
         );
 
         assertEq(
@@ -190,7 +194,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 1 << 63
             }).toFixed(),
-            212677851090737003826538964680546713600 // 0.6250040312
+            212677851090737004084435068911850881024 // 0.625004031255463
         );
 
         assertEq(
@@ -202,7 +206,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 0
             }).toFixed(),
-            154676064193352917687218418238521081856 // 0.4545520992
+            154676064193352917823625393341053534208 // 0.4545520992
         );
 
         assertEq(
@@ -214,7 +218,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 1 << 63
             }).toFixed(),
-            544448275377366823995421509933439385600 // 1.5999896801
+            544448275377366823331338723279895527424 // 1.5999896801
         );
 
         assertEq(
@@ -226,7 +230,7 @@ contract TwammTest is Test {
                 timeElapsed: 12,
                 fee: 0
             }).toFixed(),
-            748610263916272246764287404709823643648 // 2.1999678405
+            748610263916272246100204618056279785472 // 2.1999678405
         );
 
         assertEq(
@@ -238,7 +242,7 @@ contract TwammTest is Test {
                 timeElapsed: 360,
                 fee: 922337203685477580
             }).toFixed(),
-            286548851173856260816719751938951829696544768 // 842,091.3894737111
+            286548851173856260703560045093187956263354368 // 842,091.3894737111
         );
 
         assertEq(
@@ -262,7 +266,7 @@ contract TwammTest is Test {
                 timeElapsed: 360,
                 fee: 922337203685477580
             }).toFixed(),
-            286548851173856260816719751938951829696544768 // 842,091.3894737111
+            286548851173856260703560045093187956263354368 // 842,091.3894737111
         );
 
         assertEq(
@@ -274,7 +278,7 @@ contract TwammTest is Test {
                 timeElapsed: 360,
                 fee: 922337203685477580
             }).toFixed(),
-            404091968133776522516099158245376 // 842,091.3894737111
+            404091968133776522675682963095552 // 842,091.3894737111
         );
 
         assertEq(

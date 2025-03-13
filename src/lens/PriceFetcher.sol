@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Oracle} from "../extensions/Oracle.sol";
+import {OracleLib} from "../libraries/OracleLib.sol";
 import {amount1Delta} from "../math/delta.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
@@ -29,6 +30,8 @@ function getTimestampsForPeriod(uint256 endTime, uint32 numIntervals, uint32 per
 }
 
 contract PriceFetcher {
+    using OracleLib for *;
+
     error EndTimeMustBeGreaterThanStartTime();
     error MinimumOnePeriodRealizedVolatility();
     error VolatilityRequiresMoreIntervals();
@@ -37,24 +40,6 @@ contract PriceFetcher {
 
     constructor(Oracle _oracle) {
         oracle = _oracle;
-    }
-
-    function getEarliestSnapshotTimestamp(address token) private view returns (uint256) {
-        if (token == NATIVE_TOKEN_ADDRESS) return 0;
-
-        (, uint64 count,) = oracle.counts(token);
-        if (count == 0) {
-            // if there are no snapshots, return a timestamp that will never be considered valid
-            return type(uint256).max;
-        }
-        (uint32 timestamp,,) = oracle.snapshots(token, 0);
-        return block.timestamp - (uint32(block.timestamp) - timestamp);
-    }
-
-    function getMaximumObservationPeriod(address token) private view returns (uint32) {
-        uint256 earliest = getEarliestSnapshotTimestamp(token);
-        if (earliest > block.timestamp) return 0;
-        return uint32(block.timestamp - earliest);
     }
 
     struct PeriodAverage {
@@ -166,8 +151,9 @@ contract PriceFetcher {
         uint32 numIntervals,
         uint32 period
     ) public view returns (uint64 startTime, PeriodAverage[] memory averages) {
-        uint256 earliestObservationTime =
-            FixedPointMathLib.max(getEarliestSnapshotTimestamp(baseToken), getEarliestSnapshotTimestamp(quoteToken));
+        uint256 earliestObservationTime = FixedPointMathLib.max(
+            oracle.getEarliestSnapshotTimestamp(baseToken), oracle.getEarliestSnapshotTimestamp(quoteToken)
+        );
 
         // no observations available for the period, return an empty array
         if (earliestObservationTime >= endTime) {
@@ -230,7 +216,7 @@ contract PriceFetcher {
                 if (token == NATIVE_TOKEN_ADDRESS) {
                     results[i] = PeriodAverage(type(uint128).max, 0);
                 } else {
-                    uint256 maxPeriodForToken = getMaximumObservationPeriod(token);
+                    uint256 maxPeriodForToken = oracle.getMaximumObservationPeriod(token);
 
                     if (maxPeriodForToken >= observationPeriod) {
                         results[i] = getAveragesOverPeriod(token, NATIVE_TOKEN_ADDRESS, startTime, endTime);

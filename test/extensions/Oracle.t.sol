@@ -19,6 +19,7 @@ import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle, oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {OracleLib} from "../../src/libraries/OracleLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
@@ -95,6 +96,8 @@ abstract contract BaseOracleTest is FullTest {
             liquidityAfter = liquidityNext;
         }
     }
+
+    receive() external payable {}
 }
 
 contract ManyObservationsOracleTest is BaseOracleTest {
@@ -195,12 +198,11 @@ contract ManyObservationsOracleTest is BaseOracleTest {
         );
         assertEq(observations[5].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 8));
     }
-
-    receive() external payable {}
 }
 
 contract OracleTest is BaseOracleTest {
     using CoreLib for *;
+    using OracleLib for *;
 
     function test_isRegistered() public view {
         assertTrue(core.isExtensionRegistered(address(oracle)));
@@ -214,7 +216,12 @@ contract OracleTest is BaseOracleTest {
         int32 tick;
     }
 
-    function test_canReadPoints_random_data(uint256 startTime, int32 startingTick, DataPoint[] memory points) public {
+    function test_canReadPoints_random_data(
+        uint256 startTime,
+        int32 startingTick,
+        DataPoint[] memory points,
+        uint32 checkOffset
+    ) public {
         startTime = bound(startTime, 0, type(uint256).max - type(uint32).max);
         vm.warp(startTime);
 
@@ -240,6 +247,32 @@ contract OracleTest is BaseOracleTest {
             movePrice(poolKey, points[i].tick);
             if (!points[i].expandCapacityFirst) {
                 oracle.expandCapacity(token, points[i].minCapacity);
+            }
+        }
+
+        checkOffset = uint32(bound(checkOffset, 0, totalTimePassed * 2));
+
+        uint256 timeToCheck = startTime + checkOffset;
+
+        if (timeToCheck > vm.getBlockTimestamp()) {
+            vm.expectRevert(Oracle.FutureTime.selector);
+            oracle.extrapolateSnapshot(token, startTime + checkOffset);
+        } else if (timeToCheck < oracle.getEarliestSnapshotTimestamp(token)) {
+            vm.expectRevert(abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, token, timeToCheck));
+            oracle.extrapolateSnapshot(token, timeToCheck);
+        } else {
+            (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
+                oracle.extrapolateSnapshot(token, timeToCheck);
+
+            // todo: verify the computation using the full list of points
+            uint256 i = 0;
+            uint256 time = startTime;
+            int32 tick;
+            uint128 liquidty;
+            while (i < points.length) {
+                DataPoint memory point = points[i++];
+                time += point.advanceTimeBy;
+                if (time < timeToCheck) {}
             }
         }
     }
@@ -790,6 +823,4 @@ contract OracleTest is BaseOracleTest {
         router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token0 in no write");
     }
-
-    receive() external payable {}
 }

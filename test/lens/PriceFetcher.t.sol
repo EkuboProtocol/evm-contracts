@@ -216,6 +216,4 @@ contract PriceFetcherTest is BaseOracleTest {
         assertEq(averages[2].liquidity, 11642);
         assertEq(averages[3].liquidity, 11646);
     }
-
-    receive() external payable {}
 }

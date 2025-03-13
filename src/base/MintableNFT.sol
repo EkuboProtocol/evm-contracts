@@ -58,7 +58,7 @@ abstract contract MintableNFT is ERC721 {
     }
 
     // Can be used to refund some gas after the NFT is no longer needed.
-    // The NFT ID can be re-minted by the original minter after it is burned.
+    // The NFT ID may be re-minted by the original minter or anyone else after it is burned.
     function burn(uint256 id) external payable authorizedForNft(id) {
         _burn(id);
     }

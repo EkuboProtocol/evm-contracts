@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {Ownable} from "solady/auth/Ownable.sol";

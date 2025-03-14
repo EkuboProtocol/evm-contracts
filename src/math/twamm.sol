@@ -107,7 +107,7 @@ function computeNextSqrtRatio(
             // max 112 bits
             uint256 sqrtSaleRate = sqrtSaleRateWithoutFee - computeFee(uint128(sqrtSaleRateWithoutFee), fee);
 
-            // (2 * t * sqrtSaleRate) / liquidity == (1 + 32 + 112) - 128 bits, cannot overflow
+            // (12392656037 * t * sqrtSaleRate) / liquidity == (34 + 32 + 128) - 128 bits, cannot overflow
             // uint256(12392656037) = Math.floor(Math.LOG2E * 2**33).
             // this combines the doubling, the left shifting and the converting to a base 2 exponent into a single multiplication
             uint256 exponent = (sqrtSaleRate * uint256(timeElapsed) * uint256(12392656037)) / uint256(liquidity);

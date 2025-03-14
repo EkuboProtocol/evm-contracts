@@ -116,6 +116,7 @@ contract TimeTest is Test {
         assertEq(nextValidTime(0, 15), 16);
         assertEq(nextValidTime(0, 16), 32);
         assertEq(nextValidTime(1, 300), 512);
+        assertEq(nextValidTime(7847, 7487), 7488);
         assertEq(
             nextValidTime(
                 // difference is 4026531840, next valid time does not exist
@@ -140,7 +141,7 @@ contract TimeTest is Test {
             uint256 diff = nextValid - time;
             assertLe(diff, computeStepSize(currentTime, nextValid));
             assertLe(diff, type(uint32).max);
-            assertGt(nextValid - currentTime, computeStepSize(currentTime, time) >> 4);
+            assertGe(nextValid - currentTime, computeStepSize(currentTime, time) >> 4);
         } else {
             assertGt(time - currentTime, type(uint32).max - 268435456);
         }

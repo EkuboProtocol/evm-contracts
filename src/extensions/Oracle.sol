@@ -38,6 +38,9 @@ function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logica
     }
 }
 
+/// @title Ekubo Oracle Extension
+/// @author Moody Salem <moody@ekubo.org>
+/// @notice Records price and liquidity into accumulators enabling a separate contract to compute a manipulation resistant average price and liquidity.
 contract Oracle is ExposedStorage, BaseExtension {
     error PairsWithNativeTokenOnly();
     error FeeMustBeZero();

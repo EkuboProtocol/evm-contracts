@@ -2,9 +2,42 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {isTimeValid} from "../../src/math/time.sol";
+import {isTimeValid, computeStepSize} from "../../src/math/time.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 
 contract TimeTest is Test {
+    function test_computeStepSize() public pure {
+        assertEq(computeStepSize(0, 4), 16, "0,4");
+        assertEq(computeStepSize(4, 0), 16, "4,0");
+        assertEq(
+            computeStepSize(type(uint256).max - type(uint32).max, type(uint256).max), uint256(1) << 28, "max-u32max,max"
+        );
+        assertEq(computeStepSize(0, type(uint256).max), uint256(1) << 28, "0,type(uint256).max");
+    }
+
+    function test_computeStepSize_invariants(uint256 currentTime, uint256 time) public pure {
+        uint256 stepSize = computeStepSize(currentTime, time);
+        assertTrue(LibBit.fls(stepSize) % 4 == 0, "step size is a power of 16");
+
+        if (time < currentTime) {
+            assertEq(stepSize, 16);
+        } else if (time - currentTime < 256) {
+            assertEq(stepSize, 16);
+        } else if (time - currentTime < 4096) {
+            assertEq(stepSize, 256);
+        } else if (time - currentTime < 65536) {
+            assertEq(stepSize, 4096);
+        } else if (time - currentTime < 1048576) {
+            assertEq(stepSize, 65536);
+        } else if (time - currentTime < 16777216) {
+            assertEq(stepSize, 1048576);
+        } else if (time - currentTime < 268435456) {
+            assertEq(stepSize, 16777216);
+        } else {
+            assertEq(stepSize, 268435456);
+        }
+    }
+
     function test_isTimeValid_past_or_close_time() public pure {
         assertTrue(isTimeValid(0, 16));
         assertTrue(isTimeValid(8, 16));
@@ -58,5 +91,17 @@ contract TimeTest is Test {
         assertFalse(isTimeValid(0, 8589934592));
         assertFalse(isTimeValid(8589934592 - type(uint32).max - 1, 8589934592));
         assertTrue(isTimeValid(8589934592 - type(uint32).max, 8589934592));
+    }
+
+    function test_isTimeValid_invariants(uint256 currentTime, uint256 time) public pure {
+        bool valid = isTimeValid(currentTime, time);
+        assertEq(
+            valid,
+            (time < currentTime && time % 16 == 0)
+                || (
+                    time > currentTime && time % computeStepSize(currentTime, time) == 0
+                        && time - currentTime <= type(uint32).max
+                )
+        );
     }
 }

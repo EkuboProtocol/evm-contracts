@@ -28,20 +28,35 @@ uint256 constant MAX_NUM_VALID_TIMES = 106;
 // If we constrain the sale rate delta to this value, then the current sale rate will never overflow
 uint256 constant MAX_ABS_VALUE_SALE_RATE_DELTA = type(uint112).max / MAX_NUM_VALID_TIMES;
 
-function isTimeValid(uint256 currentTime, uint256 time) pure returns (bool) {
-    unchecked {
-        uint256 stepSize;
+/// @dev Returns the step size, i.e. the value of which the order end or start time must be a multiple of, based on the current time and the specified time
+///      The step size is equal to 16 ** (max(1, floor(log base 16 of (time - currentTime))))
+function computeStepSize(uint256 currentTime, uint256 time) pure returns (uint256 stepSize) {
+    assembly ("memory-safe") {
+        switch gt(time, currentTime)
+        case 1 {
+            let diff := sub(time, currentTime)
+            let shift := 1
 
-        if (time <= currentTime) {
-            stepSize = 16;
-        } else {
-            // cannot be too far in the future
-            if (time - currentTime > type(uint32).max) {
-                return false;
-            }
-            stepSize = uint256(1) << FixedPointMathLib.max(4, (((LibBit.fls(time - currentTime)) / 4) * 4));
+            // add 1 if diff greater than each power of (16**n)-1
+            // diff greater than 7th power is not a valid time
+            shift := add(shift, gt(diff, 255))
+            shift := add(shift, gt(diff, 4095))
+            shift := add(shift, gt(diff, 65535))
+            shift := add(shift, gt(diff, 1048576))
+            shift := add(shift, gt(diff, 16777216))
+            shift := add(shift, gt(diff, 268435456))
+
+            stepSize := shl(mul(shift, 4), 1)
         }
+        default { stepSize := 16 }
+    }
+}
 
-        return time % stepSize == 0;
+/// @dev Returns true iff the given time is a valid start or end time for a TWAMM order
+function isTimeValid(uint256 currentTime, uint256 time) pure returns (bool valid) {
+    uint256 stepSize = computeStepSize(currentTime, time);
+
+    assembly ("memory-safe") {
+        valid := and(iszero(mod(time, stepSize)), or(lt(time, currentTime), lt(sub(time, currentTime), 0x100000000)))
     }
 }

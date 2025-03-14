@@ -3,9 +3,7 @@ pragma solidity =0.8.28;
 
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 
-/// @dev This library includes some helper functions for calling IExposedStorage#sload and IExposedStorage#tload. They assume
-///      an implementation of ExposedStorage that will never fail. The methods in this library will not revert if the called
-///      contract fails for any reason.
+/// @dev This library includes some helper functions for calling IExposedStorage#sload and IExposedStorage#tload.
 library ExposedStorageLib {
     function sload(IExposedStorage target, bytes32 slot) internal view returns (bytes32 result) {
         assembly ("memory-safe") {

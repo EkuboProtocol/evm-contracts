@@ -24,7 +24,13 @@ function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uin
 // Flips the tick in the bitmap from true to false or vice versa
 function flipTime(mapping(uint256 word => Bitmap bitmap) storage map, uint32 time) {
     (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-    map[word] = map[word].toggle(uint8(index));
+    assembly ("memory-safe") {
+        mstore(0, word)
+        mstore(32, map.slot)
+        let k := keccak256(0, 64)
+        let v := sload(k)
+        sstore(k, xor(v, shl(index, 1)))
+    }
 }
 
 function findNextInitializedTime(mapping(uint256 word => Bitmap bitmap) storage map, uint32 fromTime)

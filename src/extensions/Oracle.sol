@@ -212,6 +212,7 @@ contract Oracle is ExposedStorage, BaseExtension {
 
     // Searches the logical range [min, maxExclusive) for the latest snapshot with timestamp <= time.
     /// @dev See _getSnapshotLogical for an explanation of logical indices.
+    /// @dev We make the assumption that all snapshots for the token were written within (2**32 - 1) seconds of the current block timestamp
     function searchRangeForPrevious(
         Counts memory c,
         address token,

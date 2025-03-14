@@ -39,7 +39,7 @@ abstract contract BaseTWAMMTest is FullTest {
     }
 
     function boundTime(uint256 time, uint32 offset) internal pure returns (uint256) {
-        return ((bound(time, offset, type(uint256).max - type(uint32).max) / 16) * 16) + offset;
+        return ((bound(time, offset, type(uint256).max - type(uint32).max - offset) / 16) * 16) + offset;
     }
 
     function advanceTime(uint32 by) internal returns (uint256 next) {

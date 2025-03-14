@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "../Orders.t.sol";
-import {PoolState, TWAMMDataFetcher, getAllValidTimes} from "../../src/lens/TWAMMDataFetcher.sol";
+import {PoolState, TWAMMDataFetcher, getAllValidFutureTimes} from "../../src/lens/TWAMMDataFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {isTimeValid} from "../../src/math/time.sol";
 import {OrderKey} from "../../src/extensions/TWAMM.sol";
@@ -15,10 +15,9 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         tdf = new TWAMMDataFetcher(core, twamm);
     }
 
-    function test_getAllValidTimes(uint256 currentTime) public pure {
-        currentTime = bound(currentTime, 0, type(uint256).max - type(uint64).max);
-
-        uint256[] memory times = getAllValidTimes(currentTime);
+    function test_getAllValidFutureTimes_invariants(uint256 currentTime) public pure {
+        currentTime = bound(currentTime, 0, type(uint256).max - type(uint32).max);
+        uint256[] memory times = getAllValidFutureTimes(currentTime);
 
         assertGt(times[0], currentTime);
         assertLe(times[0], currentTime + 16);
@@ -33,8 +32,8 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         assertTrue(times.length == 105 || times.length == 106);
     }
 
-    function test_getAllValidTimes_example() public pure {
-        uint256[] memory times = getAllValidTimes(1);
+    function test_getAllValidFutureTimes_example() public pure {
+        uint256[] memory times = getAllValidFutureTimes(1);
         assertEq(times[0], 16);
         assertEq(times[1], 32);
         assertEq(times[14], 240);

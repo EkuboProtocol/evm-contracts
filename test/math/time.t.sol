@@ -2,8 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {isTimeValid, computeStepSize} from "../../src/math/time.sol";
-import {LibBit} from "solady/utils/LibBit.sol";
+import {isTimeValid, computeStepSize, nextValidTime} from "../../src/math/time.sol";
 
 contract TimeTest is Test {
     function test_computeStepSize() public pure {
@@ -13,11 +12,22 @@ contract TimeTest is Test {
             computeStepSize(type(uint256).max - type(uint32).max, type(uint256).max), uint256(1) << 28, "max-u32max,max"
         );
         assertEq(computeStepSize(0, type(uint256).max), uint256(1) << 28, "0,type(uint256).max");
+        assertEq(computeStepSize(1, 300), 256, "1,300");
+        assertEq(computeStepSize(7553, 7936), 256, "7553, 7936");
+        assertEq(computeStepSize(7553, 8192), 256, "7553, 8192");
+        assertEq(
+            computeStepSize(
+                115792089237316195423570985008687907853269984665640564039457584007908834672640,
+                115792089237316195423570985008687907853269984665640564039457584007912861204480
+            ),
+            268435456,
+            "big diff large num"
+        );
     }
 
     function test_computeStepSize_invariants(uint256 currentTime, uint256 time) public pure {
+        currentTime = bound(currentTime, 0, type(uint256).max - 255);
         uint256 stepSize = computeStepSize(currentTime, time);
-        assertTrue(LibBit.fls(stepSize) % 4 == 0, "step size is a power of 16");
 
         if (time < currentTime) {
             assertEq(stepSize, 16);
@@ -97,11 +107,42 @@ contract TimeTest is Test {
         bool valid = isTimeValid(currentTime, time);
         assertEq(
             valid,
-            (time < currentTime && time % 16 == 0)
-                || (
-                    time > currentTime && time % computeStepSize(currentTime, time) == 0
-                        && time - currentTime <= type(uint32).max
-                )
+            (time % computeStepSize(currentTime, time) == 0)
+                && (time < currentTime || time - currentTime <= type(uint32).max)
         );
+    }
+
+    function test_nextValidTime_examples() public pure {
+        assertEq(nextValidTime(0, 15), 16);
+        assertEq(nextValidTime(0, 16), 32);
+        assertEq(nextValidTime(1, 300), 512);
+        assertEq(
+            nextValidTime(
+                // difference is 4026531840, next valid time does not exist
+                115792089237316195423570985008687907853269984665640564039457584007908834672640,
+                115792089237316195423570985008687907853269984665640564039457584007912861204480
+            ),
+            0
+        );
+        assertEq(nextValidTime(type(uint256).max - type(uint32).max, type(uint256).max), 0);
+        assertEq(nextValidTime(1, 855925747424054960923167675474377675291071944039765111602490794982751), 0);
+    }
+
+    function test_nextValidTime_invariants(uint256 currentTime, uint256 time) public pure {
+        currentTime = bound(currentTime, 0, type(uint256).max - type(uint32).max);
+        uint256 nextValid = nextValidTime(currentTime, time);
+        assertTrue(isTimeValid(currentTime, nextValid), "always valid");
+        if (time < currentTime) {
+            // we just snap to the next multiple of 16
+            assertEq(nextValid, ((time / 16) + 1) * 16);
+        } else if (nextValid != 0) {
+            assertGt(nextValid, time);
+            uint256 diff = nextValid - time;
+            assertLe(diff, computeStepSize(currentTime, nextValid));
+            assertLe(diff, type(uint32).max);
+            assertGt(nextValid - currentTime, computeStepSize(currentTime, time) >> 4);
+        } else {
+            assertGt(time - currentTime, type(uint32).max - 268435456);
+        }
     }
 }

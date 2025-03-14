@@ -10,29 +10,21 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionKey} from "../types/positionKey.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {MAX_NUM_VALID_TIMES} from "../math/time.sol";
+import {MAX_NUM_VALID_TIMES, nextValidTime} from "../math/time.sol";
 import {LibBit} from "solady/utils/LibBit.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 
-function getAllValidTimes(uint256 currentTime) pure returns (uint256[] memory times) {
+function getAllValidFutureTimes(uint256 currentTime) pure returns (uint256[] memory times) {
     unchecked {
         times = new uint256[](MAX_NUM_VALID_TIMES);
         uint256 count = 0;
-        uint256 stepSize = 16;
-        uint256 t = ((currentTime / stepSize) * stepSize) + stepSize;
+        uint256 t = currentTime;
 
         while (true) {
+            t = nextValidTime(currentTime, t);
+            if (t == 0) break;
             times[count++] = t;
-
-            uint256 n = t + stepSize;
-            stepSize = uint256(1) << FixedPointMathLib.max(4, (((LibBit.fls(n - currentTime)) / 4) * 4));
-
-            t = ((n + (stepSize - 1)) / stepSize) * stepSize;
-
-            if (t - currentTime > type(uint32).max) {
-                break;
-            }
         }
 
         assembly ("memory-safe") {
@@ -75,7 +67,7 @@ contract TWAMMDataFetcher is UsesCore {
 
             uint256 lastTimeReal = block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime);
 
-            uint256[] memory allValidTimes = getAllValidTimes(lastTimeReal);
+            uint256[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
 
             bytes32 poolId = poolKey.toPoolId();
             bytes32[] memory timeInfoSlots = new bytes32[](allValidTimes.length);
@@ -99,12 +91,6 @@ contract TWAMMDataFetcher is UsesCore {
             TimeSaleRateInfo[] memory saleRateDeltas = new TimeSaleRateInfo[](timeInfoSlots.length);
 
             for (uint256 i = 0; i < allValidTimes.length; i++) {
-                //         // the number of orders referencing this timestamp. If non-zero, then the time is initialized.
-                // uint32 numOrders;
-                // // the change of sale rate for token0 at this time
-                // int112 saleRateDeltaToken0;
-                // // the change of sale rate for token1 at this time
-                // int112 saleRateDeltaToken1;
                 uint32 numOrders;
                 int112 saleRateDeltaToken0;
                 int112 saleRateDeltaToken1;

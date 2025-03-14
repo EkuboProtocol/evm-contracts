@@ -9,6 +9,7 @@ import {BaseOrdersTest} from "./Orders.t.sol";
 import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
+import {nextValidTime} from "../src/math/time.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
 import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
@@ -216,19 +217,6 @@ contract Handler is StdUtils, StdAssertions {
         }
     }
 
-    function nextValidTime(uint256 time) private view returns (uint256) {
-        uint256 t = vm.getBlockTimestamp();
-        assert(time >= t);
-        if (time - t < 16) {
-            return ((time + 15) / 16) * 16;
-        } else {
-            uint256 stepSize = uint256(1) << FixedPointMathLib.max(4, (((LibBit.fls(time - t)) / 4) * 4));
-            uint256 validTime0 = ((time + stepSize - 1) / stepSize) * stepSize;
-            uint256 nextStepSize = uint256(1) << FixedPointMathLib.max(4, (((LibBit.fls(validTime0 - t)) / 4) * 4));
-            return ((time + nextStepSize - 1) / nextStepSize) * nextStepSize;
-        }
-    }
-
     function createOrder(
         uint256 poolKeyIndex,
         uint16 startDelay,
@@ -250,10 +238,10 @@ contract Handler is StdUtils, StdAssertions {
 
         if (startDelay == 0) {
             startTime = 0;
-            endTime = nextValidTime(vm.getBlockTimestamp() + approximateDuration);
+            endTime = nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + approximateDuration - 1);
         } else {
-            startTime = nextValidTime(vm.getBlockTimestamp() + startDelay);
-            endTime = nextValidTime(startTime + approximateDuration);
+            startTime = nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + startDelay - 1);
+            endTime = nextValidTime(vm.getBlockTimestamp(), startTime + approximateDuration);
         }
 
         (address sellToken, address buyToken) =

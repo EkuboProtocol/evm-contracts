@@ -25,13 +25,16 @@ function oracleCallPoints() pure returns (CallPoints memory) {
     });
 }
 
-/// @dev Because the snapshots array is circular, the index of the most recently written snapshot can be any value in [0,c.count).
-///      To simplify the code, we operate on the logical indices, rather than the actual indices.
+/// @dev Because the snapshots array is circular, the storage index of the most recently written snapshot can be any value in [0,c.count).
+///      To simplify the code, we operate on the logical indices, rather than the storage indices.
 ///      For logical indices, the most recently written value is always at logicalIndex = c.count-1 and the earliest snapshot is always at logicalIndex = 0.
-function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logicalIndex) pure returns (uint32) {
+/// @param index the index of the most recently written snapshot
+/// @param count the total number of snapshots that have been written
+/// @param logicalIndex the index of the snapshot for which to compute the storage index
+function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logicalIndex) pure returns (uint256) {
     // We assume index < count and logicalIndex < count
     unchecked {
-        return uint32((index + 1 + logicalIndex) % count);
+        return (index + 1 + logicalIndex) % count;
     }
 }
 

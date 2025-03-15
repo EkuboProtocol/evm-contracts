@@ -3,18 +3,34 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {isTimeValid, computeStepSize, nextValidTime} from "../../src/math/time.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TimeTest is Test {
+    function test_computeStepSize_boundaries(uint256 time) public pure {
+        time = bound(time, 0, type(uint256).max - type(uint32).max);
+
+        unchecked {
+            for (uint256 i = 1; i < 8; i++) {
+                uint256 expectedStepSize = FixedPointMathLib.max(16, 1 << (i * 4));
+                uint256 expectedStepSizePrevious = FixedPointMathLib.max(16, 1 << ((i - 1) * 4));
+                assertEq(computeStepSize(time, time + expectedStepSize), expectedStepSize);
+                assertEq(computeStepSize(time + 1, time + expectedStepSize), expectedStepSizePrevious);
+            }
+        }
+    }
+
     function test_computeStepSize() public pure {
-        assertEq(computeStepSize(0, 4), 16, "0,4");
-        assertEq(computeStepSize(4, 0), 16, "4,0");
+        assertEq(computeStepSize(0, 4), 16, "0, 4");
+        assertEq(computeStepSize(4, 0), 16, "4, 0");
         assertEq(
-            computeStepSize(type(uint256).max - type(uint32).max, type(uint256).max), uint256(1) << 28, "max-u32max,max"
+            computeStepSize(type(uint256).max - type(uint32).max, type(uint256).max),
+            uint256(1) << 28,
+            "max-u32max, max"
         );
-        assertEq(computeStepSize(0, type(uint256).max), uint256(1) << 28, "0,type(uint256).max");
-        assertEq(computeStepSize(1, 300), 256, "1,300");
+        assertEq(computeStepSize(0, type(uint256).max), uint256(1) << 28, "0, type(uint256).max");
         assertEq(computeStepSize(7553, 7936), 256, "7553, 7936");
         assertEq(computeStepSize(7553, 8192), 256, "7553, 8192");
+        assertEq(computeStepSize(4026531839, 4294967295), 268435456, "4026531839, 4294967295");
         assertEq(
             computeStepSize(
                 115792089237316195423570985008687907853269984665640564039457584007908834672640,

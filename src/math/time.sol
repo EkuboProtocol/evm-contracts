@@ -40,11 +40,11 @@ function computeStepSize(uint256 currentTime, uint256 time) pure returns (uint25
 
             // add 1 if diff greater than each power of (16**n)-1
             // diff greater than 7th power is not a valid time
-            shift := add(shift, gt(diff, 4095))
-            shift := add(shift, gt(diff, 65535))
-            shift := add(shift, gt(diff, 1048575))
-            shift := add(shift, gt(diff, 16777215))
-            shift := add(shift, gt(diff, 268435455))
+            shift := add(shift, gt(diff, sub(shl(12, 1), 1)))
+            shift := add(shift, gt(diff, sub(shl(16, 1), 1)))
+            shift := add(shift, gt(diff, sub(shl(20, 1), 1)))
+            shift := add(shift, gt(diff, sub(shl(24, 1), 1)))
+            shift := add(shift, gt(diff, sub(shl(28, 1), 1)))
 
             stepSize := shl(mul(shift, 4), 1)
         }

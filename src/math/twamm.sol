@@ -8,18 +8,23 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 error SaleRateOverflow();
 
-// Computes sale rate = (amount << 32) / duration and casts it to a uint112. Reverts on overflow.
-function computeSaleRate(uint128 amount, uint32 duration) pure returns (uint112) {
-    unchecked {
-        uint256 saleRate = (uint256(amount) << 32) / duration;
-        if (saleRate > type(uint112).max) revert SaleRateOverflow();
-        return uint112(saleRate);
+/// @dev Computes sale rate = (amount << 32) / duration and reverts if the result exceeds type(uint112).max.
+///      Assumes duration > 0.
+function computeSaleRate(uint256 amount, uint256 duration) pure returns (uint256 saleRate) {
+    assembly ("memory-safe") {
+        saleRate := div(shl(32, amount), duration)
+        if shr(112, saleRate) {
+            // cast sig "SaleRateOverflow()"
+            mstore(0, shl(224, 0x83c87460))
+            revert(0, 4)
+        }
     }
 }
 
 error SaleRateDeltaOverflow();
 
-function addSaleRateDelta(uint112 saleRate, int112 saleRateDelta) pure returns (uint112 result) {
+/// @dev Adds the sale rate delta to the saleRate and reverts if the result is greater than type(uint112).max
+function addSaleRateDelta(uint256 saleRate, int256 saleRateDelta) pure returns (uint256 result) {
     assembly ("memory-safe") {
         result := add(saleRate, saleRateDelta)
         // if any of the upper bits are non-zero, revert
@@ -31,18 +36,18 @@ function addSaleRateDelta(uint112 saleRate, int112 saleRateDelta) pure returns (
     }
 }
 
-// Computes amount from sale rate: (saleRate * duration) >> 32, with optional rounding.
-// Cannot overflow since max sale rate times max result fits in 112 bits
-function computeAmountFromSaleRate(uint112 saleRate, uint32 duration, bool roundUp) pure returns (uint112 amount) {
+/// @dev Computes amount from sale rate: (saleRate * duration) >> 32, with optional rounding.
+///      Assumes the saleRate <= type(uint112).max and duration <= type(uint32).max
+function computeAmountFromSaleRate(uint256 saleRate, uint256 duration, bool roundUp) pure returns (uint256 amount) {
     assembly ("memory-safe") {
         amount := shr(32, add(mul(saleRate, duration), mul(0xffffffff, roundUp)))
     }
 }
 
 // Computes reward amount = (rewardRate * saleRate) >> 128.
-// While this can overflow, it's only used for computing the rewards for an order. In that case the order will receive no tokens,
+//  While this can overflow, it's only used for computing the rewards for an order. In that case the order will receive no tokens,
 //  but it could only happen if the token has a total supply greater than type(uint128).max
-function computeRewardAmount(uint256 rewardRate, uint112 saleRate) pure returns (uint128) {
+function computeRewardAmount(uint256 rewardRate, uint256 saleRate) pure returns (uint128) {
     return uint128(FixedPointMathLib.fullMulDivN(rewardRate, saleRate, 128));
 }
 

@@ -61,13 +61,8 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         returns (uint112 saleRate)
     {
         uint256 realStart = FixedPointMathLib.max(block.timestamp, orderKey.startTime);
-        if (orderKey.endTime <= realStart || orderKey.endTime - realStart > type(uint32).max) {
-            revert InvalidDuration();
-        }
 
-        if (orderKey.endTime <= block.timestamp) revert OrderAlreadyEnded();
-
-        saleRate = computeSaleRate(amount, uint32(orderKey.endTime - realStart));
+        saleRate = uint112(computeSaleRate(amount, uint32(orderKey.endTime - realStart)));
 
         if (saleRate > maxSaleRate) {
             revert MaxSaleRateExceeded();
@@ -118,7 +113,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     function executeVirtualOrdersAndGetCurrentOrderInfo(uint256 id, OrderKey memory orderKey)
         external
-        returns (uint112 saleRate, uint128 amountSold, uint128 remainingSellAmount, uint128 purchasedAmount)
+        returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
         unchecked {
             PoolKey memory poolKey = orderKeyToPoolKey(orderKey, address(twamm));

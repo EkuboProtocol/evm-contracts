@@ -333,9 +333,9 @@ contract OracleTest is BaseOracleTest {
         assertEq(logs[0].topics.length, 0);
         assertEq(logs[0].data.length, 52);
         assertEq(address(bytes20(LibBytes.load(logs[0].data, 0))), address(token1));
-        assertEq(uint32(bytes4(LibBytes.load(logs[0].data, 20))), uint32(time));
-        assertEq(uint160(bytes20(LibBytes.load(logs[0].data, 24))), 0);
-        assertEq(int64(uint64(bytes8(LibBytes.load(logs[0].data, 44)))), 0);
+        assertEq(int64(uint64(bytes8(LibBytes.load(logs[0].data, 20)))), 0);
+        assertEq(uint160(bytes20(LibBytes.load(logs[0].data, 28))), 0);
+        assertEq(uint32(bytes4(LibBytes.load(logs[0].data, 48))), uint32(time));
 
         assertEq(logs[1].emitter, address(core));
     }
@@ -356,9 +356,9 @@ contract OracleTest is BaseOracleTest {
         assertEq(log.topics.length, 0);
         assertEq(log.data.length, 52);
         assertEq(address(bytes20(LibBytes.load(log.data, 0))), address(token1));
-        assertEq(uint32(bytes4(LibBytes.load(log.data, 20))), uint32(startTime + 5));
-        assertEq(uint160(bytes20(LibBytes.load(log.data, 24))), (uint256(5) << 128) / 5000);
-        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 44)))), 5000);
+        assertEq(uint32(bytes4(LibBytes.load(log.data, 48))), uint32(startTime + 5));
+        assertEq(uint160(bytes20(LibBytes.load(log.data, 28))), (uint256(5) << 128) / 5000);
+        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 20)))), 5000);
 
         updateOraclePoolLiquidity(address(token1), 100_000);
 
@@ -374,12 +374,12 @@ contract OracleTest is BaseOracleTest {
         assertEq(log.topics.length, 0);
         assertEq(log.data.length, 52);
         assertEq(address(bytes20(LibBytes.load(log.data, 0))), address(token1));
-        assertEq(uint32(bytes4(LibBytes.load(log.data, 20))), uint32(startTime + 15));
+        assertEq(uint32(bytes4(LibBytes.load(log.data, 48))), uint32(startTime + 15));
         assertEq(
-            uint160(bytes20(LibBytes.load(log.data, 24))),
+            uint160(bytes20(LibBytes.load(log.data, 28))),
             ((uint256(5) << 128) / 5000) + ((uint256(10) << 128) / 100_000)
         );
-        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 44)))), -25000);
+        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 20)))), -25000);
     }
 
     function test_createPool_beforeInitializePool_first_expandCapacity() public {

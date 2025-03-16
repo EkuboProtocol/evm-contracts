@@ -9,7 +9,7 @@ library OracleLib {
         unchecked {
             if (token == NATIVE_TOKEN_ADDRESS) return 0;
 
-            (uint32 index, uint32 count,) = oracle.counts(token);
+            (uint32 index, uint32 count,,) = oracle.counts(token);
             if (count == 0) {
                 // if there are no snapshots, return a timestamp that will never be considered valid
                 return type(uint256).max;

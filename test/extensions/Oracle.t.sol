@@ -310,10 +310,12 @@ contract OracleTest is BaseOracleTest {
         vm.warp(time);
         createOraclePool(address(token1), 1000);
 
-        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        (uint64 index, uint64 count, uint64 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
+
         assertEq(index, 0);
         assertEq(count, 1);
         assertEq(capacity, 1);
+        assertEq(lastTimestamp, uint32(time));
 
         (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 0);
@@ -333,9 +335,9 @@ contract OracleTest is BaseOracleTest {
         assertEq(logs[0].topics.length, 0);
         assertEq(logs[0].data.length, 52);
         assertEq(address(bytes20(LibBytes.load(logs[0].data, 0))), address(token1));
-        assertEq(uint32(bytes4(LibBytes.load(logs[0].data, 20))), uint32(time));
-        assertEq(uint160(bytes20(LibBytes.load(logs[0].data, 24))), 0);
-        assertEq(int64(uint64(bytes8(LibBytes.load(logs[0].data, 44)))), 0);
+        assertEq(int64(uint64(bytes8(LibBytes.load(logs[0].data, 20)))), 0);
+        assertEq(uint160(bytes20(LibBytes.load(logs[0].data, 28))), 0);
+        assertEq(uint32(bytes4(LibBytes.load(logs[0].data, 48))), uint32(time));
 
         assertEq(logs[1].emitter, address(core));
     }
@@ -356,9 +358,9 @@ contract OracleTest is BaseOracleTest {
         assertEq(log.topics.length, 0);
         assertEq(log.data.length, 52);
         assertEq(address(bytes20(LibBytes.load(log.data, 0))), address(token1));
-        assertEq(uint32(bytes4(LibBytes.load(log.data, 20))), uint32(startTime + 5));
-        assertEq(uint160(bytes20(LibBytes.load(log.data, 24))), (uint256(5) << 128) / 5000);
-        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 44)))), 5000);
+        assertEq(uint32(bytes4(LibBytes.load(log.data, 48))), uint32(startTime + 5));
+        assertEq(uint160(bytes20(LibBytes.load(log.data, 28))), (uint256(5) << 128) / 5000);
+        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 20)))), 5000);
 
         updateOraclePoolLiquidity(address(token1), 100_000);
 
@@ -374,21 +376,23 @@ contract OracleTest is BaseOracleTest {
         assertEq(log.topics.length, 0);
         assertEq(log.data.length, 52);
         assertEq(address(bytes20(LibBytes.load(log.data, 0))), address(token1));
-        assertEq(uint32(bytes4(LibBytes.load(log.data, 20))), uint32(startTime + 15));
+        assertEq(uint32(bytes4(LibBytes.load(log.data, 48))), uint32(startTime + 15));
         assertEq(
-            uint160(bytes20(LibBytes.load(log.data, 24))),
+            uint160(bytes20(LibBytes.load(log.data, 28))),
             ((uint256(5) << 128) / 5000) + ((uint256(10) << 128) / 100_000)
         );
-        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 44)))), -25000);
+        assertEq(int64(uint64(bytes8(LibBytes.load(log.data, 20)))), -25000);
     }
 
-    function test_createPool_beforeInitializePool_first_expandCapacity() public {
+    function test_createPool_beforeInitializePool_first_expandCapacity(uint256 time) public {
+        vm.warp(time);
         oracle.expandCapacity(address(token1), 10);
         createOraclePool(address(token1), 0);
-        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
         assertEq(index, 0);
         assertEq(count, 1);
         assertEq(capacity, 10);
+        assertEq(lastTimestamp, uint32(block.timestamp));
     }
 
     function test_expandCapacity_returns_old_if_not_expanded() public {
@@ -396,13 +400,15 @@ contract OracleTest is BaseOracleTest {
         assertEq(oracle.expandCapacity(address(token1), 5), 10);
     }
 
-    function test_createPool_beforeInitializePool_then_expandCapacity() public {
+    function test_createPool_beforeInitializePool_then_expandCapacity(uint256 time) public {
+        vm.warp(time);
         createOraclePool(address(token1), 0);
         oracle.expandCapacity(address(token1), 10);
-        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
         assertEq(index, 0);
         assertEq(count, 1);
         assertEq(capacity, 10);
+        assertEq(lastTimestamp, uint32(time));
     }
 
     function test_expandCapacity_doesNotOverwrite(uint256 startTime) public {
@@ -416,10 +422,11 @@ contract OracleTest is BaseOracleTest {
         movePrice(pk, 1000);
         oracle.expandCapacity(address(token1), 2);
 
-        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
         assertEq(index, 0);
         assertEq(count, 1);
         assertEq(capacity, 2);
+        assertEq(lastTimestamp, uint32(startTime + 18));
         (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 0);
         unchecked {
@@ -454,10 +461,11 @@ contract OracleTest is BaseOracleTest {
         advanceTime(4);
         movePrice(pk, 0);
 
-        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
         assertEq(index, 0, "index");
         assertEq(count, 3, "count");
         assertEq(capacity, 3, "capacity");
+        assertEq(lastTimestamp, uint32(startTime + 2 + 3 + 6 + 4));
 
         (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 0);
@@ -557,11 +565,12 @@ contract OracleTest is BaseOracleTest {
 
         Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
         (uint256 id, uint128 liquidity) = createPosition(poolKey, bounds, 100, 200);
-        (uint64 index, uint64 count, uint64 capacity) = oracle.counts(address(token1));
+        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
 
         assertEq(count, 1);
         assertEq(index, 0);
         assertEq(capacity, 1);
+        assertEq(lastTimestamp, uint32(startTime + 30));
         (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
             oracle.snapshots(address(token1), 0);
         unchecked {
@@ -576,10 +585,12 @@ contract OracleTest is BaseOracleTest {
         assertEq(amount0, 99);
         assertEq(amount1, 199);
 
-        (index, count, capacity) = oracle.counts(address(token1));
+        (index, count, capacity, lastTimestamp) = oracle.counts(address(token1));
         assertEq(count, 1);
         assertEq(index, 0);
         assertEq(capacity, 1);
+        assertEq(lastTimestamp, uint32(startTime + 75));
+
         (timestamp, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 0);
         unchecked {
             assertEq(timestamp, uint32(startTime) + 75);

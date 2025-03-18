@@ -83,7 +83,7 @@ function computeSqrtSaleRatio(uint256 saleRateToken0, uint256 saleRateToken1) pu
     }
 }
 
-// This function should never be called with either of
+/// @dev Computes the next sqrt ratio according to the state of the TWAMM for a fixed sale rate
 /// @dev Assumes both sale rates are != 0 and <= type(uint112).max
 /// @dev Assumes liquidity is <= type(uint128).max
 /// @dev Assumes timeElapsed is <= type(uint32).max

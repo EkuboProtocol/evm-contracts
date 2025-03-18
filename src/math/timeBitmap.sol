@@ -52,6 +52,9 @@ function findNextInitializedTime(mapping(uint256 word => Bitmap bitmap) storage 
 }
 
 /// @dev Returns the smallest time that is greater than fromTime, less than or equal to untilTime and whether it is initialized
+/// @param lastVirtualOrderExecutionTime Used to determine the next possible valid time to search
+/// @param fromTime The time after which to start the search
+/// @param untilTime The time where to end the search, i.e. this function will return at most the value passed to `untilTime`
 function searchForNextInitializedTime(
     mapping(uint256 word => Bitmap bitmap) storage map,
     uint256 lastVirtualOrderExecutionTime,

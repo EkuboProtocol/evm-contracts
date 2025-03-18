@@ -9,10 +9,12 @@ import {
     bitmapWordAndIndexToTime,
     flipTime,
     findNextInitializedTime,
-    searchForNextInitializedTime
+    searchForNextInitializedTime,
+    nextValidTime
 } from "../../src/math/timeBitmap.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TimeBitmap {
     mapping(uint256 => Bitmap) public map;
@@ -196,6 +198,42 @@ contract TimeBitmapTest is Test {
 
         assembly ("memory-safe") {
             mstore(finds, count)
+        }
+    }
+
+    function test_searchForNextInitializedTime_invariant(
+        uint256 currentTime,
+        uint256 fromTime,
+        uint256 lastVirtualOrderExecutionTime,
+        uint256 initializedTime
+    ) public {
+        currentTime = bound(currentTime, 0, type(uint256).max);
+
+        // must have been executed in last type(uint32).max
+        lastVirtualOrderExecutionTime = bound(
+            lastVirtualOrderExecutionTime, FixedPointMathLib.zeroFloorSub(currentTime, type(uint32).max), currentTime
+        );
+        // we are always searching starting at a time between the last virtual execution time and current time
+        fromTime = bound(fromTime, lastVirtualOrderExecutionTime, currentTime);
+        initializedTime = nextValidTime(
+            lastVirtualOrderExecutionTime, bound(initializedTime, lastVirtualOrderExecutionTime, currentTime)
+        );
+
+        TimeBitmap tbm = new TimeBitmap();
+        tbm.flip(initializedTime);
+
+        (uint256 nextTime, bool initialized) = tbm.search({
+            lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
+            fromTime: fromTime,
+            untilTime: currentTime
+        });
+
+        if (initializedTime > fromTime && initializedTime <= currentTime) {
+            assertEq(nextTime, initializedTime, "initialized time between from and current");
+            assertTrue(initialized, "time is initialized");
+        } else {
+            assertEq(nextTime, currentTime, "initialized time not between from and current");
+            assertFalse(initialized, "time is not initialized");
         }
     }
 

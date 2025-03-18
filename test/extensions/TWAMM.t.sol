@@ -251,7 +251,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         _updateTime({poolId: poolId, time: time, saleRateDelta: 1, isToken1: false, numOrdersChange: 1});
 
         (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
-            lastVirtualOrderExecutionTime: 0,
+            lastVirtualOrderExecutionTime: time,
             fromTime: time - 15,
             untilTime: time + 15
         });

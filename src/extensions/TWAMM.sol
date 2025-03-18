@@ -267,7 +267,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
 
         if (flip) {
-            poolInitializedTimesBitmap[poolId].flipTime(uint32(time));
+            poolInitializedTimesBitmap[poolId].flipTime(time);
         }
 
         if (isToken1) {
@@ -473,32 +473,52 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             uint256 lastVirtualOrderExecutionTime;
             uint256 saleRateToken0;
             uint256 saleRateToken1;
-            {
-                PoolState storage state = poolState[poolId];
-                (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = (
-                    block.timestamp - uint256(uint32(block.timestamp) - state.lastVirtualOrderExecutionTime),
-                    state.saleRateToken0,
-                    state.saleRateToken1
-                );
-            }
 
-            // check the pool is initialized iff this is zero, otherwise we know it's initialized and avoid the SLOAD
-            if (lastVirtualOrderExecutionTime == 0) {
-                if (!poolInitialized[poolId]) revert PoolNotInitialized();
+            // load the pool state
+            assembly ("memory-safe") {
+                mstore(0, poolId)
+                mstore(32, 0)
+
+                let packed := sload(keccak256(0, 64))
+                // or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
+                lastVirtualOrderExecutionTime := and(packed, 0xffffffff)
+
+                saleRateToken0 := shr(144, shl(112, packed))
+                saleRateToken1 := shr(144, packed)
+
+                if iszero(packed) {
+                    // slot 0 already has the poolId in it
+                    mstore(32, 6)
+                    if iszero(sload(keccak256(0, 64))) {
+                        // cast sig "PoolNotInitialized()"
+                        mstore(0, shl(224, 0x486aa307))
+                        revert(0, 4)
+                    }
+                }
+
+                let difference := and(sub(and(timestamp(), 0xffffffff), lastVirtualOrderExecutionTime), 0xffffffff)
+
+                // make it a 'real' timestamp
+                // assumes that it was set to uint32(block.timestamp) at any point in the last 2**32-1 seconds
+                lastVirtualOrderExecutionTime := sub(timestamp(), difference)
             }
 
             // no-op if already executed in this block
             if (lastVirtualOrderExecutionTime != block.timestamp) {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
-                uint256 time = lastVirtualOrderExecutionTime;
+                // uint256 time = lastVirtualOrderExecutionTime;
 
-                while (time != block.timestamp) {
+                while (lastVirtualOrderExecutionTime != block.timestamp) {
                     (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
-                        .searchForNextInitializedTime(lastVirtualOrderExecutionTime, time, block.timestamp);
+                        .searchForNextInitializedTime({
+                        lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
+                        fromTime: lastVirtualOrderExecutionTime,
+                        untilTime: block.timestamp
+                    });
 
                     // it is assumed that this will never return a value greater than type(uint32).max
-                    uint256 timeElapsed = nextTime - time;
+                    uint256 timeElapsed = nextTime - lastVirtualOrderExecutionTime;
 
                     uint256 amount0 =
                         computeAmountFromSaleRate({saleRate: saleRateToken0, duration: timeElapsed, roundUp: false});
@@ -569,8 +589,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
 
-                    time = nextTime;
-
                     if (swapDelta0 < 0 || swapDelta1 < 0) {
                         core.save(
                             address(this),
@@ -591,6 +609,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                             uint128(uint256(FixedPointMathLib.max(swapDelta1, 0)))
                         );
                     }
+
+                    // time = nextTime;
+                    lastVirtualOrderExecutionTime = nextTime;
                 }
 
                 poolRewardRates[poolId] = rewardRates;
@@ -650,10 +671,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         bytes32 poolId = key.toPoolId();
-        poolState[poolId] = PoolState(uint32(block.timestamp), 0, 0);
-        // we need this extra mapping since pool state can be zero for an initialized pool
+        poolState[poolId] =
+            PoolState({lastVirtualOrderExecutionTime: uint32(block.timestamp), saleRateToken0: 0, saleRateToken1: 0});
+        // we need this extra mapping since pool state can contain zero for an initialized pool
         poolInitialized[poolId] = true;
-        _emitVirtualOrdersExecuted(poolId, 0, 0);
+        _emitVirtualOrdersExecuted({poolId: poolId, saleRateToken0: 0, saleRateToken1: 0});
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected

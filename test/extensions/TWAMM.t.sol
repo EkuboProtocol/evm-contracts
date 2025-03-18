@@ -164,13 +164,21 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0, 100);
         assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1, 0);
 
-        (uint32 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        (uint256 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+            lastVirtualOrderExecutionTime: 0,
+            fromTime: 30,
+            untilTime: 1000
+        });
         assertEq(time, 96);
         assertEq(initialized, true);
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
-        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+            lastVirtualOrderExecutionTime: 0,
+            fromTime: 30,
+            untilTime: 1000
+        });
         assertEq(time, 1000);
         assertEq(initialized, false);
     }
@@ -185,13 +193,21 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0, 100);
         assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1, 55);
 
-        (uint32 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        (uint256 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+            lastVirtualOrderExecutionTime: 0,
+            fromTime: 30,
+            untilTime: 1000
+        });
         assertEq(time, 96);
         assertEq(initialized, true);
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
-        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(30, 1000);
+        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+            lastVirtualOrderExecutionTime: 0,
+            fromTime: 30,
+            untilTime: 1000
+        });
         assertEq(time, 96);
         assertEq(initialized, true);
     }
@@ -234,9 +250,12 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         _updateTime({poolId: poolId, time: time, saleRateDelta: 1, isToken1: false, numOrdersChange: 1});
 
-        (uint32 nextTime, bool initialized) =
-            poolInitializedTimesBitmap[poolId].searchForNextInitializedTime(uint32(time - 15), uint32(time + 15));
-        assertEq(nextTime, uint32(time));
+        (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+            lastVirtualOrderExecutionTime: time,
+            fromTime: time - 15,
+            untilTime: time + 15
+        });
+        assertEq(nextTime, time);
         assertEq(initialized, true);
     }
 }

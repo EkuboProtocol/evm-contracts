@@ -29,7 +29,7 @@ contract TwammTest is Test {
         if (saleRate > type(uint112).max) {
             vm.expectRevert(SaleRateOverflow.selector);
         }
-        uint112 result = computeSaleRate(amount, duration);
+        uint256 result = computeSaleRate(amount, duration);
         assertEq(result, saleRate);
     }
 
@@ -43,7 +43,7 @@ contract TwammTest is Test {
             vm.expectRevert(SaleRateDeltaOverflow.selector);
             this.wrapped_addSaleRateDelta(saleRate, delta);
         } else {
-            uint112 result = addSaleRateDelta(saleRate, delta);
+            uint256 result = addSaleRateDelta(saleRate, delta);
             assertEq(int256(uint256(result)), expected);
         }
     }

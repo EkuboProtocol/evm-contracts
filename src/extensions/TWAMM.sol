@@ -147,10 +147,13 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
-    function _emitVirtualOrdersExecuted(bytes32 poolId, uint112 saleRateToken0, uint112 saleRateToken1) internal {
+    /// @dev Emits an event for the virtual order execution. Assumes that saleRateToken0 and saleRateToken1 are <= type(uint112).max
+    function _emitVirtualOrdersExecuted(bytes32 poolId, uint256 saleRateToken0, uint256 saleRateToken1) internal {
         assembly ("memory-safe") {
             // by writing it backwards, we overwrite only the empty bits with each subsequent write
+            // 28-60, only 46-60 can be non-zero
             mstore(28, saleRateToken1)
+            // 14-46, only 32-46 can be non-zero
             mstore(14, saleRateToken0)
             mstore(0, poolId)
 
@@ -264,7 +267,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
 
         if (flip) {
-            poolInitializedTimesBitmap[poolId].flipTime(uint32(time));
+            poolInitializedTimesBitmap[poolId].flipTime(time);
         }
 
         if (isToken1) {
@@ -316,12 +319,12 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     params.orderKey.sellToken < params.orderKey.buyToken
                 );
 
-                (uint112 saleRate, uint32 lastUpdateTime, uint112 amountSold) =
+                (uint256 saleRate, uint32 lastUpdateTime, uint256 amountSold) =
                     (order.saleRate, order.lastUpdateTime, order.amountSold);
 
-                uint128 purchasedAmount = computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, saleRate);
+                uint256 purchasedAmount = computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, saleRate);
 
-                uint112 saleRateNext = addSaleRateDelta(saleRate, params.saleRateDelta);
+                uint256 saleRateNext = addSaleRateDelta(saleRate, params.saleRateDelta);
 
                 if (saleRateNext == 0 && purchasedAmount != 0) {
                     revert MustCollectProceedsBeforeCanceling();
@@ -345,14 +348,16 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 }
 
                 (order.saleRate, order.lastUpdateTime, order.amountSold) = (
-                    saleRateNext,
+                    uint112(saleRateNext),
                     uint32(block.timestamp),
-                    amountSold
-                        + computeAmountFromSaleRate({
-                            saleRate: saleRate,
-                            duration: uint32(block.timestamp) - lastUpdateTime,
-                            roundUp: false
-                        })
+                    uint112(
+                        amountSold
+                            + computeAmountFromSaleRate({
+                                saleRate: saleRate,
+                                duration: uint32(block.timestamp) - lastUpdateTime,
+                                roundUp: false
+                            })
+                    )
                 );
                 order.rewardRateSnapshot = rewardRateSnapshotAdjusted;
 
@@ -366,10 +371,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     // and we know the order is active, so we have to apply its delta to the current pool state
                     if (isToken1) {
                         poolState[poolId].saleRateToken1 =
-                            addSaleRateDelta(poolState[poolId].saleRateToken1, params.saleRateDelta);
+                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken1, params.saleRateDelta));
                     } else {
                         poolState[poolId].saleRateToken0 =
-                            addSaleRateDelta(poolState[poolId].saleRateToken0, params.saleRateDelta);
+                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken0, params.saleRateDelta));
                     }
 
                     // only update the end time
@@ -463,44 +468,72 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
+    // Used to avoid stack too deep errors
+    struct Delta {
+        int256 delta0;
+        int256 delta1;
+    }
+
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, bytes32 poolId) internal {
         unchecked {
-            uint32 lastVirtualOrderExecutionTime;
-            uint112 saleRateToken0;
-            uint112 saleRateToken1;
-            {
-                PoolState storage state = poolState[poolId];
-                (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) =
-                    (state.lastVirtualOrderExecutionTime, state.saleRateToken0, state.saleRateToken1);
-            }
+            uint256 lastVirtualOrderExecutionTime;
+            uint256 saleRateToken0;
+            uint256 saleRateToken1;
 
-            // check the pool is initialized iff this is zero, otherwise we know it's initialized and avoid the SLOAD
-            if (lastVirtualOrderExecutionTime == 0) {
-                if (!poolInitialized[poolId]) revert PoolNotInitialized();
-            }
+            // load the pool state
+            assembly ("memory-safe") {
+                mstore(0, poolId)
+                mstore(32, 0)
 
-            uint32 currentTime = uint32(block.timestamp);
+                let packed := sload(keccak256(0, 64))
+                // or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
+                lastVirtualOrderExecutionTime := and(packed, 0xffffffff)
+
+                saleRateToken0 := shr(144, shl(112, packed))
+                saleRateToken1 := shr(144, packed)
+
+                if iszero(packed) {
+                    // slot 0 already has the poolId in it
+                    mstore(32, 6)
+                    if iszero(sload(keccak256(0, 64))) {
+                        // cast sig "PoolNotInitialized()"
+                        mstore(0, shl(224, 0x486aa307))
+                        revert(0, 4)
+                    }
+                }
+
+                // make it a 'real' timestamp
+                // assumes that it was set to uint32(block.timestamp) at any point in the last 2**32-1 seconds
+                lastVirtualOrderExecutionTime :=
+                    sub(timestamp(), and(sub(and(timestamp(), 0xffffffff), lastVirtualOrderExecutionTime), 0xffffffff))
+            }
 
             // no-op if already executed in this block
-            if (lastVirtualOrderExecutionTime != currentTime) {
+            if (lastVirtualOrderExecutionTime != block.timestamp) {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
-                while (lastVirtualOrderExecutionTime != currentTime) {
-                    (uint32 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
-                        .searchForNextInitializedTime(lastVirtualOrderExecutionTime, currentTime);
+                uint256 time = lastVirtualOrderExecutionTime;
 
-                    uint32 timeElapsed = nextTime - lastVirtualOrderExecutionTime;
+                while (time != block.timestamp) {
+                    (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
+                        .searchForNextInitializedTime({
+                        lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
+                        fromTime: lastVirtualOrderExecutionTime,
+                        untilTime: block.timestamp
+                    });
 
-                    uint112 amount0 =
+                    Delta memory swapDelta;
+
+                    // it is assumed that this will never return a value greater than type(uint32).max
+                    uint256 timeElapsed = nextTime - time;
+
+                    uint256 amount0 =
                         computeAmountFromSaleRate({saleRate: saleRateToken0, duration: timeElapsed, roundUp: false});
 
-                    uint112 amount1 =
+                    uint256 amount1 =
                         computeAmountFromSaleRate({saleRate: saleRateToken1, duration: timeElapsed, roundUp: false});
 
-                    int128 swapDelta0;
-                    int128 swapDelta1;
-                    int256 rewardDelta0;
-                    int256 rewardDelta1;
+                    Delta memory rewardDelta;
 
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
@@ -508,81 +541,80 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                             sqrtRatio: sqrtRatio,
                             liquidity: liquidity,
-                            saleRateToken0: saleRateToken0,
-                            saleRateToken1: saleRateToken1,
-                            timeElapsed: timeElapsed,
+                            saleRateToken0: uint112(saleRateToken0),
+                            saleRateToken1: uint112(saleRateToken1),
+                            timeElapsed: uint32(timeElapsed),
                             fee: poolKey.fee()
                         });
 
                         if (sqrtRatioNext > sqrtRatio) {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
                         } else if (sqrtRatioNext < sqrtRatio) {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
-                        // this cannot overflow because swapDelta0 is constrained to type(int128) and
-                        rewardDelta0 = int256(swapDelta0) - int256(uint256(amount0));
-                        rewardDelta1 = int256(swapDelta1) - int256(uint256(amount1));
+                        // this cannot overflow or underflow because swapDelta0 is constrained to int128,
+                        // and amounts computed from uint112 sale rates cannot exceed uint112.max
+                        rewardDelta.delta0 = swapDelta.delta0 - int256(uint256(amount0));
+                        rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
-                        rewardDelta0 = swapDelta0;
-                        rewardDelta1 = swapDelta1;
+                        rewardDelta = swapDelta;
                     }
 
-                    if (rewardDelta0 < 0) {
-                        rewardRates.value0 += (uint256(-rewardDelta0) << 128) / saleRateToken1;
+                    if (rewardDelta.delta0 < 0) {
+                        rewardRates.value0 += (uint256(-rewardDelta.delta0) << 128) / saleRateToken1;
                     }
 
-                    if (rewardDelta1 < 0) {
-                        rewardRates.value1 += (uint256(-rewardDelta1) << 128) / saleRateToken0;
+                    if (rewardDelta.delta1 < 0) {
+                        rewardRates.value1 += (uint256(-rewardDelta.delta1) << 128) / saleRateToken0;
                     }
 
                     if (initialized) {
-                        uint256 realTimeCrossed = block.timestamp - uint256(currentTime - nextTime);
-                        poolRewardRatesBefore[poolId][realTimeCrossed] = rewardRates;
+                        poolRewardRatesBefore[poolId][nextTime] = rewardRates;
 
-                        TimeInfo memory timeInfo = poolTimeInfos[poolId][realTimeCrossed];
+                        TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
 
                         saleRateToken0 = addSaleRateDelta(saleRateToken0, timeInfo.saleRateDeltaToken0);
                         saleRateToken1 = addSaleRateDelta(saleRateToken1, timeInfo.saleRateDeltaToken1);
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
                         // this helps reduce the cost of executing virtual orders.
-                        delete poolTimeInfos[poolId][realTimeCrossed];
+                        delete poolTimeInfos[poolId][nextTime];
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
 
-                    lastVirtualOrderExecutionTime = nextTime;
-
-                    if (swapDelta0 < 0 || swapDelta1 < 0) {
+                    if (swapDelta.delta0 < 0 || swapDelta.delta1 < 0) {
                         core.save(
                             address(this),
                             poolKey.token0,
                             poolKey.token1,
                             bytes32(0),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta0, 0))),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta1, 0)))
+                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta0, 0))),
+                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta1, 0)))
                         );
                     }
 
-                    if (swapDelta0 > 0 || swapDelta1 > 0) {
+                    if (swapDelta.delta0 > 0 || swapDelta.delta1 > 0) {
                         core.load(
                             poolKey.token0,
                             poolKey.token1,
                             bytes32(0),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta0, 0))),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta1, 0)))
+                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta0, 0))),
+                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta1, 0)))
                         );
                     }
+
+                    time = nextTime;
                 }
 
                 poolRewardRates[poolId] = rewardRates;
@@ -593,7 +625,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                     sstore(
                         keccak256(0, 64),
-                        add(add(lastVirtualOrderExecutionTime, shl(32, saleRateToken0)), shl(144, saleRateToken1))
+                        or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
                     )
                 }
 
@@ -642,10 +674,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         bytes32 poolId = key.toPoolId();
-        poolState[poolId] = PoolState(uint32(block.timestamp), 0, 0);
-        // we need this extra mapping since pool state can be zero for an initialized pool
+        poolState[poolId] =
+            PoolState({lastVirtualOrderExecutionTime: uint32(block.timestamp), saleRateToken0: 0, saleRateToken1: 0});
+        // we need this extra mapping since pool state can contain zero for an initialized pool
         poolInitialized[poolId] = true;
-        _emitVirtualOrdersExecuted(poolId, 0, 0);
+        _emitVirtualOrdersExecuted({poolId: poolId, saleRateToken0: 0, saleRateToken1: 0});
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected

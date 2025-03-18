@@ -6,7 +6,7 @@ import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
+import {TWAMM, orderKeyToPoolKey, OrderKey} from "../src/extensions/TWAMM.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {nextValidTime} from "../src/math/time.sol";
@@ -62,7 +62,7 @@ contract Handler is StdUtils, StdAssertions {
     OrderInfo[] activeOrders;
     PoolKey[] allPoolKeys;
 
-    uint32 totalAdvanced;
+    uint256 totalAdvanced;
 
     constructor(
         ICore _core,
@@ -94,7 +94,15 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     function advanceTime(uint32 by) public {
-        by = uint32(bound(by, 1, type(uint16).max));
+        totalAdvanced += by;
+        if (totalAdvanced > type(uint32).max) {
+            TWAMM twamm = orders.twamm();
+            // first do the execute on all pools, because we assume all pools are executed at least this often
+            for (uint256 i = 0; i < activeOrders.length; i++) {
+                twamm.lockAndExecuteVirtualOrders(orderKeyToPoolKey(activeOrders[i].orderKey, address(twamm)));
+            }
+            totalAdvanced = by;
+        }
         vm.warp(vm.getBlockTimestamp() + by);
     }
 

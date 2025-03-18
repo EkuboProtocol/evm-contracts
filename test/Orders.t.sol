@@ -206,13 +206,13 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(15);
 
-        (uint112 saleRate0, uint128 amountSold0, uint128 remainingSellAmount0, uint128 purchasedAmount0) =
+        (uint256 saleRate0, uint256 amountSold0, uint256 remainingSellAmount0, uint256 purchasedAmount0) =
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id0, key0);
         assertEq(saleRate0, (uint112(1e18) << 32) / 15, "saleRate0");
         assertEq(amountSold0, 1e18 - 1, "amountSold0");
         assertEq(remainingSellAmount0, 0, "remainingSellAmount0");
         assertEq(purchasedAmount0, 0.476190476190479288e18, "purchasedAmount0");
-        (uint112 saleRate1, uint128 amountSold1, uint128 remainingSellAmount1, uint128 purchasedAmount1) =
+        (uint256 saleRate1, uint256 amountSold1, uint256 remainingSellAmount1, uint256 purchasedAmount1) =
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id1, key1);
         assertEq(saleRate1, (uint112(2e18) << 32) / 63, "saleRate1");
         assertEq(amountSold1, 0.47619047619047619e18, "amountSold1");

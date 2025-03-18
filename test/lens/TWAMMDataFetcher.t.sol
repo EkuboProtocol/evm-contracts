@@ -133,6 +133,10 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
 
             assertEq(-delta, deltaPrev, "delta cancels out");
         }
+
+        vm.warp(lastTime);
+        result = tdf.executeVirtualOrdersAndGetPoolState(poolKey);
+        assertEq(result.saleRateDeltas.length, 0);
     }
 
     function test_getPoolState_pool_with_orders_no_time_advance(uint256 time) public {

@@ -65,10 +65,10 @@ function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256
 }
 
 // Returns a 64.128 number representing the sqrt sale ratio
-// Assumes both saleRateToken0 and saleRateToken1 are nonzero
-function computeSqrtSaleRatio(uint112 saleRateToken0, uint112 saleRateToken1) pure returns (uint256 sqrtSaleRatio) {
+// Assumes both saleRateToken0 and saleRateToken1 are nonzero and less than or equal to type(uint112).max
+function computeSqrtSaleRatio(uint256 saleRateToken0, uint256 saleRateToken1) pure returns (uint256 sqrtSaleRatio) {
     unchecked {
-        uint256 saleRatio = (uint256(saleRateToken1) << 128) / saleRateToken0;
+        uint256 saleRatio = (saleRateToken1 << 128) / saleRateToken0;
 
         if (saleRatio <= type(uint128).max) {
             // full precision for small ratios
@@ -123,7 +123,7 @@ function computeNextSqrtRatio(
                 int256 ePowExponent = int256(uint256(exp2(uint128(exponent))) << 64);
 
                 uint256 sqrtRatioNextFixed = FixedPointMathLib.fullMulDiv(
-                    sqrtSaleRatio, FixedPointMathLib.abs(ePowExponent - c), FixedPointMathLib.abs(ePowExponent + c)
+                    sqrtSaleRatio, FixedPointMathLib.dist(ePowExponent, c), FixedPointMathLib.abs(ePowExponent + c)
                 );
 
                 // we should never exceed the sale ratio

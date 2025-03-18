@@ -83,13 +83,16 @@ function computeSqrtSaleRatio(uint256 saleRateToken0, uint256 saleRateToken1) pu
     }
 }
 
-// This function should never be called with either of saleRateToken0 = 0 or saleRateToken1 = 0
+// This function should never be called with either of
+/// @dev Assumes both sale rates are != 0 and <= type(uint112).max
+/// @dev Assumes liquidity is <= type(uint128).max
+/// @dev Assumes timeElapsed is <= type(uint32).max
 function computeNextSqrtRatio(
     SqrtRatio sqrtRatio,
-    uint128 liquidity,
-    uint112 saleRateToken0,
-    uint112 saleRateToken1,
-    uint32 timeElapsed,
+    uint256 liquidity,
+    uint256 saleRateToken0,
+    uint256 saleRateToken1,
+    uint256 timeElapsed,
     uint64 fee
 ) pure returns (SqrtRatio sqrtRatioNext) {
     unchecked {
@@ -115,7 +118,7 @@ function computeNextSqrtRatio(
             // (12392656037 * t * sqrtSaleRate) / liquidity == (34 + 32 + 128) - 128 bits, cannot overflow
             // uint256(12392656037) = Math.floor(Math.LOG2E * 2**33).
             // this combines the doubling, the left shifting and the converting to a base 2 exponent into a single multiplication
-            uint256 exponent = (sqrtSaleRate * uint256(timeElapsed) * uint256(12392656037)) / uint256(liquidity);
+            uint256 exponent = (sqrtSaleRate * timeElapsed * uint256(12392656037)) / liquidity;
             if (exponent >= 0x400000000000000000) {
                 // if the exponent is larger than this value (64), the exponent term dominates and the result is approximately the sell ratio
                 sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);

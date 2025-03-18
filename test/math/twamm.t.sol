@@ -337,12 +337,21 @@ contract TwammTest is Test {
 
         uint256 sqrtSaleRatio = computeSqrtSaleRatio(saleRateToken0, saleRateToken1);
 
+        // the next sqrt ratio is always between the sale ratio and current price
         if (sqrtSaleRatio > sqrtRatio.toFixed()) {
             assertGe(sqrtRatioNext.toFixed(), sqrtRatio.toFixed());
             assertLe(sqrtRatioNext.toFixed(), sqrtSaleRatio);
+
+            if (liquidity == 0) {
+                assertEq(sqrtRatioNext.toFixed(), toSqrtRatio(sqrtSaleRatio, false).toFixed());
+            }
         } else {
             assertLe(sqrtRatioNext.toFixed(), sqrtRatio.toFixed());
             assertGe(sqrtRatioNext.toFixed(), sqrtSaleRatio);
+
+            if (liquidity == 0) {
+                assertEq(sqrtRatioNext.toFixed(), toSqrtRatio(sqrtSaleRatio, true).toFixed());
+            }
         }
     }
 }

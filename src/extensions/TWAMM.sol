@@ -383,8 +383,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 }
 
                 // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
-                uint32 durationRemaining =
-                    uint32(params.orderKey.endTime - FixedPointMathLib.max(block.timestamp, params.orderKey.startTime));
+                uint256 durationRemaining =
+                    params.orderKey.endTime - FixedPointMathLib.max(block.timestamp, params.orderKey.startTime);
 
                 // the amount required for executing at the next sale rate for the remaining duration of the order
                 uint256 amountRequired =
@@ -541,9 +541,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                             sqrtRatio: sqrtRatio,
                             liquidity: liquidity,
-                            saleRateToken0: uint112(saleRateToken0),
-                            saleRateToken1: uint112(saleRateToken1),
-                            timeElapsed: uint32(timeElapsed),
+                            saleRateToken0: saleRateToken0,
+                            saleRateToken1: saleRateToken1,
+                            timeElapsed: timeElapsed,
                             fee: poolKey.fee()
                         });
 

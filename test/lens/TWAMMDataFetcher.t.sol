@@ -4,8 +4,10 @@ pragma solidity =0.8.28;
 import {BaseOrdersTest} from "../Orders.t.sol";
 import {PoolState, TWAMMDataFetcher, getAllValidFutureTimes} from "../../src/lens/TWAMMDataFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {isTimeValid} from "../../src/math/time.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {isTimeValid, nextValidTime} from "../../src/math/time.sol";
 import {OrderKey} from "../../src/extensions/TWAMM.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TWAMMDataFetcherTest is BaseOrdersTest {
     TWAMMDataFetcher internal tdf;
@@ -59,6 +61,78 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         assertEq(result.saleRateToken0, 0);
         assertEq(result.saleRateToken1, 0);
         assertEq(result.saleRateDeltas.length, 0);
+    }
+
+    function test_getPoolState_returns_all_valid_times(uint64 fee, int32 startingTick, uint256 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        startingTick = int32(bound(startingTick, MIN_TICK, MAX_TICK));
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: startingTick});
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        uint256 ordersPlaced = 0;
+        uint256 startTime = nextValidTime(time, time);
+        uint256 lastTime;
+        while (true) {
+            uint256 endTime = nextValidTime(time, startTime);
+            if (endTime == 0) break;
+            lastTime = FixedPointMathLib.max(endTime, lastTime);
+
+            orders.mintAndIncreaseSellAmount(
+                ordersPlaced % 2 == 0
+                    ? OrderKey({
+                        sellToken: address(token0),
+                        buyToken: address(token1),
+                        fee: fee,
+                        startTime: startTime,
+                        endTime: endTime
+                    })
+                    : OrderKey({
+                        sellToken: address(token1),
+                        buyToken: address(token0),
+                        fee: fee,
+                        startTime: startTime,
+                        endTime: endTime
+                    }),
+                10000,
+                type(uint112).max
+            );
+
+            ordersPlaced++;
+
+            startTime = nextValidTime(time, endTime);
+            if (startTime == 0) break;
+
+            lastTime = FixedPointMathLib.max(startTime, lastTime);
+        }
+
+        PoolState memory result = tdf.getPoolState(poolKey);
+        assertEq(result.saleRateDeltas.length, 106);
+        assertEq(result.liquidity, 0);
+        assertEq(result.saleRateDeltas[105].time, lastTime);
+
+        for (uint256 i = 1; i < result.saleRateDeltas.length; i += 2) {
+            int256 delta;
+            int256 deltaPrev;
+            if ((i / 2) % 2 == 0) {
+                assertEq(result.saleRateDeltas[i].saleRateDelta1, 0);
+                assertNotEq(result.saleRateDeltas[i].saleRateDelta0, 0);
+
+                delta = result.saleRateDeltas[i].saleRateDelta0;
+                deltaPrev = result.saleRateDeltas[i - 1].saleRateDelta0;
+            } else {
+                assertEq(result.saleRateDeltas[i].saleRateDelta0, 0);
+                assertNotEq(result.saleRateDeltas[i].saleRateDelta1, 0);
+
+                delta = result.saleRateDeltas[i].saleRateDelta1;
+                deltaPrev = result.saleRateDeltas[i - 1].saleRateDelta1;
+            }
+
+            assertEq(-delta, deltaPrev, "delta cancels out");
+        }
     }
 
     function test_getPoolState_pool_with_orders_no_time_advance(uint256 time) public {

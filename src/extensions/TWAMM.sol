@@ -468,6 +468,12 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
+    // Used to avoid stack too deep errors
+    struct Delta {
+        int256 delta0;
+        int256 delta1;
+    }
+
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, bytes32 poolId) internal {
         unchecked {
             uint256 lastVirtualOrderExecutionTime;
@@ -496,20 +502,19 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     }
                 }
 
-                let difference := and(sub(and(timestamp(), 0xffffffff), lastVirtualOrderExecutionTime), 0xffffffff)
-
                 // make it a 'real' timestamp
                 // assumes that it was set to uint32(block.timestamp) at any point in the last 2**32-1 seconds
-                lastVirtualOrderExecutionTime := sub(timestamp(), difference)
+                lastVirtualOrderExecutionTime :=
+                    sub(timestamp(), and(sub(and(timestamp(), 0xffffffff), lastVirtualOrderExecutionTime), 0xffffffff))
             }
 
             // no-op if already executed in this block
             if (lastVirtualOrderExecutionTime != block.timestamp) {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
-                // uint256 time = lastVirtualOrderExecutionTime;
+                uint256 time = lastVirtualOrderExecutionTime;
 
-                while (lastVirtualOrderExecutionTime != block.timestamp) {
+                while (time != block.timestamp) {
                     (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
                         .searchForNextInitializedTime({
                         lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
@@ -517,8 +522,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         untilTime: block.timestamp
                     });
 
+                    Delta memory swapDelta;
+
                     // it is assumed that this will never return a value greater than type(uint32).max
-                    uint256 timeElapsed = nextTime - lastVirtualOrderExecutionTime;
+                    uint256 timeElapsed = nextTime - time;
 
                     uint256 amount0 =
                         computeAmountFromSaleRate({saleRate: saleRateToken0, duration: timeElapsed, roundUp: false});
@@ -526,10 +533,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint256 amount1 =
                         computeAmountFromSaleRate({saleRate: saleRateToken1, duration: timeElapsed, roundUp: false});
 
-                    int128 swapDelta0;
-                    int128 swapDelta1;
-                    int256 rewardDelta0;
-                    int256 rewardDelta1;
+                    Delta memory rewardDelta;
 
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
@@ -544,35 +548,35 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         });
 
                         if (sqrtRatioNext > sqrtRatio) {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
                         } else if (sqrtRatioNext < sqrtRatio) {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
-                        // this cannot overflow because swapDelta0 is constrained to type(int128) and
-                        rewardDelta0 = int256(swapDelta0) - int256(uint256(amount0));
-                        rewardDelta1 = int256(swapDelta1) - int256(uint256(amount1));
+                        // this cannot overflow or underflow because swapDelta0 is constrained to int128,
+                        // and amounts computed from uint112 sale rates cannot exceed uint112.max
+                        rewardDelta.delta0 = swapDelta.delta0 - int256(uint256(amount0));
+                        rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (swapDelta0, swapDelta1) =
+                            (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
-                        rewardDelta0 = swapDelta0;
-                        rewardDelta1 = swapDelta1;
+                        rewardDelta = swapDelta;
                     }
 
-                    if (rewardDelta0 < 0) {
-                        rewardRates.value0 += (uint256(-rewardDelta0) << 128) / saleRateToken1;
+                    if (rewardDelta.delta0 < 0) {
+                        rewardRates.value0 += (uint256(-rewardDelta.delta0) << 128) / saleRateToken1;
                     }
 
-                    if (rewardDelta1 < 0) {
-                        rewardRates.value1 += (uint256(-rewardDelta1) << 128) / saleRateToken0;
+                    if (rewardDelta.delta1 < 0) {
+                        rewardRates.value1 += (uint256(-rewardDelta.delta1) << 128) / saleRateToken0;
                     }
 
                     if (initialized) {
@@ -589,29 +593,28 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
 
-                    if (swapDelta0 < 0 || swapDelta1 < 0) {
+                    if (swapDelta.delta0 < 0 || swapDelta.delta1 < 0) {
                         core.save(
                             address(this),
                             poolKey.token0,
                             poolKey.token1,
                             bytes32(0),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta0, 0))),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta1, 0)))
+                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta0, 0))),
+                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta1, 0)))
                         );
                     }
 
-                    if (swapDelta0 > 0 || swapDelta1 > 0) {
+                    if (swapDelta.delta0 > 0 || swapDelta.delta1 > 0) {
                         core.load(
                             poolKey.token0,
                             poolKey.token1,
                             bytes32(0),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta0, 0))),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta1, 0)))
+                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta0, 0))),
+                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta1, 0)))
                         );
                     }
 
-                    // time = nextTime;
-                    lastVirtualOrderExecutionTime = nextTime;
+                    time = nextTime;
                 }
 
                 poolRewardRates[poolId] = rewardRates;

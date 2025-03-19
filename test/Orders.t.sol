@@ -11,6 +11,7 @@ import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/cons
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {nextValidTime} from "../src/math/time.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
 import {FeeAccumulatingExtension} from "./SolvencyInvariantTest.t.sol";
@@ -508,5 +509,59 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(router), type(uint256).max);
         router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided crossed");
+    }
+
+    function test_lockAndExecuteVirtualOrders_maximum_gas_cost() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        uint256 time = block.timestamp;
+        uint256 i = 0;
+
+        while (true) {
+            uint256 startTime = nextValidTime(block.timestamp, time);
+            uint256 endTime = nextValidTime(block.timestamp, startTime);
+
+            if (startTime == 0 || endTime == 0) break;
+
+            orders.mintAndIncreaseSellAmount(
+                OrderKey({
+                    sellToken: poolKey.token0,
+                    buyToken: poolKey.token1,
+                    fee: fee,
+                    startTime: startTime,
+                    endTime: endTime
+                }),
+                uint112(100 * (i++)),
+                type(uint112).max
+            );
+
+            orders.mintAndIncreaseSellAmount(
+                OrderKey({
+                    sellToken: poolKey.token1,
+                    buyToken: poolKey.token0,
+                    fee: fee,
+                    startTime: startTime,
+                    endTime: endTime
+                }),
+                uint112(100 * (i++)),
+                type(uint112).max
+            );
+
+            time = startTime;
+        }
+
+        advanceTime(type(uint32).max);
+
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+        vm.snapshotGasLastCall("lockAndExecuteVirtualOrders max cost");
     }
 }

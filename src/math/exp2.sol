@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-// Adapted from https://github.com/abdk-consulting/abdk-libraries-solidity/blob/5e1e7c11b35f8313d3f7ce11c1b86320d7c0b554/ABDKMath64x64.sol#L508
-function exp2(uint128 x) pure returns (uint128) {
+/// @dev Computes 2^x where x is a 5.64 number and result is a 64.64 number
+function exp2(uint256 x) pure returns (uint256 result) {
     unchecked {
         require(x < 0x400000000000000000); // Overflow
 
-        uint256 result = 0x80000000000000000000000000000000;
+        result = 0x80000000000000000000000000000000;
 
         if (x & 0x8000000000000000 != 0) {
             result = result * 0x16A09E667F3BCC908B2FB1366EA957D3E >> 128;
@@ -202,7 +202,5 @@ function exp2(uint128 x) pure returns (uint128) {
         }
 
         result >>= uint256(63 - (x >> 64));
-
-        return uint128(result);
     }
 }

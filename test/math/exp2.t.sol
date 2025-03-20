@@ -42,5 +42,18 @@ contract ExpTest is Test {
         // 2**63.5
         // https://www.wolframalpha.com/input?i=floor%28%282**63.5%29*2**64%29
         assertEq(exp2((127 << 64) / 2), 240615969168004511545033772477625056927);
+
+        // approximately equal to 2**64
+        assertEq(exp2(0x400000000000000000 - 1), 340282366920938463450588298786565555714);
+    }
+
+    function test_exp2_monotonically_increasing(uint256 x) public pure {
+        x = bound(x, 0, (1 << 70) - 2);
+        assertGe(exp2(x + 1), exp2(x));
+    }
+
+    function test_exp2_greater_than_one(uint256 x) public pure {
+        x = bound(x, 0, (1 << 70) - 1);
+        assertGe(exp2(x), 1 << 64);
     }
 }

@@ -159,14 +159,8 @@ abstract contract FlashAccountant is IFlashAccountant {
 
             mstore(20, address()) // Store the `account` argument.
             mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
-            let tokenBalanceBefore :=
-                mul( // The arguments of `mul` are evaluated from right to left.
-                    mload(free),
-                    and( // The arguments of `and` are evaluated from right to left.
-                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                        staticcall(gas(), token, 0x10, 0x24, free, 0x20)
-                    )
-                )
+            let successBefore := staticcall(gas(), token, 0x10, 0x24, free, 0x20)
+            let tokenBalanceBefore := mload(free)
 
             // Prepare call to "payCallback(uint256,address)"
             mstore(free, shl(224, 0x599d0714))
@@ -183,23 +177,15 @@ abstract contract FlashAccountant is IFlashAccountant {
                 revert(free, returndatasize())
             }
 
-            // Arguments are still in scratch, we don't need to rewrite them
-            let tokenBalanceAfter :=
-                mul( // The arguments of `mul` are evaluated from right to left.
-                    mload(0x20),
-                    and( // The arguments of `and` are evaluated from right to left.
-                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                        staticcall(gas(), token, 0x10, 0x24, 0x20, 0x20)
-                    )
+            let successAfter := staticcall(gas(), token, 0x10, 0x24, 0x20, 0x20)
+            let tokenBalanceAfter := mload(0x20)
+
+            payment :=
+                mul(
+                    sub(tokenBalanceAfter, tokenBalanceBefore),
+                    // payment only counts if both calls are successful and the balance after is greater than the balance before
+                    and(gt(tokenBalanceAfter, tokenBalanceBefore), and(successAfter, successBefore))
                 )
-
-            if lt(tokenBalanceAfter, tokenBalanceBefore) {
-                // cast sig "NoPaymentMade()"
-                mstore(0x00, 0x01b243b9)
-                revert(0x1c, 4)
-            }
-
-            payment := sub(tokenBalanceAfter, tokenBalanceBefore)
 
             // We never expect tokens to have this much total supply
             if gt(payment, 0xffffffffffffffffffffffffffffffff) {

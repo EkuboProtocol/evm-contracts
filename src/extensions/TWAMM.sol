@@ -210,25 +210,23 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
-    function _addConstrainSaleRateDelta(int112 saleRateDelta, int112 saleRateDeltaChange)
+    function _addConstrainSaleRateDelta(int112 saleRateDelta, int256 saleRateDeltaChange)
         internal
         pure
         returns (int112 saleRateDeltaNext)
     {
-        unchecked {
-            int256 result = int256(saleRateDelta) + saleRateDeltaChange;
+        int256 result = int256(saleRateDelta) + saleRateDeltaChange;
 
-            // checked addition, no overflow of int112 type
-            if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
-                revert MaxSaleRateDeltaPerTime();
-            }
-
-            // we know cast is safe because abs(result) is less than MAX_ABS_VALUE_SALE_RATE_DELTA which fits in a int112
-            saleRateDeltaNext = int112(result);
+        // checked addition, no overflow of int112 type
+        if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
+            revert MaxSaleRateDeltaPerTime();
         }
+
+        // we know cast is safe because abs(result) is less than MAX_ABS_VALUE_SALE_RATE_DELTA which fits in a int112
+        saleRateDeltaNext = int112(result);
     }
 
-    function _updateTime(bytes32 poolId, uint256 time, int112 saleRateDelta, bool isToken1, int256 numOrdersChange)
+    function _updateTime(bytes32 poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
     {
         TimeInfo memory timeInfo = poolTimeInfos[poolId][time];
@@ -366,7 +364,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                 if (block.timestamp < params.orderKey.startTime) {
                     _updateTime(poolId, params.orderKey.startTime, params.saleRateDelta, isToken1, numOrdersChange);
-                    _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
+                    _updateTime(
+                        poolId, params.orderKey.endTime, -int256(params.saleRateDelta), isToken1, numOrdersChange
+                    );
                 } else {
                     // we know block.timestamp < params.orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
@@ -379,8 +379,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     }
 
                     // only update the end time
-                    // todo: what if params.saleRateDelta is type(int112).min?
-                    _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
+                    _updateTime(
+                        poolId, params.orderKey.endTime, -int256(params.saleRateDelta), isToken1, numOrdersChange
+                    );
                 }
 
                 // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time

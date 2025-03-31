@@ -95,11 +95,28 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     /// forge-config: default.allow_internal_expect_revert = true
-    function test_addConstrainSaleRateDelta(int112 saleRateDelta, int112 saleRateDeltaChange) public {
+    function test_addConstrainSaleRateDelta_overflows() public {
+        vm.expectRevert();
+        _addConstrainSaleRateDelta(1, type(int256).max);
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_addConstrainSaleRateDelta_underflows() public {
+        vm.expectRevert();
+        _addConstrainSaleRateDelta(-1, type(int256).min);
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_addConstrainSaleRateDelta(int112 saleRateDelta, int256 saleRateDeltaChange) public {
+        // prevents running into arithmetic overflow/underflow errors
+        saleRateDeltaChange =
+            bound(saleRateDeltaChange, type(int256).min - type(int112).min, type(int256).max - type(int112).max);
+
         int256 result = int256(saleRateDelta) + saleRateDeltaChange;
         if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
             vm.expectRevert(MaxSaleRateDeltaPerTime.selector);
         }
+
         assertEq(_addConstrainSaleRateDelta(saleRateDelta, saleRateDeltaChange), result);
     }
 

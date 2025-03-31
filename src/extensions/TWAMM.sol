@@ -40,7 +40,6 @@ using {toOrderId} for OrderKey global;
 struct OrderKey {
     address sellToken;
     address buyToken;
-    // todo: these could take up as few as 32+64+64=160 bits
     uint64 fee;
     uint256 startTime;
     uint256 endTime;

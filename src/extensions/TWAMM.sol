@@ -516,7 +516,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
                         .searchForNextInitializedTime({
                         lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
-                        fromTime: lastVirtualOrderExecutionTime,
+                        fromTime: time,
                         untilTime: block.timestamp
                     });
 

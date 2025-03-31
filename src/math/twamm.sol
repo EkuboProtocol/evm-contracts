@@ -52,7 +52,7 @@ function computeRewardAmount(uint256 rewardRate, uint256 saleRate) pure returns 
     return uint128(FixedPointMathLib.fullMulDivN(rewardRate, saleRate, 128));
 }
 
-// Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.64 number
+// Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.128 number
 // Note that the sqrtRatio is assumed to be between 2**192 and 2**-64, while sqrtSaleRatio values are assumed to be between 2**184 and 2**-72
 function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256 c) {
     uint256 unsigned = FixedPointMathLib.fullMulDiv(

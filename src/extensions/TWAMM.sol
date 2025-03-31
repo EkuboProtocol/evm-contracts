@@ -413,7 +413,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         core.load(poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
                     }
 
-                    amountDelta += int256(int128(fee));
+                    amountDelta += int128(fee);
                 } else {
                     // downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
                     uint128 amountAbs = uint128(uint256(amountDelta));

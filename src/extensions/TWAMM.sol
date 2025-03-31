@@ -81,7 +81,7 @@ function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns
         mstore(add(poolKey, 32), token1)
         mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, fee)))
 
-        // move free memory pointer forward 96 bits
+        // move free memory pointer forward 96 bytes
         mstore(0x40, add(poolKey, 96))
     }
 }

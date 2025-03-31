@@ -24,6 +24,7 @@ function computeSaleRate(uint256 amount, uint256 duration) pure returns (uint256
 error SaleRateDeltaOverflow();
 
 /// @dev Adds the sale rate delta to the saleRate and reverts if the result is greater than type(uint112).max
+/// @dev Assumes saleRate <= type(uint112).max and saleRateDelta <= type(int112).max
 function addSaleRateDelta(uint256 saleRate, int256 saleRateDelta) pure returns (uint256 result) {
     assembly ("memory-safe") {
         result := add(saleRate, saleRateDelta)

@@ -22,10 +22,8 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
     using TWAMMLib for *;
 
-    error InvalidDuration();
     error OrderAlreadyEnded();
     error MaxSaleRateExceeded();
-    error MinimumRefund();
 
     TWAMM public immutable twamm;
 
@@ -62,10 +60,16 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
     {
         uint256 realStart = FixedPointMathLib.max(block.timestamp, orderKey.startTime);
 
-        saleRate = uint112(computeSaleRate(amount, uint32(orderKey.endTime - realStart)));
+        unchecked {
+            if (orderKey.endTime <= realStart) {
+                revert OrderAlreadyEnded();
+            }
 
-        if (saleRate > maxSaleRate) {
-            revert MaxSaleRateExceeded();
+            saleRate = uint112(computeSaleRate(amount, uint32(orderKey.endTime - realStart)));
+
+            if (saleRate > maxSaleRate) {
+                revert MaxSaleRateExceeded();
+            }
         }
 
         lock(abi.encode(bytes1(0xdd), msg.sender, id, orderKey, saleRate));

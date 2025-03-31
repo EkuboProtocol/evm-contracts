@@ -13,6 +13,8 @@ uint256 constant MAX_ABS_VALUE_SALE_RATE_DELTA = type(uint112).max / MAX_NUM_VAL
 /// @dev Returns the step size, i.e. the value of which the order end or start time must be a multiple of, based on the current time and the specified time
 ///      The step size is equal to 16 ** (max(1, floor(log base 16 of (time - currentTime))))
 ///      Assumes currentTime < type(uint256).max - 255
+/// @param currentTime The current block timestamp
+/// @param time The time for which the step size is being computed, based on how far in the future it is from currentTime
 function computeStepSize(uint256 currentTime, uint256 time) pure returns (uint256 stepSize) {
     assembly ("memory-safe") {
         switch gt(time, add(currentTime, 255))

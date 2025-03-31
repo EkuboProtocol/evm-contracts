@@ -112,7 +112,7 @@ function computeNextSqrtRatio(
             // so we just assume it settles at the sale ratio
             sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
         } else {
-            uint256 sqrtSaleRateWithoutFee = FixedPointMathLib.sqrt(uint256(saleRateToken0) * saleRateToken1);
+            uint256 sqrtSaleRateWithoutFee = FixedPointMathLib.sqrt(saleRateToken0 * saleRateToken1);
             // max 112 bits
             uint256 sqrtSaleRate = sqrtSaleRateWithoutFee - computeFee(uint128(sqrtSaleRateWithoutFee), fee);
 

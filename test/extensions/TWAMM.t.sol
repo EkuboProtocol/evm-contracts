@@ -222,6 +222,14 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     /// forge-config: default.allow_internal_expect_revert = true
+    function test_updateTime_reverts_if_subtract_orders_from_zero() public {
+        bytes32 poolId = bytes32(0);
+
+        vm.expectRevert(TWAMM.TimeNumOrdersOverflow.selector);
+        _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: -1});
+    }
+
+    /// forge-config: default.allow_internal_expect_revert = true
     function test_updateTime_reverts_if_max_sale_rate_delta_exceeded() public {
         bytes32 poolId = bytes32(0);
 

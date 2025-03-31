@@ -240,6 +240,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             let numOrdersNext := add(numOrders, numOrdersChange)
 
             if gt(numOrdersNext, 0xffffffff) {
+                // cast sig "TimeNumOrdersOverflow()"
                 mstore(0, shl(224, 0x6916a952))
                 revert(0, 4)
             }

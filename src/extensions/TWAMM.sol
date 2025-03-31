@@ -407,10 +407,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint128 fee = computeFee(amountAbs, poolKey.fee());
                     if (isToken1) {
                         core.accumulateAsFees(poolKey, 0, fee);
-                        core.load(address(poolKey.token0), address(poolKey.token1), bytes32(0), 0, amountAbs);
+                        core.load(poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
                     } else {
                         core.accumulateAsFees(poolKey, fee, 0);
-                        core.load(address(poolKey.token0), address(poolKey.token1), bytes32(0), amountAbs, 0);
+                        core.load(poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
                     }
 
                     amountDelta += int256(int128(fee));
@@ -419,13 +419,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint128 amountAbs = uint128(uint256(amountDelta));
 
                     if (isToken1) {
-                        core.save(
-                            address(this), address(poolKey.token0), address(poolKey.token1), bytes32(0), 0, amountAbs
-                        );
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
                     } else {
-                        core.save(
-                            address(this), address(poolKey.token0), address(poolKey.token1), bytes32(0), amountAbs, 0
-                        );
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
                     }
                 }
 

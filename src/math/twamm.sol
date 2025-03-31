@@ -59,9 +59,8 @@ function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256
         FixedPointMathLib.dist(sqrtRatio, sqrtSaleRatio), (1 << 128), sqrtRatio + sqrtSaleRatio
     );
     assembly ("memory-safe") {
-        let negativeMult := sub(0, lt(sqrtSaleRatio, sqrtRatio))
-
-        c := add(mul(negativeMult, unsigned), mul(iszero(negativeMult), unsigned))
+        let sign := sub(shl(1, gt(sqrtSaleRatio, sqrtRatio)), 1)
+        c := mul(sign, unsigned)
     }
 }
 

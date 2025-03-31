@@ -484,7 +484,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 mstore(32, 0)
 
                 let packed := sload(keccak256(0, 64))
-                // or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
                 lastVirtualOrderExecutionTime := and(packed, 0xffffffff)
 
                 saleRateToken0 := shr(144, shl(112, packed))

@@ -65,9 +65,15 @@ function searchForNextInitializedTime(
     unchecked {
         nextTime = fromTime;
         while (!isInitialized && nextTime != untilTime) {
-            (nextTime, isInitialized) =
-                findNextInitializedTime(map, nextValidTime(lastVirtualOrderExecutionTime, nextTime));
-            if (nextTime - fromTime > untilTime - fromTime) {
+            uint256 nextValid = nextValidTime(lastVirtualOrderExecutionTime, nextTime);
+            // if there is no valid time after the given nextTime, just return untilTime
+            if (nextValid == 0) {
+                nextTime = untilTime;
+                isInitialized = false;
+                break;
+            }
+            (nextTime, isInitialized) = findNextInitializedTime(map, nextValid);
+            if (nextTime > untilTime) {
                 nextTime = untilTime;
                 isInitialized = false;
             }

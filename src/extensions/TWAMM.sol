@@ -246,7 +246,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
             flip := iszero(eq(iszero(numOrders), iszero(numOrdersNext)))
 
-            // write the poolRewardRatesBefore[poolId][time] = (1,1)
+            // write the poolRewardRatesBefore[poolId][time] = (1,1) if any orders still reference the time, or write (0,0) otherwise
             // we assume `_updateTime` is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
             // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
             if flip {

@@ -283,7 +283,7 @@ contract Handler is StdUtils, StdAssertions {
         OrderInfo storage order = activeOrders[bound(orderIndex, 0, activeOrders.length - 1)];
         amount = uint112(bound(amount, 0, order.saleRate));
 
-        try orders.decreaseSaleRate(ordersId, order.orderKey, amount, 0, address(this)) returns (uint112) {
+        try orders.decreaseSaleRate(ordersId, order.orderKey, amount, address(this)) returns (uint112) {
             order.saleRate -= amount;
         } catch (bytes memory err) {
             bytes4 sig;

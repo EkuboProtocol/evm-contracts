@@ -285,7 +285,7 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(8);
 
-        assertEq(orders.decreaseSaleRate(id, key, saleRate / 2, 21, address(this)), 21);
+        assertEq(orders.decreaseSaleRate(id, key, saleRate / 2, address(this)), 21);
         assertEq(orders.collectProceeds(id, key, address(this)), 47);
 
         advanceTime(8);

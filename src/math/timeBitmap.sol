@@ -16,7 +16,7 @@ function timeToBitmapWordAndIndex(uint256 time) pure returns (uint256 word, uint
 }
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
-/// @dev Assumes word is less than 2**252
+/// @dev Assumes word is less than 2**252 and index is less than 2**8
 function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uint256 time) {
     assembly ("memory-safe") {
         time := shl(4, add(mul(word, 256), index))

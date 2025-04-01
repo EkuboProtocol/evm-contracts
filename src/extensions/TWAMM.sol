@@ -40,7 +40,6 @@ using {toOrderId} for OrderKey global;
 struct OrderKey {
     address sellToken;
     address buyToken;
-    // todo: these could take up as few as 32+64+64=160 bits
     uint64 fee;
     uint256 startTime;
     uint256 endTime;
@@ -81,7 +80,7 @@ function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns
         mstore(add(poolKey, 32), token1)
         mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, fee)))
 
-        // move free memory pointer forward 96 bits
+        // move free memory pointer forward 96 bytes
         mstore(0x40, add(poolKey, 96))
     }
 }
@@ -210,25 +209,23 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
-    function _addConstrainSaleRateDelta(int112 saleRateDelta, int112 saleRateDeltaChange)
+    function _addConstrainSaleRateDelta(int112 saleRateDelta, int256 saleRateDeltaChange)
         internal
         pure
         returns (int112 saleRateDeltaNext)
     {
-        unchecked {
-            int256 result = int256(saleRateDelta) + saleRateDeltaChange;
+        int256 result = int256(saleRateDelta) + saleRateDeltaChange;
 
-            // checked addition, no overflow of int112 type
-            if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
-                revert MaxSaleRateDeltaPerTime();
-            }
-
-            // we know cast is safe because abs(result) is less than MAX_ABS_VALUE_SALE_RATE_DELTA which fits in a int112
-            saleRateDeltaNext = int112(result);
+        // checked addition, no overflow of int112 type
+        if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
+            revert MaxSaleRateDeltaPerTime();
         }
+
+        // we know cast is safe because abs(result) is less than MAX_ABS_VALUE_SALE_RATE_DELTA which fits in a int112
+        saleRateDeltaNext = int112(result);
     }
 
-    function _updateTime(bytes32 poolId, uint256 time, int112 saleRateDelta, bool isToken1, int256 numOrdersChange)
+    function _updateTime(bytes32 poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
     {
         TimeInfo memory timeInfo = poolTimeInfos[poolId][time];
@@ -240,13 +237,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             let numOrdersNext := add(numOrders, numOrdersChange)
 
             if gt(numOrdersNext, 0xffffffff) {
+                // cast sig "TimeNumOrdersOverflow()"
                 mstore(0, shl(224, 0x6916a952))
                 revert(0, 4)
             }
 
-            flip := iszero(eq(iszero(numOrders), iszero(numOrdersNext)))
+            flip := xor(iszero(numOrders), iszero(numOrdersNext))
 
-            // write the poolRewardRatesBefore[poolId][time] = (1,1)
+            // write the poolRewardRatesBefore[poolId][time] = (1,1) if any orders still reference the time, or write (0,0) otherwise
             // we assume `_updateTime` is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
             // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
             if flip {
@@ -365,7 +363,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                 if (block.timestamp < params.orderKey.startTime) {
                     _updateTime(poolId, params.orderKey.startTime, params.saleRateDelta, isToken1, numOrdersChange);
-                    _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
+                    _updateTime(
+                        poolId, params.orderKey.endTime, -int256(params.saleRateDelta), isToken1, numOrdersChange
+                    );
                 } else {
                     // we know block.timestamp < params.orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
@@ -378,8 +378,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     }
 
                     // only update the end time
-                    // todo: what if params.saleRateDelta is type(int112).min?
-                    _updateTime(poolId, params.orderKey.endTime, -params.saleRateDelta, isToken1, numOrdersChange);
+                    _updateTime(
+                        poolId, params.orderKey.endTime, -int256(params.saleRateDelta), isToken1, numOrdersChange
+                    );
                 }
 
                 // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
@@ -407,25 +408,21 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint128 fee = computeFee(amountAbs, poolKey.fee());
                     if (isToken1) {
                         core.accumulateAsFees(poolKey, 0, fee);
-                        core.load(address(poolKey.token0), address(poolKey.token1), bytes32(0), 0, amountAbs);
+                        core.load(poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
                     } else {
                         core.accumulateAsFees(poolKey, fee, 0);
-                        core.load(address(poolKey.token0), address(poolKey.token1), bytes32(0), amountAbs, 0);
+                        core.load(poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
                     }
 
-                    amountDelta += int256(int128(fee));
+                    amountDelta += int128(fee);
                 } else {
                     // downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
                     uint128 amountAbs = uint128(uint256(amountDelta));
 
                     if (isToken1) {
-                        core.save(
-                            address(this), address(poolKey.token0), address(poolKey.token1), bytes32(0), 0, amountAbs
-                        );
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
                     } else {
-                        core.save(
-                            address(this), address(poolKey.token0), address(poolKey.token1), bytes32(0), amountAbs, 0
-                        );
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
                     }
                 }
 
@@ -486,7 +483,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 mstore(32, 0)
 
                 let packed := sload(keccak256(0, 64))
-                // or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
                 lastVirtualOrderExecutionTime := and(packed, 0xffffffff)
 
                 saleRateToken0 := shr(144, shl(112, packed))
@@ -518,7 +514,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
                         .searchForNextInitializedTime({
                         lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
-                        fromTime: lastVirtualOrderExecutionTime,
+                        fromTime: time,
                         untilTime: block.timestamp
                     });
 

@@ -22,10 +22,8 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
     using TWAMMLib for *;
 
-    error InvalidDuration();
     error OrderAlreadyEnded();
     error MaxSaleRateExceeded();
-    error MinimumRefund();
 
     TWAMM public immutable twamm;
 
@@ -62,28 +60,31 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
     {
         uint256 realStart = FixedPointMathLib.max(block.timestamp, orderKey.startTime);
 
-        saleRate = uint112(computeSaleRate(amount, uint32(orderKey.endTime - realStart)));
+        unchecked {
+            if (orderKey.endTime <= realStart) {
+                revert OrderAlreadyEnded();
+            }
 
-        if (saleRate > maxSaleRate) {
-            revert MaxSaleRateExceeded();
+            saleRate = uint112(computeSaleRate(amount, uint32(orderKey.endTime - realStart)));
+
+            if (saleRate > maxSaleRate) {
+                revert MaxSaleRateExceeded();
+            }
         }
 
         lock(abi.encode(bytes1(0xdd), msg.sender, id, orderKey, saleRate));
     }
 
-    function decreaseSaleRate(
-        uint256 id,
-        OrderKey memory orderKey,
-        uint112 saleRateDecrease,
-        uint112 minRefund,
-        address recipient
-    ) public payable authorizedForNft(id) returns (uint112 refund) {
+    function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease, address recipient)
+        public
+        payable
+        authorizedForNft(id)
+        returns (uint112 refund)
+    {
         refund = uint112(
             uint256(
                 -abi.decode(
-                    lock(
-                        abi.encode(bytes1(0xdd), recipient, id, orderKey, -int256(uint256(saleRateDecrease)), minRefund)
-                    ),
+                    lock(abi.encode(bytes1(0xdd), recipient, id, orderKey, -int256(uint256(saleRateDecrease)))),
                     (int256)
                 )
             )
@@ -95,7 +96,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         payable
         returns (uint112 refund)
     {
-        refund = decreaseSaleRate(id, orderKey, saleRateDecrease, 0, msg.sender);
+        refund = decreaseSaleRate(id, orderKey, saleRateDecrease, msg.sender);
     }
 
     function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)

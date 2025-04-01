@@ -24,6 +24,7 @@ function computeSaleRate(uint256 amount, uint256 duration) pure returns (uint256
 error SaleRateDeltaOverflow();
 
 /// @dev Adds the sale rate delta to the saleRate and reverts if the result is greater than type(uint112).max
+/// @dev Assumes saleRate <= type(uint112).max and saleRateDelta <= type(int112).max
 function addSaleRateDelta(uint256 saleRate, int256 saleRateDelta) pure returns (uint256 result) {
     assembly ("memory-safe") {
         result := add(saleRate, saleRateDelta)
@@ -51,16 +52,15 @@ function computeRewardAmount(uint256 rewardRate, uint256 saleRate) pure returns 
     return uint128(FixedPointMathLib.fullMulDivN(rewardRate, saleRate, 128));
 }
 
-// Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.64 number
+// Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.128 number
 // Note that the sqrtRatio is assumed to be between 2**192 and 2**-64, while sqrtSaleRatio values are assumed to be between 2**184 and 2**-72
 function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256 c) {
     uint256 unsigned = FixedPointMathLib.fullMulDiv(
         FixedPointMathLib.dist(sqrtRatio, sqrtSaleRatio), (1 << 128), sqrtRatio + sqrtSaleRatio
     );
     assembly ("memory-safe") {
-        let negativeMult := sub(0, lt(sqrtSaleRatio, sqrtRatio))
-
-        c := add(mul(negativeMult, unsigned), mul(iszero(negativeMult), unsigned))
+        let sign := sub(shl(1, gt(sqrtSaleRatio, sqrtRatio)), 1)
+        c := mul(sign, unsigned)
     }
 }
 
@@ -111,7 +111,7 @@ function computeNextSqrtRatio(
             // so we just assume it settles at the sale ratio
             sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);
         } else {
-            uint256 sqrtSaleRateWithoutFee = FixedPointMathLib.sqrt(uint256(saleRateToken0) * saleRateToken1);
+            uint256 sqrtSaleRateWithoutFee = FixedPointMathLib.sqrt(saleRateToken0 * saleRateToken1);
             // max 112 bits
             uint256 sqrtSaleRate = sqrtSaleRateWithoutFee - computeFee(uint128(sqrtSaleRateWithoutFee), fee);
 

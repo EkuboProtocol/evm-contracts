@@ -139,9 +139,15 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
                     uint32 totalOrderDuration = uint32(orderKey.endTime - orderKey.startTime);
 
+                    uint32 remainingTimeSinceLastUpdate = uint32(orderKey.endTime) - lastUpdateTime;
+
                     uint32 saleDuration = uint32(
                         FixedPointMathLib.min(
-                            FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart), totalOrderDuration
+                            remainingTimeSinceLastUpdate,
+                            FixedPointMathLib.min(
+                                FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
+                                totalOrderDuration
+                            )
                         )
                     );
 

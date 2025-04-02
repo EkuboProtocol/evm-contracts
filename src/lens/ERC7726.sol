@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Oracle} from "../extensions/Oracle.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -14,17 +14,17 @@ interface IERC7726 {
     function getQuote(uint256 baseAmount, address base, address quote) external view returns (uint256 quoteAmount);
 }
 
-/// @dev Implements the interface using Ekubo's Oracle extension
+/// @dev Implements the standard Oracle interface using data from the Ekubo Protocol Oracle extension
 contract ERC7726 is IERC7726 {
-    // the oracle stores all the snapshot data used to compute quotes
+    // The oracle stores all the oracle pool snapshot data used to compute quotes
     Oracle public immutable oracle;
 
-    // the token we query to represent USD
+    // The token price we query to represent USD
     address public immutable usdProxyToken;
-    // the token we query to represent BTC
+    // The token price we query to represent BTC
     address public immutable btcProxyToken;
 
-    // the amount of time over which we query to get the price
+    // The amount of time over which we query to get the price
     uint32 public immutable twapDuration;
 
     constructor(Oracle _oracle, address _usdProxyToken, address _btcProxyToken, uint32 _twapDuration) {
@@ -34,7 +34,8 @@ contract ERC7726 is IERC7726 {
         twapDuration = _twapDuration;
     }
 
-    // The returned tick always represents the price in terms of quoteToken / baseToken
+    /// @dev Returns the average tick for the given pair over the last `twapDuration` seconds
+    /// @dev The returned tick always represents the price in terms of quoteToken / baseToken
     function getAverageTick(address baseToken, address quoteToken) private view returns (int32 tick) {
         unchecked {
             bool baseIsOracleToken = baseToken == NATIVE_TOKEN_ADDRESS;
@@ -50,7 +51,9 @@ contract ERC7726 is IERC7726 {
                 int32 baseTick = getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);
                 int32 quoteTick = getAverageTick(NATIVE_TOKEN_ADDRESS, quoteToken);
 
-                return quoteTick - baseTick;
+                return int32(
+                    FixedPointMathLib.min(MAX_TICK, FixedPointMathLib.max(MIN_TICK, int256(quoteTick - baseTick)))
+                );
             }
         }
     }
@@ -73,9 +76,7 @@ contract ERC7726 is IERC7726 {
     }
 
     function getQuote(uint256 baseAmount, address base, address quote) external view returns (uint256 quoteAmount) {
-        quote = normalizeAddress(quote);
-
-        int32 tick = getAverageTick(normalizeAddress(base), normalizeAddress(quote));
+        int32 tick = getAverageTick({baseToken: normalizeAddress(base), quoteToken: normalizeAddress(quote)});
 
         uint256 sqrtRatio = tickToSqrtRatio(tick).toFixed();
 

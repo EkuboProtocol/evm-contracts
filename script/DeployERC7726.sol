@@ -7,6 +7,8 @@ import {ERC7726} from "../src/lens/ERC7726.sol";
 
 contract DeployERC7726 is Script {
     function run() public {
+        require(block.chainid == 1, "Mainnet only");
+
         Oracle oracle = Oracle(vm.envOr("ORACLE_ADDRESS", address(0x51d02A5948496a67827242EaBc5725531342527C)));
         uint32 twapDuration = uint32(vm.envOr("TWAP_DURATION", uint256(60)));
         address usdProxyToken = vm.envOr("USD_PROXY_TOKEN", address(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48));

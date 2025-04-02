@@ -15,7 +15,7 @@ interface IERC7726 {
 }
 
 /// @dev Implements the interface using Ekubo's Oracle extension
-contract EkuboOracleERC7726 is IERC7726 {
+contract ERC7726 is IERC7726 {
     // the oracle stores all the snapshot data used to compute quotes
     Oracle public immutable oracle;
 

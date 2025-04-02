@@ -9,7 +9,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 error SaleRateOverflow();
 
 /// @dev Computes sale rate = (amount << 32) / duration and reverts if the result exceeds type(uint112).max.
-///      Assumes duration > 0.
+/// @dev Assumes duration > 0 and amount <= type(uint224).max.
 function computeSaleRate(uint256 amount, uint256 duration) pure returns (uint256 saleRate) {
     assembly ("memory-safe") {
         saleRate := div(shl(32, amount), duration)
@@ -24,7 +24,7 @@ function computeSaleRate(uint256 amount, uint256 duration) pure returns (uint256
 error SaleRateDeltaOverflow();
 
 /// @dev Adds the sale rate delta to the saleRate and reverts if the result is greater than type(uint112).max
-/// @dev Assumes saleRate <= type(uint112).max and saleRateDelta <= type(int112).max
+/// @dev Assumes saleRate <= type(uint112).max and saleRateDelta <= type(int112).max and saleRateDelta >= type(int112).min
 function addSaleRateDelta(uint256 saleRate, int256 saleRateDelta) pure returns (uint256 result) {
     assembly ("memory-safe") {
         result := add(saleRate, saleRateDelta)
@@ -38,22 +38,21 @@ function addSaleRateDelta(uint256 saleRate, int256 saleRateDelta) pure returns (
 }
 
 /// @dev Computes amount from sale rate: (saleRate * duration) >> 32, with optional rounding.
-///      Assumes the saleRate <= type(uint112).max and duration <= type(uint32).max
+/// @dev Assumes the saleRate <= type(uint112).max and duration <= type(uint32).max
 function computeAmountFromSaleRate(uint256 saleRate, uint256 duration, bool roundUp) pure returns (uint256 amount) {
     assembly ("memory-safe") {
         amount := shr(32, add(mul(saleRate, duration), mul(0xffffffff, roundUp)))
     }
 }
 
-// Computes reward amount = (rewardRate * saleRate) >> 128.
-//  While this can overflow, it's only used for computing the rewards for an order. In that case the order will receive no tokens,
-//  but it could only happen if the token has a total supply greater than type(uint128).max
+/// @dev Computes reward amount = (rewardRate * saleRate) >> 128.
+/// @dev saleRate is assumed to be <= type(uint112).max, thus this function is never expected to overflow
 function computeRewardAmount(uint256 rewardRate, uint256 saleRate) pure returns (uint128) {
     return uint128(FixedPointMathLib.fullMulDivN(rewardRate, saleRate, 128));
 }
 
-// Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.128 number
-// Note that the sqrtRatio is assumed to be between 2**192 and 2**-64, while sqrtSaleRatio values are assumed to be between 2**184 and 2**-72
+/// @dev Computes the quantity `c = (sqrtSaleRatio - sqrtRatio) / (sqrtSaleRatio + sqrtRatio)` as a signed 64.128 number
+/// @dev sqrtRatio is assumed to be between 2**192 and 2**-64, while sqrtSaleRatio values are assumed to be between 2**184 and 2**-72
 function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256 c) {
     uint256 unsigned = FixedPointMathLib.fullMulDiv(
         FixedPointMathLib.dist(sqrtRatio, sqrtSaleRatio), (1 << 128), sqrtRatio + sqrtSaleRatio
@@ -64,8 +63,8 @@ function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256
     }
 }
 
-// Returns a 64.128 number representing the sqrt sale ratio
-// Assumes both saleRateToken0 and saleRateToken1 are nonzero and less than or equal to type(uint112).max
+/// @dev Returns a 64.128 number representing the sqrt sale ratio
+/// @dev Assumes both saleRateToken0 and saleRateToken1 are nonzero and <= type(uint112).max
 function computeSqrtSaleRatio(uint256 saleRateToken0, uint256 saleRateToken1) pure returns (uint256 sqrtSaleRatio) {
     unchecked {
         uint256 saleRatio = (saleRateToken1 << 128) / saleRateToken0;
@@ -96,8 +95,8 @@ function computeNextSqrtRatio(
     uint64 fee
 ) pure returns (SqrtRatio sqrtRatioNext) {
     unchecked {
-        // the below is assumed:
-        //  assert(saleRateToken0 != 0 && saleRateToken1 != 0);
+        // assumed:
+        //   assert(saleRateToken0 != 0 && saleRateToken1 != 0);
         uint256 sqrtSaleRatio = computeSqrtSaleRatio(saleRateToken0, saleRateToken1);
 
         uint256 sqrtRatioFixed = sqrtRatio.toFixed();

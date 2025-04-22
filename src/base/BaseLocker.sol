@@ -100,9 +100,36 @@ abstract contract BaseLocker is ILocker {
             if (token == NATIVE_TOKEN_ADDRESS) {
                 SafeTransferLib.safeTransferETH(address(accountant), amount);
             } else {
-                accountant.startPayment(token);
-                SafeTransferLib.safeTransferFrom(token, from, address(accountant), amount);
-                accountant.completePayment(token);
+                address target = address(accountant);
+
+                assembly ("memory-safe") {
+                    mstore(0, 0x30f6f092)
+                    mstore(32, token)
+
+                    // accountant.startPayment(token)
+                    pop(call(gas(), target, 0, 0x1c, 36, 0x00, 0x00))
+
+                    let m := mload(0x40) // Cache the free memory pointer.
+                    mstore(0x60, amount) // Store the `amount` argument.
+                    mstore(0x40, target) // Store the `to` argument.
+                    mstore(0x2c, shl(96, from)) // Store the `from` argument.
+                    mstore(0x0c, 0x23b872dd000000000000000000000000) // `transferFrom(address,address,uint256)`.
+                    let success := call(gas(), token, 0, 0x1c, 0x64, 0x00, 0x20)
+                    if iszero(and(eq(mload(0x00), 1), success)) {
+                        if iszero(lt(or(iszero(extcodesize(token)), returndatasize()), success)) {
+                            mstore(0x00, 0x7939f424) // `TransferFromFailed()`.
+                            revert(0x1c, 0x04)
+                        }
+                    }
+                    mstore(0x60, 0) // Restore the zero slot to zero.
+                    mstore(0x40, m) // Restore the free memory pointer.
+
+                    mstore(0, 0x51631ad2)
+                    mstore(32, token)
+
+                    // accountant.completePayment(token)
+                    pop(call(gas(), target, 0, 0x1c, 36, 0x00, 0x00))
+                }
             }
         }
     }

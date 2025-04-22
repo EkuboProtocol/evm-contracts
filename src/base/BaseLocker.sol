@@ -102,7 +102,7 @@ abstract contract BaseLocker is ILocker {
             } else {
                 accountant.startPayment(token);
                 SafeTransferLib.safeTransferFrom(token, from, address(accountant), amount);
-                assert(accountant.completePayment(token) == amount);
+                accountant.completePayment(token);
             }
         }
     }

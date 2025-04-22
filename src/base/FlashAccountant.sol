@@ -143,47 +143,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    function startPayment(address token) external returns (uint256 currentBalance) {
-        assembly ("memory-safe") {
-            mstore(20, address()) // Store the `account` argument.
-            mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
-
-            currentBalance :=
-                mul( // The arguments of `mul` are evaluated from right to left.
-                    mload(0),
-                    and( // The arguments of `and` are evaluated from right to left.
-                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                        staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
-                    )
-                )
-
-            // We use the most significant bit as 1 to indicate the current balance has been loaded
-            //  Note if currentBalance is greater than or equal to 2**255, we write 0
-            tstore(
-                add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token),
-                mul(lt(currentBalance, shl(255, 1)), or(shl(255, 1), currentBalance))
-            )
-        }
-    }
-
-    function completePayment(address token) external returns (uint128 payment) {
-        uint256 lastBalance;
-        assembly ("memory-safe") {
-            lastBalance := tload(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token))
-
-            if iszero(lastBalance) {
-                // cast sig "StartPaymentNotCalled()"
-                mstore(0, 0xc159a545)
-                revert(0x1c, 4)
-            }
-
-            lastBalance := and(lastBalance, not(shl(255, 1)))
-
-            tstore(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token), 0)
-        }
-
-        (uint256 id,) = _getLocker();
-
+    function startPayment(address token) external returns (uint256) {
         assembly ("memory-safe") {
             mstore(20, address()) // Store the `account` argument.
             mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
@@ -197,7 +157,33 @@ abstract contract FlashAccountant is IFlashAccountant {
                     )
                 )
 
-            payment := mul(gt(currentBalance, lastBalance), sub(currentBalance, lastBalance))
+            tstore(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token), add(currentBalance, 1))
+
+            mstore(0, currentBalance)
+            return(0, 32)
+        }
+    }
+
+    function completePayment(address token) external returns (uint256 payment) {
+        assembly ("memory-safe") {
+            let offset := add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token)
+            let lastBalance := tload(offset)
+            tstore(offset, 0)
+
+            mstore(20, address()) // Store the `account` argument.
+            mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
+
+            let currentBalance :=
+                mul( // The arguments of `mul` are evaluated from right to left.
+                    mload(0),
+                    and( // The arguments of `and` are evaluated from right to left.
+                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                        staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
+                    )
+                )
+
+            payment :=
+                mul(and(gt(lastBalance, 0), not(lt(currentBalance, lastBalance))), sub(currentBalance, sub(lastBalance, 1)))
 
             // We never expect tokens to have this much total supply
             if gt(payment, 0xffffffffffffffffffffffffffffffff) {
@@ -209,7 +195,8 @@ abstract contract FlashAccountant is IFlashAccountant {
 
         // The unary negative operator never fails because payment is less than max uint128
         unchecked {
-            _accountDebt(id, token, -int256(uint256(payment)));
+            (uint256 id,) = _getLocker();
+            _accountDebt(id, token, -int256(payment));
         }
     }
 

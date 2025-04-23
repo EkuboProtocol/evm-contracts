@@ -5,6 +5,7 @@ import {FullTest, MockExtension} from "./FullTest.sol";
 import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
@@ -112,6 +113,7 @@ contract CoreTest is FullTest {
 }
 
 contract SavedBalancesTest is FullTest {
+    using FlashAccountantLib for *;
     using CoreLib for *;
 
     function payCallback(uint256, address token) external {
@@ -144,9 +146,8 @@ contract SavedBalancesTest is FullTest {
                 core.withdraw(token, address(this), amount);
             } else {
                 core.save(saveTo, token, salt, amount);
-                core.startPayment(token);
-                IERC20(token).transfer(address(core), amount);
-                assertEq(core.completePayment(token), amount);
+
+                core.pay(token, amount);
             }
         } else if (length == 228) {
             address saveTo;
@@ -170,13 +171,15 @@ contract SavedBalancesTest is FullTest {
             } else {
                 core.save(saveTo, token0, token1, salt, amount0, amount1);
 
-                core.startPayment(token0);
-                IERC20(token0).transfer(address(core), amount0);
-                assertEq(core.completePayment(token0), amount0);
+                (bool success,) =
+                    address(core).call(abi.encodeWithSelector(core.startPayments.selector, token0, token1));
+                assertTrue(success);
 
-                core.startPayment(token1);
+                IERC20(token0).transfer(address(core), amount0);
                 IERC20(token1).transfer(address(core), amount1);
-                assertEq(core.completePayment(token1), amount1);
+
+                (success,) = address(core).call(abi.encodeWithSelector(core.completePayments.selector, token0, token1));
+                assertTrue(success);
             }
         } else {
             revert();

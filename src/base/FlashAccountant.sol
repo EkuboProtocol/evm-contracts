@@ -143,60 +143,82 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    function startPayment(address token) external returns (uint256) {
+    function startPayments() external {
         assembly ("memory-safe") {
+            // 0-52 are used for the balanceOf calldata
             mstore(20, address()) // Store the `account` argument.
             mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
 
-            let currentBalance :=
-                mul( // The arguments of `mul` are evaluated from right to left.
-                    mload(0),
-                    and( // The arguments of `and` are evaluated from right to left.
-                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                        staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
+            let free := mload(0x40)
+
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
+                // clean upper 96 bits of the token argument at i
+                let token := shr(96, shl(96, calldataload(i)))
+
+                let returnLocation := add(free, sub(i, 4))
+
+                let tokenBalance :=
+                    mul( // The arguments of `mul` are evaluated from right to left.
+                        mload(returnLocation),
+                        and( // The arguments of `and` are evaluated from right to left.
+                            gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                            staticcall(gas(), token, 0x10, 0x24, returnLocation, 0x20)
+                        )
                     )
-                )
 
-            tstore(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token), add(currentBalance, 1))
+                tstore(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token), add(tokenBalance, 1))
+            }
 
-            mstore(0, currentBalance)
-            return(0, 32)
+            return(free, sub(calldatasize(), 4))
         }
     }
 
-    function completePayment(address token) external returns (uint256 payment) {
-        assembly ("memory-safe") {
-            let offset := add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token)
-            let lastBalance := tload(offset)
-            tstore(offset, 0)
-
-            mstore(20, address()) // Store the `account` argument.
-            mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
-
-            let currentBalance :=
-                mul( // The arguments of `mul` are evaluated from right to left.
-                    mload(0),
-                    and( // The arguments of `and` are evaluated from right to left.
-                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                        staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
-                    )
-                )
-
-            payment :=
-                mul(and(gt(lastBalance, 0), not(lt(currentBalance, lastBalance))), sub(currentBalance, sub(lastBalance, 1)))
-
-            // We never expect tokens to have this much total supply
-            if gt(payment, 0xffffffffffffffffffffffffffffffff) {
-                // cast sig "PaymentOverflow()"
-                mstore(0x00, 0x9cac58ca)
-                revert(0x1c, 4)
-            }
-        }
-
-        // The unary negative operator never fails because payment is less than max uint128
+    // todo: big optimization opportunity in account delta being called multiple times
+    function completePayments() external {
         unchecked {
             (uint256 id,) = _getLocker();
-            _accountDebt(id, token, -int256(payment));
+
+            for (uint256 i = 4; i < msg.data.length; i += 32) {
+                address token;
+                uint256 payment;
+
+                assembly ("memory-safe") {
+                    token := shr(96, shl(96, calldataload(i)))
+
+                    let offset := add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token)
+                    let lastBalance := tload(offset)
+                    tstore(offset, 0)
+
+                    mstore(20, address()) // Store the `account` argument.
+                    mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
+
+                    let currentBalance :=
+                        mul( // The arguments of `mul` are evaluated from right to left.
+                            mload(0),
+                            and( // The arguments of `and` are evaluated from right to left.
+                                gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                                staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
+                            )
+                        )
+
+                    payment :=
+                        mul(
+                            and(gt(lastBalance, 0), not(lt(currentBalance, lastBalance))),
+                            sub(currentBalance, sub(lastBalance, 1))
+                        )
+
+                    // We never expect tokens to have this much total supply
+                    if shr(128, payment) {
+                        // cast sig "PaymentOverflow()"
+                        mstore(0x00, 0x9cac58ca)
+                        revert(0x1c, 4)
+                    }
+
+                    // todo: write payment to somewhere
+                }
+                // The unary negative operator never fails because payment is less than max uint128
+                _accountDebt(id, token, -int256(payment));
+            }
         }
     }
 

@@ -9,6 +9,7 @@ import {OrderKey} from "./extensions/TWAMM.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {Positions} from "./Positions.sol";
 import {Router} from "./Router.sol";
+import {PoolKey, toConfig} from "./types/poolKey.sol";
 
 interface IPermanentAllowanceAddressProvider {
     /// @dev Returns whether the spender has a permanent allowance
@@ -21,7 +22,29 @@ contract SNOSToken is ERC20 {
     address private immutable orders;
 
     bytes32 private immutable _name;
+    bytes32 private immutable constantNameHash;
     bytes32 private immutable _symbol;
+
+    /// @dev The balance slot of `owner` is given by:
+    /// ```
+    ///     mstore(0x0c, _BALANCE_SLOT_SEED)
+    ///     mstore(0x00, owner)
+    ///     let balanceSlot := keccak256(0x0c, 0x20)
+    /// ```
+    uint256 private constant _BALANCE_SLOT_SEED = 0x87a211a2;
+
+    /// @dev The allowance slot of (`owner`, `spender`) is given by:
+    /// ```
+    ///     mstore(0x20, spender)
+    ///     mstore(0x0c, _ALLOWANCE_SLOT_SEED)
+    ///     mstore(0x00, owner)
+    ///     let allowanceSlot := keccak256(0x0c, 0x34)
+    /// ```
+    uint256 private constant _ALLOWANCE_SLOT_SEED = 0x7f5e9f20;
+
+    /// @dev `keccak256(bytes("Transfer(address,address,uint256)"))`.
+    uint256 private constant _TRANSFER_EVENT_SIGNATURE =
+        0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef;
 
     constructor(
         address _router,
@@ -38,14 +61,71 @@ contract SNOSToken is ERC20 {
         _name = __name;
         _symbol = __symbol;
 
+        constantNameHash = keccak256(bytes(LibString.unpackOne(_name)));
+
         _mint(msg.sender, totalSupply);
     }
 
-    function _spendAllowance(address owner, address spender, uint256 amount) internal override {
-        // These SNOS tokens can be traded without any approval via these privileged contracts
-        if (spender == router || spender == positions || spender == orders) return;
+    function allowance(address owner, address spender) public view override returns (uint256 result) {
+        if (spender == router || spender == positions || spender == orders) return type(uint256).max;
+        result = super.allowance(owner, spender);
+    }
 
-        super._spendAllowance(owner, spender, amount);
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        _beforeTokenTransfer(from, to, amount);
+
+        address _router = router;
+        address _positions = positions;
+        address _orders = orders;
+
+        assembly ("memory-safe") {
+            let from_ := shl(96, from)
+            if iszero(
+                or(
+                    or(or(eq(caller(), _PERMIT2), eq(caller(), _router)), eq(caller(), _positions)),
+                    eq(caller(), _orders)
+                )
+            ) {
+                // Compute the allowance slot and load its value.
+                mstore(0x20, caller())
+                mstore(0x0c, or(from_, _ALLOWANCE_SLOT_SEED))
+                let allowanceSlot := keccak256(0x0c, 0x34)
+                let allowance_ := sload(allowanceSlot)
+                // If the allowance is not the maximum uint256 value.
+                if not(allowance_) {
+                    // Revert if the amount to be transferred exceeds the allowance.
+                    if gt(amount, allowance_) {
+                        mstore(0x00, 0x13be252b) // `InsufficientAllowance()`.
+                        revert(0x1c, 0x04)
+                    }
+                    // Subtract and store the updated allowance.
+                    sstore(allowanceSlot, sub(allowance_, amount))
+                }
+            }
+            // Compute the balance slot and load its value.
+            mstore(0x0c, or(from_, _BALANCE_SLOT_SEED))
+            let fromBalanceSlot := keccak256(0x0c, 0x20)
+            let fromBalance := sload(fromBalanceSlot)
+            // Revert if insufficient balance.
+            if gt(amount, fromBalance) {
+                mstore(0x00, 0xf4d678b8) // `InsufficientBalance()`.
+                revert(0x1c, 0x04)
+            }
+            // Subtract and store the updated balance.
+            sstore(fromBalanceSlot, sub(fromBalance, amount))
+            // Compute the balance slot of `to`.
+            mstore(0x00, to)
+            let toBalanceSlot := keccak256(0x0c, 0x20)
+            // Add and store the updated balance of `to`.
+            // Will not overflow because the sum of all user balances
+            // cannot exceed the maximum uint256 value.
+            sstore(toBalanceSlot, add(sload(toBalanceSlot), amount))
+            // Emit the {Transfer} event.
+            mstore(0x20, amount)
+            log3(0x20, 0x20, _TRANSFER_EVENT_SIGNATURE, shr(96, from_), shr(96, mload(0x0c)))
+        }
+        _afterTokenTransfer(from, to, amount);
+        return true;
     }
 
     /// @dev Returns the name of the token.
@@ -56,6 +136,10 @@ contract SNOSToken is ERC20 {
     /// @dev Returns the symbol of the token.
     function symbol() public view override returns (string memory) {
         return LibString.unpackOne(_symbol);
+    }
+
+    function _constantNameHash() internal view override returns (bytes32 result) {
+        result = constantNameHash;
     }
 }
 
@@ -78,10 +162,13 @@ contract SniperNoSniping {
     /// @dev The fee of the pools that are used by this contract
     uint64 public immutable fee;
 
+    /// @dev The ID of the order that is used for all sale NFTs
+    uint256 public immutable orderId;
+
     error StartTimeTooSoon();
 
     struct TokenInfo {
-        uint256 orderId;
+        uint256 endTime;
     }
 
     mapping(SNOSToken => TokenInfo) public tokenInfo;
@@ -101,9 +188,13 @@ contract SniperNoSniping {
         orderDuration = _orderDuration;
         minLeadTime = _minLeadTime;
         tokenTotalSupply = _tokenTotalSupply;
+
+        orderId = orders.mint();
     }
 
-    function launch(address owner, bytes32 symbol, bytes32 name, uint256 startTime)
+    event Launched(address token, address owner, uint256 startTime);
+
+    function launch(bytes32 salt, address owner, bytes32 symbol, bytes32 name, uint256 startTime)
         external
         returns (SNOSToken token)
     {
@@ -111,22 +202,43 @@ contract SniperNoSniping {
             revert StartTimeTooSoon();
         }
 
-        token = new SNOSToken{salt: keccak256(abi.encode(msg.sender, symbol))}(
+        token = new SNOSToken{salt: keccak256(abi.encode(msg.sender, salt))}(
             address(router), address(positions), address(orders), symbol, name, tokenTotalSupply
         );
 
-        (uint256 orderId,) = orders.mintAndIncreaseSellAmount(
+        positions.maybeInitializePool(
+            PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, 0, address(orders.twamm()))}), 0
+        );
+
+        uint256 endTime = startTime + orderDuration;
+        orders.increaseSellAmount(
+            orderId,
             OrderKey({
                 sellToken: address(token),
                 buyToken: NATIVE_TOKEN_ADDRESS,
                 fee: fee,
                 startTime: startTime,
-                endTime: startTime + orderDuration
+                endTime: endTime
             }),
             tokenTotalSupply,
             type(uint112).max
         );
 
-        tokenInfo[token] = TokenInfo({orderId: orderId});
+        tokenInfo[token] = TokenInfo({endTime: endTime});
+    }
+
+    function graduate(SNOSToken token) external returns (uint256 proceeds) {
+        TokenInfo memory info = tokenInfo[token];
+
+        proceeds = orders.collectProceeds(
+            orderId,
+            OrderKey({
+                sellToken: address(token),
+                buyToken: NATIVE_TOKEN_ADDRESS,
+                fee: fee,
+                startTime: info.endTime - orderDuration,
+                endTime: info.endTime
+            })
+        );
     }
 }

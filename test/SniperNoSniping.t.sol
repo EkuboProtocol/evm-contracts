@@ -80,4 +80,34 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         snos.graduate(token);
         vm.snapshotGasLastCall("SniperNoSniping#graduate");
     }
+
+    function test_collect_gas() public {
+        SNOSToken token = snos.launch({
+            salt: bytes32(0),
+            symbol: LibString.packOne("ABC"),
+            name: LibString.packOne("ABC Token"),
+            startTime: 4096
+        });
+
+        orders.mintAndIncreaseSellAmount{value: 10000}(
+            OrderKey({
+                sellToken: NATIVE_TOKEN_ADDRESS,
+                buyToken: address(token),
+                fee: snos.fee(),
+                startTime: 4096,
+                endTime: 4096 + 4096
+            }),
+            10000,
+            type(uint112).max
+        );
+
+        vm.warp(4096 + 4096);
+
+        snos.graduate(token);
+
+        vm.warp(4096 + 4096 + 4096);
+
+        snos.collect(token, address(0x1234));
+        vm.snapshotGasLastCall("SniperNoSniping#collect");
+    }
 }

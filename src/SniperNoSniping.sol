@@ -15,11 +15,6 @@ import {Router} from "./Router.sol";
 import {PoolKey, toConfig} from "./types/poolKey.sol";
 import {Bounds} from "./types/positionKey.sol";
 
-interface IPermanentAllowanceAddressProvider {
-    /// @dev Returns whether the spender has a permanent allowance
-    function hasPermanentAllowance(address spender) external pure returns (bool);
-}
-
 contract SNOSToken is ERC20 {
     address private immutable router;
     address private immutable positions;
@@ -179,6 +174,7 @@ contract SniperNoSniping {
     error StartTimeTooSoon();
     error SaleStillOngoing();
     error NoProceeds();
+    error CreatorOnly();
 
     struct TokenInfo {
         uint64 endTime;
@@ -289,7 +285,8 @@ contract SniperNoSniping {
 
         uint256 purchasedTokens;
 
-        // someone already created the graduation pool, buy up all the way to that price
+        // someone already created the graduation pool
+        // we need to make sure the price is not worse than our computed average sale price
         if (!didInitialize) {
             SqrtRatio targetRatio = tickToSqrtRatio(saleTick);
             // if the price is lower than average sale price, i.e. eth is too expensive in terms of tokens, we need to buy any leftover
@@ -303,20 +300,37 @@ contract SniperNoSniping {
             }
         }
 
-        positions.deposit{value: proceeds}(
-            positionId, graduationPool, Bounds(saleTick - int32(tickSpacing), saleTick), uint128(proceeds), 0, 0
-        );
+        if (proceeds > 0) {
+            positions.deposit{value: proceeds}(
+                positionId, graduationPool, Bounds(saleTick - int32(tickSpacing), saleTick), uint128(proceeds), 0, 0
+            );
+        }
 
         if (purchasedTokens > 0) {
             positions.deposit(
-                positionId,
-                graduationPool,
-                Bounds(saleTick, (MAX_TICK / int32(tickSpacing)) * int32(tickSpacing)),
-                0,
-                uint128(purchasedTokens),
-                0
+                positionId, graduationPool, Bounds(minUsableTick, saleTick), 0, uint128(purchasedTokens), 0
             );
         }
+
+        // used to recompute the bounds later
+        tokenInfos[token].saleEndTick = saleTick;
+    }
+
+    /// The creator can call this method to get what they are due
+    function collect(SNOSToken token, address recipient) external {
+        TokenInfo memory tokenInfo = tokenInfos[token];
+        if (msg.sender != tokenInfo.creator) revert CreatorOnly();
+
+        PoolKey memory graduationPool =
+            PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, tickSpacing, address(0))});
+
+        positions.collectFees(
+            positionId,
+            graduationPool,
+            Bounds(tokenInfo.saleEndTick - int32(tickSpacing), tokenInfo.saleEndTick),
+            recipient
+        );
+        positions.collectFees(positionId, graduationPool, Bounds(minUsableTick, tokenInfo.saleEndTick), recipient);
     }
 
     receive() external payable {}

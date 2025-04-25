@@ -4,7 +4,6 @@ pragma solidity =0.8.28;
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {LibClone} from "solady/utils/LibClone.sol";
 import {Orders} from "./Orders.sol";
 import {SqrtRatio, toSqrtRatio} from "./types/sqrtRatio.sol";
 import {sqrtRatioToTick, tickToSqrtRatio} from "./math/ticks.sol";
@@ -14,131 +13,7 @@ import {Positions} from "./Positions.sol";
 import {Router} from "./Router.sol";
 import {PoolKey, toConfig} from "./types/poolKey.sol";
 import {Bounds} from "./types/positionKey.sol";
-
-contract SNOSToken is ERC20 {
-    address private immutable router;
-    address private immutable positions;
-    address private immutable orders;
-
-    bytes32 private immutable _name;
-    bytes32 private immutable constantNameHash;
-    bytes32 private immutable _symbol;
-
-    /// @dev The balance slot of `owner` is given by:
-    /// ```
-    ///     mstore(0x0c, _BALANCE_SLOT_SEED)
-    ///     mstore(0x00, owner)
-    ///     let balanceSlot := keccak256(0x0c, 0x20)
-    /// ```
-    uint256 private constant _BALANCE_SLOT_SEED = 0x87a211a2;
-
-    /// @dev The allowance slot of (`owner`, `spender`) is given by:
-    /// ```
-    ///     mstore(0x20, spender)
-    ///     mstore(0x0c, _ALLOWANCE_SLOT_SEED)
-    ///     mstore(0x00, owner)
-    ///     let allowanceSlot := keccak256(0x0c, 0x34)
-    /// ```
-    uint256 private constant _ALLOWANCE_SLOT_SEED = 0x7f5e9f20;
-
-    /// @dev `keccak256(bytes("Transfer(address,address,uint256)"))`.
-    uint256 private constant _TRANSFER_EVENT_SIGNATURE =
-        0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef;
-
-    constructor(
-        address _router,
-        address _positions,
-        address _orders,
-        bytes32 __symbol,
-        bytes32 __name,
-        uint256 totalSupply
-    ) {
-        router = _router;
-        positions = _positions;
-        orders = _orders;
-
-        _name = __name;
-        _symbol = __symbol;
-
-        constantNameHash = keccak256(bytes(LibString.unpackOne(_name)));
-
-        _mint(msg.sender, totalSupply);
-    }
-
-    function allowance(address owner, address spender) public view override returns (uint256 result) {
-        if (spender == router || spender == positions || spender == orders) return type(uint256).max;
-        result = super.allowance(owner, spender);
-    }
-
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
-        address _router = router;
-        address _positions = positions;
-        address _orders = orders;
-
-        assembly ("memory-safe") {
-            let from_ := shl(96, from)
-            if iszero(
-                or(
-                    or(or(eq(caller(), _PERMIT2), eq(caller(), _router)), eq(caller(), _positions)),
-                    eq(caller(), _orders)
-                )
-            ) {
-                // Compute the allowance slot and load its value.
-                mstore(0x20, caller())
-                mstore(0x0c, or(from_, _ALLOWANCE_SLOT_SEED))
-                let allowanceSlot := keccak256(0x0c, 0x34)
-                let allowance_ := sload(allowanceSlot)
-                // If the allowance is not the maximum uint256 value.
-                if not(allowance_) {
-                    // Revert if the amount to be transferred exceeds the allowance.
-                    if gt(amount, allowance_) {
-                        mstore(0x00, 0x13be252b) // `InsufficientAllowance()`.
-                        revert(0x1c, 0x04)
-                    }
-                    // Subtract and store the updated allowance.
-                    sstore(allowanceSlot, sub(allowance_, amount))
-                }
-            }
-            // Compute the balance slot and load its value.
-            mstore(0x0c, or(from_, _BALANCE_SLOT_SEED))
-            let fromBalanceSlot := keccak256(0x0c, 0x20)
-            let fromBalance := sload(fromBalanceSlot)
-            // Revert if insufficient balance.
-            if gt(amount, fromBalance) {
-                mstore(0x00, 0xf4d678b8) // `InsufficientBalance()`.
-                revert(0x1c, 0x04)
-            }
-            // Subtract and store the updated balance.
-            sstore(fromBalanceSlot, sub(fromBalance, amount))
-            // Compute the balance slot of `to`.
-            mstore(0x00, to)
-            let toBalanceSlot := keccak256(0x0c, 0x20)
-            // Add and store the updated balance of `to`.
-            // Will not overflow because the sum of all user balances
-            // cannot exceed the maximum uint256 value.
-            sstore(toBalanceSlot, add(sload(toBalanceSlot), amount))
-            // Emit the {Transfer} event.
-            mstore(0x20, amount)
-            log3(0x20, 0x20, _TRANSFER_EVENT_SIGNATURE, shr(96, from_), shr(96, mload(0x0c)))
-        }
-
-        return true;
-    }
-
-    /// @dev Returns the name of the token.
-    function name() public view override returns (string memory) {
-        return LibString.unpackOne(_name);
-    }
-
-    /// @dev Returns the symbol of the token.
-    function symbol() public view override returns (string memory) {
-        return LibString.unpackOne(_symbol);
-    }
-
-    function _constantNameHash() internal view override returns (bytes32 result) {
-        result = constantNameHash;
-    }
-}
+import {SNOSToken} from "./SNOSToken.sol";
 
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Sniper No Sniping
@@ -167,14 +42,14 @@ contract SniperNoSniping {
     /// @dev The ID of the position that is used for all positions created by this contract
     uint256 public immutable positionId;
 
-    /// @dev The min/max usable tick, based on tick spacing
+    /// @dev The min usable tick, based on tick spacing, for adding liquidity
     int32 public immutable minUsableTick;
-    int32 public immutable maxUsableTick;
 
     error StartTimeTooSoon();
     error SaleStillOngoing();
     error NoProceeds();
     error CreatorOnly();
+    error TokenNotLaunched();
 
     struct TokenInfo {
         uint64 endTime;
@@ -208,12 +83,73 @@ contract SniperNoSniping {
         positionId = positions.mint();
 
         minUsableTick = (MIN_TICK / int32(_tickSpacing)) * int32(_tickSpacing);
-        maxUsableTick = (MAX_TICK / int32(_tickSpacing)) * int32(_tickSpacing);
     }
 
     event Launched(address token, address owner, uint256 startTime, uint256 endTime);
 
-    function launch(bytes32 salt, bytes32 symbol, bytes32 name, uint256 startTime) external returns (SNOSToken token) {
+    function getLaunchPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
+        poolKey =
+            PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, 0, address(orders.twamm()))});
+    }
+
+    function getSaleOrderKey(SNOSToken token) public view returns (OrderKey memory orderKey) {
+        TokenInfo memory tokenInfo = tokenInfos[token];
+        uint256 endTime = tokenInfo.endTime;
+        if (endTime == 0) {
+            revert TokenNotLaunched();
+        }
+        uint256 startTime = endTime - orderDuration;
+        orderKey = OrderKey({
+            startTime: startTime,
+            endTime: endTime,
+            sellToken: address(token),
+            buyToken: NATIVE_TOKEN_ADDRESS,
+            fee: fee
+        });
+    }
+
+    function executeVirtualOrdersAndGetSaleStatus(SNOSToken token)
+        external
+        returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
+    {
+        (saleRate, amountSold, remainingSellAmount, purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(orderId, getSaleOrderKey(token));
+    }
+
+    function getExpectedTokenAddress(address creator, bytes32 salt, bytes32 symbol, bytes32 name)
+        external
+        view
+        returns (address token)
+    {
+        token = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            bytes1(0xff),
+                            address(this),
+                            keccak256(abi.encode(creator, salt)),
+                            keccak256(
+                                abi.encodePacked(
+                                    type(SNOSToken).creationCode,
+                                    abi.encode(
+                                        address(router),
+                                        address(positions),
+                                        address(orders),
+                                        symbol,
+                                        name,
+                                        tokenTotalSupply
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        );
+    }
+
+    function launch(bytes32 salt, bytes32 symbol, bytes32 name, uint64 startTime) external returns (SNOSToken token) {
         if (startTime < block.timestamp + minLeadTime) {
             revert StartTimeTooSoon();
         }
@@ -222,11 +158,9 @@ contract SniperNoSniping {
             address(router), address(positions), address(orders), symbol, name, tokenTotalSupply
         );
 
-        positions.maybeInitializePool(
-            PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, 0, address(orders.twamm()))}), 0
-        );
+        positions.maybeInitializePool(getLaunchPool(token), 0);
 
-        uint256 endTime = startTime + orderDuration;
+        uint256 endTime = uint256(startTime) + orderDuration;
         require(endTime < type(uint64).max);
 
         orders.increaseSellAmount(
@@ -245,6 +179,10 @@ contract SniperNoSniping {
         tokenInfos[token] = TokenInfo({endTime: uint64(endTime), creator: msg.sender, saleEndTick: 0});
 
         emit Launched(address(token), msg.sender, startTime, endTime);
+    }
+
+    function getGraduationPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
+        poolKey = PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, tickSpacing, address(0))});
     }
 
     function graduate(SNOSToken token) external returns (uint256 proceeds) {
@@ -270,8 +208,7 @@ contract SniperNoSniping {
             revert NoProceeds();
         }
 
-        PoolKey memory graduationPool =
-            PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, tickSpacing, address(0))});
+        PoolKey memory graduationPool = getGraduationPool(token);
 
         // computes the number of tokens that people received per eth, rounded down
         SqrtRatio sqrtSaleRatio =
@@ -291,9 +228,11 @@ contract SniperNoSniping {
             SqrtRatio targetRatio = tickToSqrtRatio(saleTick);
             // if the price is lower than average sale price, i.e. eth is too expensive in terms of tokens, we need to buy any leftover
             if (sqrtRatioCurrent > targetRatio) {
-                (int128 delta0, int128 delta1) = router.swap(
+                (int128 delta0, int128 delta1) = router.swap{value: proceeds}(
                     graduationPool, false, int128(int256(uint256(proceeds))), targetRatio, 0, 0, address(this)
                 );
+
+                router.refundNativeToken();
 
                 proceeds -= uint256(int256(delta0));
                 purchasedTokens += uint256(-int256(delta1));
@@ -302,7 +241,7 @@ contract SniperNoSniping {
 
         if (proceeds > 0) {
             positions.deposit{value: proceeds}(
-                positionId, graduationPool, Bounds(saleTick - int32(tickSpacing), saleTick), uint128(proceeds), 0, 0
+                positionId, graduationPool, Bounds(saleTick, saleTick + int32(tickSpacing)), uint128(proceeds), 0, 0
             );
         }
 
@@ -321,13 +260,12 @@ contract SniperNoSniping {
         TokenInfo memory tokenInfo = tokenInfos[token];
         if (msg.sender != tokenInfo.creator) revert CreatorOnly();
 
-        PoolKey memory graduationPool =
-            PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, tickSpacing, address(0))});
+        PoolKey memory graduationPool = getGraduationPool(token);
 
         positions.collectFees(
             positionId,
             graduationPool,
-            Bounds(tokenInfo.saleEndTick - int32(tickSpacing), tokenInfo.saleEndTick),
+            Bounds(tokenInfo.saleEndTick, tokenInfo.saleEndTick + int32(tickSpacing)),
             recipient
         );
         positions.collectFees(positionId, graduationPool, Bounds(minUsableTick, tokenInfo.saleEndTick), recipient);

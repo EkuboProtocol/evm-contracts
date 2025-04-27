@@ -15,6 +15,15 @@ import {PoolKey, toConfig} from "./types/poolKey.sol";
 import {Bounds} from "./types/positionKey.sol";
 import {SNOSToken} from "./SNOSToken.sol";
 
+function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {
+    unchecked {
+        if (tick < 0) {
+            tick = int32(FixedPointMathLib.max(MIN_TICK, tick - (tickSpacing - 1)));
+        }
+        return tick / tickSpacing * tickSpacing;
+    }
+}
+
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Sniper No Sniping
 /// @notice Launchpad for creating fair launches using Ekubo Protocol's TWAMM implementation
@@ -149,7 +158,11 @@ contract SniperNoSniping {
         );
     }
 
-    function launch(bytes32 salt, bytes32 symbol, bytes32 name, uint64 startTime) external returns (SNOSToken token) {
+    function launch(bytes32 salt, bytes32 symbol, bytes32 name, uint64 startTime)
+        external
+        payable
+        returns (SNOSToken token)
+    {
         if (startTime < block.timestamp + minLeadTime) {
             revert StartTimeTooSoon();
         }
@@ -179,6 +192,22 @@ contract SniperNoSniping {
         tokenInfos[token] = TokenInfo({endTime: uint64(endTime), creator: msg.sender, saleEndTick: 0});
 
         emit Launched(address(token), msg.sender, startTime, endTime);
+
+        if (msg.value > 0) {
+            (uint256 id,) = orders.mintAndIncreaseSellAmount(
+                OrderKey({
+                    sellToken: NATIVE_TOKEN_ADDRESS,
+                    buyToken: address(token),
+                    fee: fee,
+                    startTime: startTime,
+                    endTime: endTime
+                }),
+                uint112(msg.value),
+                type(uint112).max
+            );
+
+            orders.transferFrom(address(this), msg.sender, id);
+        }
     }
 
     function getGraduationPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
@@ -214,9 +243,7 @@ contract SniperNoSniping {
         SqrtRatio sqrtSaleRatio =
             toSqrtRatio(FixedPointMathLib.sqrt((uint256(tokenTotalSupply) << 176) / proceeds) << 40, false);
 
-        int32 saleTick = sqrtRatioToTick(sqrtSaleRatio);
-        // todo: round towards negative infinity
-        saleTick -= saleTick % int32(tickSpacing);
+        int32 saleTick = roundDownToNearest(sqrtRatioToTick(sqrtSaleRatio), int32(tickSpacing));
 
         (bool didInitialize, SqrtRatio sqrtRatioCurrent) = positions.maybeInitializePool(graduationPool, saleTick);
 
@@ -255,8 +282,42 @@ contract SniperNoSniping {
         tokenInfos[token].saleEndTick = saleTick;
     }
 
+    function getGraduationPositionFeesAndLiquidity(SNOSToken token)
+        external
+        view
+        returns (uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
+    {
+        TokenInfo memory tokenInfo = tokenInfos[token];
+        PoolKey memory graduationPool = getGraduationPool(token);
+        (, principal0, principal1, fees0, fees1) = positions.getPositionFeesAndLiquidity(
+            positionId, graduationPool, Bounds(tokenInfo.saleEndTick, tokenInfo.saleEndTick + int32(tickSpacing))
+        );
+
+        (
+            uint128 liquidityAbove,
+            uint128 principal0Above,
+            uint128 principal1Above,
+            uint128 fees0Above,
+            uint128 fees1Above
+        ) = positions.getPositionFeesAndLiquidity(
+            positionId, graduationPool, Bounds(minUsableTick, tokenInfo.saleEndTick)
+        );
+
+        if (liquidityAbove != 0) {
+            principal0 += principal0Above;
+            principal1 += principal1Above;
+            fees0 += fees0Above;
+            fees1 += fees1Above;
+        }
+    }
+
+    // Collect to caller
+    function collect(SNOSToken token) external {
+        collect(token, msg.sender);
+    }
+
     /// The creator can call this method to get what they are due
-    function collect(SNOSToken token, address recipient) external {
+    function collect(SNOSToken token, address recipient) public {
         TokenInfo memory tokenInfo = tokenInfos[token];
         if (msg.sender != tokenInfo.creator) revert CreatorOnly();
 

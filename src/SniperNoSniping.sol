@@ -55,6 +55,7 @@ contract SniperNoSniping {
     int32 public immutable minUsableTick;
 
     error StartTimeTooSoon();
+    error InvalidNameOrSymbol();
     error SaleStillOngoing();
     error NoProceeds();
     error CreatorOnly();
@@ -165,6 +166,13 @@ contract SniperNoSniping {
     {
         if (startTime < block.timestamp + minLeadTime) {
             revert StartTimeTooSoon();
+        }
+
+        if (
+            !LibString.is7BitASCII(symbol) || !LibString.is7BitASCII(name) || bytes(symbol).length < 3
+                || bytes(symbol).length > 31 || bytes(name).length < 3 || bytes(name).length > 31
+        ) {
+            revert InvalidNameOrSymbol();
         }
 
         token = new SNOSToken{salt: keccak256(abi.encode(msg.sender, salt))}(

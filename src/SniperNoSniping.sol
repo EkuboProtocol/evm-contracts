@@ -125,7 +125,7 @@ contract SniperNoSniping {
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(orderId, getSaleOrderKey(token));
     }
 
-    function getExpectedTokenAddress(address creator, bytes32 salt, bytes32 symbol, bytes32 name)
+    function getExpectedTokenAddress(address creator, bytes32 salt, string memory symbol, string memory name)
         external
         view
         returns (address token)
@@ -145,8 +145,8 @@ contract SniperNoSniping {
                                         address(router),
                                         address(positions),
                                         address(orders),
-                                        symbol,
-                                        name,
+                                        LibString.packOne(symbol),
+                                        LibString.packOne(name),
                                         tokenTotalSupply
                                     )
                                 )
@@ -158,7 +158,7 @@ contract SniperNoSniping {
         );
     }
 
-    function launch(bytes32 salt, bytes32 symbol, bytes32 name, uint64 startTime)
+    function launch(bytes32 salt, string memory symbol, string memory name, uint64 startTime)
         external
         payable
         returns (SNOSToken token)
@@ -168,7 +168,12 @@ contract SniperNoSniping {
         }
 
         token = new SNOSToken{salt: keccak256(abi.encode(msg.sender, salt))}(
-            address(router), address(positions), address(orders), symbol, name, tokenTotalSupply
+            address(router),
+            address(positions),
+            address(orders),
+            LibString.packOne(symbol),
+            LibString.packOne(name),
+            tokenTotalSupply
         );
 
         positions.maybeInitializePool(getLaunchPool(token), 0);

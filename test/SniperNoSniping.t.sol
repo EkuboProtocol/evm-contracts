@@ -44,31 +44,16 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_launch_gas() public {
-        snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
         vm.snapshotGasLastCall("SniperNoSniping#launch");
     }
 
     function test_launch() public {
         vm.expectEmit(address(snos));
         emit SniperNoSniping.Launched(
-            snos.getExpectedTokenAddress(
-                address(this), bytes32(0), LibString.packOne("ABC"), LibString.packOne("ABC Token")
-            ),
-            address(this),
-            4096,
-            8192
+            snos.getExpectedTokenAddress(address(this), bytes32(0), "ABC", "ABC Token"), address(this), 4096, 8192
         );
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
         assertEq(token.symbol(), "ABC");
         assertEq(token.name(), "ABC Token");
@@ -94,71 +79,36 @@ contract SniperNoSnipingTest is BaseOrdersTest {
 
     function test_launch_reverts_if_too_soon() public {
         vm.expectRevert(SniperNoSniping.StartTimeTooSoon.selector);
-        snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 16
-        });
+        snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 16});
     }
 
     function test_launch_reverts_if_reuse_salt() public {
-        snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
         vm.expectRevert();
-        snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
     }
 
     function test_launch_reverts_if_too_far_in_future() public {
         vm.expectRevert();
-        snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: type(uint64).max
-        });
+        snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: type(uint64).max});
     }
 
     function test_graduate_reverts_if_no_bid() public {
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
         vm.warp(4096 + 4096);
         vm.expectRevert(SniperNoSniping.NoProceeds.selector);
         snos.graduate(token);
     }
 
     function test_graduate_reverts_if_too_soon() public {
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
         vm.warp(4096 + 4095);
         vm.expectRevert(SniperNoSniping.SaleStillOngoing.selector);
         snos.graduate(token);
     }
 
     function test_graduate_reverts_if_called_twice() public {
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
         orders.mintAndIncreaseSellAmount{value: 10000}(
             OrderKey({
@@ -183,12 +133,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         buyAmount = uint80(bound(buyAmount, 2, type(uint80).max));
         initializedTick = int32(bound(initializedTick, MIN_TICK, MAX_TICK));
 
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
         orders.mintAndIncreaseSellAmount{value: buyAmount}(
             OrderKey({
@@ -229,12 +174,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         buyAmount = uint80(bound(buyAmount, 1e18, type(uint80).max));
         initializedTick = int32(bound(initializedTick, MIN_TICK / 2, MAX_TICK / 2));
 
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
         (uint256 id,) = orders.mintAndIncreaseSellAmount{value: buyAmount}(
             OrderKey({
@@ -297,12 +237,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     function test_graduate_sell_after_launch_for_almost_all_proceeds(uint112 buyAmount) public {
         buyAmount = uint112(bound(buyAmount, 1e9, 1e23));
 
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
         (uint256 id,) = orders.mintAndIncreaseSellAmount{value: buyAmount}(
             OrderKey({
@@ -372,12 +307,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_graduate_gas() public {
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
         orders.mintAndIncreaseSellAmount{value: 10000}(
             OrderKey({
@@ -398,12 +328,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_collect_gas_no_fees() public {
-        SNOSToken token = snos.launch({
-            salt: bytes32(0),
-            symbol: LibString.packOne("ABC"),
-            name: LibString.packOne("ABC Token"),
-            startTime: 4096
-        });
+        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
         orders.mintAndIncreaseSellAmount{value: 10000}(
             OrderKey({

@@ -51,7 +51,12 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     function test_launch() public {
         vm.expectEmit(address(snos));
         emit SniperNoSniping.Launched(
-            snos.getExpectedTokenAddress(address(this), bytes32(0), "ABC", "ABC Token"), address(this), 4096, 8192
+            snos.getExpectedTokenAddress(address(this), bytes32(0), "ABC", "ABC Token"),
+            address(this),
+            4096,
+            8192,
+            "ABC",
+            "ABC Token"
         );
         SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
 
@@ -251,12 +256,11 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             type(uint112).max
         );
 
-        // half way point
         vm.warp(4096 + 4096);
 
         snos.graduate(token);
 
-        uint128 proceeds = orders.collectProceeds(
+        uint128 boughtAmount = orders.collectProceeds(
             id,
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
@@ -267,13 +271,13 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             })
         );
 
-        assertApproxEqAbs(proceeds, 1e24, 1);
+        assertApproxEqAbs(boughtAmount, 1e24, 1);
 
         (int128 delta0, int128 delta1) =
-            router.swap(snos.getGraduationPool(token), true, int128(proceeds), MAX_SQRT_RATIO, 0);
-        // pay at most fee x 2 on the redemption
-        assertGe(uint128(-delta0), buyAmount - computeFee(buyAmount, snos.fee() * 2));
-        assertEq(delta1, int128(proceeds));
+            router.swap(snos.getGraduationPool(token), true, int128(boughtAmount), MAX_SQRT_RATIO, 0);
+        // pay at most fee x 9/8 on the redemption
+        assertGe(uint128(-delta0), buyAmount - computeFee(buyAmount, snos.fee() * 9 / 8));
+        assertEq(delta1, int128(boughtAmount));
     }
 
     function test_tick_round_down(int32 tick, uint32 tickSpacing) public pure {

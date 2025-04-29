@@ -95,7 +95,7 @@ contract SniperNoSniping {
         minUsableTick = (MIN_TICK / int32(_tickSpacing)) * int32(_tickSpacing);
     }
 
-    event Launched(address token, address owner, uint256 startTime, uint256 endTime);
+    event Launched(address token, address owner, uint256 startTime, uint256 endTime, string symbol, string name);
 
     function getLaunchPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
         poolKey =
@@ -204,7 +204,7 @@ contract SniperNoSniping {
 
         tokenInfos[token] = TokenInfo({endTime: uint64(endTime), creator: msg.sender, saleEndTick: 0});
 
-        emit Launched(address(token), msg.sender, startTime, endTime);
+        emit Launched(address(token), msg.sender, startTime, endTime, symbol, name);
 
         if (msg.value > 0) {
             (uint256 id,) = orders.mintAndIncreaseSellAmount(

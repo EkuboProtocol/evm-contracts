@@ -48,7 +48,12 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         vm.snapshotGasLastCall("SniperNoSniping#launch");
     }
 
-    function test_launch() public {
+    function test_launch_create_order_gas() public {
+        snos.launch{value: 100}({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
+        vm.snapshotGasLastCall("SniperNoSniping#launch_with_buy");
+    }
+
+    function test_launch_no_bid() public {
         vm.expectEmit(address(snos));
         emit SniperNoSniping.Launched(
             snos.getExpectedTokenAddress(address(this), bytes32(0), "ABC", "ABC Token"),
@@ -80,6 +85,38 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         assertEq(endTime, 8192);
         assertEq(creator, address(this));
         assertEq(saleEndTick, 0);
+    }
+
+    function test_launch_with_bid() public {
+        vm.expectEmit(address(snos));
+        emit SniperNoSniping.Launched(
+            snos.getExpectedTokenAddress(address(this), bytes32(0), "ABC", "ABC Token"),
+            address(this),
+            4096,
+            8192,
+            "ABC",
+            "ABC Token"
+        );
+        SNOSToken token =
+            snos.launch{value: 1e18}({salt: bytes32(0), symbol: "ABC", name: "ABC Token", startTime: 4096});
+
+        assertEq(token.symbol(), "ABC");
+        assertEq(token.name(), "ABC Token");
+
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(snos.getLaunchPool(token).toPoolId());
+        assertEq(sqrtRatio.toFixed(), 1 << 128);
+        assertEq(tick, 0);
+        assertEq(liquidity, 0);
+
+        vm.warp(4096 + 4096);
+
+        (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount) =
+            snos.executeVirtualOrdersAndGetSaleStatus(token);
+
+        assertEq(saleRate, (uint256(snos.tokenTotalSupply()) << 32) / 4096);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 1e18 - 1);
+        assertEq(amountSold, uint256(snos.tokenTotalSupply()));
     }
 
     function test_launch_reverts_if_too_soon() public {

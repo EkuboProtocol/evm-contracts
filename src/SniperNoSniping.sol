@@ -207,7 +207,7 @@ contract SniperNoSniping {
         emit Launched(address(token), msg.sender, startTime, endTime, symbol, name);
 
         if (msg.value > 0) {
-            (uint256 id,) = orders.mintAndIncreaseSellAmount(
+            (uint256 id,) = orders.mintAndIncreaseSellAmount{value: msg.value}(
                 OrderKey({
                     sellToken: NATIVE_TOKEN_ADDRESS,
                     buyToken: address(token),

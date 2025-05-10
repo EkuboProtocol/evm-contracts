@@ -17,9 +17,8 @@ contract DeploySniperNoSniping is Script {
             _router: Router(0x9995855C00494d039aB6792f18e368e530DFf931),
             _positions: Positions(0xA37cc341634AFD9E0919D334606E676dbAb63E17),
             _orders: Orders(0xAE1430E3E089794bEaCBA260657FcD0F0967C18A),
-            _orderDuration: 4096,
-            _minLeadTime: 3600,
-            _tokenTotalSupply: 1_000_000e18,
+            orderDurationMagnitude: 4,
+            _tokenTotalSupply: 1_000_000_000e9,
             _fee: uint64((uint256(1) << 64) / 100),
             _tickSpacing: 1000
         });

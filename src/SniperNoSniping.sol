@@ -14,6 +14,7 @@ import {Router} from "./Router.sol";
 import {PoolKey, toConfig} from "./types/poolKey.sol";
 import {Bounds} from "./types/positionKey.sol";
 import {SNOSToken} from "./SNOSToken.sol";
+import {nextValidTime} from "./math/time.sol";
 
 function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {
     unchecked {
@@ -22,6 +23,15 @@ function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) 
         }
         return tick / tickSpacing * tickSpacing;
     }
+}
+
+function getNextLaunchTime(uint256 orderDuration, uint256 minLeadTime)
+    view
+    returns (uint256 startTime, uint256 endTime)
+{
+    startTime = nextValidTime(block.timestamp, block.timestamp + minLeadTime);
+    endTime = nextValidTime(block.timestamp, startTime + orderDuration - 1);
+    startTime = endTime - orderDuration;
 }
 
 /// @author Moody Salem <moody@ekubo.org>
@@ -33,9 +43,9 @@ contract SniperNoSniping {
     Positions private immutable positions;
 
     /// @dev The duration of the sale for any newly created tokens
-    uint32 public immutable orderDuration;
+    uint256 public immutable orderDuration;
     /// @dev The minimum amount of time in the future that the order must start
-    uint32 public immutable minLeadTime;
+    uint256 public immutable minLeadTime;
 
     /// @dev The total supply that all tokens are created with.
     uint80 public immutable tokenTotalSupply;
@@ -54,7 +64,6 @@ contract SniperNoSniping {
     /// @dev The min usable tick, based on tick spacing, for adding liquidity
     int32 public immutable minUsableTick;
 
-    error StartTimeTooSoon();
     error InvalidNameOrSymbol();
     error SaleStillOngoing();
     error NoProceeds();
@@ -73,8 +82,7 @@ contract SniperNoSniping {
         Router _router,
         Positions _positions,
         Orders _orders,
-        uint32 _orderDuration,
-        uint32 _minLeadTime,
+        uint256 orderDurationMagnitude,
         uint80 _tokenTotalSupply,
         uint64 _fee,
         uint32 _tickSpacing
@@ -83,8 +91,9 @@ contract SniperNoSniping {
         positions = _positions;
         orders = _orders;
 
-        orderDuration = _orderDuration;
-        minLeadTime = _minLeadTime;
+        assert(orderDurationMagnitude > 1 && orderDurationMagnitude < 6);
+        orderDuration = 16 ** orderDurationMagnitude;
+        minLeadTime = orderDuration / 2;
         tokenTotalSupply = _tokenTotalSupply;
         fee = _fee;
         tickSpacing = _tickSpacing;
@@ -96,6 +105,11 @@ contract SniperNoSniping {
     }
 
     event Launched(address token, address owner, uint256 startTime, uint256 endTime, string symbol, string name);
+
+    /// @notice Returns the next available launch time
+    function nextLaunchTime() external view returns (uint256 startTime, uint256 endTime) {
+        (startTime, endTime) = getNextLaunchTime(orderDuration, minLeadTime);
+    }
 
     function getLaunchPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
         poolKey =
@@ -159,14 +173,12 @@ contract SniperNoSniping {
         );
     }
 
-    function launch(bytes32 salt, string memory symbol, string memory name, uint64 startTime)
+    function launch(bytes32 salt, string memory symbol, string memory name)
         external
         payable
         returns (SNOSToken token)
     {
-        if (startTime < block.timestamp + minLeadTime) {
-            revert StartTimeTooSoon();
-        }
+        (uint256 startTime, uint256 endTime) = getNextLaunchTime(orderDuration, minLeadTime);
 
         if (
             !LibString.is7BitASCII(symbol) || !LibString.is7BitASCII(name) || bytes(symbol).length < 3
@@ -185,9 +197,6 @@ contract SniperNoSniping {
         );
 
         positions.maybeInitializePool(getLaunchPool(token), 0);
-
-        uint256 endTime = uint256(startTime) + orderDuration;
-        require(endTime < type(uint64).max);
 
         orders.increaseSellAmount(
             orderId,

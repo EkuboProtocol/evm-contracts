@@ -13,6 +13,7 @@ import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
 import {FeeAccumulatingExtension} from "./SolvencyInvariantTest.t.sol";
 import {byteToCallPoints} from "../src/types/callPoints.sol";
@@ -171,6 +172,125 @@ contract OrdersTest is BaseOrdersTest {
         // both get a better price!
         assertEq(orders.collectProceeds(id0, key0, address(this)), 1999999999999995636);
         assertEq(orders.collectProceeds(id1, key1, address(this)), 1000000000000002926);
+    }
+
+    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_stop_future_order_partway(uint256 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            fee: fee,
+            startTime: time + 15,
+            endTime: time + 31
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        advanceTime(23);
+
+        orders.collectProceeds(id, key, address(this));
+        orders.decreaseSaleRate(id, key, saleRate, address(this));
+
+        advanceTime(4);
+
+        (uint256 saleRateAfter, uint256 amountSold, uint256 remainingSellAmount, uint256 purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(saleRateAfter, 0);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 0);
+        assertEq(amountSold, 500000000000000000);
+    }
+
+    function test_executeVirtualOrder_fails_in_max_times() public {
+        uint256 time = type(uint256).max - type(uint32).max - 15;
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            fee: fee,
+            startTime: time + 15,
+            endTime: time + 31
+        });
+
+        orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        advanceTime(23);
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+
+        advanceTime(9);
+        // nextValidTime will return 0 which causes it to skip the initialized time and try to swap too much
+        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+    }
+
+    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_future_order_ends(uint256 time) public {
+        // we use 33 because we advance time by 32 during the test
+        time = boundTime(time, 33);
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            fee: fee,
+            startTime: time + 15,
+            endTime: time + 31
+        });
+        (uint256 id,) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        advanceTime(23);
+
+        assertEq(orders.collectProceeds(id, key, address(this)), 0.322033898305084744e18);
+
+        advanceTime(8);
+
+        (uint256 saleRateAfter, uint256 amountSold, uint256 remainingSellAmount, uint256 purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(saleRateAfter, (1e18 << 32) / 16);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 0.165145588874402432e18);
+        assertEq(amountSold, 1e18);
+
+        advanceTime(1);
+
+        // does not change after advancing past the last time
+        (saleRateAfter, amountSold, remainingSellAmount, purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(saleRateAfter, (1e18 << 32) / 16);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 0.165145588874402432e18);
+        assertEq(amountSold, 1e18);
     }
 
     function test_createOrder_sell_both_tokens_getOrderInfo(uint256 time) public {

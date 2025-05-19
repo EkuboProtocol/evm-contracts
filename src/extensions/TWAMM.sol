@@ -21,7 +21,6 @@ import {
     computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount, addSaleRateDelta
 } from "../math/twamm.sol";
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
-import {console} from "forge-std/console.sol";
 
 function twammCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -521,8 +520,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         fromTime: time,
                         untilTime: block.timestamp
                     });
-
-                    console.log(nextTime);
 
                     Delta memory swapDelta;
 

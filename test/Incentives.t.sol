@@ -15,7 +15,8 @@ contract IncentivesTest is Test {
         t = new TestToken(address(this));
     }
 
-    function test_fund(bytes32 root, uint128 amount) public {
+    function test_fund(address owner, bytes32 root, uint128 amount) public {
+        DropKey memory key = DropKey({token: address(t), owner: owner, root: root});
         t.approve(address(i), type(uint256).max);
 
         assertEq(t.balanceOf(address(this)), type(uint256).max);
@@ -23,20 +24,20 @@ contract IncentivesTest is Test {
 
         if (amount > 0) {
             vm.expectEmit(address(i));
-            emit Incentives.Funded(DropKey({owner: address(this), token: address(t), root: root}), amount);
+            emit Incentives.Funded(key, amount);
         }
-        i.fund({key: DropKey({owner: address(this), token: address(t), root: root}), minimumFunded: amount});
+        assertEq(i.fund(key, amount), amount);
 
         assertEq(t.balanceOf(address(this)), type(uint256).max - amount);
         assertEq(t.balanceOf(address(i)), amount);
-        assertEq(i.getRemaining(DropKey({owner: address(this), token: address(t), root: root})), amount);
+        assertEq(i.getRemaining(key), amount);
     }
 
     function test_double_fund_no_reverts(bytes32 root, uint128 amount) public {
         t.approve(address(i), type(uint256).max);
 
-        i.fund({key: DropKey({owner: address(this), token: address(t), root: root}), minimumFunded: amount});
-        i.fund({key: DropKey({owner: address(this), token: address(t), root: root}), minimumFunded: amount});
+        i.fund({key: DropKey({owner: address(this), token: address(t), root: root}), minimum: amount});
+        i.fund({key: DropKey({owner: address(this), token: address(t), root: root}), minimum: amount});
     }
 
     function test_claim(uint256 index, address account, uint128 amount) public {
@@ -62,7 +63,32 @@ contract IncentivesTest is Test {
         );
         uint256 afterClaim = t.balanceOf(account);
         assertFalse(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), index, amount));
-        assertEq(afterClaim - beforeClaim, amount);
+        if (account != address(i)) assertEq(afterClaim - beforeClaim, amount);
+        else assertEq(afterClaim - beforeClaim, 0);
+    }
+
+    function test_refund(uint128 funded, address owner, uint256 index, address account, uint128 amount) public {
+        t.approve(address(i), type(uint256).max);
+        amount = uint128(bound(amount, 0, funded));
+        bytes32 root = hashClaim(Claim({index: index, account: account, amount: amount}));
+
+        i.fund(DropKey({owner: owner, token: address(t), root: root}), funded);
+
+        bytes32[] memory proof = new bytes32[](0);
+        i.claim(
+            DropKey({owner: owner, token: address(t), root: root}),
+            Claim({index: index, account: account, amount: amount}),
+            proof
+        );
+
+        uint256 beforeRefund = t.balanceOf(owner);
+        vm.prank(owner);
+        emit Incentives.Refunded(DropKey({owner: owner, token: address(t), root: root}), (funded - amount));
+        i.refund(DropKey({owner: owner, token: address(t), root: root}));
+        uint256 afterRefund = t.balanceOf(owner);
+        if (owner != address(i)) {} else {
+            assertEq(afterRefund - beforeRefund, 0);
+        }
     }
 
     function test_claim_gas() public {

@@ -90,29 +90,29 @@ contract Incentives is Multicallable {
         }
     }
 
-    function fund(DropKey memory key, uint128 minimumFunded) external {
+    function fund(DropKey memory key, uint128 minimum) external returns (uint128 fundedAmount) {
         bytes32 id = key.toDropId();
         DropState memory drop = state[id];
 
-        if (drop.funded < minimumFunded) {
-            uint256 needed = minimumFunded - drop.funded;
-            drop.funded = minimumFunded;
+        if (drop.funded < minimum) {
+            fundedAmount = minimum - drop.funded;
+            drop.funded = minimum;
             state[id] = drop;
-            SafeTransferLib.safeTransferFrom(key.token, msg.sender, address(this), needed);
-            emit Funded(key, minimumFunded);
+            SafeTransferLib.safeTransferFrom(key.token, msg.sender, address(this), fundedAmount);
+            emit Funded(key, minimum);
         }
     }
 
-    function refund(DropKey memory key) external {
+    function refund(DropKey memory key) external returns (uint128 refundAmount) {
         unchecked {
             if (msg.sender != key.owner) {
                 revert DropOwnerOnly();
             }
             DropState storage s = state[key.toDropId()];
-            uint128 refundAmount = s.funded - s.claimed;
+            refundAmount = s.funded - s.claimed;
             if (refundAmount > 0) {
                 s.funded = s.claimed;
-                SafeTransferLib.safeTransferFrom(key.token, msg.sender, address(this), refundAmount);
+                SafeTransferLib.safeTransfer(key.token, key.owner, refundAmount);
                 emit Refunded(key, refundAmount);
             }
         }

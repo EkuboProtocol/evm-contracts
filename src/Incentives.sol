@@ -7,86 +7,143 @@ import {Multicallable} from "solady/utils/Multicallable.sol";
 import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
+// A drop is specified by an owner, token and a root
+// The owner can reclaim the drop token at any time
+// The root is the root of a merkle trie that contains all the incentives to be distributed
+struct DropKey {
+    address owner;
+    address token;
+    bytes32 root;
+}
+
+// Returns the identifier of the drop
+function toDropId(DropKey memory key) pure returns (bytes32) {
+    return EfficientHashLib.hash(bytes32(bytes20(key.owner)), bytes32(bytes20(key.token)), key.root);
+}
+
+// A claim is an individual leaf in the merkle trie
+struct Claim {
+    uint256 index;
+    address account;
+    uint128 amount;
+}
+
+function hashClaim(Claim memory c) pure returns (bytes32 h) {
+    assembly ("memory-safe") {
+        // assumes that account has no dirty upper bits
+        h := keccak256(c, 96)
+    }
+}
+
+function indexToWordBit(uint256 index) pure returns (uint256 word, uint8 bit) {
+    (word, bit) = (index >> 8, uint8(index % 256));
+}
+
 /// @author Moody Salem
 /// @notice A singleton contract for making many airdrops
 contract Incentives is Multicallable {
-    /// @notice Emitted each time fund is successfully called
-    event Funded(address token, bytes32 root, uint256 amount);
+    using {toDropId} for DropKey;
+    using {hashClaim} for Claim;
 
-    /// @notice Thrown if the root has already been funded for this token
-    error AlreadyFunded();
-    /// @notice Thrown if the claim has already happened for the root
+    /// @notice Emitted when a drop is funded
+    event Funded(DropKey key, uint128 amountNext);
+    /// @notice Emitted when a drop is funded
+    event Refunded(DropKey key, uint128 refundAmount);
+
+    /// @notice Thrown if the claim has already happened for this drop
     error AlreadyClaimed();
-    /// @notice Thrown if the proof does not correspond to the claim in the root
+    /// @notice Thrown if the merkle proof does not correspond to the root
     error InvalidProof();
-    /// @notice Thrown if the root does not have enough funds for the claim, or is not funded
+    /// @notice Thrown if the drop is not sufficiently funded for the claim
     error InsufficientFunds();
+    /// @notice Only the drop owner may call this function
+    error DropOwnerOnly();
 
-    struct Drop {
-        uint256 remaining;
-        mapping(uint256 => Bitmap) claimed;
+    struct DropState {
+        uint128 funded;
+        uint128 claimed;
     }
 
-    mapping(address token => mapping(bytes32 root => Drop)) private drops;
+    mapping(bytes32 id => DropState) private state;
+    mapping(bytes32 id => mapping(uint256 => Bitmap)) public claimed;
 
-    // We store this separately because it's only used to prevent double funding
-    mapping(address token => mapping(bytes32 root => bool)) public funded;
-
-    function getRemaining(address token, bytes32 root) external view returns (uint256) {
-        return drops[token][root].remaining;
+    function _isClaimed(bytes32 dropId, uint256 index) private view returns (bool) {
+        (uint256 word, uint8 bit) = indexToWordBit(index);
+        return claimed[dropId][word].isSet(bit);
     }
 
-    function hashClaim(uint256 index, address account, uint256 amount) public pure returns (bytes32) {
-        return EfficientHashLib.hash(bytes32(index), bytes32(bytes20(account)), bytes32(amount));
+    function isAvailable(DropKey memory key, uint256 index, uint128 amount) external view returns (bool) {
+        bytes32 id = key.toDropId();
+
+        DropState memory drop = state[id];
+        unchecked {
+            return !_isClaimed(id, index) && (drop.funded - drop.claimed) >= amount;
+        }
     }
 
-    function isClaimed(address token, bytes32 root, uint256 index) external view returns (bool) {
-        uint256 wordIndex = index / 256;
-        uint256 bitIndex = index % 256;
-        return drops[token][root].claimed[wordIndex].isSet(uint8(bitIndex));
+    function getRemaining(DropKey memory key) external view returns (uint128) {
+        bytes32 id = key.toDropId();
+
+        DropState memory drop = state[id];
+        unchecked {
+            return (drop.funded - drop.claimed);
+        }
     }
 
-    function isAvailable(address token, bytes32 root, uint256 index, uint256 amount) external view returns (bool) {
-        Drop storage drop = drops[token][root];
-        uint256 wordIndex = index / 256;
-        uint256 bitIndex = index % 256;
-        return drop.claimed[wordIndex].isSet(uint8(bitIndex)) && drop.remaining >= amount;
+    function fund(DropKey memory key, uint128 minimumFunded) external {
+        bytes32 id = key.toDropId();
+        DropState memory drop = state[id];
+
+        if (drop.funded < minimumFunded) {
+            uint256 needed = minimumFunded - drop.funded;
+            drop.funded = minimumFunded;
+            state[id] = drop;
+            SafeTransferLib.safeTransferFrom(key.token, msg.sender, address(this), needed);
+            emit Funded(key, minimumFunded);
+        }
     }
 
-    function fund(address token, bytes32 root, uint256 amount) external {
-        if (funded[token][root]) revert AlreadyFunded();
-        drops[token][root].remaining += amount;
-        funded[token][root] = true;
-        SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
-        emit Funded(token, root, amount);
+    function refund(DropKey memory key) external {
+        unchecked {
+            if (msg.sender != key.owner) {
+                revert DropOwnerOnly();
+            }
+            DropState storage s = state[key.toDropId()];
+            uint128 refundAmount = s.funded - s.claimed;
+            if (refundAmount > 0) {
+                s.funded = s.claimed;
+                SafeTransferLib.safeTransferFrom(key.token, msg.sender, address(this), refundAmount);
+                emit Refunded(key, refundAmount);
+            }
+        }
     }
 
-    function claim(
-        address token,
-        bytes32 root,
-        uint256 index,
-        address account,
-        uint256 amount,
-        bytes32[] calldata proof
-    ) external virtual {
-        Drop storage drop = drops[token][root];
+    function claim(DropKey memory key, Claim memory c, bytes32[] calldata proof) external virtual {
+        bytes32 id = key.toDropId();
 
-        uint256 wordIndex = index / 256;
-        uint256 bitIndex = index % 256;
-        Bitmap b = drop.claimed[wordIndex];
+        // Check that it is not claimed
+        (uint256 word, uint8 bit) = indexToWordBit(c.index);
+        Bitmap b = claimed[id][word];
+        if (b.isSet(bit)) revert AlreadyClaimed();
 
-        if (b.isSet(uint8(bitIndex))) revert AlreadyClaimed();
+        // Check the proof is valid
+        bytes32 leaf = hashClaim(c);
+        if (!MerkleProofLib.verify(proof, key.root, leaf)) revert InvalidProof();
 
-        bytes32 leaf = hashClaim(index, account, amount);
-        if (!MerkleProofLib.verify(proof, root, leaf)) revert InvalidProof();
+        // Get the state
+        DropState storage drop = state[id];
 
-        uint256 remaining = drop.remaining;
-        if (remaining < amount) {
+        uint256 remaining = drop.funded - drop.claimed;
+
+        if (remaining < c.amount) {
             revert InsufficientFunds();
         }
-        drop.remaining = remaining - amount;
-        drop.claimed[wordIndex] = b.toggle(uint8(bitIndex));
 
-        SafeTransferLib.safeTransfer(token, account, amount);
+        // Checked addition prevents overflow here
+        drop.claimed += c.amount;
+
+        claimed[id][word] = b.toggle(bit);
+
+        SafeTransferLib.safeTransfer(key.token, c.account, c.amount);
     }
 }

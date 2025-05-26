@@ -45,25 +45,27 @@ contract IncentivesTest is Test {
         t.approve(address(i), type(uint256).max);
         bytes32 root = hashClaim(Claim({index: index, account: account, amount: amount}));
 
+        DropKey memory key = DropKey({owner: address(this), token: address(t), root: root});
         if (amount == 0) {
-            assertTrue(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), index, amount));
+            assertTrue(i.isAvailable(key, index, amount));
         } else {
-            assertFalse(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), index, amount));
+            assertFalse(i.isAvailable(key, index, amount));
         }
 
-        i.fund(DropKey({owner: address(this), token: address(t), root: root}), amount);
+        assertFalse(i.isClaimed(key, index));
 
-        assertTrue(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), index, amount));
+        i.fund(key, amount);
+
+        assertTrue(i.isAvailable(key, index, amount));
+        assertFalse(i.isClaimed(key, index));
 
         bytes32[] memory proof = new bytes32[](0);
         uint256 beforeClaim = t.balanceOf(account);
-        i.claim(
-            DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: index, account: account, amount: amount}),
-            proof
-        );
+        i.claim(key, Claim({index: index, account: account, amount: amount}), proof);
         uint256 afterClaim = t.balanceOf(account);
-        assertFalse(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), index, amount));
+        assertFalse(i.isAvailable(key, index, amount));
+        assertTrue(i.isClaimed(key, index));
+
         if (account != address(i)) assertEq(afterClaim - beforeClaim, amount);
         else assertEq(afterClaim - beforeClaim, 0);
     }

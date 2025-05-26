@@ -67,17 +67,22 @@ contract Incentives is Multicallable {
     mapping(bytes32 id => DropState) private state;
     mapping(bytes32 id => mapping(uint256 => Bitmap)) public claimed;
 
-    function _isClaimed(bytes32 dropId, uint256 index) private view returns (bool) {
+    function isClaimed(DropKey memory key, uint256 index) external view returns (bool) {
+        bytes32 id = key.toDropId();
         (uint256 word, uint8 bit) = indexToWordBit(index);
-        return claimed[dropId][word].isSet(bit);
+        return claimed[id][word].isSet(bit);
     }
 
     function isAvailable(DropKey memory key, uint256 index, uint128 amount) external view returns (bool) {
         bytes32 id = key.toDropId();
 
+        (uint256 word, uint8 bit) = indexToWordBit(index);
+
+        if (claimed[id][word].isSet(bit)) return false;
+
         DropState memory drop = state[id];
         unchecked {
-            return !_isClaimed(id, index) && (drop.funded - drop.claimed) >= amount;
+            return (drop.funded - drop.claimed) >= amount;
         }
     }
 

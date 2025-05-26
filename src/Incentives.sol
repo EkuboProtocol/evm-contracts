@@ -142,10 +142,9 @@ contract Incentives is Multicallable {
             if (remaining < c.amount) {
                 revert InsufficientFunds();
             }
+            // Checked addition is not required because c.amount is bounded by funded-claimed
+            drop.claimed += c.amount;
         }
-
-        // Checked addition prevents overflow here
-        drop.claimed += c.amount;
 
         claimed[id][word] = b.toggle(bit);
 

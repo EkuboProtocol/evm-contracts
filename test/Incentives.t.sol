@@ -15,6 +15,12 @@ contract IncentivesTest is Test {
         t = new TestToken(address(this));
     }
 
+    function test_hashClaim() public {
+        vm.snapshotValue("zero claim", uint256(hashClaim(Claim({index: 0, account: address(0), amount: 0}))));
+        vm.snapshotValue("1,2,3 claim", uint256(hashClaim(Claim({index: 1, account: address(2), amount: 3}))));
+        vm.snapshotValue("3,1,2 claim", uint256(hashClaim(Claim({index: 3, account: address(1), amount: 2}))));
+    }
+
     function test_fund(address owner, bytes32 root, uint128 amount) public {
         DropKey memory key = DropKey({token: address(t), owner: owner, root: root});
         t.approve(address(i), type(uint256).max);
@@ -27,17 +33,12 @@ contract IncentivesTest is Test {
             emit Incentives.Funded(key, amount);
         }
         assertEq(i.fund(key, amount), amount);
+        // second funding does nothing since minimum already set
+        assertEq(i.fund(key, amount), 0);
 
         assertEq(t.balanceOf(address(this)), type(uint256).max - amount);
         assertEq(t.balanceOf(address(i)), amount);
         assertEq(i.getRemaining(key), amount);
-    }
-
-    function test_double_fund_no_reverts(bytes32 root, uint128 amount) public {
-        t.approve(address(i), type(uint256).max);
-
-        i.fund({key: DropKey({owner: address(this), token: address(t), root: root}), minimum: amount});
-        i.fund({key: DropKey({owner: address(this), token: address(t), root: root}), minimum: amount});
     }
 
     function test_claim(uint256 index, address account, uint128 amount) public {

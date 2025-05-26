@@ -130,13 +130,13 @@ contract Incentives is Multicallable {
         bytes32 leaf = hashClaim(c);
         if (!MerkleProofLib.verify(proof, key.root, leaf)) revert InvalidProof();
 
-        // Get the state
         DropState storage drop = state[id];
 
-        uint256 remaining = drop.funded - drop.claimed;
-
-        if (remaining < c.amount) {
-            revert InsufficientFunds();
+        unchecked {
+            uint256 remaining = drop.funded - drop.claimed;
+            if (remaining < c.amount) {
+                revert InsufficientFunds();
+            }
         }
 
         // Checked addition prevents overflow here

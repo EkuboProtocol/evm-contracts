@@ -5,7 +5,6 @@ import {Bitmap} from "./math/bitmap.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
-import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 // A drop is specified by an owner, token and a root
 // The owner can reclaim the drop token at any time
@@ -17,8 +16,11 @@ struct DropKey {
 }
 
 // Returns the identifier of the drop
-function toDropId(DropKey memory key) pure returns (bytes32) {
-    return EfficientHashLib.hash(bytes32(bytes20(key.owner)), bytes32(bytes20(key.token)), key.root);
+function toDropId(DropKey memory key) pure returns (bytes32 h) {
+    assembly ("memory-safe") {
+        // assumes that owner, token have no dirty upper bits
+        h := keccak256(key, 96)
+    }
 }
 
 // A claim is an individual leaf in the merkle trie

@@ -136,46 +136,59 @@ contract IncentivesTest is Test {
         assertFalse(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), 1, amountB));
     }
 
-    function test_claim_twice_fails() public {
-        t.approve(address(i), type(uint256).max);
-        bytes32 root = hashClaim(Claim({index: 0, account: address(this), amount: 100}));
-        i.fund(DropKey({owner: address(this), token: address(t), root: root}), 100);
+    function test_claim_twice_fails(uint256 index, address account, uint128 amount) public {
+        t.approve(address(i), amount);
+
+        Claim memory c = Claim({index: index, account: account, amount: amount});
+        bytes32 root = hashClaim(c);
+
+        DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
+        i.fund(dropKey, amount);
 
         bytes32[] memory proof = new bytes32[](0);
-        i.claim(
-            DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: 0, account: address(this), amount: 100}),
-            proof
-        );
+        i.claim(dropKey, c, proof);
         vm.expectRevert(Incentives.AlreadyClaimed.selector);
-        i.claim(
-            DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: 0, account: address(this), amount: 100}),
-            proof
-        );
+        i.claim(dropKey, c, proof);
     }
 
-    function test_claim_not_funded_fails() public {
-        bytes32 root = hashClaim(Claim({index: 0, account: address(this), amount: 100}));
+    function test_claim_underfunded_fails(uint128 amount, uint128 funded) public {
+        amount = uint128(bound(amount, 1, type(uint128).max));
+        funded = uint128(bound(funded, 0, amount - 1));
+
+        Claim memory c = Claim({index: 0, account: address(this), amount: amount});
+        bytes32 root = hashClaim(c);
+        DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
+
+        // fund the drop first if necessary
+        if (funded != 0) {
+            t.approve(address(i), funded);
+            i.fund(dropKey, funded);
+        }
 
         bytes32[] memory proof = new bytes32[](0);
         vm.expectRevert(Incentives.InsufficientFunds.selector);
-        i.claim(
-            DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: 0, account: address(this), amount: 100}),
-            proof
-        );
+        i.claim(dropKey, c, proof);
     }
 
-    function test_claim_invalid_hash_fails() public {
-        bytes32 root = hashClaim(Claim({index: 0, account: address(this), amount: 100}));
+    function test_claim_invalid_claim_fails() public {
+        Claim memory c = Claim({index: 0, account: address(this), amount: 100});
+        bytes32 root = hashClaim(c);
+        DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
+
+        bytes32[] memory proof = new bytes32[](0);
+        c.index = 1;
+        vm.expectRevert(Incentives.InvalidProof.selector);
+        i.claim(dropKey, c, proof);
+    }
+
+    function test_claim_invalid_proof_fails() public {
+        Claim memory c = Claim({index: 0, account: address(this), amount: 100});
+        bytes32 root = hashClaim(c);
+        DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
 
         vm.expectRevert(Incentives.InvalidProof.selector);
-        bytes32[] memory proof = new bytes32[](0);
-        i.claim(
-            DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: 1, account: address(this), amount: 100}),
-            proof
-        );
+        // proof has a single zero element
+        bytes32[] memory proof = new bytes32[](1);
+        i.claim(dropKey, c, proof);
     }
 }

@@ -74,6 +74,7 @@ contract MEVResist is BaseExtension, BaseForwardee {
             ps.lastUpdateTime = uint32(block.timestamp);
         }
 
+        // todo: always charge the fee on the calculated amount
         (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
         (, int32 tickAfterSwap,) = core.poolState(poolId);
@@ -83,7 +84,8 @@ contract MEVResist is BaseExtension, BaseForwardee {
 
         if (feeMultiplier != 0) {
             uint64 poolFee = poolKey.fee();
-            uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max - poolFee, feeMultiplier * poolFee));
+            uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, feeMultiplier * poolFee));
+            bool isExactOutput = amount < 0;
 
             // take an additional fee from the swapper equal to the `additionalFee`
             if (delta0 > 0) {

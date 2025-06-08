@@ -70,6 +70,7 @@ contract MEVResistTest is BaseMEVResistTest {
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
+        vm.snapshotGasLastCall("input_token0_no_movement");
 
         assertEq(delta0, 100_000);
         assertEq(delta1, -98_524);
@@ -92,10 +93,151 @@ contract MEVResistTest is BaseMEVResistTest {
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
+        vm.snapshotGasLastCall("output_token0_no_movement");
 
         assertEq(delta0, -100_000);
         assertEq(delta1, 101_507);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 9777);
+    }
+
+    function test_swap_input_token1_no_movement() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 100_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("input_token1_no_movement");
+
+        assertEq(delta0, -98_524);
+        assertEq(delta1, 100_000);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, 9633);
+    }
+
+    function test_swap_output_token1_no_movement() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: -100_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("output_token1_no_movement");
+
+        assertEq(delta0, 101_507);
+        assertEq(delta1, -100_000);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, -9778);
+    }
+
+    /// now tests with movement more than one tick spacing
+
+    function test_swap_input_token0_move_tick_spacings() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 500_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("input_token0_move_tick_spacings");
+
+        assertEq(delta0, 500_000);
+        assertEq(delta1, -473_664);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, -47710);
+    }
+
+    function test_swap_output_token0_move_tick_spacings() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: -500_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("output_token0_move_tick_spacings");
+
+        assertEq(delta0, -500_000);
+        assertEq(delta1, 528_135);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, 49375);
+    }
+
+    function test_swap_input_token1_move_tick_spacings() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 500_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("input_token1_move_tick_spacings");
+
+        assertEq(delta0, -473_664);
+        assertEq(delta1, 500_000);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, 47709);
+    }
+
+    function test_swap_output_token1_move_tick_spacings() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: -500_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("output_token1_move_tick_spacings");
+
+        assertEq(delta0, 528_135);
+        assertEq(delta1, -500_000);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, -49376);
     }
 }

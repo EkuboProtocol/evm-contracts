@@ -10,37 +10,25 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
+function mevResistCallPoints() pure returns (CallPoints memory) {
+    return CallPoints({
+        // to store the initial tick
+        beforeInitializePool: true,
+        afterInitializePool: false,
+        // so that we can prevent swaps that are not made via forward
+        beforeSwap: true,
+        afterSwap: false,
+        beforeUpdatePosition: false,
+        afterUpdatePosition: false,
+        // in order to accumulate any collected fees
+        beforeCollectFees: true,
+        afterCollectFees: false
+    });
+}
+
 /// @notice Charges additional fees based on the relative size of the priority fee
 contract MEVResist is BaseExtension, BaseForwardee {
     using CoreLib for *;
-
-    constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
-
-    /// @notice We only allow swapping via forward to this extension
-    function getCallPoints() internal pure override returns (CallPoints memory) {
-        return CallPoints({
-            beforeInitializePool: false,
-            afterInitializePool: false,
-            beforeSwap: true,
-            afterSwap: false,
-            beforeUpdatePosition: false,
-            afterUpdatePosition: false,
-            beforeCollectFees: true,
-            afterCollectFees: false
-        });
-    }
-
-    error SwapMustHappenThroughForward();
-
-    /// @notice We only allow swapping via forward to this extension
-    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure override {
-        revert SwapMustHappenThroughForward();
-    }
-
-    function beforeCollectFees(address, PoolKey memory, bytes32, Bounds memory) external pure override {
-        // todo: accumulate fees for the pool so they can be collected
-        revert CallPointNotImplemented();
-    }
 
     struct PoolState {
         // The last time we touched this pool
@@ -54,6 +42,29 @@ contract MEVResist is BaseExtension, BaseForwardee {
 
     /// @notice The state of each pool
     mapping(bytes32 poolId => PoolState) private poolState;
+
+    constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
+
+    function getCallPoints() internal pure override returns (CallPoints memory) {
+        return mevResistCallPoints();
+    }
+
+    function beforeInitializePool(address, PoolKey memory poolKey, int32 tick) external override {
+        poolState[poolKey.toPoolId()] =
+            PoolState({lastUpdateTime: uint32(block.timestamp), tickLast: tick, fees0: 0, fees1: 0});
+    }
+
+    error SwapMustHappenThroughForward();
+
+    /// @notice We only allow swapping via forward to this extension
+    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure override {
+        revert SwapMustHappenThroughForward();
+    }
+
+    function beforeCollectFees(address, PoolKey memory, bytes32, Bounds memory) external pure override {
+        // todo: accumulate fees for the pool so they can be collected
+        revert CallPointNotImplemented();
+    }
 
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory result) {
         (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
@@ -87,37 +98,69 @@ contract MEVResist is BaseExtension, BaseForwardee {
             uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, feeMultiplier * poolFee));
             bool isExactOutput = amount < 0;
 
-            // take an additional fee from the swapper equal to the `additionalFee`
-            if (delta0 > 0) {
-                uint128 fee;
-                unchecked {
-                    uint128 inputAmount = uint128(uint256(int256(delta0)));
-                    // first remove the fee to get the original input amount before we compute the additional fee
-                    inputAmount -= computeFee(inputAmount, poolFee);
-                    fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
+            if (isExactOutput) {
+                // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
+                if (delta0 > 0) {
+                    uint128 fee;
+                    unchecked {
+                        uint128 inputAmount = uint128(uint256(int256(delta0)));
+                        // first remove the fee to get the original input amount before we compute the additional fee
+                        inputAmount -= computeFee(inputAmount, poolFee);
+                        fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
+                    }
+
+                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), fee, 0);
+                    delta0 += SafeCastLib.toInt128(fee);
+
+                    unchecked {
+                        ps.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees0) + fee));
+                    }
+                } else if (delta1 > 0) {
+                    uint128 fee;
+                    unchecked {
+                        uint128 inputAmount = uint128(uint256(int256(delta1)));
+                        // first remove the fee to get the original input amount before we compute the additional fee
+                        inputAmount -= computeFee(inputAmount, poolFee);
+                        fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
+                    }
+
+                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, fee);
+                    delta1 += SafeCastLib.toInt128(fee);
+
+                    unchecked {
+                        // saturated addition of the fees
+                        ps.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees1) + fee));
+                    }
                 }
+            } else {
+                // todo: take an additional fee from the calculated output amount equal to `additionalFee`
+                if (delta0 < 0) {
+                    uint128 fee;
+                    unchecked {
+                        uint128 outputAmount = uint128(uint256(-int256(delta0)));
+                        fee = computeFee(outputAmount, additionalFee);
+                    }
 
-                core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), fee, 0);
-                delta0 += SafeCastLib.toInt128(fee);
+                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), fee, 0);
+                    delta0 += SafeCastLib.toInt128(fee);
 
-                unchecked {
-                    ps.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees0) + fee));
-                }
-            } else if (delta1 > 0) {
-                uint128 fee;
-                unchecked {
-                    uint128 inputAmount = uint128(uint256(int256(delta1)));
-                    // first remove the fee to get the original input amount before we compute the additional fee
-                    inputAmount -= computeFee(inputAmount, poolFee);
-                    fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
-                }
+                    unchecked {
+                        ps.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees0) + fee));
+                    }
+                } else if (delta1 < 0) {
+                    uint128 fee;
+                    unchecked {
+                        uint128 outputAmount = uint128(uint256(-int256(delta1)));
+                        fee = computeFee(outputAmount, additionalFee);
+                    }
 
-                core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, fee);
-                delta1 += SafeCastLib.toInt128(fee);
+                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, fee);
+                    delta1 += SafeCastLib.toInt128(fee);
 
-                unchecked {
-                    // saturated addition of the fees
-                    ps.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees1) + fee));
+                    unchecked {
+                        // saturated addition of the fees
+                        ps.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees1) + fee));
+                    }
                 }
             }
         }

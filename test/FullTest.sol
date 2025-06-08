@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
-import {MEVResist} from "../src/extensions/MEVResist.sol";
 import {Positions} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
@@ -123,7 +122,6 @@ abstract contract FullTest is Test {
     Core core;
     Positions positions;
     Router router;
-    MEVResist mevResist;
 
     TestToken token0;
     TestToken token1;
@@ -192,5 +190,10 @@ abstract contract FullTest is Test {
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
         (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, bounds, amount0, amount1, 0);
+    }
+
+    function advanceTime(uint32 by) internal returns (uint256 next) {
+        next = vm.getBlockTimestamp() + by;
+        vm.warp(next);
     }
 }

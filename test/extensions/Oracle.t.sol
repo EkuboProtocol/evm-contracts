@@ -43,11 +43,6 @@ abstract contract BaseOracleTest is FullTest {
         positionId = positions.mint();
     }
 
-    function advanceTime(uint32 by) internal returns (uint256 next) {
-        next = vm.getBlockTimestamp() + by;
-        vm.warp(next);
-    }
-
     function movePrice(PoolKey memory poolKey, int32 targetTick) internal {
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolKey.toPoolId());
 

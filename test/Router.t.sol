@@ -704,6 +704,4 @@ contract RouterTest is FullTest {
         assertEq(tick, MIN_TICK - 1);
         assertEq(liquidityAfter, 0);
     }
-
-    receive() external payable {}
 }

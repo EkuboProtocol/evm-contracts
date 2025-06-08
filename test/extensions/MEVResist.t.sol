@@ -46,8 +46,6 @@ abstract contract BaseMEVResistTest is FullTest {
     {
         poolKey = createPool(address(token0), address(token1), tick, fee, tickSpacing, address(mevResist));
     }
-
-    receive() external payable {}
 }
 
 contract MEVResistTest is BaseMEVResistTest {

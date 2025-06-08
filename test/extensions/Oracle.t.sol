@@ -93,8 +93,6 @@ abstract contract BaseOracleTest is FullTest {
             liquidity = liquidityNext;
         }
     }
-
-    receive() external payable {}
 }
 
 contract ManyObservationsOracleTest is BaseOracleTest {

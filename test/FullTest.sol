@@ -196,4 +196,6 @@ abstract contract FullTest is Test {
         next = vm.getBlockTimestamp() + by;
         vm.warp(next);
     }
+
+    receive() external payable {}
 }

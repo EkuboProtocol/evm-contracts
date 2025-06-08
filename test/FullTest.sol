@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
+import {MEVResist} from "../src/extensions/MEVResist.sol";
 import {Positions} from "../src/Positions.sol";
 import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
@@ -122,6 +123,7 @@ abstract contract FullTest is Test {
     Core core;
     Positions positions;
     Router router;
+    MEVResist mevResist;
 
     TestToken token0;
     TestToken token1;

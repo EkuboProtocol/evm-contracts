@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import {ICore, PoolKey, Bounds, CallPoints, SqrtRatio} from "../interfaces/ICore.sol";
+import {ICore, PoolKey, Bounds, CallPoints, SqrtRatio, UpdatePositionParameters} from "../interfaces/ICore.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -21,7 +21,7 @@ function mevResistCallPoints() pure returns (CallPoints memory) {
         // so that we can prevent swaps that are not made via forward
         beforeSwap: true,
         afterSwap: false,
-        beforeUpdatePosition: false,
+        beforeUpdatePosition: true,
         afterUpdatePosition: false,
         // in order to accumulate any collected fees
         beforeCollectFees: true,
@@ -70,7 +70,13 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         revert SwapMustHappenThroughForward();
     }
 
+    // Allows users to collect pending fees before the first swap in the block happens
     function beforeCollectFees(address, PoolKey memory poolKey, bytes32, Bounds memory) external override {
+        accumulatePoolFees(poolKey);
+    }
+
+    /// Prevents new liquidity from collecting on fees
+    function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory) external override {
         accumulatePoolFees(poolKey);
     }
 

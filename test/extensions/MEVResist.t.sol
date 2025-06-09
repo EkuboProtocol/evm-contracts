@@ -456,4 +456,45 @@ contract MEVResistTest is BaseMEVResistTest {
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, MIN_TICK - 1);
     }
+
+    function test_new_position_does_not_get_fees() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+        Bounds memory bounds = Bounds(600_000, 800_000);
+        (uint256 id1,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
+        router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 500_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 2_000_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, 748_511);
+
+        advanceTime(1);
+        (uint256 id2,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id1, poolKey, bounds);
+        assertEq(amount0, 24_659);
+        assertEq(amount1, 39_461);
+
+        (amount0, amount1) = positions.collectFees(id2, poolKey, bounds);
+        assertEq(amount0, 0);
+        assertEq(amount1, 0);
+    }
 }

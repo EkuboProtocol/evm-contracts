@@ -240,4 +240,35 @@ contract MEVResistTest is BaseMEVResistTest {
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, -49376);
     }
+
+    function test_extra_fees_are_accumulated_in_next_block() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        Bounds memory bounds = Bounds(-100_000, 100_000);
+        (uint256 id,) = createPosition(poolKey, bounds, 1_000_000, 1_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 500_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, bounds);
+        assertEq(amount0, 4999);
+        assertEq(amount1, 0);
+
+        advanceTime(1);
+        (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
+        assertEq(amount0, 0);
+        assertEq(amount1, 9666);
+
+        advanceTime(1);
+        (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
+        assertEq(amount0, 0);
+        assertEq(amount1, 0);
+    }
 }

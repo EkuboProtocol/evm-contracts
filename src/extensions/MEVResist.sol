@@ -7,6 +7,7 @@ import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
+import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
@@ -27,7 +28,7 @@ function mevResistCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVResist is BaseExtension, BaseForwardee {
+contract MEVResist is BaseExtension, BaseForwardee, ILocker {
     using CoreLib for *;
 
     struct PoolState {
@@ -61,9 +62,54 @@ contract MEVResist is BaseExtension, BaseForwardee {
         revert SwapMustHappenThroughForward();
     }
 
-    function beforeCollectFees(address, PoolKey memory, bytes32, Bounds memory) external pure override {
-        // todo: accumulate fees for the pool so they can be collected
-        revert CallPointNotImplemented();
+    function beforeCollectFees(address, PoolKey memory poolKey, bytes32, Bounds memory) external override {
+        accumulatePoolFees(poolKey);
+    }
+
+    function accumulatePoolFees(PoolKey memory poolKey) public {
+        // the only thing we lock for is accumulating fees, so all we need to encode is the pool key
+        address target = address(core);
+        assembly ("memory-safe") {
+            let o := mload(0x40)
+            mstore(o, shl(224, 0xf83d08ba))
+            mcopy(add(o, 4), poolKey, 96)
+
+            // If the call failed, pass through the revert
+            if iszero(call(gas(), target, 0, o, 100, 0, 0)) {
+                returndatacopy(o, 0, returndatasize())
+                revert(o, returndatasize())
+            }
+        }
+    }
+
+    // Executes virtual orders for the specified initialized pool key. Protected because it is only called by core.
+    function locked(uint256) external override onlyCore {
+        PoolKey memory poolKey;
+        assembly ("memory-safe") {
+            poolKey := mload(0x40)
+            // points the free memory pointer at pointer + 96
+            mstore(0x40, add(poolKey, 96))
+
+            // copy the poolkey out of calldata at the free memory pointer
+            calldatacopy(poolKey, 36, 96)
+        }
+        _getAndUpdatePoolState(poolKey.toPoolId(), poolKey);
+    }
+
+    function _getAndUpdatePoolState(bytes32 poolId, PoolKey memory poolKey) private returns (PoolState storage state) {
+        state = poolState[poolId];
+
+        uint32 currentTime = uint32(block.timestamp);
+        // first thing's first, update the last update time
+        if (state.lastUpdateTime != currentTime) {
+            if (state.fees0 != 0 || state.fees1 != 0) {
+                core.accumulateAsFees(poolKey, state.fees0, state.fees1);
+                core.load(poolKey.token0, poolKey.token1, bytes32(0), state.fees0, state.fees1);
+                (state.fees0, state.fees1) = (0, 0);
+            }
+            (, state.tickLast,) = core.poolState(poolId);
+            state.lastUpdateTime = currentTime;
+        }
     }
 
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory result) {
@@ -71,34 +117,19 @@ contract MEVResist is BaseExtension, BaseForwardee {
             abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
 
         bytes32 poolId = poolKey.toPoolId();
-        PoolState memory ps = poolState[poolId];
+        PoolState storage state = _getAndUpdatePoolState(poolId, poolKey);
 
-        // first thing's first, update the last update time
-        if (ps.lastUpdateTime != uint32(block.timestamp)) {
-            if (ps.fees0 != 0 || ps.fees1 != 0) {
-                core.accumulateAsFees(poolKey, ps.fees0, ps.fees1);
-                core.load(poolKey.token0, poolKey.token1, bytes32(0), ps.fees0, ps.fees1);
-                ps.fees0 = 0;
-                ps.fees1 = 0;
-            }
-            (, ps.tickLast,) = core.poolState(poolId);
-            ps.lastUpdateTime = uint32(block.timestamp);
-        }
-
-        // todo: always charge the fee on the calculated amount
         (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
-
         (, int32 tickAfterSwap,) = core.poolState(poolId);
 
-        // however many tick spacings were crossed is the multiplier
-        uint256 feeMultiplier = FixedPointMathLib.abs(tickAfterSwap - ps.tickLast) / poolKey.tickSpacing();
+        // however many tick spacings were crossed is the fee multiplier
+        uint256 feeMultiplier = FixedPointMathLib.abs(tickAfterSwap - state.tickLast) / poolKey.tickSpacing();
 
         if (feeMultiplier != 0) {
             uint64 poolFee = poolKey.fee();
             uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, feeMultiplier * poolFee));
-            bool isExactOutput = amount < 0;
 
-            if (isExactOutput) {
+            if (amount < 0) {
                 // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
                 if (delta0 > 0) {
                     uint128 fee;
@@ -113,7 +144,7 @@ contract MEVResist is BaseExtension, BaseForwardee {
                     delta0 += SafeCastLib.toInt128(fee);
 
                     unchecked {
-                        ps.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees0) + fee));
+                        state.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees0) + fee));
                     }
                 } else if (delta1 > 0) {
                     uint128 fee;
@@ -129,11 +160,10 @@ contract MEVResist is BaseExtension, BaseForwardee {
 
                     unchecked {
                         // saturated addition of the fees
-                        ps.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees1) + fee));
+                        state.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees1) + fee));
                     }
                 }
             } else {
-                // todo: take an additional fee from the calculated output amount equal to `additionalFee`
                 if (delta0 < 0) {
                     uint128 fee;
                     unchecked {
@@ -145,7 +175,7 @@ contract MEVResist is BaseExtension, BaseForwardee {
                     delta0 += SafeCastLib.toInt128(fee);
 
                     unchecked {
-                        ps.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees0) + fee));
+                        state.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees0) + fee));
                     }
                 } else if (delta1 < 0) {
                     uint128 fee;
@@ -159,13 +189,11 @@ contract MEVResist is BaseExtension, BaseForwardee {
 
                     unchecked {
                         // saturated addition of the fees
-                        ps.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(ps.fees1) + fee));
+                        state.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees1) + fee));
                     }
                 }
             }
         }
-
-        poolState[poolId] = ps;
 
         result = abi.encode(delta0, delta1);
     }

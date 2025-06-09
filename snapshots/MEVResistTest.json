@@ -1,10 +1,10 @@
 {
-  "input_token0_move_tick_spacings": "80345",
-  "input_token0_no_movement": "55021",
-  "input_token1_move_tick_spacings": "80504",
-  "input_token1_no_movement": "55316",
-  "output_token0_move_tick_spacings": "82111",
-  "output_token0_no_movement": "56653",
-  "output_token1_move_tick_spacings": "81788",
-  "output_token1_no_movement": "56448"
+  "input_token0_move_tick_spacings": "80229",
+  "input_token0_no_movement": "54611",
+  "input_token1_move_tick_spacings": "80421",
+  "input_token1_no_movement": "54906",
+  "output_token0_move_tick_spacings": "82025",
+  "output_token0_no_movement": "56243",
+  "output_token1_move_tick_spacings": "81703",
+  "output_token1_no_movement": "56038"
 }

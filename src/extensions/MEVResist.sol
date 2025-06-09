@@ -144,12 +144,11 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         (, int32 tickAfterSwap,) = core.poolState(poolId);
 
         // however many tick spacings were crossed is the fee multiplier
-        uint256 feeMultiplier = FixedPointMathLib.abs(tickAfterSwap - tickStart) / poolKey.tickSpacing();
+        uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickStart) << 64) / poolKey.tickSpacing();
+        uint64 poolFee = poolKey.fee();
+        uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
-        if (feeMultiplier != 0) {
-            uint64 poolFee = poolKey.fee();
-            uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, feeMultiplier * poolFee));
-
+        if (additionalFee != 0) {
             if (amount < 0) {
                 // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
                 if (delta0 > 0) {

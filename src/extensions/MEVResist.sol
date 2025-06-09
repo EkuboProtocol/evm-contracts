@@ -42,9 +42,6 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         uint32 lastUpdateTime;
         // The tick from the last time the pool was touched
         int32 tickLast;
-        // The amount of additional fees that have been collected since the last time the pool was touched
-        uint96 fees0;
-        uint96 fees1;
     }
 
     /// @notice The state of each pool
@@ -65,8 +62,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             revert NonzeroFeesOnly();
         }
 
-        poolState[poolKey.toPoolId()] =
-            PoolState({lastUpdateTime: uint32(block.timestamp), tickLast: tick, fees0: 0, fees1: 0});
+        poolState[poolKey.toPoolId()] = PoolState({lastUpdateTime: uint32(block.timestamp), tickLast: tick});
     }
 
     /// @notice We only allow swapping via forward to this extension
@@ -114,11 +110,15 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         uint32 currentTime = uint32(block.timestamp);
         // first thing's first, update the last update time
         if (state.lastUpdateTime != currentTime) {
-            if (state.fees0 != 0 || state.fees1 != 0) {
-                core.accumulateAsFees(poolKey, state.fees0, state.fees1);
-                core.load(poolKey.token0, poolKey.token1, bytes32(0), state.fees0, state.fees1);
-                (state.fees0, state.fees1) = (0, 0);
+            (uint128 s0, uint128 s1) = core.savedBalances(address(this), poolKey.token0, poolKey.token1, poolId);
+            (uint128 f0, uint128 f1) =
+                (uint128(FixedPointMathLib.zeroFloorSub(s0, 1)), uint128(FixedPointMathLib.zeroFloorSub(s1, 1)));
+
+            if (f0 != 0 || f1 != 0) {
+                core.accumulateAsFees(poolKey, f0, f1);
+                core.load(poolKey.token0, poolKey.token1, poolId, f0, f1);
             }
+
             (, state.tickLast,) = core.poolState(poolId);
             state.lastUpdateTime = currentTime;
         }
@@ -152,12 +152,8 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), fee, 0);
+                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
                     delta0 += SafeCastLib.toInt128(fee);
-
-                    unchecked {
-                        state.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees0) + fee));
-                    }
                 } else if (delta1 > 0) {
                     uint128 fee;
                     unchecked {
@@ -167,13 +163,8 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, fee);
+                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
                     delta1 += SafeCastLib.toInt128(fee);
-
-                    unchecked {
-                        // saturated addition of the fees
-                        state.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees1) + fee));
-                    }
                 }
             } else {
                 if (delta0 < 0) {
@@ -183,12 +174,8 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = computeFee(outputAmount, additionalFee);
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), fee, 0);
+                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
                     delta0 += SafeCastLib.toInt128(fee);
-
-                    unchecked {
-                        state.fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees0) + fee));
-                    }
                 } else if (delta1 < 0) {
                     uint128 fee;
                     unchecked {
@@ -196,13 +183,8 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = computeFee(outputAmount, additionalFee);
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, fee);
+                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
                     delta1 += SafeCastLib.toInt128(fee);
-
-                    unchecked {
-                        // saturated addition of the fees
-                        state.fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(state.fees1) + fee));
-                    }
                 }
             }
         }

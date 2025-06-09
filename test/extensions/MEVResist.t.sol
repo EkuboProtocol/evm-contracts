@@ -289,7 +289,7 @@ contract MEVResistTest is BaseMEVResistTest {
         advanceTime(1);
         (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
         assertEq(amount0, 0);
-        assertEq(amount1, 9666);
+        assertEq(amount1, 9665);
 
         advanceTime(1);
         (amount0, amount1) = positions.collectFees(id, poolKey, bounds);

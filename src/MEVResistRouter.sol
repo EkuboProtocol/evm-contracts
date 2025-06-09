@@ -26,7 +26,9 @@ contract MEVResistRouter is Router {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal override returns (int128 delta0, int128 delta1) {
-        if (poolKey.extension() == address(mevResist)) {
+        if (poolKey.extension() != address(mevResist)) {
+            (delta0, delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        } else {
             (delta0, delta1) = abi.decode(
                 forward(address(mevResist), abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
                 (int128, int128)
@@ -34,8 +36,6 @@ contract MEVResistRouter is Router {
             if (value != 0) {
                 SafeTransferLib.safeTransferETH(address(core), value);
             }
-        } else {
-            (delta0, delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         }
     }
 }

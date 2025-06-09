@@ -368,4 +368,48 @@ contract MEVResistTest is BaseMEVResistTest {
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 642_496);
     }
+
+    function test_swap_max_fee_token0_input() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: type(int128).max,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+
+        assertEq(delta0, 1_054_639);
+        assertEq(delta1, 0);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, MIN_TICK - 1);
+    }
+
+    function test_swap_max_fee_token1_input() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: type(int128).max,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+
+        assertEq(delta0, 0);
+        assertEq(delta1, 2_123_781);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, MAX_TICK);
+    }
 }

@@ -104,8 +104,8 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         _getAndUpdatePoolState(poolKey.toPoolId(), poolKey);
     }
 
-    function _getAndUpdatePoolState(bytes32 poolId, PoolKey memory poolKey) private returns (PoolState storage state) {
-        state = poolState[poolId];
+    function _getAndUpdatePoolState(bytes32 poolId, PoolKey memory poolKey) private returns (int32 tick) {
+        PoolState storage state = poolState[poolId];
 
         uint32 currentTime = uint32(block.timestamp);
         // first thing's first, update the last update time
@@ -119,8 +119,8 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                 core.load(poolKey.token0, poolKey.token1, poolId, f0, f1);
             }
 
-            (, state.tickLast,) = core.poolState(poolId);
-            state.lastUpdateTime = currentTime;
+            (, tick,) = core.poolState(poolId);
+            (state.lastUpdateTime, state.tickLast) = (currentTime, tick);
         }
     }
 
@@ -129,13 +129,13 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
 
         bytes32 poolId = poolKey.toPoolId();
-        PoolState storage state = _getAndUpdatePoolState(poolId, poolKey);
+        int32 tickStart = _getAndUpdatePoolState(poolId, poolKey);
 
         (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         (, int32 tickAfterSwap,) = core.poolState(poolId);
 
         // however many tick spacings were crossed is the fee multiplier
-        uint256 feeMultiplier = FixedPointMathLib.abs(tickAfterSwap - state.tickLast) / poolKey.tickSpacing();
+        uint256 feeMultiplier = FixedPointMathLib.abs(tickAfterSwap - tickStart) / poolKey.tickSpacing();
 
         if (feeMultiplier != 0) {
             uint64 poolFee = poolKey.fee();

@@ -337,6 +337,29 @@ contract MEVResistTest is BaseMEVResistTest {
         assertEq(tick, 690_300);
     }
 
+    function test_swap_initial_tick_far_from_zero_no_additional_fees_output() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: -100_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees");
+
+        assertEq(delta0, -100_000);
+        assertEq(delta1, 205_416);
+        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        assertEq(tick, 709_845);
+    }
+
     function test_second_swap_with_additional_fees_gas_price() public {
         PoolKey memory poolKey =
             createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});

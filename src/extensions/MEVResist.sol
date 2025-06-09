@@ -4,12 +4,14 @@ pragma solidity ^0.8.28;
 import {ICore, PoolKey, Bounds, CallPoints, SqrtRatio} from "../interfaces/ICore.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
+import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 
 function mevResistCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -28,8 +30,12 @@ function mevResistCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVResist is BaseExtension, BaseForwardee, ILocker {
+contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     using CoreLib for *;
+
+    error ConcentratedLiquidityPoolsOnly();
+    error NonzeroFeesOnly();
+    error SwapMustHappenThroughForward();
 
     struct PoolState {
         // The last time we touched this pool
@@ -51,11 +57,17 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker {
     }
 
     function beforeInitializePool(address, PoolKey memory poolKey, int32 tick) external override {
+        if (poolKey.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
+            revert ConcentratedLiquidityPoolsOnly();
+        }
+        if (poolKey.fee() == 0) {
+            // nothing to multiply == no-op extension
+            revert NonzeroFeesOnly();
+        }
+
         poolState[poolKey.toPoolId()] =
             PoolState({lastUpdateTime: uint32(block.timestamp), tickLast: tick, fees0: 0, fees1: 0});
     }
-
-    error SwapMustHappenThroughForward();
 
     /// @notice We only allow swapping via forward to this extension
     function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure override {

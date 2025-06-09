@@ -28,6 +28,7 @@ import {MEVResistRouter} from "../../src/MEVResistRouter.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {MEVResistLib} from "../../src/libraries/MEVResistLib.sol";
 
 abstract contract BaseMEVResistTest is FullTest {
     MEVResist internal mevResist;
@@ -50,9 +51,33 @@ abstract contract BaseMEVResistTest is FullTest {
 
 contract MEVResistTest is BaseMEVResistTest {
     using CoreLib for *;
+    using MEVResistLib for *;
 
     function test_isRegistered() public view {
         assertTrue(core.isExtensionRegistered(address(mevResist)));
+    }
+
+    function test_pool_initialization_success(uint256 time, uint64 fee, uint32 tickSpacing, int32 tick) public {
+        vm.warp(time);
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        fee = uint64(bound(fee, 1, type(uint64).max));
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+
+        PoolKey memory poolKey = createMEVResistPool({fee: fee, tickSpacing: tickSpacing, tick: tick});
+
+        (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) = mevResist.poolState(poolKey.toPoolId());
+        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
+        assertEq(tickLast, tick);
+        assertEq(fees0, 0);
+        assertEq(fees1, 0);
+    }
+
+    function test_pool_initialization_validation() public {
+        vm.expectRevert(MEVResist.ConcentratedLiquidityPoolsOnly.selector);
+        createMEVResistPool({fee: 1, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, tick: 0});
+
+        vm.expectRevert(MEVResist.NonzeroFeesOnly.selector);
+        createMEVResistPool({fee: 0, tickSpacing: 1, tick: 0});
     }
 
     function test_swap_input_token0_no_movement() public {

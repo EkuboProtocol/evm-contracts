@@ -1,5 +1,6 @@
 {
-  "initial_tick_far_from_zero_no_additional_fees": "80403",
+  "initial_tick_far_from_zero_no_additional_fees": "79954",
+  "initial_tick_far_from_zero_no_additional_fees_output": "80403",
   "input_token0_move_tick_spacings": "79791",
   "input_token0_no_movement": "79791",
   "input_token1_move_tick_spacings": "79986",

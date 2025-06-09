@@ -352,7 +352,7 @@ contract MEVResistTest is BaseMEVResistTest {
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
-        vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees");
+        vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees_output");
 
         assertEq(delta0, -100_000);
         assertEq(delta1, 205_416);

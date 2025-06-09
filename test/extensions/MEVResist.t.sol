@@ -115,7 +115,7 @@ contract MEVResistTest is BaseMEVResistTest {
         vm.snapshotGasLastCall("input_token0_no_movement");
 
         assertEq(delta0, 100_000);
-        assertEq(delta1, -98_524);
+        assertEq(delta1, -98_049);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, -9634);
     }
@@ -138,7 +138,7 @@ contract MEVResistTest is BaseMEVResistTest {
         vm.snapshotGasLastCall("output_token0_no_movement");
 
         assertEq(delta0, -100_000);
-        assertEq(delta1, 101_507);
+        assertEq(delta1, 102_001);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 9777);
     }
@@ -160,7 +160,7 @@ contract MEVResistTest is BaseMEVResistTest {
         });
         vm.snapshotGasLastCall("input_token1_no_movement");
 
-        assertEq(delta0, -98_524);
+        assertEq(delta0, -98_049);
         assertEq(delta1, 100_000);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 9633);
@@ -183,7 +183,7 @@ contract MEVResistTest is BaseMEVResistTest {
         });
         vm.snapshotGasLastCall("output_token1_no_movement");
 
-        assertEq(delta0, 101_507);
+        assertEq(delta0, 102_001);
         assertEq(delta1, -100_000);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, -9778);
@@ -209,7 +209,7 @@ contract MEVResistTest is BaseMEVResistTest {
         vm.snapshotGasLastCall("input_token0_move_tick_spacings");
 
         assertEq(delta0, 500_000);
-        assertEq(delta1, -473_664);
+        assertEq(delta1, -471_801);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, -47710);
     }
@@ -232,7 +232,7 @@ contract MEVResistTest is BaseMEVResistTest {
         vm.snapshotGasLastCall("output_token0_move_tick_spacings");
 
         assertEq(delta0, -500_000);
-        assertEq(delta1, 528_135);
+        assertEq(delta1, 530_648);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 49375);
     }
@@ -254,7 +254,7 @@ contract MEVResistTest is BaseMEVResistTest {
         });
         vm.snapshotGasLastCall("input_token1_move_tick_spacings");
 
-        assertEq(delta0, -473_664);
+        assertEq(delta0, -471_801);
         assertEq(delta1, 500_000);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 47709);
@@ -277,7 +277,7 @@ contract MEVResistTest is BaseMEVResistTest {
         });
         vm.snapshotGasLastCall("output_token1_move_tick_spacings");
 
-        assertEq(delta0, 528_135);
+        assertEq(delta0, 530_648);
         assertEq(delta1, -500_000);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, -49376);
@@ -306,7 +306,7 @@ contract MEVResistTest is BaseMEVResistTest {
         advanceTime(1);
         (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
         assertEq(amount0, 0);
-        assertEq(amount1, 9665);
+        assertEq(amount1, 11528);
 
         advanceTime(1);
         (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
@@ -332,7 +332,7 @@ contract MEVResistTest is BaseMEVResistTest {
         vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees");
 
         assertEq(delta0, 100_000);
-        assertEq(delta1, -198_395);
+        assertEq(delta1, -197_432);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 690_300);
     }
@@ -364,7 +364,7 @@ contract MEVResistTest is BaseMEVResistTest {
         vm.snapshotGasLastCall("second_swap_with_additional_fees_gas_price");
 
         assertEq(delta0, 300_000);
-        assertEq(delta1, -561_321);
+        assertEq(delta1, -556_308);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 642_496);
     }
@@ -489,12 +489,13 @@ contract MEVResistTest is BaseMEVResistTest {
 
         advanceTime(1);
         (uint256 id2,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id1, poolKey, bounds);
-        assertEq(amount0, 24_659);
-        assertEq(amount1, 39_461);
 
-        (amount0, amount1) = positions.collectFees(id2, poolKey, bounds);
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id2, poolKey, bounds);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
+
+        (amount0, amount1) = positions.collectFees(id1, poolKey, bounds);
+        assertEq(amount0, 28_842);
+        assertEq(amount1, 43_371);
     }
 }

@@ -74,6 +74,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         accumulatePoolFees(poolKey);
     }
 
+    /// @notice Accumulates any pool fees from past blocks
     function accumulatePoolFees(PoolKey memory poolKey) public {
         // the only thing we lock for is accumulating fees, so all we need to encode is the pool key
         address target = address(core);

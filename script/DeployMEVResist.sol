@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {Script} from "forge-std/Script.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {MEVResist, mevResistCallPoints} from "../src/extensions/MEVResist.sol";
+import {MEVResistRouter} from "../src/MEVResistRouter.sol";
 import {findExtensionSalt} from "./DeployStateful.s.sol";
 
 contract DeployMEVResist is Script {
@@ -13,11 +14,15 @@ contract DeployMEVResist is Script {
 
         vm.startBroadcast();
 
-        new MEVResist{
-            salt: findExtensionSalt(
-                salt, keccak256(abi.encodePacked(type(MEVResist).creationCode, abi.encode(core))), mevResistCallPoints()
-            )
-        }(core);
+        address mevResist = address(
+            new MEVResist{
+                salt: findExtensionSalt(
+                    salt, keccak256(abi.encodePacked(type(MEVResist).creationCode, abi.encode(core))), mevResistCallPoints()
+                )
+            }(core)
+        );
+
+        new MEVResistRouter{salt: salt}(core, mevResist);
 
         vm.stopBroadcast();
     }

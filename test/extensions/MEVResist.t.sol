@@ -65,11 +65,18 @@ contract MEVResistTest is BaseMEVResistTest {
 
         PoolKey memory poolKey = createMEVResistPool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
-        (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) = mevResist.poolState(poolKey.toPoolId());
+        (uint32 lastUpdateTime, int32 tickLast) = mevResist.poolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
-        assertEq(fees0, 0);
-        assertEq(fees1, 0);
+    }
+
+    function test_accumulate_fees_for_any_pool(uint256 time, PoolKey memory poolKey) public {
+        // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
+        vm.warp(time);
+        mevResist.accumulatePoolFees(poolKey);
+        (uint32 lastUpdateTime, int32 tickLast) = mevResist.poolState(poolKey.toPoolId());
+        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
+        assertEq(tickLast, 0);
     }
 
     function test_pool_initialization_validation() public {

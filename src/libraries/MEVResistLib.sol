@@ -10,7 +10,7 @@ library MEVResistLib {
     function poolState(MEVResist mevResist, bytes32 poolId)
         internal
         view
-        returns (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1)
+        returns (uint32 lastUpdateTime, int32 tickLast)
     {
         bytes32 key;
         assembly ("memory-safe") {
@@ -24,8 +24,6 @@ library MEVResistLib {
         assembly ("memory-safe") {
             lastUpdateTime := and(s, 0xffffffff)
             tickLast := and(shr(32, s), 0xffffffff)
-            fees0 := and(shr(64, s), 0xffffffffffffffffffffffff)
-            fees1 := shr(160, s)
         }
     }
 }

@@ -121,6 +121,8 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
             (, tick,) = core.poolState(poolId);
             (state.lastUpdateTime, state.tickLast) = (currentTime, tick);
+        } else {
+            tick = state.tickLast;
         }
     }
 

@@ -57,7 +57,9 @@ contract MEVResistTest is BaseMEVResistTest {
         assertTrue(core.isExtensionRegistered(address(mevResist)));
     }
 
-    function test_pool_initialization_success(uint256 time, uint64 fee, uint32 tickSpacing, int32 tick) public {
+    function test_pool_initialization_success(uint256 time, uint64 fee, uint32 tickSpacing, int32 tick, uint32 warp)
+        public
+    {
         vm.warp(time);
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         fee = uint64(bound(fee, 1, type(uint64).max));
@@ -66,6 +68,14 @@ contract MEVResistTest is BaseMEVResistTest {
         PoolKey memory poolKey = createMEVResistPool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
         (uint32 lastUpdateTime, int32 tickLast) = mevResist.poolState(poolKey.toPoolId());
+        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
+        assertEq(tickLast, tick);
+
+        unchecked {
+            vm.warp(time + uint256(warp));
+        }
+        mevResist.accumulatePoolFees(poolKey);
+        (lastUpdateTime, tickLast) = mevResist.poolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
     }

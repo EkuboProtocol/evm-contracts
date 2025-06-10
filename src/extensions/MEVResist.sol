@@ -189,7 +189,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
             if iszero(staticcall(gas(), c, 0, 36, 0, 32)) { revert(0, 0) }
 
-            tick := and(shr(96, mload(0)), 0xffffffff)
+            tick := shr(224, mload(16))
         }
     }
 

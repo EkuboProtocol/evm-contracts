@@ -19,6 +19,7 @@ import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {MEVResist, mevResistCallPoints} from "../../src/extensions/MEVResist.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {OracleLib} from "../../src/libraries/OracleLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
@@ -50,9 +51,18 @@ abstract contract BaseMEVResistTest is FullTest {
 
 contract MEVResistTest is BaseMEVResistTest {
     using CoreLib for *;
+    using ExposedStorageLib for *;
 
     function test_isRegistered() public view {
         assertTrue(core.isExtensionRegistered(address(mevResist)));
+    }
+
+    function getPoolState(bytes32 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
+        bytes32 v = mevResist.sload(poolId);
+        assembly ("memory-safe") {
+            lastUpdateTime := shr(224, v)
+            tickLast := signextend(31, shr(192, v))
+        }
     }
 
     function test_pool_initialization_success(uint256 time, uint64 fee, uint32 tickSpacing, int32 tick, uint32 warp)
@@ -65,32 +75,26 @@ contract MEVResistTest is BaseMEVResistTest {
 
         PoolKey memory poolKey = createMEVResistPool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
-        (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) = mevResist.getPoolState(poolKey.toPoolId());
+        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
-        assertEq(fees0, 0);
-        assertEq(fees1, 0);
 
         unchecked {
             vm.warp(time + uint256(warp));
         }
         mevResist.accumulatePoolFees(poolKey);
-        (lastUpdateTime, tickLast, fees0, fees1) = mevResist.getPoolState(poolKey.toPoolId());
+        (lastUpdateTime, tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
-        assertEq(fees0, 0);
-        assertEq(fees1, 0);
     }
 
     function test_accumulate_fees_for_any_pool(uint256 time, PoolKey memory poolKey) public {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
         mevResist.accumulatePoolFees(poolKey);
-        (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) = mevResist.getPoolState(poolKey.toPoolId());
+        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, 0);
-        assertEq(fees0, 0);
-        assertEq(fees1, 0);
     }
 
     function test_pool_initialization_validation() public {
@@ -310,7 +314,7 @@ contract MEVResistTest is BaseMEVResistTest {
         advanceTime(1);
         (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
         assertEq(amount0, 0);
-        assertEq(amount1, 11528);
+        assertEq(amount1, 11529);
 
         advanceTime(1);
         (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
@@ -514,23 +518,15 @@ contract MEVResistTest is BaseMEVResistTest {
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 748_511);
 
-        (,, uint96 fees0, uint96 fees1) = mevResist.getPoolState(poolKey.toPoolId());
-        assertEq(fees0, 23_844);
-        assertEq(fees1, 23_373);
-
         advanceTime(1);
         (uint256 id2,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
-
-        (,, fees0, fees1) = mevResist.getPoolState(poolKey.toPoolId());
-        assertEq(fees0, 1);
-        assertEq(fees1, 1);
 
         (uint128 amount0, uint128 amount1) = positions.collectFees(id2, poolKey, bounds);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
         (amount0, amount1) = positions.collectFees(id1, poolKey, bounds);
-        assertEq(amount0, 28_842);
-        assertEq(amount1, 43_371);
+        assertEq(amount0, 28_843);
+        assertEq(amount1, 43_372);
     }
 }

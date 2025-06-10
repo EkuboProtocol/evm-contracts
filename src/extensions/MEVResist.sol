@@ -171,8 +171,12 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             tick := shr(224, mload(16))
 
             let fees := mload(32)
+
             fees0 := shr(128, fees)
+            fees0 := mul(gt(fees0, 1), sub(fees0, 1))
+
             fees1 := shr(128, shl(128, fees))
+            fees1 := mul(gt(fees1, 1), sub(fees1, 1))
         }
     }
 

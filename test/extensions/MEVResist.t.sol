@@ -28,7 +28,6 @@ import {MEVResistRouter} from "../../src/MEVResistRouter.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {MEVResistLib} from "../../src/libraries/MEVResistLib.sol";
 
 abstract contract BaseMEVResistTest is FullTest {
     MEVResist internal mevResist;
@@ -51,7 +50,6 @@ abstract contract BaseMEVResistTest is FullTest {
 
 contract MEVResistTest is BaseMEVResistTest {
     using CoreLib for *;
-    using MEVResistLib for *;
 
     function test_isRegistered() public view {
         assertTrue(core.isExtensionRegistered(address(mevResist)));
@@ -67,26 +65,32 @@ contract MEVResistTest is BaseMEVResistTest {
 
         PoolKey memory poolKey = createMEVResistPool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
-        (uint32 lastUpdateTime, int32 tickLast) = mevResist.poolState(poolKey.toPoolId());
+        (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) = mevResist.getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
+        assertEq(fees0, 0);
+        assertEq(fees1, 0);
 
         unchecked {
             vm.warp(time + uint256(warp));
         }
         mevResist.accumulatePoolFees(poolKey);
-        (lastUpdateTime, tickLast) = mevResist.poolState(poolKey.toPoolId());
+        (lastUpdateTime, tickLast, fees0, fees1) = mevResist.getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
+        assertEq(fees0, 0);
+        assertEq(fees1, 0);
     }
 
     function test_accumulate_fees_for_any_pool(uint256 time, PoolKey memory poolKey) public {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
         mevResist.accumulatePoolFees(poolKey);
-        (uint32 lastUpdateTime, int32 tickLast) = mevResist.poolState(poolKey.toPoolId());
+        (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) = mevResist.getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, 0);
+        assertEq(fees0, 0);
+        assertEq(fees1, 0);
     }
 
     function test_pool_initialization_validation() public {
@@ -510,8 +514,16 @@ contract MEVResistTest is BaseMEVResistTest {
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 748_511);
 
+        (,, uint96 fees0, uint96 fees1) = mevResist.getPoolState(poolKey.toPoolId());
+        assertEq(fees0, 23_844);
+        assertEq(fees1, 23_373);
+
         advanceTime(1);
         (uint256 id2,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
+
+        (,, fees0, fees1) = mevResist.getPoolState(poolKey.toPoolId());
+        assertEq(fees0, 1);
+        assertEq(fees1, 1);
 
         (uint128 amount0, uint128 amount1) = positions.collectFees(id2, poolKey, bounds);
         assertEq(amount0, 0);

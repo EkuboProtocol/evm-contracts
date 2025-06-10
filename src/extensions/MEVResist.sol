@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {ICore, PoolKey, Bounds, CallPoints, SqrtRatio, UpdatePositionParameters} from "../interfaces/ICore.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
@@ -30,22 +29,42 @@ function mevResistCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
+contract MEVResist is BaseExtension, BaseForwardee, ILocker {
     using CoreLib for *;
 
     error ConcentratedLiquidityPoolsOnly();
     error NonzeroFeesOnly();
     error SwapMustHappenThroughForward();
 
-    struct PoolState {
-        // The last time we touched this pool
-        uint32 lastUpdateTime;
-        // The tick from the last time the pool was touched
-        int32 tickLast;
+    /// @return lastUpdateTime The last time this pool was updated
+    /// @return tickLast The tick from the last time the pool was touched
+    /// @return fees0 The fees in token0 collected since the last time the pool was touched that will be donated in the next block that it is touched again
+    /// @return fees1 The fees in token1 collected since the last time the pool was touched that will be donated in the next block that it is touched again
+    function getPoolState(bytes32 poolId)
+        public
+        view
+        returns (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1)
+    {
+        assembly ("memory-safe") {
+            let v := sload(poolId)
+            lastUpdateTime := shr(224, v)
+            tickLast := signextend(31, shr(192, v))
+            fees0 := shr(160, shl(64, v))
+            fees1 := shr(160, shl(160, v))
+        }
     }
 
-    /// @notice The state of each pool
-    mapping(bytes32 poolId => PoolState) private poolState;
+    function setPoolState(bytes32 poolId, uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) private {
+        assembly ("memory-safe") {
+            sstore(
+                poolId,
+                or(
+                    or(or(shl(224, lastUpdateTime), shr(32, shl(224, tickLast))), shr(64, shl(160, fees0))),
+                    shr(160, shl(160, fees1))
+                )
+            )
+        }
+    }
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -62,7 +81,13 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             revert NonzeroFeesOnly();
         }
 
-        poolState[poolKey.toPoolId()] = PoolState({lastUpdateTime: uint32(block.timestamp), tickLast: tick});
+        setPoolState({
+            poolId: poolKey.toPoolId(),
+            lastUpdateTime: uint32(block.timestamp),
+            tickLast: tick,
+            fees0: 0,
+            fees1: 0
+        });
     }
 
     /// @notice We only allow swapping via forward to this extension
@@ -108,28 +133,33 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             // copy the poolkey out of calldata at the free memory pointer
             calldatacopy(poolKey, 36, 96)
         }
-        _getAndUpdatePoolState(poolKey.toPoolId(), poolKey);
-    }
 
-    function _getAndUpdatePoolState(bytes32 poolId, PoolKey memory poolKey) private returns (int32 tick) {
-        PoolState storage state = poolState[poolId];
+        bytes32 poolId = poolKey.toPoolId();
+
+        (uint32 lastUpdateTime,, uint96 fees0, uint96 fees1) = getPoolState(poolId);
 
         uint32 currentTime = uint32(block.timestamp);
-        // first thing's first, update the last update time
-        if (state.lastUpdateTime != currentTime) {
-            (uint128 s0, uint128 s1) = core.savedBalances(address(this), poolKey.token0, poolKey.token1, poolId);
-            (uint128 f0, uint128 f1) =
-                (uint128(FixedPointMathLib.zeroFloorSub(s0, 1)), uint128(FixedPointMathLib.zeroFloorSub(s1, 1)));
 
-            if (f0 != 0 || f1 != 0) {
-                core.accumulateAsFees(poolKey, f0, f1);
-                core.load(poolKey.token0, poolKey.token1, poolId, f0, f1);
+        unchecked {
+            if (lastUpdateTime != currentTime) {
+                (uint96 f0Pay, uint96 f1Pay) =
+                    (uint96(FixedPointMathLib.zeroFloorSub(fees0, 1)), uint96(FixedPointMathLib.zeroFloorSub(fees1, 1)));
+
+                if (f0Pay != 0 || f1Pay != 0) {
+                    core.accumulateAsFees(poolKey, f0Pay, f1Pay);
+                    core.load(poolKey.token0, poolKey.token1, bytes32(0), f0Pay, f1Pay);
+                }
+
+                (, int32 tick,) = core.poolState(poolId);
+
+                setPoolState({
+                    poolId: poolId,
+                    lastUpdateTime: currentTime,
+                    tickLast: tick,
+                    fees0: fees0 - f0Pay,
+                    fees1: fees1 - f1Pay
+                });
             }
-
-            (, tick,) = core.poolState(poolId);
-            (state.lastUpdateTime, state.tickLast) = (currentTime, tick);
-        } else {
-            tick = state.tickLast;
         }
     }
 
@@ -138,13 +168,32 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
 
         bytes32 poolId = poolKey.toPoolId();
-        int32 tickStart = _getAndUpdatePoolState(poolId, poolKey);
+        (uint32 lastUpdateTime, int32 tickLast, uint96 fees0, uint96 fees1) = getPoolState(poolId);
+
+        uint32 currentTime = uint32(block.timestamp);
+
+        unchecked {
+            if (lastUpdateTime != currentTime) {
+                (uint96 f0Pay, uint96 f1Pay) =
+                    (uint96(FixedPointMathLib.zeroFloorSub(fees0, 1)), uint96(FixedPointMathLib.zeroFloorSub(fees1, 1)));
+
+                if (f0Pay != 0 || f1Pay != 0) {
+                    core.accumulateAsFees(poolKey, f0Pay, f1Pay);
+                    core.load(poolKey.token0, poolKey.token1, bytes32(0), f0Pay, f1Pay);
+                }
+
+                (, tickLast,) = core.poolState(poolId);
+                fees0 -= f0Pay;
+                fees1 -= f1Pay;
+            }
+        }
 
         (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+
         (, int32 tickAfterSwap,) = core.poolState(poolId);
 
         // however many tick spacings were crossed is the fee multiplier
-        uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickStart) << 64) / poolKey.tickSpacing();
+        uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickLast) << 64) / poolKey.tickSpacing();
         uint64 poolFee = poolKey.fee();
         uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
@@ -160,7 +209,11 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
+                    unchecked {
+                        fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(fee) + fees0));
+                        // we save the entire amount even if it overflows
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), fee, 0);
+                    }
                     delta0 += SafeCastLib.toInt128(fee);
                 } else if (delta1 > 0) {
                     uint128 fee;
@@ -171,7 +224,11 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
+                    unchecked {
+                        fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(fee) + fees1));
+                        // we save the entire amount even if it overflows
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, fee);
+                    }
                     delta1 += SafeCastLib.toInt128(fee);
                 }
             } else {
@@ -182,7 +239,11 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = computeFee(outputAmount, additionalFee);
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
+                    unchecked {
+                        fees0 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(fee) + fees0));
+                        // we save the entire amount even if it overflows
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), fee, 0);
+                    }
                     delta0 += SafeCastLib.toInt128(fee);
                 } else if (delta1 < 0) {
                     uint128 fee;
@@ -191,11 +252,17 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = computeFee(outputAmount, additionalFee);
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
+                    unchecked {
+                        fees1 = uint96(FixedPointMathLib.min(type(uint96).max, uint256(fee) + fees1));
+                        // we save the entire amount even if it overflows
+                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, fee);
+                    }
                     delta1 += SafeCastLib.toInt128(fee);
                 }
             }
         }
+
+        setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast, fees0: fees0, fees1: fees1});
 
         result = abi.encode(delta0, delta1);
     }

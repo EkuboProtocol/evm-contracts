@@ -210,7 +210,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             if (lastUpdateTime != currentTime) {
                 (int32 tick, uint128 fees0, uint128 fees1) = loadCoreState(poolId, poolKey.token0, poolKey.token1);
 
-                if (fees0 != 0 || fees1 != 1) {
+                if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
                     core.load(poolKey.token0, poolKey.token1, poolId, fees0, fees1);
                 }

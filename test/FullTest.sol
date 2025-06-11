@@ -191,4 +191,11 @@ abstract contract FullTest is Test {
 
         (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, bounds, amount0, amount1, 0);
     }
+
+    function advanceTime(uint32 by) internal returns (uint256 next) {
+        next = vm.getBlockTimestamp() + by;
+        vm.warp(next);
+    }
+
+    receive() external payable {}
 }

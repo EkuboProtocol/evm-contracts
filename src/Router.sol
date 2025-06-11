@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
+import {IForwardee} from "./interfaces/IFlashAccountant.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
@@ -48,6 +49,17 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
+    function _swap(
+        uint256 value,
+        PoolKey memory poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) internal virtual returns (int128 delta0, int128 delta1) {
+        (delta0, delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+    }
+
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
 
@@ -84,7 +96,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                     )
                 );
 
-                (int128 delta0, int128 delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+                (int128 delta0, int128 delta1) = _swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
                 int128 amountCalculated = isToken1 ? -delta0 : -delta1;
                 if (amountCalculated < calculatedAmountThreshold) {
@@ -158,7 +170,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         );
 
                         (int128 delta0, int128 delta1) =
-                            core.swap(0, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
+                            _swap(0, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
                         results[i][j] = Delta(delta0, delta1);
 
                         if (isToken1) {

@@ -4,7 +4,15 @@ pragma solidity =0.8.28;
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../src/types/sqrtRatio.sol";
+import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
+import {
+    MIN_SQRT_RATIO,
+    MAX_SQRT_RATIO,
+    MIN_SQRT_RATIO_RAW,
+    MAX_SQRT_RATIO_RAW,
+    SqrtRatio,
+    toSqrtRatio
+} from "../src/types/sqrtRatio.sol";
 import {
     FULL_RANGE_ONLY_TICK_SPACING,
     MIN_TICK,
@@ -15,7 +23,7 @@ import {
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
-import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {Router, defaultSqrtRatioLimit, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -23,6 +31,19 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;
+
+    function test_defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 amount) public pure {
+        SqrtRatio result = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
+        if (SqrtRatio.unwrap(sqrtRatioLimit) == 0) {
+            if (isPriceIncreasing(amount, isToken1)) {
+                assertEq(SqrtRatio.unwrap(result), MAX_SQRT_RATIO_RAW);
+            } else {
+                assertEq(SqrtRatio.unwrap(result), MIN_SQRT_RATIO_RAW);
+            }
+        } else {
+            assertEq(SqrtRatio.unwrap(result), SqrtRatio.unwrap(sqrtRatioLimit));
+        }
+    }
 
     function test_basicSwap_token0_in(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);

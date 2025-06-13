@@ -128,6 +128,23 @@ contract MEVResistTest is BaseMEVResistTest {
         assertEq(tick, -9634);
     }
 
+    function test_quote() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+
+        (int128 delta0, int128 delta1) = router.quote({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 100_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0
+        });
+
+        assertEq(delta0, 100_000);
+        assertEq(delta1, -98_049);
+    }
+
     function test_swap_output_token0_no_movement() public {
         PoolKey memory poolKey =
             createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});

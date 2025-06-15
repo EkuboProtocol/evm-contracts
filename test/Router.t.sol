@@ -533,6 +533,7 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 100);
 
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
@@ -547,6 +548,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 100);
 
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
@@ -560,6 +562,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
         createPosition(poolKey, Bounds(-200, 200), 1000, 1000);
 
+        coolAllContracts();
         router.swap{value: 1500}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 1500}),
@@ -575,6 +578,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 1500);
 
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 1500}),
@@ -587,6 +591,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
 
+        coolAllContracts();
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
@@ -599,6 +604,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);
 
+        coolAllContracts();
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
@@ -612,6 +618,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);
 
         token1.approve(address(router), 100);
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),

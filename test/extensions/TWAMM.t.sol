@@ -45,6 +45,11 @@ abstract contract BaseTWAMMTest is FullTest {
     function createTwammPool(uint64 fee, int32 tick) internal returns (PoolKey memory poolKey) {
         poolKey = createPool(address(token0), address(token1), tick, fee, FULL_RANGE_ONLY_TICK_SPACING, address(twamm));
     }
+
+    function coolAllContracts() internal virtual override {
+        FullTest.coolAllContracts();
+        vm.cool(address(twamm));
+    }
 }
 
 contract TWAMMTest is BaseTWAMMTest {

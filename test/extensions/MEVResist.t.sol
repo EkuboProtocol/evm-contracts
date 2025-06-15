@@ -41,6 +41,11 @@ abstract contract BaseMEVResistTest is FullTest {
         router = new MEVResistRouter(core, address(mevResist));
     }
 
+    function coolAllContracts() internal virtual override {
+        FullTest.coolAllContracts();
+        vm.cool(address(mevResist));
+    }
+
     function createMEVResistPool(uint64 fee, uint32 tickSpacing, int32 tick)
         internal
         returns (PoolKey memory poolKey)
@@ -111,6 +116,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: false,
@@ -151,6 +157,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: false,
@@ -174,6 +181,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: true,
@@ -197,6 +205,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: true,
@@ -222,6 +231,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: false,
@@ -245,6 +255,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: false,
@@ -268,6 +279,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: true,
@@ -291,6 +303,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: true,
@@ -345,6 +358,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: false,
@@ -368,6 +382,7 @@ contract MEVResistTest is BaseMEVResistTest {
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: false,
@@ -400,6 +415,7 @@ contract MEVResistTest is BaseMEVResistTest {
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
+        coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
             isToken1: false,
@@ -415,6 +431,47 @@ contract MEVResistTest is BaseMEVResistTest {
         assertEq(delta1, -556_308);
         (, int32 tick,) = core.poolState(poolKey.toPoolId());
         assertEq(tick, 642_496);
+    }
+
+    function test_second_swap_after_some_time_gas_price() public {
+        PoolKey memory poolKey =
+            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
+        router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 300_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 900_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+
+        advanceTime(1);
+
+        coolAllContracts();
+        router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 500_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("third_swap_accumulates_fees");
     }
 
     function test_swap_max_fee_token0_input() public {

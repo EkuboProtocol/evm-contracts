@@ -136,6 +136,15 @@ abstract contract FullTest is Test {
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
     }
 
+    function coolAllContracts() internal virtual {
+        vm.cool(address(core));
+        vm.cool(address(positions));
+        vm.cool(address(router));
+        vm.cool(address(token0));
+        vm.cool(address(token1));
+        vm.cool(address(this));
+    }
+
     function createAndRegisterExtension(CallPoints memory callPoints) internal returns (address) {
         address impl = address(new MockExtension());
         uint8 b = callPoints.toUint8();

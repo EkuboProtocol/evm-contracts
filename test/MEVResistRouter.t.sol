@@ -12,4 +12,8 @@ contract MEVResistRouterTest is RouterTest, BaseMEVResistTest {
     function setUp() public override(BaseMEVResistTest, FullTest) {
         BaseMEVResistTest.setUp();
     }
+
+    function coolAllContracts() internal virtual override(FullTest, BaseMEVResistTest) {
+        BaseMEVResistTest.coolAllContracts();
+    }
 }

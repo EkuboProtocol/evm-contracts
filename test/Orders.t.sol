@@ -585,12 +585,14 @@ contract OrdersTest is BaseOrdersTest {
 
         OrderKey memory key =
             OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        coolAllContracts();
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(first order)");
 
         advanceTime(8);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders single sided");
     }
@@ -612,12 +614,14 @@ contract OrdersTest is BaseOrdersTest {
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
         OrderKey memory key1 =
             OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        coolAllContracts();
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(second order)");
 
         advanceTime(8);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided");
     }
@@ -698,6 +702,7 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(type(uint32).max);
 
+        coolAllContracts();
         twamm.lockAndExecuteVirtualOrders(poolKey);
         vm.snapshotGasLastCall("lockAndExecuteVirtualOrders max cost");
     }

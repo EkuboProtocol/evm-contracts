@@ -13,8 +13,6 @@ abstract contract FlashAccountant is IFlashAccountant {
     // cast keccak "FlashAccountant#NONZERO_DEBT_COUNT_OFFSET"
     uint256 private constant _NONZERO_DEBT_COUNT_OFFSET =
         0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d;
-    // cast keccak "FlashAccountant#DEBT_HASH_OFFSET"
-    uint256 private constant _DEBT_HASH_OFFSET = 0x3fee1dc3ade45aa30d633b5b8645760533723e46597841ef1126c6577a091742;
     // cast keccak "FlashAccountant#_PAYMENT_TOKEN_ADDRESS_OFFSET"
     uint256 private constant _PAYMENT_TOKEN_ADDRESS_OFFSET =
         0x6747da56dbd05b26a7ecd2a0106781585141cf07098ad54c0e049e4e86dccb8c;
@@ -45,7 +43,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
             if iszero(iszero(debtChange)) {
-                mstore(0, add(add(shl(160, id), token), _DEBT_HASH_OFFSET))
+                mstore(0, add(shl(160, id), token))
                 let deltaSlot := keccak256(0, 32)
                 let current := tload(deltaSlot)
 
@@ -173,51 +171,59 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    // todo: big optimization opportunity in account delta being called multiple times
     function completePayments() external {
-        unchecked {
-            (uint256 id,) = _getLocker();
+        (uint256 id,) = _getLocker();
 
-            for (uint256 i = 4; i < msg.data.length; i += 32) {
-                address token;
-                uint256 payment;
+        assembly ("memory-safe") {
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
+                let token := shr(96, shl(96, calldataload(i)))
 
-                assembly ("memory-safe") {
-                    token := shr(96, shl(96, calldataload(i)))
+                let offset := add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token)
+                let lastBalance := tload(offset)
+                tstore(offset, 0)
 
-                    let offset := add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token)
-                    let lastBalance := tload(offset)
-                    tstore(offset, 0)
+                mstore(20, address()) // Store the `account` argument.
+                mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
 
-                    mstore(20, address()) // Store the `account` argument.
-                    mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
-
-                    let currentBalance :=
-                        mul( // The arguments of `mul` are evaluated from right to left.
-                            mload(0),
-                            and( // The arguments of `and` are evaluated from right to left.
-                                gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                                staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
-                            )
+                let currentBalance :=
+                    mul( // The arguments of `mul` are evaluated from right to left.
+                        mload(0),
+                        and( // The arguments of `and` are evaluated from right to left.
+                            gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                            staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
                         )
+                    )
 
-                    payment :=
-                        mul(
-                            and(gt(lastBalance, 0), not(lt(currentBalance, lastBalance))),
-                            sub(currentBalance, sub(lastBalance, 1))
-                        )
+                let payment :=
+                    mul(
+                        and(gt(lastBalance, 0), not(lt(currentBalance, lastBalance))),
+                        sub(currentBalance, sub(lastBalance, 1))
+                    )
 
-                    // We never expect tokens to have this much total supply
-                    if shr(128, payment) {
-                        // cast sig "PaymentOverflow()"
-                        mstore(0x00, 0x9cac58ca)
-                        revert(0x1c, 4)
+                // We never expect tokens to have this much total supply
+                if shr(128, payment) {
+                    // cast sig "PaymentOverflow()"
+                    mstore(0x00, 0x9cac58ca)
+                    revert(0x1c, 4)
+                }
+
+                if iszero(iszero(payment)) {
+                    mstore(0, add(shl(160, id), token))
+                    let deltaSlot := keccak256(0, 32)
+                    let current := tload(deltaSlot)
+
+                    // never overflows because of the payment overflow check that bounds payment to 128 bits
+                    let next := sub(current, payment)
+
+                    let nextZero := iszero(next)
+                    if xor(iszero(current), nextZero) {
+                        let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+
+                        tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
                     }
 
-                    // todo: write payment to somewhere
+                    tstore(deltaSlot, next)
                 }
-                // The unary negative operator never fails because payment is less than max uint128
-                _accountDebt(id, token, -int256(payment));
             }
         }
     }

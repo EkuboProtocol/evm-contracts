@@ -322,6 +322,7 @@ contract PositionsTest is FullTest {
 
         Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
 
+        coolAllContracts();
         (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range max");
         assertGt(liquidity, 0);
@@ -350,6 +351,7 @@ contract PositionsTest is FullTest {
 
         Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
 
+        coolAllContracts();
         (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range min");
         assertGt(liquidity, 0);
@@ -438,6 +440,7 @@ contract PositionsTest is FullTest {
 
         Bounds memory bounds = Bounds({lower: -100, upper: 100});
 
+        coolAllContracts();
         positions.mintAndDeposit(poolKey, bounds, 100, 100, 0);
         vm.snapshotGasLastCall("mintAndDeposit");
     }
@@ -448,6 +451,7 @@ contract PositionsTest is FullTest {
 
         Bounds memory bounds = Bounds({lower: -100, upper: 100});
 
+        coolAllContracts();
         positions.mintAndDeposit{value: 100}(poolKey, bounds, 100, 100, 0);
         vm.snapshotGasLastCall("mintAndDeposit eth");
     }
@@ -466,6 +470,7 @@ contract PositionsTest is FullTest {
 
         Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
 
+        coolAllContracts();
         positions.mintAndDeposit(poolKey, bounds, 1e18, 1e18, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range both tokens");
     }

@@ -43,9 +43,9 @@ abstract contract BaseOracleTest is FullTest {
         positionId = positions.mint();
     }
 
-    function advanceTime(uint32 by) internal returns (uint256 next) {
-        next = vm.getBlockTimestamp() + by;
-        vm.warp(next);
+    function coolAllContracts() internal virtual override {
+        FullTest.coolAllContracts();
+        vm.cool(address(oracle));
     }
 
     function movePrice(PoolKey memory poolKey, int32 targetTick) internal {
@@ -98,8 +98,6 @@ abstract contract BaseOracleTest is FullTest {
             liquidity = liquidityNext;
         }
     }
-
-    receive() external payable {}
 }
 
 contract ManyObservationsOracleTest is BaseOracleTest {
@@ -149,6 +147,7 @@ contract ManyObservationsOracleTest is BaseOracleTest {
         timestamps[3] = startTime + 36;
         timestamps[4] = startTime + 40;
         timestamps[5] = startTime + 44;
+        coolAllContracts();
         oracle.getExtrapolatedSnapshotsForSortedTimestamps(token, timestamps);
         vm.snapshotGasLastCall("getExtrapolatedSnapshotsForSortedTimestamps(6 timestamps)");
     }
@@ -784,6 +783,7 @@ contract OracleTest is BaseOracleTest {
         timestamps[5] = poolCreationTime + 15;
         timestamps[6] = poolCreationTime + 18;
         timestamps[7] = poolCreationTime + 21;
+        coolAllContracts();
         Oracle.Observation[] memory observations =
             oracle.getExtrapolatedSnapshotsForSortedTimestamps(address(token1), timestamps);
 
@@ -851,16 +851,20 @@ contract OracleTest is BaseOracleTest {
         router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
 
         advanceTime(1);
+        coolAllContracts();
         router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token1 in with write");
 
         advanceTime(1);
+        coolAllContracts();
         router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token0 in with write");
 
+        coolAllContracts();
         router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token1 in no write");
 
+        coolAllContracts();
         router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token0 in no write");
     }

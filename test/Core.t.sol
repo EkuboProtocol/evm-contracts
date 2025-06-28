@@ -5,6 +5,7 @@ import {FullTest, MockExtension} from "./FullTest.sol";
 import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
@@ -13,40 +14,6 @@ import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Core} from "../src/Core.sol";
-
-contract DoubleCountingBugTest is FullTest {
-    using CoreLib for *;
-
-    function payCallback(uint256 id, address) external {
-        if (id == 0) {
-            (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
-            assertTrue(success);
-        } else {
-            token0.transfer(address(core), 100);
-        }
-    }
-
-    function locked(uint256 id) external {
-        if (id == 0) {
-            core.pay(address(token0));
-            core.load(address(token0), bytes32(0), 100);
-            core.withdraw(address(token0), address(this), 2 * 100);
-        } else {
-            core.pay(address(token0));
-            core.save(address(this), address(token0), bytes32(0), 100);
-        }
-    }
-
-    function test_double_counting_bug() public {
-        token0.transfer(address(core), 100);
-
-        assertEq(token0.balanceOf(address(core)), 100);
-        vm.expectRevert(IFlashAccountant.PayReentrance.selector);
-        (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, bytes32(0)));
-        assertFalse(success);
-        assertEq(token0.balanceOf(address(core)), 100);
-    }
-}
 
 contract CoreTest is FullTest {
     using CoreLib for *;
@@ -146,6 +113,7 @@ contract CoreTest is FullTest {
 }
 
 contract SavedBalancesTest is FullTest {
+    using FlashAccountantLib for *;
     using CoreLib for *;
 
     function payCallback(uint256, address token) external {
@@ -178,8 +146,8 @@ contract SavedBalancesTest is FullTest {
                 core.withdraw(token, address(this), amount);
             } else {
                 core.save(saveTo, token, salt, amount);
-                (bool success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token, amount));
-                assertTrue(success);
+
+                core.pay(token, amount);
             }
         } else if (length == 228) {
             address saveTo;
@@ -202,9 +170,15 @@ contract SavedBalancesTest is FullTest {
                 core.withdraw(token1, address(this), amount1);
             } else {
                 core.save(saveTo, token0, token1, salt, amount0, amount1);
-                (bool success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token0, amount0));
+
+                (bool success,) =
+                    address(core).call(abi.encodeWithSelector(core.startPayments.selector, token0, token1));
                 assertTrue(success);
-                (success,) = address(core).call(abi.encodeWithSelector(core.pay.selector, token1, amount1));
+
+                IERC20(token0).transfer(address(core), amount0);
+                IERC20(token1).transfer(address(core), amount1);
+
+                (success,) = address(core).call(abi.encodeWithSelector(core.completePayments.selector, token0, token1));
                 assertTrue(success);
             }
         } else {

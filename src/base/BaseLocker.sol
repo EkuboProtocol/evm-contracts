@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {ILocker, IPayer, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {ILocker, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 
-abstract contract BaseLocker is ILocker, IPayer {
+abstract contract BaseLocker is ILocker {
+    using FlashAccountantLib for *;
+
     error BaseLockerAccountantOnly();
 
     IFlashAccountant internal immutable accountant;
@@ -27,19 +30,6 @@ abstract contract BaseLocker is ILocker, IPayer {
             // raw return whatever the handler sent
             return(add(result, 32), mload(result))
         }
-    }
-
-    function payCallback(uint256, address token) external {
-        if (msg.sender != address(accountant)) revert BaseLockerAccountantOnly();
-
-        address from;
-        uint256 amount;
-        assembly ("memory-safe") {
-            from := calldataload(68)
-            amount := calldataload(100)
-        }
-
-        SafeTransferLib.safeTransferFrom2(token, from, address(accountant), amount);
     }
 
     /// INTERNAL FUNCTIONS
@@ -113,22 +103,7 @@ abstract contract BaseLocker is ILocker, IPayer {
             if (token == NATIVE_TOKEN_ADDRESS) {
                 SafeTransferLib.safeTransferETH(address(accountant), amount);
             } else {
-                address target = address(accountant);
-                assembly ("memory-safe") {
-                    let free := mload(0x40)
-                    // selector of pay(address)
-                    mstore(free, shl(224, 0x0c11dedd))
-                    mstore(add(free, 4), token)
-                    // additional data is appended to the payCallback
-                    mstore(add(free, 36), from)
-                    mstore(add(free, 68), amount)
-
-                    // if it failed, pass through revert
-                    if iszero(call(gas(), target, 0, free, 100, 0, 0)) {
-                        returndatacopy(free, 0, returndatasize())
-                        revert(free, returndatasize())
-                    }
-                }
+                accountant.payFrom(from, token, amount);
             }
         }
     }

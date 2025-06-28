@@ -135,8 +135,6 @@ contract FlashAccountantTest is Test {
     function test_callbacksByAccountantOnly() public {
         vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
         actor.locked(0);
-        vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
-        actor.payCallback(0, NATIVE_TOKEN_ADDRESS);
         vm.expectRevert(BaseForwardee.BaseForwardeeAccountantOnly.selector);
         actor.forwarded(0, address(0));
     }
@@ -269,45 +267,5 @@ contract FlashAccountantTest is Test {
         }
 
         actor.doStuff(actions);
-    }
-}
-
-contract DoubleCountingNoLoadBugTest is Test {
-    Accountant accountant;
-    TestToken token;
-
-    function setUp() public {
-        accountant = new Accountant();
-        token = new TestToken(address(this));
-    }
-
-    function payCallback(uint256, address) external {
-        uint256 nesting;
-        assembly ("memory-safe") {
-            nesting := calldataload(64)
-        }
-
-        if (nesting == 0) {
-            (bool success,) =
-                address(accountant).call(abi.encodeWithSelector(accountant.pay.selector, token, uint256(1)));
-            require(success);
-        } else {
-            token.transfer(address(accountant), 100);
-        }
-    }
-
-    function locked(uint256) external {
-        accountant.pay(address(token));
-        accountant.withdraw(address(token), address(this), 200);
-    }
-
-    function test_double_counting_bug() public {
-        token.transfer(address(accountant), 100);
-
-        assertEq(token.balanceOf(address(accountant)), 100);
-        vm.expectRevert(IFlashAccountant.PayReentrance.selector);
-        (bool success,) = address(accountant).call(abi.encodeWithSelector(IFlashAccountant.lock.selector, bytes32(0)));
-        assertFalse(success);
-        assertEq(token.balanceOf(address(accountant)), 100);
     }
 }

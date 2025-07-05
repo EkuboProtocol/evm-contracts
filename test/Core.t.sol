@@ -7,6 +7,7 @@ import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICo
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {SavedBalanceKey} from "../src/types/savedBalanceKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
@@ -165,11 +166,19 @@ contract SavedBalancesTest is FullTest {
                 amount1 := calldataload(196)
             }
             if (saveTo == address(0)) {
-                core.load(token0, token1, salt, amount0, amount1);
+                core.updateSavedBalances(
+                    SavedBalanceKey({owner: address(this), token0: token0, token1: token1, salt: bytes32(0)}),
+                    -int128(amount0),
+                    -int128(amount1)
+                );
                 core.withdraw(token0, address(this), amount0);
                 core.withdraw(token1, address(this), amount1);
             } else {
-                core.save(saveTo, token0, token1, salt, amount0, amount1);
+                core.updateSavedBalances(
+                    SavedBalanceKey({owner: address(this), token0: token0, token1: token1, salt: bytes32(0)}),
+                    int128(amount0),
+                    int128(amount1)
+                );
 
                 (bool success,) =
                     address(core).call(abi.encodeWithSelector(core.startPayments.selector, token0, token1));
@@ -301,12 +310,18 @@ contract SavedBalancesTest is FullTest {
         assertFalse(success);
     }
 
-    function test_cannot_save_same_token() public {
+    function test_cannot_update_saved_balance_same_token() public {
         vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
-        core.save(address(this), address(0), address(0), bytes32(0), 0, 0);
+        core.updateSavedBalances(
+            SavedBalanceKey({owner: address(this), token0: address(0), token1: address(0), salt: bytes32(0)}), 0, 0
+        );
+    }
 
+    function test_cannot_update_saved_balance_token1_gt_token0() public {
         vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
-        core.save(address(this), address(1), address(0), bytes32(0), 0, 0);
+        core.updateSavedBalances(
+            SavedBalanceKey({owner: address(this), token0: address(1), token1: address(0), salt: bytes32(0)}), 0, 0
+        );
     }
 
     function test_cannot_load_same_token() public {
@@ -316,11 +331,11 @@ contract SavedBalancesTest is FullTest {
         assertFalse(success);
     }
 
-    function test_can_load_same_token_no_op() public {
+    function test_cannot_load_same_token_no_op() public {
         (bool success,) = address(core).call(
             abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token0), bytes32(0), 0, 0)
         );
-        assertTrue(success);
+        assertFalse(success);
     }
 
     function test_salt_separates_balances() public {

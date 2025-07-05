@@ -481,34 +481,34 @@ contract RouterTest is FullTest {
         for (uint256 i = 0; i < 4; i++) {
             assertEq(logs[i].emitter, address(core));
             assertEq(logs[i].topics.length, 0);
-            assertEq(logs[i].data.length, 116);
+            assertEq(logs[i].data.length, 100);
             address locker = address(bytes20(LibBytes.load(logs[i].data, 0)));
             assertEq(locker, address(router));
-            bytes32 poolId = LibBytes.load(logs[i].data, 20);
+            bytes16 poolId = bytes16(LibBytes.load(logs[i].data, 20));
             assertEq(poolId, poolKey.toPoolId());
 
-            assertEq(uint256(LibBytes.load(logs[i].data, 84)) >> 128, liquidity);
+            assertEq(uint256(LibBytes.load(logs[i].data, 68)) >> 128, liquidity);
         }
 
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 52)))), deltas[0][0].amount0);
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 68)))), deltas[0][0].amount1);
-        assertEq(uint256(LibBytes.load(logs[0].data, 100)) >> 128, 170141183480276371393426350902574317577);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[0].data, 112)))), 9);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 36)))), deltas[0][0].amount0);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 52)))), deltas[0][0].amount1);
+        assertEq(uint256(LibBytes.load(logs[0].data, 84)) >> 128, 170141183480276371393426350902574317577);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[0].data, 96)))), 9);
 
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 52)))), deltas[0][1].amount0);
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 68)))), deltas[0][1].amount1);
-        assertEq(uint256(LibBytes.load(logs[1].data, 100)) >> 128, 170140749613641222860389214663852687349);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[1].data, 112)))), -11);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 36)))), deltas[0][1].amount0);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 52)))), deltas[0][1].amount1);
+        assertEq(uint256(LibBytes.load(logs[1].data, 84)) >> 128, 170140749613641222860389214663852687349);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[1].data, 96)))), -11);
 
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 52)))), deltas[1][0].amount0);
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 68)))), deltas[1][0].amount1);
-        assertEq(uint256(LibBytes.load(logs[2].data, 100)) >> 128, 170141174953541938005639404458484957183);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[2].data, 112)))), -1);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 36)))), deltas[1][0].amount0);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 52)))), deltas[1][0].amount1);
+        assertEq(uint256(LibBytes.load(logs[2].data, 84)) >> 128, 170141174953541938005639404458484957183);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[2].data, 96)))), -1);
 
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 52)))), deltas[1][1].amount0);
-        assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 68)))), deltas[1][1].amount1);
-        assertEq(uint256(LibBytes.load(logs[3].data, 100)) >> 128, 170140324269317083393273361352726937579);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[3].data, 112)))), -21);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 36)))), deltas[1][1].amount0);
+        assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 52)))), deltas[1][1].amount1);
+        assertEq(uint256(LibBytes.load(logs[3].data, 84)) >> 128, 170140324269317083393273361352726937579);
+        assertEq(int32(uint32(bytes4(LibBytes.load(logs[3].data, 96)))), -21);
     }
 
     function test_basicSwap_price_2x(CallPoints memory callPoints) public {

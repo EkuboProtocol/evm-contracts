@@ -55,7 +55,7 @@ contract PoolKeyTest is Test {
     }
 
     function test_toPoolId_changesWithToken0(PoolKey memory poolKey) public pure {
-        bytes32 id = poolKey.toPoolId();
+        bytes16 id = poolKey.toPoolId();
         unchecked {
             poolKey.token0 = address(uint160(poolKey.token0) + 1);
         }

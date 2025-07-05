@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {ICore} from "../interfaces/ICore.sol";
+import {SavedBalanceKey} from "../types/savedBalanceKey.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
@@ -82,14 +83,14 @@ library CoreLib {
         view
         returns (uint128 savedBalance)
     {
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(owner))),
-            bytes32(uint256(uint160(token))),
-            bytes32(uint256(type(uint160).max)),
-            salt
-        );
+        bytes32 key;
         assembly ("memory-safe") {
-            mstore(0, key)
+            let free := mload(0x40)
+            mstore(free, owner)
+            mstore(add(free, 0x20), 0)
+            mstore(add(free, 0x40), token)
+            mstore(add(free, 0x60), salt)
+            mstore(0, keccak256(free, 128))
             mstore(32, 8)
             key := keccak256(0, 64)
         }
@@ -102,11 +103,14 @@ library CoreLib {
         view
         returns (uint128 savedBalance0, uint128 savedBalance1)
     {
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
-        );
+        bytes32 key;
         assembly ("memory-safe") {
-            mstore(0, key)
+            let free := mload(0x40)
+            mstore(free, owner)
+            mstore(add(free, 0x20), token0)
+            mstore(add(free, 0x40), token1)
+            mstore(add(free, 0x60), salt)
+            mstore(0, keccak256(free, 128))
             mstore(32, 8)
             key := keccak256(0, 64)
         }
@@ -153,10 +157,18 @@ library CoreLib {
     }
 
     function save(ICore core, address owner, address token, bytes32 salt, uint128 amount) internal {
-        core.save(owner, token, address(type(uint160).max), salt, amount, 0);
+        core.updateSavedBalances(
+            SavedBalanceKey({owner: owner, token0: token, token1: address(type(uint160).max), salt: salt}),
+            int128(amount),
+            0
+        );
     }
 
     function load(ICore core, address token, bytes32 salt, uint128 amount) internal {
-        core.load(token, address(type(uint160).max), salt, amount, 0);
+        core.updateSavedBalances(
+            SavedBalanceKey({owner: address(this), token0: token, token1: address(type(uint160).max), salt: salt}),
+            -int128(amount),
+            0
+        );
     }
 }

@@ -4,13 +4,14 @@ pragma solidity =0.8.28;
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
+import {IForwardee} from "./interfaces/IFlashAccountant.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
-import {SqrtRatio, toSqrtRatio} from "./types/sqrtRatio.sol";
+import {SqrtRatio, toSqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -36,6 +37,18 @@ struct Delta {
     int128 amount1;
 }
 
+/// Replaces a zero value of sqrtRatioLimit with the minimum or maximum depending on the swap direction without any jumps
+function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 amount)
+    pure
+    returns (SqrtRatio result)
+{
+    assembly ("memory-safe") {
+        let increasing := xor(isToken1, slt(amount, 0))
+        let defaultValue := add(mul(increasing, MAX_SQRT_RATIO_RAW), mul(iszero(increasing), MIN_SQRT_RATIO_RAW))
+        result := add(sqrtRatioLimit, mul(iszero(sqrtRatioLimit), defaultValue))
+    }
+}
+
 /// @title Ekubo Router
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol
@@ -47,6 +60,17 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
     error TokensMismatch(uint256 index);
 
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
+
+    function _swap(
+        uint256 value,
+        PoolKey memory poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) internal virtual returns (int128 delta0, int128 delta1) {
+        (delta0, delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+    }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
@@ -72,19 +96,9 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
                 bool increasing = isPriceIncreasing(amount, isToken1);
 
-                sqrtRatioLimit = SqrtRatio.wrap(
-                    uint96(
-                        FixedPointMathLib.ternary(
-                            sqrtRatioLimit.isZero(),
-                            FixedPointMathLib.ternary(
-                                increasing, SqrtRatio.unwrap(MAX_SQRT_RATIO), SqrtRatio.unwrap(MIN_SQRT_RATIO)
-                            ),
-                            SqrtRatio.unwrap(sqrtRatioLimit)
-                        )
-                    )
-                );
+                sqrtRatioLimit = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
 
-                (int128 delta0, int128 delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+                (int128 delta0, int128 delta1) = _swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
                 int128 amountCalculated = isToken1 ? -delta0 : -delta1;
                 if (amountCalculated < calculatedAmountThreshold) {
@@ -143,22 +157,11 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                         bool isToken1 = tokenAmount.token == node.poolKey.token1;
                         require(isToken1 || tokenAmount.token == node.poolKey.token0);
 
-                        SqrtRatio sqrtRatioLimit = SqrtRatio.wrap(
-                            uint96(
-                                FixedPointMathLib.ternary(
-                                    node.sqrtRatioLimit.isZero(),
-                                    FixedPointMathLib.ternary(
-                                        isPriceIncreasing(tokenAmount.amount, isToken1),
-                                        SqrtRatio.unwrap(MAX_SQRT_RATIO),
-                                        SqrtRatio.unwrap(MIN_SQRT_RATIO)
-                                    ),
-                                    SqrtRatio.unwrap(node.sqrtRatioLimit)
-                                )
-                            )
-                        );
+                        SqrtRatio sqrtRatioLimit =
+                            defaultSqrtRatioLimit(node.sqrtRatioLimit, isToken1, tokenAmount.amount);
 
                         (int128 delta0, int128 delta1) =
-                            core.swap(0, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
+                            _swap(0, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
                         results[i][j] = Delta(delta0, delta1);
 
                         if (isToken1) {
@@ -208,8 +211,7 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
             (, PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
                 abi.decode(data, (bytes1, PoolKey, bool, int128, SqrtRatio, uint256));
 
-            (int128 delta0, int128 delta1) =
-                ICore(payable(accountant)).swap(0, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (int128 delta0, int128 delta1) = _swap(0, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
             revert QuoteReturnValue(delta0, delta1);
         }
@@ -300,6 +302,8 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         external
         returns (int128 delta0, int128 delta1)
     {
+        sqrtRatioLimit = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
+
         bytes memory revertData =
             lockAndExpectRevert(abi.encode(bytes1(0x03), poolKey, isToken1, amount, sqrtRatioLimit, skipAhead));
 

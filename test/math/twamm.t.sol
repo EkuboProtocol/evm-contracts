@@ -294,6 +294,20 @@ contract TwammTest is Test {
         );
     }
 
+    function test_computeNextSqrtRatio_example_from_production() public pure {
+        assertEq(
+            computeNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(4182607738901102592 + (148436996701757 << 64), false),
+                liquidity: 4472135213867,
+                saleRateToken0: 3728260255814876407785,
+                saleRateToken1: 1597830095238095,
+                timeElapsed: 2688,
+                fee: 9223372036854775
+            }).toFixed(),
+            75660834358443397537995245133758464
+        );
+    }
+
     function test_computeNextSqrtRatio_always_within_bounds_0() public pure {
         test_computeNextSqrtRatio_always_within_bounds(
             40804391198510682395386066027183367945789451008295010214769,

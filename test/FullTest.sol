@@ -136,6 +136,15 @@ abstract contract FullTest is Test {
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
     }
 
+    function coolAllContracts() internal virtual {
+        vm.cool(address(core));
+        vm.cool(address(positions));
+        vm.cool(address(router));
+        vm.cool(address(token0));
+        vm.cool(address(token1));
+        vm.cool(address(this));
+    }
+
     function createAndRegisterExtension(CallPoints memory callPoints) internal returns (address) {
         address impl = address(new MockExtension());
         uint8 b = callPoints.toUint8();
@@ -191,4 +200,11 @@ abstract contract FullTest is Test {
 
         (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, bounds, amount0, amount1, 0);
     }
+
+    function advanceTime(uint32 by) internal returns (uint256 next) {
+        next = vm.getBlockTimestamp() + by;
+        vm.warp(next);
+    }
+
+    receive() external payable {}
 }

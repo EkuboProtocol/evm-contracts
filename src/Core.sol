@@ -150,23 +150,32 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
         (uint256 id, address locker) = _requireLocker();
 
-        bytes32 key;
         assembly ("memory-safe") {
             let free := mload(0x40)
             mstore(free, locker)
             // copy the first 3 arguments in the same order
             calldatacopy(add(free, 0x20), 4, 96)
-            key := keccak256(free, 128)
+            mstore(0, keccak256(free, 128))
+            mstore(32, 8)
+            let slot := keccak256(0, 64)
+            let balances := sload(slot)
+
+            let b0 := shr(128, balances)
+            let b1 := shr(128, shl(128, balances))
+
+            let b0Next := add(b0, delta0)
+            let b1Next := add(b1, delta1)
+
+            // upper bits should be zero for both results or we had overflow/underflow
+            // since underflow is more likely, we assume it underflowed
+            if or(shr(128, b0Next), shr(128, b1Next)) {
+                // cast sig "InsufficientSavedBalance()"
+                mstore(0, 0x7b3df0ec)
+                revert(0x1c, 0x04)
+            }
+
+            sstore(slot, add(shl(128, b0Next), b1Next))
         }
-
-        uint256 packedBalances = savedBalances[key];
-
-        uint128 balance0 = uint128(packedBalances >> 128);
-        uint128 balance1 = uint128(packedBalances);
-
-        // we are using checked math here to protect the uint128 additions from overflowing
-        savedBalances[key] =
-            (uint256(addLiquidityDelta(balance0, delta0)) << 128) + uint256(addLiquidityDelta(balance1, delta1));
 
         _maybeAccountDebtToken0(id, token0, int256(delta0));
         _accountDebt(id, token1, int256(delta1));

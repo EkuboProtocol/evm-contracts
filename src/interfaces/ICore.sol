@@ -62,11 +62,11 @@ interface IExtension {
 interface ICore is IFlashAccountant, IExposedStorage {
     event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
-    event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
-    event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
-    event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
+    event PoolInitialized(bytes16 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
+    event PositionFeesCollected(bytes16 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
+    event FeesAccumulated(bytes16 poolId, uint128 amount0, uint128 amount1);
     event PositionUpdated(
-        address locker, bytes32 poolId, UpdatePositionParameters params, int128 delta0, int128 delta1
+        address locker, bytes16 poolId, UpdatePositionParameters params, int128 delta0, int128 delta1
     );
 
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
@@ -91,21 +91,18 @@ interface ICore is IFlashAccountant, IExposedStorage {
     // Sets the initial price for a new pool in terms of tick.
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (SqrtRatio sqrtRatio);
 
-    function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function prevInitializedTick(bytes16 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
 
-    function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function nextInitializedTick(bytes16 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
-
-    // Loads 2 tokens from the saved balances of the caller as payment in the current context.
-    function load(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external;
 
     // Saves an amount of 2 tokens to be used later, in a single slot.
-    function save(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
+    function updateSavedBalances(address token0, address token1, bytes32 salt, int128 delta0, int128 delta1)
         external
         payable;
 

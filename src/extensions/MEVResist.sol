@@ -125,7 +125,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.load(poolKey.token0, poolKey.token1, poolId, fees0, fees1);
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, -int128(fees0), -int128(fees1));
                 }
 
                 setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tick});
@@ -212,7 +212,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.load(poolKey.token0, poolKey.token1, poolId, fees0, fees1);
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, -int128(fees0), -int128(fees1));
                 }
 
                 tickLast = tick;
@@ -232,47 +232,47 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             if (amount < 0) {
                 // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
                 if (delta0 > 0) {
-                    uint128 fee;
+                    int128 fee;
                     unchecked {
                         uint128 inputAmount = uint128(uint256(int256(delta0)));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
-                        fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
+                        fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
-                    delta0 += SafeCastLib.toInt128(fee);
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, fee, 0);
+                    delta0 += fee;
                 } else if (delta1 > 0) {
-                    uint128 fee;
+                    int128 fee;
                     unchecked {
                         uint128 inputAmount = uint128(uint256(int256(delta1)));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
-                        fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
+                        fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
-                    delta1 += SafeCastLib.toInt128(fee);
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, 0, fee);
+                    delta1 += fee;
                 }
             } else {
                 if (delta0 < 0) {
-                    uint128 fee;
+                    int128 fee;
                     unchecked {
                         uint128 outputAmount = uint128(uint256(-int256(delta0)));
-                        fee = computeFee(outputAmount, additionalFee);
+                        fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
-                    delta0 += SafeCastLib.toInt128(fee);
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, fee, 0);
+                    delta0 += fee;
                 } else if (delta1 < 0) {
-                    uint128 fee;
+                    int128 fee;
                     unchecked {
                         uint128 outputAmount = uint128(uint256(-int256(delta1)));
-                        fee = computeFee(outputAmount, additionalFee);
+                        fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
                     }
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
-                    delta1 += SafeCastLib.toInt128(fee);
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, 0, fee);
+                    delta1 += fee;
                 }
             }
         }

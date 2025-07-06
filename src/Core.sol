@@ -59,13 +59,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
     mapping(address token => uint256 amountCollected) private protocolFeesCollected;
 
-    mapping(bytes32 poolId => PoolState) private poolState;
-    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
-    mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) private poolPositions;
-    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
-    mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
+    mapping(bytes16 poolId => PoolState) private poolState;
+    mapping(bytes16 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
+    mapping(bytes16 poolId => mapping(bytes32 positionId => Position position)) private poolPositions;
+    mapping(bytes16 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
+    mapping(bytes16 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
         poolTickFeesPerLiquidityOutside;
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
+    mapping(bytes16 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
     mapping(bytes32 key => uint256) private savedBalances;
 
@@ -106,7 +106,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             }
         }
 
-        bytes32 poolId = poolKey.toPoolId();
+        bytes16 poolId = poolKey.toPoolId();
         PoolState memory price = poolState[poolId];
         if (SqrtRatio.unwrap(price.sqrtRatio) != 0) revert PoolAlreadyInitialized();
 
@@ -120,7 +120,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
-    function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function prevInitializedTick(bytes16 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
@@ -129,7 +129,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findPrevInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function nextInitializedTick(bytes16 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
@@ -138,61 +138,51 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    function load(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) public {
-        // note we do not check sort order because for save it must be sorted,
-        //  so balances will always be zero if token0 and token1 are not sorted
-        //  and this method will throw InsufficientSavedBalance for non-zero amount
-        (uint256 id,) = _getLocker();
-
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(msg.sender))),
-            bytes32(uint256(uint160(token0))),
-            bytes32(uint256(uint160(token1))),
-            salt
-        );
-
-        unchecked {
-            uint256 packedBalance = savedBalances[key];
-            uint128 balance0 = uint128(packedBalance >> 128);
-            uint128 balance1 = uint128(packedBalance);
-            if (balance0 < amount0 || balance1 < amount1) {
-                revert InsufficientSavedBalance();
-            }
-
-            // unchecked is ok because we reverted if either balance < amount
-            savedBalances[key] = (uint256(balance0 - amount0) << 128) + uint256(balance1 - amount1);
-
-            _accountDebt(id, token0, -int256(uint256(amount0)));
-            _accountDebt(id, token1, -int256(uint256(amount1)));
-        }
-    }
-
-    function save(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
-        public
-        payable
-    {
+    function updateSavedBalances(
+        address token0,
+        address token1,
+        bytes32,
+        // positive is saving, negative is loading
+        int128 delta0,
+        int128 delta1
+    ) public payable {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
-        (uint256 id,) = _requireLocker();
+        (uint256 id, address locker) = _requireLocker();
 
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
-        );
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+            mstore(free, locker)
+            // copy the first 3 arguments in the same order
+            calldatacopy(add(free, 0x20), 4, 96)
+            mstore(0, keccak256(free, 128))
+            mstore(32, 8)
+            let slot := keccak256(0, 64)
+            let balances := sload(slot)
 
-        uint256 packedBalances = savedBalances[key];
+            let b0 := shr(128, balances)
+            let b1 := shr(128, shl(128, balances))
 
-        uint128 balance0 = uint128(packedBalances >> 128);
-        uint128 balance1 = uint128(packedBalances);
+            let b0Next := add(b0, delta0)
+            let b1Next := add(b1, delta1)
 
-        // we are using checked math here to protect the uint128 additions from overflowing
-        savedBalances[key] = (uint256(balance0 + amount0) << 128) + uint256(balance1 + amount1);
+            // upper bits should be zero for both results or we had overflow/underflow
+            // since underflow is more likely, we assume it underflowed
+            if or(shr(128, b0Next), shr(128, b1Next)) {
+                // cast sig "InsufficientSavedBalance()"
+                mstore(0, 0x7b3df0ec)
+                revert(0x1c, 0x04)
+            }
 
-        _maybeAccountDebtToken0(id, token0, int256(uint256(amount0)));
-        _accountDebt(id, token1, int256(uint256(amount1)));
+            sstore(slot, add(shl(128, b0Next), b1Next))
+        }
+
+        _maybeAccountDebtToken0(id, token0, int256(delta0));
+        _accountDebt(id, token1, int256(delta1));
     }
 
     // Returns the pool fees per liquidity inside the given bounds.
-    function _getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds, uint32 tickSpacing)
+    function _getPoolFeesPerLiquidityInside(bytes16 poolId, Bounds memory bounds, uint32 tickSpacing)
         internal
         view
         returns (FeesPerLiquidity memory)
@@ -230,7 +220,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         (uint256 id, address locker) = _requireLocker();
         require(locker == poolKey.extension());
 
-        bytes32 poolId = poolKey.toPoolId();
+        bytes16 poolId = poolKey.toPoolId();
 
         // Note we do not check pool is initialized. If the extension calls this for a pool that does not exist,
         //  the fees are simply burned since liquidity is 0.
@@ -265,7 +255,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         emit FeesAccumulated(poolId, amount0, amount1);
     }
 
-    function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
+    function _updateTick(bytes16 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
         TickInfo storage tickInfo = poolTicks[poolId][tick];
 
         uint128 liquidityNetNext = addLiquidityDelta(tickInfo.liquidityNet, liquidityDelta);
@@ -315,7 +305,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         params.bounds.validateBounds(poolKey.tickSpacing());
 
         if (params.liquidityDelta != 0) {
-            bytes32 poolId = poolKey.toPoolId();
+            bytes16 poolId = poolKey.toPoolId();
             PoolState memory price = poolState[poolId];
             if (SqrtRatio.unwrap(price.sqrtRatio) == 0) revert PoolNotInitialized();
 
@@ -405,7 +395,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             IExtension(extension).beforeCollectFees(locker, poolKey, salt, bounds);
         }
 
-        bytes32 poolId = poolKey.toPoolId();
+        bytes16 poolId = poolKey.toPoolId();
         PositionKey memory positionKey = PositionKey({salt: salt, owner: locker, bounds: bounds});
         bytes32 positionId = positionKey.toPositionId();
         Position memory position = poolPositions[poolId][positionId];
@@ -444,7 +434,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             IExtension(extension).beforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         }
 
-        bytes32 poolId = poolKey.toPoolId();
+        bytes16 poolId = poolKey.toPoolId();
         SqrtRatio sqrtRatio;
         int32 tick;
         uint128 liquidity;
@@ -579,11 +569,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 let o := mload(0x40)
                 mstore(o, shl(96, locker))
                 mstore(add(o, 20), poolId)
-                mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
-                mstore(add(o, 84), shl(128, liquidity))
-                mstore(add(o, 100), shl(160, sqrtRatio))
-                mstore(add(o, 112), shl(224, tick))
-                log0(o, 116)
+                mstore(add(o, 36), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
+                mstore(add(o, 68), shl(128, liquidity))
+                mstore(add(o, 84), shl(160, sqrtRatio))
+                mstore(add(o, 96), shl(224, tick))
+                log0(o, 100)
             }
         }
 

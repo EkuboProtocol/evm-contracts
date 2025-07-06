@@ -116,98 +116,36 @@ contract SavedBalancesTest is FullTest {
     using FlashAccountantLib for *;
     using CoreLib for *;
 
-    function payCallback(uint256, address token) external {
-        uint256 amount;
-        assembly ("memory-safe") {
-            amount := calldataload(68)
-        }
-        IERC20(token).transfer(address(core), amount);
-    }
-
     function locked(uint256) external {
-        uint256 length;
-        assembly ("memory-safe") {
-            length := calldatasize()
+        (address token0, address token1, bytes32 salt, int128 delta0, int128 delta1) =
+            abi.decode(msg.data[36:], (address, address, bytes32, int128, int128));
+
+        core.updateSavedBalances(token0, token1, salt, delta0, delta1);
+        if (delta0 > 0) {
+            core.pay(address(token0), uint128(delta0));
+        } else if (delta0 < 0) {
+            core.withdraw(address(token0), address(this), uint128(-delta0));
         }
-        // saving or loading 1 token
-        if (length == 164) {
-            address saveTo;
-            address token;
-            bytes32 salt;
-            uint128 amount;
-            assembly ("memory-safe") {
-                saveTo := calldataload(36)
-                token := calldataload(68)
-                salt := calldataload(100)
-                amount := calldataload(132)
-            }
-            if (saveTo == address(0)) {
-                core.load(token, salt, amount);
-                core.withdraw(token, address(this), amount);
-            } else {
-                core.save(saveTo, token, salt, amount);
-
-                core.pay(token, amount);
-            }
-        } else if (length == 228) {
-            address saveTo;
-            address token0;
-            address token1;
-            bytes32 salt;
-            uint128 amount0;
-            uint128 amount1;
-            assembly ("memory-safe") {
-                saveTo := calldataload(36)
-                token0 := calldataload(68)
-                token1 := calldataload(100)
-                salt := calldataload(132)
-                amount0 := calldataload(164)
-                amount1 := calldataload(196)
-            }
-            if (saveTo == address(0)) {
-                core.load(token0, token1, salt, amount0, amount1);
-                core.withdraw(token0, address(this), amount0);
-                core.withdraw(token1, address(this), amount1);
-            } else {
-                core.save(saveTo, token0, token1, salt, amount0, amount1);
-
-                (bool success,) =
-                    address(core).call(abi.encodeWithSelector(core.startPayments.selector, token0, token1));
-                assertTrue(success);
-
-                IERC20(token0).transfer(address(core), amount0);
-                IERC20(token1).transfer(address(core), amount1);
-
-                (success,) = address(core).call(abi.encodeWithSelector(core.completePayments.selector, token0, token1));
-                assertTrue(success);
-            }
+        if (delta1 > 0) {
+            core.pay(address(token1), uint128(delta1));
         } else {
-            revert();
+            core.withdraw(address(token1), address(this), uint128(-delta1));
         }
     }
 
-    function test_save_single_token() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(this), address(token0), bytes32(0), 100)
-        );
-        assertTrue(success);
-        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 100);
+    function updateSavedBalances(address token0, address token1, bytes32 salt, int128 delta0, int128 delta1) internal {
+        (bool success, bytes memory returnData) =
+            address(core).call(abi.encodeWithSelector(core.lock.selector, token0, token1, salt, delta0, delta1));
 
-        (success,) =
-            address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 50));
-        assertTrue(success);
-        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 50);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(returnData, 0x20), mload(returnData))
+            }
+        }
     }
 
     function test_save_two_tokens() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(
-                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 100, 75
-            )
-        );
-        assertTrue(success);
-        assertEq(core.savedBalances(address(this), address(token0), bytes32(0)), 0);
-        assertEq(core.savedBalances(address(this), address(token1), bytes32(0)), 0);
+        updateSavedBalances(address(token0), address(token1), bytes32(0), 100, 75);
         (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
         assertEq(s0, 100);
         assertEq(s1, 75);
@@ -216,122 +154,87 @@ contract SavedBalancesTest is FullTest {
         assertEq(s0, 0);
         assertEq(s1, 0);
 
-        (success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 51, 60)
-        );
-        assertTrue(success);
+        updateSavedBalances(address(token0), address(token1), bytes32(0), -51, -60);
         (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
         assertEq(s0, 49);
         assertEq(s1, 15);
     }
 
-    function test_save_load_cannot_overflow_token0() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(
-                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), type(uint128).max, 1
-            )
-        );
-        assertTrue(success);
+    function test_save_and_load_any_balance(bytes32 salt, int128 delta0, int128 delta1) public {
+        delta0 = int128(bound(delta0, 0, type(int128).max));
+        delta1 = int128(bound(delta0, 0, type(int128).max));
+        updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), salt);
+        assertEq(s0, uint128(delta0));
+        assertEq(s1, uint128(delta1));
 
-        (success,) = address(core).call(
-            abi.encodeWithSelector(
-                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 1, 0
-            )
-        );
-        assertFalse(success);
-        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
+        updateSavedBalances(address(token0), address(token1), salt, -delta0, -delta1);
+        (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), salt);
+        assertEq(s0, 0);
+        assertEq(s1, 0);
+    }
+
+    function test_underflow_always_fails(bytes32 salt, int128 delta0, int128 delta1) public {
+        delta0 = int128(bound(delta0, 0, type(int128).max));
+        delta1 = int128(bound(delta0, 0, type(int128).max));
+        updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
+
+        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        updateSavedBalances(address(token0), address(token1), salt, (-delta0) - 1, (-delta1) - 1);
+
+        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        updateSavedBalances(address(token0), address(token1), salt, (-delta0) - 1, 0);
+
+        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        updateSavedBalances(address(token0), address(token1), salt, 0, (-delta1) - 1);
+    }
+
+    function test_overflow_always_fails(bytes32 salt, int128 delta0, int128 delta1) public {
+        delta0 = int128(bound(delta0, 1, type(int128).max));
+        delta1 = int128(bound(delta0, 1, type(int128).max));
+
+        // first get it to max
+        updateSavedBalances(address(token0), address(token1), salt, type(int128).max, type(int128).max);
+        updateSavedBalances(address(token0), address(token1), salt, type(int128).max, type(int128).max);
+        updateSavedBalances(address(token0), address(token1), salt, 1, 1);
+
+        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), salt);
         assertEq(s0, type(uint128).max);
-        assertEq(s1, 1);
-    }
-
-    function test_save_load_cannot_overflow_token1() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(
-                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 1, type(uint128).max
-            )
-        );
-        assertTrue(success);
-
-        (success,) = address(core).call(
-            abi.encodeWithSelector(
-                core.lock.selector, address(this), address(token0), address(token1), bytes32(0), 0, 1
-            )
-        );
-        assertFalse(success);
-        (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), bytes32(0));
-        assertEq(s0, 1);
         assertEq(s1, type(uint128).max);
-    }
 
-    function test_load_must_comes_from_owner() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(
-                core.lock.selector, address(0xdeadbeef), address(token0), address(token1), bytes32(0), 100, 100
-            )
-        );
-        assertTrue(success);
+        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
 
-        (uint128 s0, uint128 s1) = core.savedBalances(address(0xdeadbeef), address(token0), address(token1), bytes32(0));
-        assertEq(s0, 100);
-        assertEq(s1, 100);
+        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        updateSavedBalances(address(token0), address(token1), salt, delta0, 0);
 
-        (success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 1, 1)
-        );
-        assertFalse(success);
+        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        updateSavedBalances(address(token0), address(token1), salt, 0, 1);
+
+        // this will never revert because the balance is max uint128
+        updateSavedBalances(address(token0), address(token1), salt, -delta0, -delta1);
+        (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), salt);
+        assertEq(s0, type(uint128).max - uint128(delta0));
+        assertEq(s1, type(uint128).max - uint128(delta1));
     }
 
     function test_cannot_load_before_save_token0() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 1, 0)
-        );
-        assertFalse(success);
+        vm.expectRevert();
+        updateSavedBalances(address(token0), address(token1), bytes32(0), -1, 0);
     }
 
     function test_cannot_load_before_save_token1() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token1), bytes32(0), 0, 1)
-        );
-        assertFalse(success);
+        vm.expectRevert();
+        updateSavedBalances(address(token0), address(token1), bytes32(0), 0, -1);
     }
 
-    function test_cannot_load_before_save() public {
-        (bool success,) =
-            address(core).call(abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(0), 1));
-        assertFalse(success);
-    }
-
-    function test_cannot_save_same_token() public {
+    function test_cannot_update_saved_balance_same_token() public {
         vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
-        core.save(address(this), address(0), address(0), bytes32(0), 0, 0);
+        core.updateSavedBalances(address(0), address(0), bytes32(0), 0, 0);
+    }
 
+    function test_cannot_update_saved_balance_token1_gt_token0() public {
         vm.expectRevert(ICore.SavedBalanceTokensNotSorted.selector);
-        core.save(address(this), address(1), address(0), bytes32(0), 0, 0);
-    }
-
-    function test_cannot_load_same_token() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token0), bytes32(0), 1, 1)
-        );
-        assertFalse(success);
-    }
-
-    function test_can_load_same_token_no_op() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), address(token0), bytes32(0), 0, 0)
-        );
-        assertTrue(success);
-    }
-
-    function test_salt_separates_balances() public {
-        (bool success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0xdeadbeef), address(token0), bytes32(uint256(1)), 1)
-        );
-        assertTrue(success);
-
-        (success,) = address(core).call(
-            abi.encodeWithSelector(core.lock.selector, address(0), address(token0), bytes32(uint256(2)), 1)
-        );
-        assertFalse(success);
+        core.updateSavedBalances(address(1), address(0), bytes32(0), 0, 0);
     }
 }

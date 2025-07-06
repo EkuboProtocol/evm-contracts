@@ -15,6 +15,7 @@ import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../math/bitmap.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {computeFee} from "../math/fee.sol";
 import {
@@ -411,10 +412,14 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint128 fee = computeFee(amountAbs, poolKey.fee());
                     if (isToken1) {
                         core.accumulateAsFees(poolKey, 0, fee);
-                        core.load(poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
+                        core.updateSavedBalances(
+                            poolKey.token0, poolKey.token1, bytes32(0), 0, -SafeCastLib.toInt128(amountAbs)
+                        );
                     } else {
                         core.accumulateAsFees(poolKey, fee, 0);
-                        core.load(poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
+                        core.updateSavedBalances(
+                            poolKey.token0, poolKey.token1, bytes32(0), -SafeCastLib.toInt128(amountAbs), 0
+                        );
                     }
 
                     amountDelta += int128(fee);
@@ -423,9 +428,13 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint128 amountAbs = uint128(uint256(amountDelta));
 
                     if (isToken1) {
-                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
+                        core.updateSavedBalances(
+                            poolKey.token0, poolKey.token1, bytes32(0), 0, SafeCastLib.toInt128(amountAbs)
+                        );
                     } else {
-                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
+                        core.updateSavedBalances(
+                            poolKey.token0, poolKey.token1, bytes32(0), SafeCastLib.toInt128(amountAbs), 0
+                        );
                     }
                 }
 
@@ -456,7 +465,13 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         ? (purchasedAmount, uint128(0))
                         : (uint128(0), purchasedAmount);
 
-                    core.load(poolKey.token0, poolKey.token1, bytes32(0), amount0, amount1);
+                    core.updateSavedBalances(
+                        poolKey.token0,
+                        poolKey.token1,
+                        bytes32(0),
+                        -SafeCastLib.toInt128(amount0),
+                        -SafeCastLib.toInt128(amount1)
+                    );
                 }
 
                 emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, purchasedAmount);
@@ -592,24 +607,13 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
 
-                    if (swapDelta.delta0 < 0 || swapDelta.delta1 < 0) {
-                        core.save(
-                            address(this),
+                    if (swapDelta.delta0 != 0 || swapDelta.delta1 != 0) {
+                        core.updateSavedBalances(
                             poolKey.token0,
                             poolKey.token1,
                             bytes32(0),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta0, 0))),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta1, 0)))
-                        );
-                    }
-
-                    if (swapDelta.delta0 > 0 || swapDelta.delta1 > 0) {
-                        core.load(
-                            poolKey.token0,
-                            poolKey.token1,
-                            bytes32(0),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta0, 0))),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta1, 0)))
+                            SafeCastLib.toInt128(-swapDelta.delta0),
+                            SafeCastLib.toInt128(-swapDelta.delta1)
                         );
                     }
 

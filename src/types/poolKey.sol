@@ -61,9 +61,9 @@ function validatePoolKey(PoolKey memory key) pure {
     }
 }
 
-function toPoolId(PoolKey memory key) pure returns (bytes32 result) {
+function toPoolId(PoolKey memory key) pure returns (bytes16 result) {
     assembly ("memory-safe") {
         // it's already copied into memory
-        result := keccak256(key, 96)
+        result := shl(128, keccak256(key, 96))
     }
 }

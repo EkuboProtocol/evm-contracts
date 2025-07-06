@@ -78,14 +78,6 @@ library CoreLib {
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 
-    function savedBalances(ICore core, address owner, address token, bytes32 salt)
-        internal
-        view
-        returns (uint128 savedBalance)
-    {
-        (savedBalance,) = savedBalances(core, owner, token, address(type(uint160).max), salt);
-    }
-
     function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
         internal
         view
@@ -142,13 +134,5 @@ library CoreLib {
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1) {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
-    }
-
-    function save(ICore core, address token, bytes32 salt, uint128 amount) internal {
-        core.updateSavedBalances(token, address(type(uint160).max), salt, SafeCastLib.toInt128(amount), 0);
-    }
-
-    function load(ICore core, address token, bytes32 salt, uint128 amount) internal {
-        core.updateSavedBalances(token, address(type(uint160).max), salt, -SafeCastLib.toInt128(amount), 0);
     }
 }

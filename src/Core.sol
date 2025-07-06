@@ -141,7 +141,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     function updateSavedBalances(
         address token0,
         address token1,
-        bytes32 salt,
+        bytes32,
         // positive is saving, negative is loading
         int128 delta0,
         int128 delta1

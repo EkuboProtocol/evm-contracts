@@ -107,6 +107,6 @@ contract PoolKeyTest is Test {
 
     function test_toPoolId_hash_matches_abi_encode(PoolKey memory pk) public pure {
         bytes16 id = pk.toPoolId();
-        assertEq(id, bytes16(keccak256(abi.encode(pk))));
+        assertEq(id, bytes16(bytes32(uint256(keccak256(abi.encode(pk))) << 128)));
     }
 }

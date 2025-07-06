@@ -526,6 +526,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             if (lastVirtualOrderExecutionTime != block.timestamp) {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
+                int256 saveDelta0;
+                int256 saveDelta1;
+
                 uint256 time = lastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
@@ -535,8 +538,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         fromTime: time,
                         untilTime: block.timestamp
                     });
-
-                    Delta memory swapDelta;
 
                     // it is assumed that this will never return a value greater than type(uint32).max
                     uint256 timeElapsed = nextTime - time;
@@ -561,6 +562,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                             fee: poolKey.fee()
                         });
 
+                        Delta memory swapDelta;
                         if (sqrtRatioNext > sqrtRatio) {
                             (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
@@ -569,20 +571,26 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
+                        saveDelta0 -= swapDelta.delta0;
+                        saveDelta1 -= swapDelta.delta1;
+
                         // this cannot overflow or underflow because swapDelta0 is constrained to int128,
                         // and amounts computed from uint112 sale rates cannot exceed uint112.max
                         rewardDelta.delta0 = swapDelta.delta0 - int256(uint256(amount0));
                         rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
+                        int128 delta0;
+                        int128 delta1;
                         if (amount0 != 0) {
-                            (swapDelta.delta0, swapDelta.delta1) =
+                            (rewardDelta.delta0, rewardDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (swapDelta.delta0, swapDelta.delta1) =
+                            (rewardDelta.delta0, rewardDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
-                        rewardDelta = swapDelta;
+                        saveDelta0 -= rewardDelta.delta0;
+                        saveDelta1 -= rewardDelta.delta1;
                     }
 
                     if (rewardDelta.delta0 < 0) {
@@ -607,17 +615,17 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
 
-                    if (swapDelta.delta0 != 0 || swapDelta.delta1 != 0) {
-                        core.updateSavedBalances(
-                            poolKey.token0,
-                            poolKey.token1,
-                            bytes32(0),
-                            SafeCastLib.toInt128(-swapDelta.delta0),
-                            SafeCastLib.toInt128(-swapDelta.delta1)
-                        );
-                    }
-
                     time = nextTime;
+                }
+
+                if (saveDelta0 != 0 || saveDelta1 != 0) {
+                    core.updateSavedBalances(
+                        poolKey.token0,
+                        poolKey.token1,
+                        bytes32(0),
+                        SafeCastLib.toInt128(saveDelta0),
+                        SafeCastLib.toInt128(saveDelta1)
+                    );
                 }
 
                 poolRewardRates[poolId] = rewardRates;

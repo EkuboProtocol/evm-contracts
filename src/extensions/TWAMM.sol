@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, toConfig} from "../types/poolKey.sol";
-import {SavedBalanceKey} from "../types/savedBalanceKey.sol";
 import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
@@ -414,26 +413,12 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     if (isToken1) {
                         core.accumulateAsFees(poolKey, 0, fee);
                         core.updateSavedBalances(
-                            SavedBalanceKey({
-                                owner: address(this),
-                                token0: poolKey.token0,
-                                token1: poolKey.token1,
-                                salt: bytes32(0)
-                            }),
-                            0,
-                            -SafeCastLib.toInt128(amountAbs)
+                            poolKey.token0, poolKey.token1, bytes32(0), 0, -SafeCastLib.toInt128(amountAbs)
                         );
                     } else {
                         core.accumulateAsFees(poolKey, fee, 0);
                         core.updateSavedBalances(
-                            SavedBalanceKey({
-                                owner: address(this),
-                                token0: poolKey.token0,
-                                token1: poolKey.token1,
-                                salt: bytes32(0)
-                            }),
-                            -SafeCastLib.toInt128(amountAbs),
-                            0
+                            poolKey.token0, poolKey.token1, bytes32(0), -SafeCastLib.toInt128(amountAbs), 0
                         );
                     }
 
@@ -444,25 +429,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                     if (isToken1) {
                         core.updateSavedBalances(
-                            SavedBalanceKey({
-                                owner: address(this),
-                                token0: poolKey.token0,
-                                token1: poolKey.token1,
-                                salt: bytes32(0)
-                            }),
-                            0,
-                            SafeCastLib.toInt128(amountAbs)
+                            poolKey.token0, poolKey.token1, bytes32(0), 0, SafeCastLib.toInt128(amountAbs)
                         );
                     } else {
                         core.updateSavedBalances(
-                            SavedBalanceKey({
-                                owner: address(this),
-                                token0: poolKey.token0,
-                                token1: poolKey.token1,
-                                salt: bytes32(0)
-                            }),
-                            SafeCastLib.toInt128(amountAbs),
-                            0
+                            poolKey.token0, poolKey.token1, bytes32(0), SafeCastLib.toInt128(amountAbs), 0
                         );
                     }
                 }
@@ -495,12 +466,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         : (uint128(0), purchasedAmount);
 
                     core.updateSavedBalances(
-                        SavedBalanceKey({
-                            owner: address(this),
-                            token0: poolKey.token0,
-                            token1: poolKey.token1,
-                            salt: bytes32(0)
-                        }),
+                        poolKey.token0,
+                        poolKey.token1,
+                        bytes32(0),
                         -SafeCastLib.toInt128(amount0),
                         -SafeCastLib.toInt128(amount1)
                     );
@@ -641,12 +609,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                     if (swapDelta.delta0 != 0 || swapDelta.delta1 != 0) {
                         core.updateSavedBalances(
-                            SavedBalanceKey({
-                                owner: address(this),
-                                token0: poolKey.token0,
-                                token1: poolKey.token1,
-                                salt: bytes32(0)
-                            }),
+                            poolKey.token0,
+                            poolKey.token1,
+                            bytes32(0),
                             SafeCastLib.toInt128(-swapDelta.delta0),
                             SafeCastLib.toInt128(-swapDelta.delta1)
                         );

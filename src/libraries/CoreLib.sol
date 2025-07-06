@@ -2,13 +2,13 @@
 pragma solidity =0.8.28;
 
 import {ICore} from "../interfaces/ICore.sol";
-import {SavedBalanceKey} from "../types/savedBalanceKey.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -83,19 +83,7 @@ library CoreLib {
         view
         returns (uint128 savedBalance)
     {
-        bytes32 key;
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-            mstore(free, owner)
-            mstore(add(free, 0x20), 0)
-            mstore(add(free, 0x40), token)
-            mstore(add(free, 0x60), salt)
-            mstore(0, keccak256(free, 128))
-            mstore(32, 8)
-            key := keccak256(0, 64)
-        }
-
-        savedBalance = uint128(uint256(core.sload(key)) >> 128);
+        (savedBalance,) = savedBalances(core, owner, token, address(type(uint160).max), salt);
     }
 
     function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
@@ -156,19 +144,11 @@ library CoreLib {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 
-    function save(ICore core, address owner, address token, bytes32 salt, uint128 amount) internal {
-        core.updateSavedBalances(
-            SavedBalanceKey({owner: owner, token0: token, token1: address(type(uint160).max), salt: salt}),
-            int128(amount),
-            0
-        );
+    function save(ICore core, address token, bytes32 salt, uint128 amount) internal {
+        core.updateSavedBalances(token, address(type(uint160).max), salt, SafeCastLib.toInt128(amount), 0);
     }
 
     function load(ICore core, address token, bytes32 salt, uint128 amount) internal {
-        core.updateSavedBalances(
-            SavedBalanceKey({owner: address(this), token0: token, token1: address(type(uint160).max), salt: salt}),
-            -int128(amount),
-            0
-        );
+        core.updateSavedBalances(token, address(type(uint160).max), salt, -SafeCastLib.toInt128(amount), 0);
     }
 }

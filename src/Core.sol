@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {SavedBalanceKey} from "./types/savedBalanceKey.sol";
 import {PositionKey, Bounds} from "./types/positionKey.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
@@ -140,34 +139,37 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     }
 
     function updateSavedBalances(
-        SavedBalanceKey calldata key,
+        address token0,
+        address token1,
+        bytes32 salt,
         // positive is saving, negative is loading
         int128 delta0,
         int128 delta1
     ) public payable {
-        if (key.token0 >= key.token1) revert SavedBalanceTokensNotSorted();
+        if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
-        (uint256 id,) = _requireLocker();
+        (uint256 id, address locker) = _requireLocker();
 
-        address owner = key.owner;
+        bytes32 key;
         assembly ("memory-safe") {
-            let isOwner := eq(caller(), owner)
-
-            if and(not(isOwner), or(slt(delta0, 0), slt(delta1, 0))) { revert(0, 0) }
+            let free := mload(0x40)
+            mstore(free, locker)
+            // copy the first 3 arguments in the same order
+            calldatacopy(add(free, 0x20), 4, 96)
+            key := keccak256(free, 128)
         }
 
-        bytes32 balanceId = key.toSavedBalanceId();
-        uint256 packedBalances = savedBalances[balanceId];
+        uint256 packedBalances = savedBalances[key];
 
         uint128 balance0 = uint128(packedBalances >> 128);
         uint128 balance1 = uint128(packedBalances);
 
         // we are using checked math here to protect the uint128 additions from overflowing
-        savedBalances[balanceId] =
+        savedBalances[key] =
             (uint256(addLiquidityDelta(balance0, delta0)) << 128) + uint256(addLiquidityDelta(balance1, delta1));
 
-        _maybeAccountDebtToken0(id, key.token0, int256(delta0));
-        _accountDebt(id, key.token1, int256(delta1));
+        _maybeAccountDebtToken0(id, token0, int256(delta0));
+        _accountDebt(id, token1, int256(delta1));
     }
 
     // Returns the pool fees per liquidity inside the given bounds.

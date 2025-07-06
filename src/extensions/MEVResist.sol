@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import {
-    ICore,
-    PoolKey,
-    Bounds,
-    CallPoints,
-    SqrtRatio,
-    UpdatePositionParameters,
-    SavedBalanceKey
-} from "../interfaces/ICore.sol";
+import {ICore, PoolKey, Bounds, CallPoints, SqrtRatio, UpdatePositionParameters} from "../interfaces/ICore.sol";
 import {ILocker, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
@@ -133,16 +125,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.updateSavedBalances(
-                        SavedBalanceKey({
-                            owner: address(this),
-                            token0: poolKey.token0,
-                            token1: poolKey.token1,
-                            salt: poolId
-                        }),
-                        -int128(fees0),
-                        -int128(fees1)
-                    );
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, -int128(fees0), -int128(fees1));
                 }
 
                 setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tick});
@@ -229,16 +212,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.updateSavedBalances(
-                        SavedBalanceKey({
-                            owner: address(this),
-                            token0: poolKey.token0,
-                            token1: poolKey.token1,
-                            salt: poolId
-                        }),
-                        -int128(fees0),
-                        -int128(fees1)
-                    );
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, -int128(fees0), -int128(fees1));
                 }
 
                 tickLast = tick;
@@ -266,16 +240,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
                     }
 
-                    core.updateSavedBalances(
-                        SavedBalanceKey({
-                            owner: address(this),
-                            token0: poolKey.token0,
-                            token1: poolKey.token1,
-                            salt: poolId
-                        }),
-                        fee,
-                        0
-                    );
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, fee, 0);
                     delta0 += fee;
                 } else if (delta1 > 0) {
                     int128 fee;
@@ -286,16 +251,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
                     }
 
-                    core.updateSavedBalances(
-                        SavedBalanceKey({
-                            owner: address(this),
-                            token0: poolKey.token0,
-                            token1: poolKey.token1,
-                            salt: poolId
-                        }),
-                        0,
-                        fee
-                    );
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, 0, fee);
                     delta1 += fee;
                 }
             } else {
@@ -306,16 +262,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
                     }
 
-                    core.updateSavedBalances(
-                        SavedBalanceKey({
-                            owner: address(this),
-                            token0: poolKey.token0,
-                            token1: poolKey.token1,
-                            salt: poolId
-                        }),
-                        fee,
-                        0
-                    );
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, fee, 0);
                     delta0 += fee;
                 } else if (delta1 < 0) {
                     int128 fee;
@@ -324,16 +271,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                         fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
                     }
 
-                    core.updateSavedBalances(
-                        SavedBalanceKey({
-                            owner: address(this),
-                            token0: poolKey.token0,
-                            token1: poolKey.token1,
-                            salt: poolId
-                        }),
-                        0,
-                        fee
-                    );
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, 0, fee);
                     delta1 += fee;
                 }
             }

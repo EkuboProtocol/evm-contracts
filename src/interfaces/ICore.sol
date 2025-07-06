@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {SavedBalanceKey} from "../types/savedBalanceKey.sol";
 import {PositionKey, Bounds} from "../types/positionKey.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
@@ -103,7 +102,9 @@ interface ICore is IFlashAccountant, IExposedStorage {
         returns (int32 tick, bool isInitialized);
 
     // Saves an amount of 2 tokens to be used later, in a single slot.
-    function updateSavedBalances(SavedBalanceKey memory key, int128 delta0, int128 delta1) external payable;
+    function updateSavedBalances(address token0, address token1, bytes32 salt, int128 delta0, int128 delta1)
+        external
+        payable;
 
     // Returns the pool fees per liquidity inside the given bounds.
     function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)

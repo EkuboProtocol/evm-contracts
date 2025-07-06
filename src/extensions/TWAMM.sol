@@ -579,8 +579,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         rewardDelta.delta0 = swapDelta.delta0 - int256(uint256(amount0));
                         rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
-                        int128 delta0;
-                        int128 delta1;
                         if (amount0 != 0) {
                             (rewardDelta.delta0, rewardDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);

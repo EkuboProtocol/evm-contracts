@@ -412,14 +412,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint128 fee = computeFee(amountAbs, poolKey.fee());
                     if (isToken1) {
                         core.accumulateAsFees(poolKey, 0, fee);
-                        core.updateSavedBalances(
-                            poolKey.token0, poolKey.token1, bytes32(0), 0, -SafeCastLib.toInt128(amountAbs)
-                        );
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, -int128(amountAbs));
                     } else {
                         core.accumulateAsFees(poolKey, fee, 0);
-                        core.updateSavedBalances(
-                            poolKey.token0, poolKey.token1, bytes32(0), -SafeCastLib.toInt128(amountAbs), 0
-                        );
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), -int128(amountAbs), 0);
                     }
 
                     amountDelta += int128(fee);
@@ -428,13 +424,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     uint128 amountAbs = uint128(uint256(amountDelta));
 
                     if (isToken1) {
-                        core.updateSavedBalances(
-                            poolKey.token0, poolKey.token1, bytes32(0), 0, SafeCastLib.toInt128(amountAbs)
-                        );
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, int128(amountAbs));
                     } else {
-                        core.updateSavedBalances(
-                            poolKey.token0, poolKey.token1, bytes32(0), SafeCastLib.toInt128(amountAbs), 0
-                        );
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), int128(amountAbs), 0);
                     }
                 }
 
@@ -461,17 +453,25 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 order.rewardRateSnapshot = rewardRateInside;
 
                 if (purchasedAmount != 0) {
-                    (uint128 amount0, uint128 amount1) = params.orderKey.sellToken > params.orderKey.buyToken
-                        ? (purchasedAmount, uint128(0))
-                        : (uint128(0), purchasedAmount);
-
-                    core.updateSavedBalances(
-                        poolKey.token0,
-                        poolKey.token1,
-                        bytes32(0),
-                        -SafeCastLib.toInt128(amount0),
-                        -SafeCastLib.toInt128(amount1)
-                    );
+                    if (params.orderKey.sellToken > params.orderKey.buyToken) {
+                        core.updateSavedBalances(
+                            poolKey.token0,
+                            poolKey.token1,
+                            bytes32(0),
+                            // todo: order proceeds can get stuck if it's too large
+                            -SafeCastLib.toInt128(purchasedAmount),
+                            0
+                        );
+                    } else {
+                        core.updateSavedBalances(
+                            poolKey.token0,
+                            poolKey.token1,
+                            bytes32(0),
+                            // todo: order proceeds can get stuck if it's too large
+                            0,
+                            -SafeCastLib.toInt128(purchasedAmount)
+                        );
+                    }
                 }
 
                 emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, purchasedAmount);

@@ -39,7 +39,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
     /// @return lastUpdateTime The last time this pool was updated
     /// @return tickLast The tick from the last time the pool was touched
-    function getPoolState(bytes32 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
+    function getPoolState(bytes16 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
         assembly ("memory-safe") {
             let v := sload(poolId)
             lastUpdateTime := shr(224, v)
@@ -47,7 +47,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         }
     }
 
-    function setPoolState(bytes32 poolId, uint32 lastUpdateTime, int32 tickLast) private {
+    function setPoolState(bytes16 poolId, uint32 lastUpdateTime, int32 tickLast) private {
         assembly ("memory-safe") {
             sstore(poolId, or(shl(224, lastUpdateTime), shr(32, shl(224, tickLast))))
         }
@@ -113,7 +113,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             calldatacopy(poolKey, 36, 96)
         }
 
-        bytes32 poolId = poolKey.toPoolId();
+        bytes16 poolId = poolKey.toPoolId();
 
         (uint32 lastUpdateTime,) = getPoolState(poolId);
 
@@ -133,7 +133,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         }
     }
 
-    function loadCoreState(bytes32 poolId, address token0, address token1)
+    function loadCoreState(bytes16 poolId, address token0, address token1)
         private
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
@@ -180,7 +180,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         }
     }
 
-    function loadTick(bytes32 poolId) private view returns (int32 tick) {
+    function loadTick(bytes16 poolId) private view returns (int32 tick) {
         address c = address(core);
         assembly ("memory-safe") {
             mstore(0, poolId)
@@ -198,87 +198,90 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     }
 
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory result) {
-        (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
-            abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
-
-        bytes32 poolId = poolKey.toPoolId();
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
-
-        uint32 currentTime = uint32(block.timestamp);
-
         unchecked {
+            (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
+                abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
+
+            bytes16 poolId = poolKey.toPoolId();
+            (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
+
+            uint32 currentTime = uint32(block.timestamp);
+
+            int256 saveDelta0;
+            int256 saveDelta1;
+
             if (lastUpdateTime != currentTime) {
-                (int32 tick, uint128 fees0, uint128 fees1) = loadCoreState(poolId, poolKey.token0, poolKey.token1);
+                (int32 tick, uint128 fees0, uint128 fees1) =
+                    loadCoreState({poolId: poolId, token0: poolKey.token0, token1: poolKey.token1});
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, -int128(fees0), -int128(fees1));
+                    // never overflows int256 container
+                    saveDelta0 -= int256(uint256(fees0));
+                    saveDelta1 -= int256(uint256(fees1));
                 }
 
                 tickLast = tick;
+                setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
             }
-        }
 
-        (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
-        int32 tickAfterSwap = loadTick(poolId);
+            int32 tickAfterSwap = loadTick(poolId);
 
-        // however many tick spacings were crossed is the fee multiplier
-        uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickLast) << 64) / poolKey.tickSpacing();
-        uint64 poolFee = poolKey.fee();
-        uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
+            // however many tick spacings were crossed is the fee multiplier
+            uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickLast) << 64) / poolKey.tickSpacing();
+            uint64 poolFee = poolKey.fee();
+            uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
-        if (additionalFee != 0) {
-            if (amount < 0) {
-                // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
-                if (delta0 > 0) {
-                    int128 fee;
-                    unchecked {
+            if (additionalFee != 0) {
+                if (amount < 0) {
+                    // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
+                    if (delta0 > 0) {
                         uint128 inputAmount = uint128(uint256(int256(delta0)));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
-                        fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
-                    }
+                        int128 fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
 
-                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, fee, 0);
-                    delta0 += fee;
-                } else if (delta1 > 0) {
-                    int128 fee;
-                    unchecked {
+                        saveDelta0 += fee;
+                        delta0 += fee;
+                    } else if (delta1 > 0) {
                         uint128 inputAmount = uint128(uint256(int256(delta1)));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
-                        fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
-                    }
+                        int128 fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
 
-                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, 0, fee);
-                    delta1 += fee;
-                }
-            } else {
-                if (delta0 < 0) {
-                    int128 fee;
-                    unchecked {
+                        saveDelta1 += fee;
+                        delta1 += fee;
+                    }
+                } else {
+                    if (delta0 < 0) {
                         uint128 outputAmount = uint128(uint256(-int256(delta0)));
-                        fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
-                    }
+                        int128 fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
 
-                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, fee, 0);
-                    delta0 += fee;
-                } else if (delta1 < 0) {
-                    int128 fee;
-                    unchecked {
+                        saveDelta0 += fee;
+                        delta0 += fee;
+                    } else if (delta1 < 0) {
                         uint128 outputAmount = uint128(uint256(-int256(delta1)));
-                        fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
-                    }
+                        int128 fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
 
-                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, 0, fee);
-                    delta1 += fee;
+                        saveDelta1 += fee;
+                        delta1 += fee;
+                    }
                 }
             }
+
+            if (saveDelta0 != 0 || saveDelta1 != 0) {
+                core.updateSavedBalances(
+                    poolKey.token0,
+                    poolKey.token1,
+                    poolId,
+                    SafeCastLib.toInt128(saveDelta0),
+                    SafeCastLib.toInt128(saveDelta1)
+                );
+            }
+
+            result = abi.encode(delta0, delta1);
         }
-
-        setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
-
-        result = abi.encode(delta0, delta1);
     }
 }

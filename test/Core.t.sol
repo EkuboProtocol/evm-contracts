@@ -117,23 +117,25 @@ contract SavedBalancesTest is FullTest {
     using CoreLib for *;
 
     function locked(uint256) external {
-        (address token0, address token1, bytes32 salt, int128 delta0, int128 delta1) =
-            abi.decode(msg.data[36:], (address, address, bytes32, int128, int128));
+        (address token0, address token1, bytes32 salt, int256 delta0, int256 delta1) =
+            abi.decode(msg.data[36:], (address, address, bytes32, int256, int256));
 
         core.updateSavedBalances(token0, token1, salt, delta0, delta1);
+
         if (delta0 > 0) {
-            core.pay(address(token0), uint128(delta0));
+            core.pay(address(token0), uint128(int128(delta0)));
         } else if (delta0 < 0) {
-            core.withdraw(address(token0), address(this), uint128(-delta0));
+            core.withdraw(address(token0), address(this), uint128(int128(-delta0)));
         }
+
         if (delta1 > 0) {
-            core.pay(address(token1), uint128(delta1));
+            core.pay(address(token1), uint128(int128(delta1)));
         } else {
-            core.withdraw(address(token1), address(this), uint128(-delta1));
+            core.withdraw(address(token1), address(this), uint128(int128(-delta1)));
         }
     }
 
-    function updateSavedBalances(address token0, address token1, bytes32 salt, int128 delta0, int128 delta1) internal {
+    function updateSavedBalances(address token0, address token1, bytes32 salt, int256 delta0, int256 delta1) internal {
         (bool success, bytes memory returnData) =
             address(core).call(abi.encodeWithSelector(core.lock.selector, token0, token1, salt, delta0, delta1));
 
@@ -179,13 +181,13 @@ contract SavedBalancesTest is FullTest {
         delta1 = int128(bound(delta0, 0, type(int128).max));
         updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
 
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         updateSavedBalances(address(token0), address(token1), salt, (-delta0) - 1, (-delta1) - 1);
 
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         updateSavedBalances(address(token0), address(token1), salt, (-delta0) - 1, 0);
 
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         updateSavedBalances(address(token0), address(token1), salt, 0, (-delta1) - 1);
     }
 
@@ -202,13 +204,13 @@ contract SavedBalancesTest is FullTest {
         assertEq(s0, type(uint128).max);
         assertEq(s1, type(uint128).max);
 
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
 
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         updateSavedBalances(address(token0), address(token1), salt, delta0, 0);
 
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         updateSavedBalances(address(token0), address(token1), salt, 0, 1);
 
         // this will never revert because the balance is max uint128

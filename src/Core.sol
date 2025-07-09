@@ -86,7 +86,9 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external {
         CallPoints memory computed = addressToCallPoints(msg.sender);
-        if (!computed.eq(expectedCallPoints) || !computed.isValid()) revert FailedRegisterInvalidCallPoints();
+        if (!computed.eq(expectedCallPoints) || !computed.isValid()) {
+            revert FailedRegisterInvalidCallPoints();
+        }
         if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
         isExtensionRegistered[msg.sender] = true;
         emit ExtensionRegistered(msg.sender);
@@ -143,14 +145,27 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         address token1,
         bytes32,
         // positive is saving, negative is loading
-        int128 delta0,
-        int128 delta1
+        int256 delta0,
+        int256 delta1
     ) public payable {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
         (uint256 id, address locker) = _requireLocker();
 
         assembly ("memory-safe") {
+            function addDelta(u, i) -> result {
+                // full‐width sum mod 2^256
+                let sum := add(u, i)
+                // 1 if i<0 else 0
+                let sign := shr(255, i)
+                // if sum > type(uint128).max || (i>=0 && sum<u) || (i<0 && sum>u) ⇒ 256-bit wrap or underflow
+                if or(shr(128, sum), or(and(iszero(sign), lt(sum, u)), and(sign, gt(sum, u)))) {
+                    mstore(0x00, 0x1293d6fa) // `SavedBalanceOverflow()`
+                    revert(0x1c, 0x04)
+                }
+                result := sum
+            }
+
             let free := mload(0x40)
             mstore(free, locker)
             // copy the first 3 arguments in the same order
@@ -163,16 +178,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             let b0 := shr(128, balances)
             let b1 := shr(128, shl(128, balances))
 
-            let b0Next := add(b0, delta0)
-            let b1Next := add(b1, delta1)
-
-            // upper bits should be zero for both results or we had overflow/underflow
-            // since underflow is more likely, we assume it underflowed
-            if or(shr(128, b0Next), shr(128, b1Next)) {
-                // cast sig "InsufficientSavedBalance()"
-                mstore(0, 0x7b3df0ec)
-                revert(0x1c, 0x04)
-            }
+            let b0Next := addDelta(b0, delta0)
+            let b1Next := addDelta(b1, delta1)
 
             sstore(slot, add(shl(128, b0Next), b1Next))
         }

@@ -125,7 +125,9 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, -int128(fees0), -int128(fees1));
+                    core.updateSavedBalances(
+                        poolKey.token0, poolKey.token1, poolId, -int256(uint256(fees0)), -int256(uint256(fees1))
+                    );
                 }
 
                 setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tick});
@@ -272,13 +274,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             }
 
             if (saveDelta0 != 0 || saveDelta1 != 0) {
-                core.updateSavedBalances(
-                    poolKey.token0,
-                    poolKey.token1,
-                    poolId,
-                    SafeCastLib.toInt128(saveDelta0),
-                    SafeCastLib.toInt128(saveDelta1)
-                );
+                core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, saveDelta0, saveDelta1);
             }
 
             result = abi.encode(delta0, delta1);

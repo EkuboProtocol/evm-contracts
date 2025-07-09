@@ -408,25 +408,21 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
                 if (amountDelta < 0) {
                     // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 amountAbs = uint128(uint256(-amountDelta));
-                    uint128 fee = computeFee(amountAbs, poolKey.fee());
+                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
                     if (isToken1) {
                         core.accumulateAsFees(poolKey, 0, fee);
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, -int128(amountAbs));
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
                     } else {
                         core.accumulateAsFees(poolKey, fee, 0);
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), -int128(amountAbs), 0);
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
                     }
 
                     amountDelta += int128(fee);
                 } else {
-                    // downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 amountAbs = uint128(uint256(amountDelta));
-
                     if (isToken1) {
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, int128(amountAbs));
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
                     } else {
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), int128(amountAbs), 0);
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
                     }
                 }
 
@@ -448,33 +444,23 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     params.orderKey.sellToken < params.orderKey.buyToken
                 );
 
-                uint128 purchasedAmount =
+                uint256 purchasedAmount =
                     computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, order.saleRate);
                 order.rewardRateSnapshot = rewardRateInside;
 
                 if (purchasedAmount != 0) {
                     if (params.orderKey.sellToken > params.orderKey.buyToken) {
                         core.updateSavedBalances(
-                            poolKey.token0,
-                            poolKey.token1,
-                            bytes32(0),
-                            // todo: order proceeds can get stuck if it's too large
-                            -SafeCastLib.toInt128(purchasedAmount),
-                            0
+                            poolKey.token0, poolKey.token1, bytes32(0), -int256(purchasedAmount), 0
                         );
                     } else {
                         core.updateSavedBalances(
-                            poolKey.token0,
-                            poolKey.token1,
-                            bytes32(0),
-                            // todo: order proceeds can get stuck if it's too large
-                            0,
-                            -SafeCastLib.toInt128(purchasedAmount)
+                            poolKey.token0, poolKey.token1, bytes32(0), 0, -int256(purchasedAmount)
                         );
                     }
                 }
 
-                emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, purchasedAmount);
+                emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, uint128(purchasedAmount));
 
                 result = abi.encode(purchasedAmount);
             } else {
@@ -617,13 +603,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 }
 
                 if (saveDelta0 != 0 || saveDelta1 != 0) {
-                    core.updateSavedBalances(
-                        poolKey.token0,
-                        poolKey.token1,
-                        bytes32(0),
-                        SafeCastLib.toInt128(saveDelta0),
-                        SafeCastLib.toInt128(saveDelta1)
-                    );
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), saveDelta0, saveDelta1);
                 }
 
                 poolRewardRates[poolId] = rewardRates;

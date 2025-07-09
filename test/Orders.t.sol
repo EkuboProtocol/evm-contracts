@@ -242,7 +242,7 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(9);
         // nextValidTime will return 0 which causes it to skip the initialized time and try to swap too much
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         twamm.lockAndExecuteVirtualOrders(poolKey);
     }
 
@@ -531,8 +531,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRateToken0, 0);
         assertEq(saleRateToken1, saleRateOrder0);
 
-        // uint112 saleRateOrder1 =
-        orders.increaseSellAmount(
+        uint112 saleRateOrder1 = orders.increaseSellAmount(
             oID,
             OrderKey({
                 sellToken: poolKey.token0,
@@ -566,13 +565,12 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(164154);
 
-        vm.expectRevert(SafeCastLib.Overflow.selector);
         twamm.lockAndExecuteVirtualOrders(poolKey);
 
-        // (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
-        // assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
-        // assertEq(saleRateToken0, saleRateOrder1);
-        // assertEq(saleRateToken1, saleRateOrder0);
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
+        assertEq(saleRateToken0, saleRateOrder1);
+        assertEq(saleRateToken1, saleRateOrder0);
     }
 
     function test_gas_costs_single_sided() public {

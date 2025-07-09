@@ -72,7 +72,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
     error FailedRegisterInvalidCallPoints();
     error ExtensionAlreadyRegistered();
-    error InsufficientSavedBalance();
+    error SavedBalanceOverflow();
     error PoolAlreadyInitialized();
     error ExtensionNotRegistered();
     error PoolNotInitialized();
@@ -101,8 +101,9 @@ interface ICore is IFlashAccountant, IExposedStorage {
         view
         returns (int32 tick, bool isInitialized);
 
-    // Saves an amount of 2 tokens to be used later, in a single slot.
-    function updateSavedBalances(address token0, address token1, bytes32 salt, int128 delta0, int128 delta1)
+    // Updates the saved balances to be used later. The saved balances are stored in a single slot.
+    // Note that the resulting saved balance must fit within a uint128 container.
+    function updateSavedBalances(address token0, address token1, bytes32 salt, int256 delta0, int256 delta1)
         external
         payable;
 

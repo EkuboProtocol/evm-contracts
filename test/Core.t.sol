@@ -123,15 +123,15 @@ contract SavedBalancesTest is FullTest {
         core.updateSavedBalances(token0, token1, salt, delta0, delta1);
 
         if (delta0 > 0) {
-            core.pay(address(token0), uint128(int128(delta0)));
+            core.pay(address(token0), uint128(uint256(delta0)));
         } else if (delta0 < 0) {
-            core.withdraw(address(token0), address(this), uint128(int128(-delta0)));
+            core.withdraw(address(token0), address(this), uint128(uint256(-delta0)));
         }
 
         if (delta1 > 0) {
-            core.pay(address(token1), uint128(int128(delta1)));
+            core.pay(address(token1), uint128(uint256(delta1)));
         } else {
-            core.withdraw(address(token1), address(this), uint128(int128(-delta1)));
+            core.withdraw(address(token1), address(this), uint128(uint256(-delta1)));
         }
     }
 
@@ -162,18 +162,27 @@ contract SavedBalancesTest is FullTest {
         assertEq(s1, 15);
     }
 
-    function test_save_and_load_any_balance(bytes32 salt, int128 delta0, int128 delta1) public {
-        delta0 = int128(bound(delta0, 0, type(int128).max));
-        delta1 = int128(bound(delta0, 0, type(int128).max));
+    function test_save_and_load_any_balance(bytes32 salt, int256 delta0, int256 delta1) public {
+        delta0 = bound(delta0, 0, int256(uint256(type(uint128).max)));
+        delta1 = bound(delta0, 0, int256(uint256(type(uint128).max)));
+
         updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
         (uint128 s0, uint128 s1) = core.savedBalances(address(this), address(token0), address(token1), salt);
-        assertEq(s0, uint128(delta0));
-        assertEq(s1, uint128(delta1));
+        assertEq(s0, uint256(delta0));
+        assertEq(s1, uint256(delta1));
 
         updateSavedBalances(address(token0), address(token1), salt, -delta0, -delta1);
         (s0, s1) = core.savedBalances(address(this), address(token0), address(token1), salt);
         assertEq(s0, 0);
         assertEq(s1, 0);
+    }
+
+    function test_save_greater_than_uint128_max(bytes32 salt, int256 delta0, int256 delta1) public {
+        delta0 = bound(delta0, int256(uint256(type(uint128).max)), type(int256).max);
+        delta1 = bound(delta1, int256(uint256(type(uint128).max)), type(int256).max);
+
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
+        updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
     }
 
     function test_underflow_always_fails(bytes32 salt, int128 delta0, int128 delta1) public {

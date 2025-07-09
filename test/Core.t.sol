@@ -185,9 +185,9 @@ contract SavedBalancesTest is FullTest {
         updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
     }
 
-    function test_underflow_always_fails(bytes32 salt, int128 delta0, int128 delta1) public {
-        delta0 = int128(bound(delta0, 0, type(int128).max));
-        delta1 = int128(bound(delta0, 0, type(int128).max));
+    function test_underflow_always_fails(bytes32 salt, int256 delta0, int256 delta1) public {
+        delta0 = bound(delta0, 0, int256(uint256(type(uint128).max)));
+        delta1 = bound(delta0, 0, int256(uint256(type(uint128).max)));
         updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);
 
         vm.expectRevert(ICore.SavedBalanceOverflow.selector);

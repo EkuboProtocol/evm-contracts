@@ -184,8 +184,8 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             sstore(slot, add(shl(128, b0Next), b1Next))
         }
 
-        _maybeAccountDebtToken0(id, token0, int256(delta0));
-        _accountDebt(id, token1, int256(delta1));
+        _maybeAccountDebtToken0(id, token0, delta0);
+        _accountDebt(id, token1, delta1);
     }
 
     // Returns the pool fees per liquidity inside the given bounds.

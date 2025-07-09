@@ -749,6 +749,29 @@ contract OracleTest is BaseOracleTest {
         assertEq(tickCumulative, (10 * 693147 * 2) + (6 * 693146 / 2) + (5 * 693147), "t=21");
     }
 
+    function test_getExtrapolatedSnapshots_gas() public {
+        oracle.expandCapacity(address(token1), 5);
+        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
+
+        movePrice(poolKey, 693147 * 2);
+        advanceTime(10);
+        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2);
+        movePrice(poolKey, 693146 / 2);
+        advanceTime(6);
+        movePrice(poolKey, 693147);
+        advanceTime(5);
+
+        uint256[] memory timestamps = new uint256[](2);
+        timestamps[0] = vm.getBlockTimestamp() - 1;
+        timestamps[1] = vm.getBlockTimestamp();
+
+        coolAllContracts();
+        oracle.getExtrapolatedSnapshotsForSortedTimestamps(address(token1), timestamps);
+        vm.snapshotGasLastCall("oracle#getExtrapolatedSnapshots");
+    }
+
     function test_getExtrapolatedSnapshots() public {
         uint64 poolCreationTime = uint64(advanceTime(5));
 

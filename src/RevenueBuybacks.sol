@@ -53,7 +53,7 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
     // Emitted when a token is re-configured
     event Configured(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee);
 
-    // The current state of all the tokens
+    // The current state of each of the buybacks
     mapping(address token => BuybacksState state) public states;
 
     constructor(ICore core, address owner, IOrders _orders, address _buyToken) UsesCore(core) {
@@ -63,15 +63,19 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
         nftId = orders.mint();
     }
 
-    // Must be called to allow this contract to create orders
+    // Must be called at least once for each token to allow this contract to create orders
     function approveMax(address token) external {
         SafeTransferLib.safeApproveWithRetry(token, address(orders), type(uint256).max);
     }
 
-    // Takes any leftover tokens, only callable by owner
+    // Takes any leftover tokens held by this contract, only callable by owner
     function take(address token, uint256 amount) external onlyOwner {
-        SafeTransferLib.safeTransfer(token, owner(), amount);
+        // we transfer to msg.sender because only the owner can call this function
+        SafeTransferLib.safeTransfer(token, msg.sender, amount);
     }
+
+    // Collects any buyback proceeds that have not yet been collected.
+    function collect(address token, uint256 endTime) external {}
 
     function roll(address token) public {
         unchecked {

@@ -405,6 +405,4 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         snos.collect(token, address(0x1234));
         vm.snapshotGasLastCall("SniperNoSniping#collect");
     }
-
-    receive() external payable {}
 }

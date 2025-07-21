@@ -352,7 +352,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         amountSold
                             + computeAmountFromSaleRate({
                                 saleRate: saleRate,
-                                duration: uint32(block.timestamp) - lastUpdateTime,
+                                duration: FixedPointMathLib.min(
+                                    uint32(block.timestamp) - lastUpdateTime,
+                                    uint32(block.timestamp) - uint32(params.orderKey.startTime)
+                                ),
                                 roundUp: false
                             })
                     )

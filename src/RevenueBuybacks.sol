@@ -23,6 +23,11 @@ interface IOrders {
         external
         payable
         returns (uint112 saleRate);
+
+    function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)
+        external
+        payable
+        returns (uint128 proceeds);
 }
 
 struct BuybacksState {
@@ -63,7 +68,12 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
         nftId = orders.mint();
     }
 
-    // Must be called at least once for each token to allow this contract to create orders
+    // Reclaims ownership of the Core contract that is meant to be owned by this one.
+    function reclaim() external onlyOwner {
+        Ownable(address(core)).transferOwnership(msg.sender);
+    }
+
+    // Must be called at least once for each token to allow this contract to create orders.
     function approveMax(address token) external {
         SafeTransferLib.safeApproveWithRetry(token, address(orders), type(uint256).max);
     }
@@ -74,22 +84,34 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
         SafeTransferLib.safeTransfer(token, msg.sender, amount);
     }
 
-    // Collects any buyback proceeds that have not yet been collected.
-    function collect(address token, uint256 endTime) external {}
+    // Collects buyback proceeds for order ending at the given time.
+    function collect(address token, uint64 fee, uint256 endTime) external returns (uint128 proceeds) {
+        proceeds = orders.collectProceeds(
+            nftId, OrderKey({sellToken: token, buyToken: buyToken, fee: fee, startTime: 0, endTime: endTime}), owner()
+        );
+    }
 
+    // Take any collected revenue and withdraw it to this contract.
+    function _withdrawAvailableTokens(address token) internal virtual {
+        uint256 amountCollected = core.protocolFeesCollected(token);
+        if (amountCollected != 0) core.withdrawProtocolFees(address(this), token, amountCollected);
+    }
+
+    // Anyone can call this to move the collected proceeds into the current order,
+    // or creates a new one if the current order has not collected proceeds.
     function roll(address token) public {
         unchecked {
             BuybacksState memory state = states[token];
             // targetOrderDuration = 0 indicates we do not want to continue to sell this revenue token
             if (state.targetOrderDuration != 0) {
-                uint256 amountCollected = core.protocolFeesCollected(token);
-                if (amountCollected != 0) core.withdrawProtocolFees(address(this), token, amountCollected);
+                _withdrawAvailableTokens(token);
 
                 uint256 amountToSpend = SafeTransferLib.balanceOf(token, address(this));
 
                 if (amountToSpend != 0) {
                     uint64 currentTime = uint64(block.timestamp);
-                    if (state.fee == state.lastFee && state.lastEndTime - currentTime < state.minOrderDuration) {
+                    // if the fee changed, or the amount of time exceeds the min order duration
+                    if (state.fee == state.lastFee && (state.lastEndTime - currentTime) < state.minOrderDuration) {
                         orders.increaseSellAmount(
                             nftId,
                             OrderKey({
@@ -99,7 +121,7 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
                                 startTime: 0,
                                 endTime: state.lastEndTime
                             }),
-                            uint128(amountCollected),
+                            uint128(amountToSpend),
                             type(uint112).max
                         );
                     } else {
@@ -127,7 +149,10 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
         }
     }
 
-    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee) external {
+    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
+        external
+        onlyOwner
+    {
         roll(token);
 
         BuybacksState storage state = states[token];

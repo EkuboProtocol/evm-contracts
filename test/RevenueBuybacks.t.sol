@@ -7,6 +7,7 @@ import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 
 contract RevenueBuybacksTest is BaseOrdersTest {
     using CoreLib for *;
@@ -17,6 +18,37 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         BaseOrdersTest.setUp();
         // it always buys back ETH
         rb = new RevenueBuybacks(core, address(this), IOrders(address(orders)), address(0));
+
+        vm.prank(core.owner());
+        core.transferOwnership(address(rb));
+    }
+
+    function test_reclaim_transfers_ownership() public {
+        assertEq(core.owner(), address(rb));
+        rb.reclaim();
+        assertEq(core.owner(), address(this));
+    }
+
+    function test_reclaim_fails_if_not_owner() public {
+        vm.prank(address(uint160(0xdeadbeef)));
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        rb.reclaim();
+    }
+
+    function test_approve_max() public {
+        assertEq(token0.allowance(address(rb), address(orders)), 0);
+        rb.approveMax(address(token0));
+        assertEq(token0.allowance(address(rb), address(orders)), type(uint256).max);
+        // second time no op
+        rb.approveMax(address(token0));
+        assertEq(token0.allowance(address(rb), address(orders)), type(uint256).max);
+    }
+
+    function test_take_by_owner() public {
+        token0.transfer(address(rb), 100);
+        assertEq(token0.balanceOf(address(rb)), 100);
+        rb.take(address(token0), 100);
+        assertEq(token0.balanceOf(address(rb)), 0);
     }
 
     function test_mint_on_create() public view {

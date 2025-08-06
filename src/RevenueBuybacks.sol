@@ -109,43 +109,29 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
                 bool isETH = token == address(0);
                 uint256 amountToSpend = isETH ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
+                uint64 currentTime = uint64(block.timestamp);
+                uint64 timeRemaining = state.lastEndTime - currentTime;
+                // if the fee changed, or the amount of time exceeds the min order duration
+                if (
+                    state.fee == state.lastFee && timeRemaining >= state.minOrderDuration
+                        && timeRemaining <= type(uint32).max
+                ) {
+                    // handles overflow
+                    endTime = block.timestamp + uint256(timeRemaining);
+                } else {
+                    endTime = nextValidTime(block.timestamp, block.timestamp + state.targetOrderDuration);
+
+                    states[token].lastEndTime = uint64(endTime);
+                    states[token].lastFee = state.fee;
+                }
+
                 if (amountToSpend != 0) {
-                    uint64 currentTime = uint64(block.timestamp);
-                    // if the fee changed, or the amount of time exceeds the min order duration
-                    if (state.fee == state.lastFee && (state.lastEndTime - currentTime) < state.minOrderDuration) {
-                        // handles overflow
-                        endTime = block.timestamp - uint256(state.lastEndTime - currentTime);
-                        saleRate = orders.increaseSellAmount{value: isETH ? amountToSpend : 0}(
-                            nftId,
-                            OrderKey({
-                                sellToken: token,
-                                buyToken: buyToken,
-                                fee: state.fee,
-                                startTime: 0,
-                                endTime: endTime
-                            }),
-                            uint128(amountToSpend),
-                            type(uint112).max
-                        );
-                    } else {
-                        endTime = nextValidTime(block.timestamp, block.timestamp + state.targetOrderDuration);
-
-                        saleRate = orders.increaseSellAmount{value: isETH ? amountToSpend : 0}(
-                            nftId,
-                            OrderKey({
-                                sellToken: token,
-                                buyToken: buyToken,
-                                fee: state.fee,
-                                startTime: 0,
-                                endTime: endTime
-                            }),
-                            uint128(amountToSpend),
-                            type(uint112).max
-                        );
-
-                        states[token].lastEndTime = uint64(endTime);
-                        states[token].lastFee = state.fee;
-                    }
+                    saleRate = orders.increaseSellAmount{value: isETH ? amountToSpend : 0}(
+                        nftId,
+                        OrderKey({sellToken: token, buyToken: buyToken, fee: state.fee, startTime: 0, endTime: endTime}),
+                        uint128(amountToSpend),
+                        type(uint112).max
+                    );
                 }
             }
         }

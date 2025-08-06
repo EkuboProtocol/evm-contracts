@@ -112,10 +112,19 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(lastFee, 0);
     }
 
-    function test_donate(uint128 amount) public {
-        token0.approve(address(donator), amount);
-        donator.donate(address(token0), amount);
-        assertEq(core.protocolFeesCollected(address(token0)), amount);
+    function donate(address token, uint128 amount) internal {
+        if (token != address(0)) {
+            TestToken(token).approve(address(donator), amount);
+        } else {
+            vm.deal(address(donator), amount);
+        }
+        donator.donate(address(token), amount);
+    }
+
+    function test_donate(bool isETH, uint128 amount) public {
+        address t = isETH ? address(0) : address(token0);
+        donate(t, amount);
+        assertEq(core.protocolFeesCollected(t), amount);
     }
 
     function test_roll_token() public {
@@ -123,8 +132,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: poolFee});
 
-        token0.approve(address(donator), 1e18);
-        donator.donate(address(token0), 1e18);
+        donate(address(token0), 1e18);
 
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
@@ -142,6 +150,18 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         (uint256 endTime, uint112 saleRate) = rb.roll(address(token0));
         assertEq(endTime, 3840);
         assertEq(saleRate, 1118772413649387861422245);
+
+        advanceTime(1800);
+        assertEq(rb.collect(address(token0), poolFee, endTime), 317025440313111544);
+
+        (endTime, saleRate) = rb.roll(address(token0));
+        assertEq(endTime, 3840);
+        assertEq(saleRate, 0);
+
+        donate(address(token0), 1e17);
+        (endTime, saleRate) = rb.roll(address(token0));
+        assertEq(endTime, 3840);
+        assertEq(saleRate, 210640867876410004904364);
     }
 
     function test_roll_eth() public {
@@ -149,7 +169,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         rb.configure({token: address(0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: poolFee});
 
-        donator.donate{value: 1e18}(address(0), 1e18);
+        donate(address(0), 1e18);
 
         PoolKey memory poolKey = PoolKey({
             token0: address(0),
@@ -164,5 +184,21 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         (uint256 endTime, uint112 saleRate) = rb.roll(address(0));
         assertEq(endTime, 3840);
         assertEq(saleRate, 1118772413649387861422245);
+
+        advanceTime(1800);
+        assertEq(rb.collect(address(0), poolFee, endTime), 317025440313111544);
+
+        (endTime, saleRate) = rb.roll(address(0));
+        assertEq(endTime, 3840);
+        assertEq(saleRate, 0);
+
+        (endTime, saleRate) = rb.roll(address(0));
+        assertEq(endTime, 3840);
+        assertEq(saleRate, 0);
+
+        donate(address(0), 1e17);
+        (endTime, saleRate) = rb.roll(address(0));
+        assertEq(endTime, 3840);
+        assertEq(saleRate, 210640867876410004904364);
     }
 }

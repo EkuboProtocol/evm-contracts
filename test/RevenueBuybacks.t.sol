@@ -4,23 +4,60 @@ pragma solidity =0.8.28;
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {RevenueBuybacks, BuybacksState, IOrders} from "../src/RevenueBuybacks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {TestToken} from "./TestToken.sol";
+import {BaseLocker} from "../src/base/BaseLocker.sol";
+import {UsesCore} from "../src/base/UsesCore.sol";
+
+contract Donator is BaseLocker, UsesCore {
+    constructor(ICore core) BaseLocker(core) UsesCore(core) {}
+
+    function donate(address token, uint128 amount) external payable {
+        lock(abi.encode(msg.sender, token, amount));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (address caller, address token, uint128 amount) = abi.decode(data, (address, address, uint128));
+        core.donateProtocolFees(token, amount);
+        pay(caller, token, amount);
+    }
+}
 
 contract RevenueBuybacksTest is BaseOrdersTest {
     using CoreLib for *;
 
     RevenueBuybacks rb;
+    TestToken buybacksToken;
+    Donator donator;
 
     function setUp() public override {
         BaseOrdersTest.setUp();
-        // it always buys back ETH
-        rb = new RevenueBuybacks(core, address(this), IOrders(address(orders)), address(0));
+        buybacksToken = new TestToken(address(this));
+        donator = new Donator(core);
+
+        // make it so buybacksToken is always greatest
+        if (address(buybacksToken) < address(token1)) {
+            (token1, buybacksToken) = (buybacksToken, token1);
+        }
+
+        if (address(token1) < address(token0)) {
+            (token0, token1) = (token1, token0);
+        }
+
+        // it always buys back the buybacksToken
+        rb = new RevenueBuybacks(core, address(this), IOrders(address(orders)), address(buybacksToken));
 
         vm.prank(core.owner());
         core.transferOwnership(address(rb));
+    }
+
+    function test_setUp_token_order() public view {
+        assertGt(uint160(address(token1)), uint160(address(token0)));
+        assertGt(uint160(address(buybacksToken)), uint160(address(token1)));
     }
 
     function test_reclaim_transfers_ownership() public {
@@ -75,43 +112,57 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(lastFee, 0);
     }
 
-    function generateProtocolFees() private {
+    function test_donate(uint128 amount) public {
+        token0.approve(address(donator), amount);
+        donator.donate(address(token0), amount);
+        assertEq(core.protocolFeesCollected(address(token0)), amount);
+    }
+
+    function test_roll_token() public {
+        uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
+
+        rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: poolFee});
+
+        token0.approve(address(donator), 1e18);
+        donator.donate(address(token0), 1e18);
+
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
-            token1: address(token1),
-            config: toConfig({_extension: address(0), _fee: type(uint64).max, _tickSpacing: 0})
+            token1: address(buybacksToken),
+            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
+        token0.approve(address(positions), 1e18);
+        buybacksToken.approve(address(positions), 1e18);
+        positions.mintAndDeposit(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
 
-        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
+        rb.approveMax(address(token0));
 
-        token0.approve(address(positions), type(uint256).max);
-        token1.approve(address(positions), type(uint256).max);
-
-        uint256 positionId = positions.mint();
-        (uint128 liquidity,,) = positions.deposit(positionId, poolKey, bounds, type(uint64).max, type(uint64).max, 0);
-        positions.withdraw(positionId, poolKey, bounds, liquidity, address(this), false);
+        (uint256 endTime, uint112 saleRate) = rb.roll(address(token0));
+        assertEq(endTime, 3840);
+        assertEq(saleRate, 1118772413649387861422245);
     }
 
-    function test_generateProtocolFees() public {
-        generateProtocolFees();
-        assertEq(core.protocolFeesCollected(address(token0)), type(uint64).max - 1);
-        assertEq(core.protocolFeesCollected(address(token1)), type(uint64).max - 1);
-    }
+    function test_roll_eth() public {
+        uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
 
-    function test_roll() public {
-        rb.configure({
-            token: address(token0),
-            targetOrderDuration: 3600,
-            minOrderDuration: 1800,
-            fee: uint64((uint256(1) << 64) / 100)
-        });
+        rb.configure({token: address(0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: poolFee});
+
+        donator.donate{value: 1e18}(address(0), 1e18);
 
         PoolKey memory poolKey = PoolKey({
-            token1: address(0),
-            token0: address(token0),
-            config: toConfig({_extension: address(twamm), _fee: type(uint64).max, _tickSpacing: 0})
+            token0: address(0),
+            token1: address(buybacksToken),
+            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
+
+        positions.maybeInitializePool(poolKey, 0);
+        buybacksToken.approve(address(positions), 1e18);
+        positions.mintAndDeposit{value: 1e18}(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
+
+        (uint256 endTime, uint112 saleRate) = rb.roll(address(0));
+        assertEq(endTime, 3840);
+        assertEq(saleRate, 1118772413649387861422245);
     }
 }

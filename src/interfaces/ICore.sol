@@ -85,6 +85,10 @@ interface ICore is IFlashAccountant, IExposedStorage {
     // To withdraw the native token protocol fees, call with token = NATIVE_TOKEN_ADDRESS
     function withdrawProtocolFees(address recipient, address token, uint256 amount) external;
 
+    // Allows donating an amount of token to the protocol
+    // Must be called within a lock
+    function donateProtocolFees(address token, uint128 amount) external payable;
+
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external;
 

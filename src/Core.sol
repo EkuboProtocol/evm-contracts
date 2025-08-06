@@ -223,6 +223,12 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), bounds, poolKey.tickSpacing());
     }
 
+    function donateProtocolFees(address token, uint128 amount) external payable {
+        (uint256 id,) = _requireLocker();
+        protocolFeesCollected[token] += amount;
+        _maybeAccountDebtToken0(id, token, int256(uint256(amount)));
+    }
+
     // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
     // key, i.e. the current locker _must_ be the extension.
     // The extension must call this function within a lock callback.

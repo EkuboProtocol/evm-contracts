@@ -99,49 +99,51 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
 
     // Anyone can call this to move the collected proceeds into the current order,
     // or creates a new one if the current order has not collected proceeds.
-    function roll(address token) public {
+    function roll(address token) public returns (uint256 endTime, uint112 saleRate) {
         unchecked {
             BuybacksState memory state = states[token];
             // targetOrderDuration = 0 indicates we do not want to continue to sell this revenue token
             if (state.targetOrderDuration != 0) {
                 _withdrawAvailableTokens(token);
 
-                uint256 amountToSpend = SafeTransferLib.balanceOf(token, address(this));
+                bool isETH = token == address(0);
+                uint256 amountToSpend = isETH ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
                 if (amountToSpend != 0) {
                     uint64 currentTime = uint64(block.timestamp);
                     // if the fee changed, or the amount of time exceeds the min order duration
                     if (state.fee == state.lastFee && (state.lastEndTime - currentTime) < state.minOrderDuration) {
-                        orders.increaseSellAmount(
+                        // handles overflow
+                        endTime = block.timestamp - uint256(state.lastEndTime - currentTime);
+                        saleRate = orders.increaseSellAmount{value: isETH ? amountToSpend : 0}(
                             nftId,
                             OrderKey({
                                 sellToken: token,
                                 buyToken: buyToken,
                                 fee: state.fee,
                                 startTime: 0,
-                                endTime: state.lastEndTime
+                                endTime: endTime
                             }),
                             uint128(amountToSpend),
                             type(uint112).max
                         );
                     } else {
-                        uint256 nextEndTime =
-                            nextValidTime(block.timestamp, block.timestamp + state.targetOrderDuration);
+                        endTime = nextValidTime(block.timestamp, block.timestamp + state.targetOrderDuration);
 
-                        orders.increaseSellAmount(
+                        saleRate = orders.increaseSellAmount{value: isETH ? amountToSpend : 0}(
                             nftId,
                             OrderKey({
                                 sellToken: token,
                                 buyToken: buyToken,
                                 fee: state.fee,
                                 startTime: 0,
-                                endTime: nextEndTime
+                                endTime: endTime
                             }),
                             uint128(amountToSpend),
                             type(uint112).max
                         );
 
-                        states[token].lastEndTime = uint64(nextEndTime);
+                        states[token].lastEndTime = uint64(endTime);
                         states[token].lastFee = state.fee;
                     }
                 }
@@ -159,5 +161,10 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
         (state.targetOrderDuration, state.minOrderDuration, state.fee) = (targetOrderDuration, minOrderDuration, fee);
 
         emit Configured(token, targetOrderDuration, minOrderDuration, fee);
+    }
+
+    // Necessary to withdraw protocol fees in ETH
+    receive() external payable {
+        require(msg.sender == address(core));
     }
 }

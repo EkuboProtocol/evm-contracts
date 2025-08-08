@@ -55,6 +55,9 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
     // The token that is repurchased with revenue
     address public immutable buyToken;
 
+    error MinOrderDurationGreaterThanTargetOrderDuration();
+    error MinOrderDurationMustBeGreaterThanZero();
+
     // Emitted when a token is re-configured
     event Configured(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee);
 
@@ -109,8 +112,7 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
                 bool isETH = token == address(0);
                 uint256 amountToSpend = isETH ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
-                uint64 currentTime = uint64(block.timestamp);
-                uint64 timeRemaining = state.lastEndTime - currentTime;
+                uint64 timeRemaining = state.lastEndTime - uint64(block.timestamp);
                 // if the fee changed, or the amount of time exceeds the min order duration
                 if (
                     state.fee == state.lastFee && timeRemaining >= state.minOrderDuration
@@ -119,7 +121,7 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
                     // handles overflow
                     endTime = block.timestamp + uint256(timeRemaining);
                 } else {
-                    endTime = nextValidTime(block.timestamp, block.timestamp + state.targetOrderDuration);
+                    endTime = nextValidTime(block.timestamp, block.timestamp + state.targetOrderDuration - 1);
 
                     states[token].lastEndTime = uint64(endTime);
                     states[token].lastFee = state.fee;
@@ -141,6 +143,9 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
         external
         onlyOwner
     {
+        if (minOrderDuration > targetOrderDuration) revert MinOrderDurationGreaterThanTargetOrderDuration();
+        if (minOrderDuration == 0) revert MinOrderDurationMustBeGreaterThanZero();
+
         roll(token);
 
         BuybacksState storage state = states[token];

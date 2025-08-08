@@ -201,4 +201,56 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(endTime, 3840);
         assertEq(saleRate, 210640867876410004904364);
     }
+
+    function test_roll_timing(bool isETH, uint256 startTime, uint32 targetOrderDuration, uint32 minOrderDuration)
+        public
+    {
+        startTime = bound(startTime, 0, type(uint256).max - type(uint64).max);
+        targetOrderDuration = uint32(bound(targetOrderDuration, 1, type(uint16).max));
+        minOrderDuration = uint32(bound(minOrderDuration, 1, targetOrderDuration));
+
+        vm.warp(startTime);
+
+        uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
+        address token = isETH ? address(0) : address(token0);
+        rb.configure({
+            token: token,
+            targetOrderDuration: targetOrderDuration,
+            minOrderDuration: minOrderDuration,
+            fee: poolFee
+        });
+
+        if (!isETH) {
+            rb.approveMax(token);
+        }
+
+        donate(token, 1e18);
+
+        PoolKey memory poolKey = PoolKey({
+            token0: token,
+            token1: address(buybacksToken),
+            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+        });
+
+        positions.maybeInitializePool(poolKey, 0);
+        token0.approve(address(positions), 1e18);
+        buybacksToken.approve(address(positions), 1e18);
+        positions.mintAndDeposit{value: isETH ? 1e18 : 0}(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
+
+        (uint256 endTime,) = rb.roll(token);
+        assertGt(endTime, startTime, "end time gt");
+        assertGe(endTime - startTime, minOrderDuration, "min order duration 2");
+        assertGe(endTime - startTime, targetOrderDuration, "target order duration 2");
+
+        uint256 timeNext = endTime - minOrderDuration + 1;
+        assertGt(timeNext, startTime, "time next is greater than start");
+
+        vm.warp(timeNext);
+        donate(token, 1e18);
+
+        (uint256 endTime2,) = rb.roll(token);
+        assertGt(endTime2, endTime, "end time gt 2");
+        assertGe(endTime2 - timeNext, minOrderDuration, "min order duration 2");
+        assertGe(endTime2 - timeNext, targetOrderDuration, "target order duration 2");
+    }
 }

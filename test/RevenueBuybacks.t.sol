@@ -202,16 +202,19 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(saleRate, 210640867876410004904364);
     }
 
-    function test_roll_timing(bool isETH, uint256 startTime, uint32 targetOrderDuration, uint32 minOrderDuration)
-        public
-    {
+    function test_roll_timing(
+        bool isETH,
+        uint256 startTime,
+        uint32 targetOrderDuration,
+        uint32 minOrderDuration,
+        uint64 poolFee
+    ) public {
         startTime = bound(startTime, 0, type(uint256).max - type(uint64).max);
         targetOrderDuration = uint32(bound(targetOrderDuration, 1, type(uint16).max));
         minOrderDuration = uint32(bound(minOrderDuration, 1, targetOrderDuration));
 
         vm.warp(startTime);
 
-        uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
         address token = isETH ? address(0) : address(token0);
         rb.configure({
             token: token,

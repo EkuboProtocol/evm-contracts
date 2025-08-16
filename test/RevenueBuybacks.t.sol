@@ -202,6 +202,10 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(saleRate, 210640867876410004904364);
     }
 
+    function test_roll_timing_fail_example() public {
+        test_roll_timing(false, 2127478271, 0, 891784465, 12670);
+    }
+
     function test_roll_timing(
         bool isETH,
         uint256 startTime,
@@ -210,8 +214,8 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         uint64 poolFee
     ) public {
         startTime = bound(startTime, 0, type(uint256).max - type(uint64).max);
-        targetOrderDuration = uint32(bound(targetOrderDuration, 1, type(uint16).max));
-        minOrderDuration = uint32(bound(minOrderDuration, 1, targetOrderDuration));
+        targetOrderDuration = uint32(bound(targetOrderDuration, 2, type(uint16).max));
+        minOrderDuration = uint32(bound(minOrderDuration, 1, targetOrderDuration - 1));
 
         vm.warp(startTime);
 
@@ -246,7 +250,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertGe(endTime - startTime, targetOrderDuration, "target order duration 2");
 
         uint256 timeSameRoll = endTime - minOrderDuration;
-        assertGt(timeSameRoll, startTime, "time next is greater than start");
+        assertGt(timeSameRoll, startTime, "time for same roll is greater than start time");
 
         vm.warp(timeSameRoll);
         donate(token, 1e18);

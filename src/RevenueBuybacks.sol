@@ -2,11 +2,12 @@
 pragma solidity =0.8.28;
 
 import {Ownable} from "solady/auth/Ownable.sol";
-import {nextValidTime} from "./math/time.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+
+import {nextValidTime} from "./math/time.sol";
 import {ICore, UsesCore} from "./base/UsesCore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 struct OrderKey {
     address sellToken;
@@ -31,23 +32,21 @@ interface IOrders {
 }
 
 struct BuybacksState {
-    // New orders will last the minimum duration greater than the target order duration
+    // New orders will be placed for the minimum duration that is larger than the target order duration
     uint32 targetOrderDuration;
-    // New orders will be created when the existing order cannot be used for new sales
+    // New orders will be created iff the last order that was created has a duration less than minOrderDuration
     uint32 minOrderDuration;
-    // The fee of the pool on which the order is placed
+    // The fee of the pool on which the order is placed.
     uint64 fee;
-    // The parameters of the last order that has been created
-    uint64 lastEndTime;
+    // The parameters of the last order that was created.
+    uint32 lastEndTime;
     uint64 lastFee;
 }
 
 /// @title Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Creates revenue buyback orders regularly according to specified configurations
-contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
-    using CoreLib for *;
-
+abstract contract RevenueBuybacks is Ownable, Multicallable {
     // Used to create and manage the orders
     IOrders public immutable orders;
     // The ID of the token with which all the orders are associated
@@ -55,7 +54,9 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
     // The token that is repurchased with revenue
     address public immutable buyToken;
 
+    // The minimum order duration cannot be greater than the target order duration since that would prevent orders from being created.
     error MinOrderDurationGreaterThanTargetOrderDuration();
+    // The minimum order duration must be greater than zero because orders cannot have a zero duration.
     error MinOrderDurationMustBeGreaterThanZero();
 
     // Emitted when a token is re-configured
@@ -64,16 +65,11 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
     // The current state of each of the buybacks
     mapping(address token => BuybacksState state) public states;
 
-    constructor(ICore core, address owner, IOrders _orders, address _buyToken) UsesCore(core) {
+    constructor(address owner, IOrders _orders, address _buyToken) {
         _initializeOwner(owner);
         orders = _orders;
         buyToken = _buyToken;
         nftId = orders.mint();
-    }
-
-    // Reclaims ownership of the Core contract that is meant to be owned by this one.
-    function reclaim() external onlyOwner {
-        Ownable(address(core)).transferOwnership(msg.sender);
     }
 
     // Must be called at least once for each token to allow this contract to create orders.
@@ -88,6 +84,7 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
     }
 
     // Collects buyback proceeds for order ending at the given time.
+    // This may be called by anyone at any time.
     function collect(address token, uint64 fee, uint256 endTime) external returns (uint128 proceeds) {
         proceeds = orders.collectProceeds(
             nftId, OrderKey({sellToken: token, buyToken: buyToken, fee: fee, startTime: 0, endTime: endTime}), owner()
@@ -95,35 +92,33 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
     }
 
     // Take any collected revenue and withdraw it to this contract.
-    function _withdrawAvailableTokens(address token) internal virtual {
-        uint256 amountCollected = core.protocolFeesCollected(token);
-        if (amountCollected != 0) core.withdrawProtocolFees(address(this), token, amountCollected);
-    }
+    // This can be overridden by other protocols to enable this contract to implement token buybacks for any protocol.
+    function _withdrawAvailableTokens(address token) internal virtual;
+
+    // Necessary to withdraw available tokens in ETH
+    receive() external payable {}
 
     // Anyone can call this to move the collected proceeds into the current order,
     // or creates a new one if the current order has not collected proceeds.
     function roll(address token) public returns (uint256 endTime, uint112 saleRate) {
         unchecked {
             BuybacksState memory state = states[token];
-            // targetOrderDuration = 0 indicates we do not want to continue to sell this revenue token
-            if (state.targetOrderDuration != 0) {
+            // minOrderDuration == 0 indicates the token is not configured
+            if (state.minOrderDuration != 0) {
                 _withdrawAvailableTokens(token);
 
                 bool isETH = token == address(0);
                 uint256 amountToSpend = isETH ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
-                uint64 timeRemaining = state.lastEndTime - uint64(block.timestamp);
+                uint32 timeRemaining = state.lastEndTime - uint32(block.timestamp);
                 // if the fee changed, or the amount of time exceeds the min order duration
-                if (
-                    state.fee == state.lastFee && timeRemaining >= state.minOrderDuration
-                        && timeRemaining <= type(uint32).max
-                ) {
+                if (state.fee == state.lastFee && timeRemaining >= state.minOrderDuration) {
                     // handles overflow
                     endTime = block.timestamp + uint256(timeRemaining);
                 } else {
-                    endTime = nextValidTime(block.timestamp, block.timestamp + state.targetOrderDuration - 1);
+                    endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration) - 1);
 
-                    states[token].lastEndTime = uint64(endTime);
+                    states[token].lastEndTime = uint32(endTime);
                     states[token].lastFee = state.fee;
                 }
 
@@ -146,16 +141,31 @@ contract RevenueBuybacks is UsesCore, Ownable, Multicallable {
         if (minOrderDuration > targetOrderDuration) revert MinOrderDurationGreaterThanTargetOrderDuration();
         if (minOrderDuration == 0) revert MinOrderDurationMustBeGreaterThanZero();
 
+        // we first run roll so that tokens accrued up until now are treated according to the old rules
         roll(token);
 
+        // then we effect the configuration change
         BuybacksState storage state = states[token];
         (state.targetOrderDuration, state.minOrderDuration, state.fee) = (targetOrderDuration, minOrderDuration, fee);
-
         emit Configured(token, targetOrderDuration, minOrderDuration, fee);
     }
+}
 
-    // Necessary to withdraw protocol fees in ETH
-    receive() external payable {
-        require(msg.sender == address(core));
+contract EkuboRevenueBuybacks is RevenueBuybacks, UsesCore {
+    using CoreLib for *;
+
+    constructor(ICore core, address owner, IOrders orders, address buyToken)
+        UsesCore(core)
+        RevenueBuybacks(owner, orders, buyToken)
+    {}
+
+    // Reclaims ownership of the Core contract that is meant to be owned by this one.
+    function reclaim() external onlyOwner {
+        Ownable(address(core)).transferOwnership(msg.sender);
+    }
+
+    function _withdrawAvailableTokens(address token) internal override {
+        uint256 amountCollected = core.protocolFeesCollected(token);
+        if (amountCollected != 0) core.withdrawProtocolFees(address(this), token, amountCollected);
     }
 }

@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {RevenueBuybacks, BuybacksState, IOrders} from "../src/RevenueBuybacks.sol";
+import {EkuboRevenueBuybacks, BuybacksState, IOrders} from "../src/RevenueBuybacks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
@@ -30,7 +30,7 @@ contract Donator is BaseLocker, UsesCore {
 contract RevenueBuybacksTest is BaseOrdersTest {
     using CoreLib for *;
 
-    RevenueBuybacks rb;
+    EkuboRevenueBuybacks rb;
     TestToken buybacksToken;
     Donator donator;
 
@@ -49,7 +49,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
 
         // it always buys back the buybacksToken
-        rb = new RevenueBuybacks(core, address(this), IOrders(address(orders)), address(buybacksToken));
+        rb = new EkuboRevenueBuybacks(core, address(this), IOrders(address(orders)), address(buybacksToken));
 
         vm.prank(core.owner());
         core.transferOwnership(address(rb));
@@ -214,8 +214,8 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         uint64 poolFee
     ) public {
         startTime = bound(startTime, 0, type(uint256).max - type(uint64).max);
-        targetOrderDuration = uint32(bound(targetOrderDuration, 2, type(uint16).max));
-        minOrderDuration = uint32(bound(minOrderDuration, 1, targetOrderDuration - 1));
+        targetOrderDuration = uint32(bound(targetOrderDuration, 1, type(uint16).max));
+        minOrderDuration = uint32(bound(minOrderDuration, 1, targetOrderDuration));
 
         vm.warp(startTime);
 
@@ -250,7 +250,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertGe(endTime - startTime, targetOrderDuration, "target order duration 2");
 
         uint256 timeSameRoll = endTime - minOrderDuration;
-        assertGt(timeSameRoll, startTime, "time for same roll is greater than start time");
+        assertGe(timeSameRoll, startTime, "time for same roll is g.t.e than start time");
 
         vm.warp(timeSameRoll);
         donate(token, 1e18);
@@ -265,8 +265,8 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         donate(token, 1e18);
 
         (uint256 endTime3,) = rb.roll(token);
-        assertGt(endTime3, endTime, "end time gt 2");
-        assertGe(endTime3 - timeNext, minOrderDuration, "min order duration 2");
-        assertGe(endTime3 - timeNext, targetOrderDuration, "target order duration 2");
+        assertGt(endTime3, endTime, "end time gt 3");
+        assertGe(endTime3 - timeNext, minOrderDuration, "min order duration 3");
+        assertGe(endTime3 - timeNext, targetOrderDuration, "target order duration 3");
     }
 }

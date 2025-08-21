@@ -93,22 +93,31 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_configure() public {
-        (uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee, uint64 lastEndTime, uint64 lastFee) =
-            rb.states(address(token0));
+        (
+            uint32 targetOrderDuration,
+            uint32 minOrderDuration,
+            uint64 fee,
+            uint32 lastEndTime,
+            uint32 lastOrderDuration,
+            uint64 lastFee
+        ) = rb.states(address(token0));
         assertEq(targetOrderDuration, 0);
         assertEq(minOrderDuration, 0);
         assertEq(fee, 0);
         assertEq(lastEndTime, 0);
+        assertEq(lastOrderDuration, 0);
         assertEq(lastFee, 0);
 
         uint64 nextFee = uint64((uint256(1) << 64) / 100);
         rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: nextFee});
 
-        (targetOrderDuration, minOrderDuration, fee, lastEndTime, lastFee) = rb.states(address(token0));
+        (targetOrderDuration, minOrderDuration, fee, lastEndTime, lastOrderDuration, lastFee) =
+            rb.states(address(token0));
         assertEq(targetOrderDuration, 3600);
         assertEq(minOrderDuration, 1800);
         assertEq(fee, nextFee);
         assertEq(lastEndTime, 0);
+        assertEq(lastOrderDuration, 0);
         assertEq(lastFee, 0);
     }
 

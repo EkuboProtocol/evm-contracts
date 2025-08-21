@@ -40,6 +40,7 @@ struct BuybacksState {
     uint64 fee;
     // The parameters of the last order that was created.
     uint32 lastEndTime;
+    uint32 lastOrderDuration;
     uint64 lastFee;
 }
 
@@ -112,13 +113,19 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
 
                 uint32 timeRemaining = state.lastEndTime - uint32(block.timestamp);
                 // if the fee changed, or the amount of time exceeds the min order duration
-                if (state.fee == state.lastFee && timeRemaining >= state.minOrderDuration) {
+                // note the time remaining can underflow if the last order has ended. in this case time remaining will be greater than min order duration,
+                // but also greater than last order duration, so it will not be re-used.
+                if (
+                    state.fee == state.lastFee && timeRemaining >= state.minOrderDuration
+                        && timeRemaining <= state.lastOrderDuration
+                ) {
                     // handles overflow
                     endTime = block.timestamp + uint256(timeRemaining);
                 } else {
                     endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration) - 1);
 
                     states[token].lastEndTime = uint32(endTime);
+                    states[token].lastOrderDuration = uint32(endTime - block.timestamp);
                     states[token].lastFee = state.fee;
                 }
 

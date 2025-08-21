@@ -285,5 +285,13 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertGt(endTime4, endTime3);
         assertGe(endTime4 - timeNext, minOrderDuration, "min order duration 4");
         assertGe(endTime4 - timeNext, targetOrderDuration, "target order duration 4");
+
+        timeNext = endTime4 + type(uint32).max + 1;
+        vm.warp(timeNext);
+        donate(token, 1e18);
+        (uint256 endTime5,) = rb.roll(token);
+        assertGt(endTime5, endTime4);
+        assertGe(endTime5 - timeNext, minOrderDuration, "min order duration 4");
+        assertGe(endTime5 - timeNext, targetOrderDuration, "target order duration 4");
     }
 }

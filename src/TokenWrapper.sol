@@ -92,9 +92,12 @@ contract TokenWrapper is IERC20, BaseLocker, BaseForwardee {
     }
 
     function _spendAllowance(address owner, address spender, uint256 amount) internal {
-        if (allowance[owner][spender] < amount) revert InsufficientAllowance();
-        unchecked {
-            allowance[owner][spender] -= amount;
+        uint256 allowanceCurrent = allowance[owner][spender];
+        if (allowanceCurrent != type(uint256).max) {
+            if (allowanceCurrent < amount) revert InsufficientAllowance();
+            unchecked {
+                allowance[owner][spender] = allowanceCurrent - amount;
+            }
         }
     }
 

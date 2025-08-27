@@ -1,72 +1,45 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {Test} from "forge-std/Test.sol";
-import {TokenWrapper} from "../src/TokenWrapper.sol";
-import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
-import {ERC20} from "solady/tokens/ERC20.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {FullTest} from "./FullTest.sol";
+import {TokenWrapperFactory, TokenWrapper} from "../src/TokenWrapper.sol";
 import {toDate, toQuarter} from "../src/libraries/TimeDescriptor.sol";
+import {TestToken} from "./TestToken.sol";
 
-contract TestToken is ERC20 {
-    string private _name;
-    string private _symbol;
-    uint8 private _decimals;
-
-    constructor(string memory name_, string memory symbol_, uint8 decimals_) {
-        _name = name_;
-        _symbol = symbol_;
-        _decimals = decimals_;
-    }
-
-    function name() public view override returns (string memory) {
-        return _name;
-    }
-
-    function symbol() public view override returns (string memory) {
-        return _symbol;
-    }
-
-    function decimals() public view override returns (uint8) {
-        return _decimals;
-    }
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-}
-
-contract TokenWrapperTest is Test {
+contract TokenWrapperTest is FullTest {
     TokenWrapperFactory factory;
     TestToken underlying;
 
     address user = makeAddr("user");
 
-    function setUp() public {
-        underlying = new TestToken("Ekubo Protocol", "EKUBO", 18);
-        underlying.mint(user, 100e18);
-        factory = new TokenWrapperFactory();
+    function setUp() public override {
+        FullTest.setUp();
+        underlying = new TestToken(address(this));
+        underlying.transfer(user, 100e18);
+        factory = new TokenWrapperFactory(core);
     }
 
     function testDeployWrapperGas() public {
-        factory.deployWrapper(underlying, 1756140269);
+        factory.deployWrapper(IERC20(address(underlying)), 1756140269);
         vm.snapshotGasLastCall("deployWrapper");
     }
 
-    function testTokenInfo(uint256 time, uint256 unlockTime) public {
-        time = bound(time, 0, type(uint256).max - type(uint32).max);
+    function testTokenInfo(uint256 time, uint64 unlockTime) public {
+        time = bound(time, 0, type(uint64).max - type(uint32).max);
         vm.warp(time);
-        unlockTime = bound(unlockTime, vm.getBlockTimestamp() + 1, vm.getBlockTimestamp() + type(uint32).max);
+        unlockTime = uint64(bound(unlockTime, vm.getBlockTimestamp() + 1, vm.getBlockTimestamp() + type(uint32).max));
 
-        TokenWrapper wrapper = factory.deployWrapper(underlying, unlockTime);
+        TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), unlockTime);
 
-        assertEq(wrapper.symbol(), string.concat("gEKUBO-", toQuarter(unlockTime)));
-        assertEq(wrapper.name(), string.concat("Ekubo Protocol ", toDate(unlockTime)));
+        assertEq(wrapper.symbol(), string.concat("gTT-", toQuarter(unlockTime)));
+        assertEq(wrapper.name(), string.concat("TestToken ", toDate(unlockTime)));
         assertEq(wrapper.unlockTime(), unlockTime);
     }
 
-    function testWrap(uint256 time, uint256 unlockTime, uint256 wrapAmount) public {
+    function testWrap(uint256 time, uint64 unlockTime, uint128 wrapAmount) public {
         vm.warp(time);
-        TokenWrapper wrapper = factory.deployWrapper(underlying, unlockTime);
+        TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), unlockTime);
         vm.startPrank(user);
         underlying.approve(address(wrapper), wrapAmount);
         if (wrapAmount > underlying.balanceOf(user)) {
@@ -75,12 +48,12 @@ contract TokenWrapperTest is Test {
         } else {
             wrapper.wrap(wrapAmount);
             assertEq(wrapper.balanceOf(user), wrapAmount, "Didn't mint wrapper");
-            assertEq(underlying.balanceOf(address(wrapper)), wrapAmount, "Didn't transfer underlying");
+            assertEq(underlying.balanceOf(address(core)), wrapAmount, "Didn't transfer underlying");
         }
     }
 
     function testWrapGas() public {
-        TokenWrapper wrapper = factory.deployWrapper(underlying, 0);
+        TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
         vm.startPrank(user);
         underlying.approve(address(wrapper), 1);
         vm.cool(address(factory.implementation()));
@@ -91,9 +64,9 @@ contract TokenWrapperTest is Test {
         vm.snapshotGasLastCall("wrap");
     }
 
-    function testUnwrapTo(address recipient, uint256 wrapAmount, uint256 unwrapAmount, uint256 time) public {
-        TokenWrapper wrapper = factory.deployWrapper(underlying, 1755616480);
-        wrapAmount = bound(wrapAmount, 0, underlying.balanceOf(user));
+    function testUnwrapTo(address recipient, uint128 wrapAmount, uint128 unwrapAmount, uint256 time) public {
+        TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 1755616480);
+        wrapAmount = uint128(bound(wrapAmount, 0, underlying.balanceOf(user)));
 
         vm.startPrank(user);
         underlying.approve(address(wrapper), wrapAmount);
@@ -112,7 +85,7 @@ contract TokenWrapperTest is Test {
     }
 
     function testUnwrapGas() public {
-        TokenWrapper wrapper = factory.deployWrapper(underlying, 0);
+        TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
 
         vm.startPrank(user);
         underlying.approve(address(wrapper), 1);

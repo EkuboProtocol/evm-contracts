@@ -3,13 +3,22 @@ pragma solidity ^0.8.4;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FullTest} from "./FullTest.sol";
-import {WrappedTokenMinter, TokenWrapperFactory, TokenWrapper} from "../src/TokenWrapper.sol";
+import {
+    TokenWrapperLib,
+    WrappedTokenMinter,
+    WrappedTokenBurner,
+    TokenWrapperFactory,
+    TokenWrapper
+} from "../src/TokenWrapper.sol";
 import {toDate, toQuarter} from "../src/libraries/TimeDescriptor.sol";
 import {TestToken} from "./TestToken.sol";
 
 contract TokenWrapperTest is FullTest {
+    using TokenWrapperLib for TokenWrapper;
+
     TokenWrapperFactory factory;
     WrappedTokenMinter minter;
+    WrappedTokenBurner burner;
     TestToken underlying;
 
     address user = makeAddr("user");
@@ -20,6 +29,7 @@ contract TokenWrapperTest is FullTest {
         underlying.transfer(user, 100e18);
         factory = new TokenWrapperFactory(core);
         minter = new WrappedTokenMinter(core);
+        burner = new WrappedTokenBurner(core);
     }
 
     function testDeployWrapperGas() public {
@@ -66,38 +76,42 @@ contract TokenWrapperTest is FullTest {
         vm.snapshotGasLastCall("wrap");
     }
 
-    // function testUnwrapTo(address recipient, uint128 wrapAmount, uint128 unwrapAmount, uint256 time) public {
-    //     TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 1755616480);
-    //     wrapAmount = uint128(bound(wrapAmount, 0, underlying.balanceOf(user)));
+    function testUnwrapTo(address recipient, uint128 wrapAmount, uint128 unwrapAmount, uint256 time) public {
+        TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 1755616480);
+        wrapAmount = uint128(bound(wrapAmount, 0, underlying.balanceOf(user)));
 
-    //     vm.startPrank(user);
-    //     underlying.approve(address(minter), wrapAmount);
-    //     minter.wrap(wrapper, wrapAmount);
-    //     uint256 oldBalance = underlying.balanceOf(recipient);
+        vm.startPrank(user);
+        underlying.approve(address(minter), wrapAmount);
+        minter.wrap(wrapper, wrapAmount);
+        uint256 oldBalance = underlying.balanceOf(recipient);
 
-    //     vm.warp(time);
-    //     if (time < wrapper.unlockTime() || unwrapAmount > wrapAmount) {
-    //         vm.expectRevert();
-    //         wrapper.unwrap(unwrapAmount);
-    //         return;
-    //     }
-    //     wrapper.unwrapTo(recipient, unwrapAmount);
-    //     assertEq(wrapper.balanceOf(user), wrapAmount - unwrapAmount, "Didn't burn wrapper");
-    //     assertEq(underlying.balanceOf(recipient), oldBalance + unwrapAmount, "Didn't transfer underlying");
-    // }
+        wrapper.approve(address(burner), wrapAmount);
 
-    // function testUnwrapGas() public {
-    //     TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
+        vm.warp(time);
+        if (time < wrapper.unlockTime() || unwrapAmount > wrapAmount) {
+            vm.expectRevert();
+            burner.unwrap(wrapper, recipient, unwrapAmount);
+            return;
+        }
+        burner.unwrap(wrapper, recipient, unwrapAmount);
+        assertEq(wrapper.balanceOf(user), wrapAmount - unwrapAmount, "Didn't burn wrapper");
+        assertEq(underlying.balanceOf(recipient), oldBalance + unwrapAmount, "Didn't transfer underlying");
+    }
 
-    //     vm.startPrank(user);
-    //     underlying.approve(address(minter), 1);
-    //     minter.wrap(wrapper, 1);
+    function testUnwrapGas() public {
+        TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
 
-    //     vm.cool(address(factory.implementation()));
-    //     vm.cool(address(wrapper));
-    //     vm.cool(address(underlying));
-    //     vm.cool(address(user));
-    //     wrapper.unwrapTo(user, 1);
-    //     vm.snapshotGasLastCall("unwrap");
-    // }
+        vm.startPrank(user);
+        underlying.approve(address(minter), 1);
+        minter.wrap(wrapper, 1);
+        wrapper.approve(address(burner), 1);
+        assertEq(wrapper.allowance(user, address(burner)), 1);
+
+        vm.cool(address(factory.implementation()));
+        vm.cool(address(wrapper));
+        vm.cool(address(underlying));
+        vm.cool(address(user));
+        burner.unwrap(wrapper, 1);
+        vm.snapshotGasLastCall("unwrap");
+    }
 }

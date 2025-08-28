@@ -12,6 +12,29 @@ import {IFlashAccountant, IPayer} from "./interfaces/IFlashAccountant.sol";
 import {toDate, toQuarter} from "./libraries/TimeDescriptor.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 
+library TokenWrapperLib {
+    /// @dev Returns the immutable arguments from a clone
+    function parameters(TokenWrapper tokenWrapper) internal view returns (IERC20 token, uint64 unlock) {
+        assembly ("memory-safe") {
+            extcodecopy(tokenWrapper, 0, 0x2d, 0x1c)
+            token := shr(96, mload(0x00))
+            unlock := shr(192, mload(0x14))
+        }
+    }
+
+    /// @notice The underlying token being wrapped
+    function underlyingToken(TokenWrapper tokenWrapper) internal view returns (IERC20) {
+        (IERC20 token,) = parameters(tokenWrapper);
+        return token;
+    }
+
+    /// @notice Timestamp when tokens can be unwrapped
+    function unlockTime(TokenWrapper tokenWrapper) internal view returns (uint64) {
+        (, uint64 unlock) = parameters(tokenWrapper);
+        return unlock;
+    }
+}
+
 /// @title TokenWrapper - Time-locked token wrapper
 /// @notice Wraps tokens that can only be unwrapped after a specific unlock time
 contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
@@ -30,11 +53,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
     /// @dev Returns the immutable arguments in the clone
     function parameters() private view returns (IERC20 token, uint64 unlock) {
-        assembly ("memory-safe") {
-            extcodecopy(address(), 0, 0x2d, 0x1c)
-            token := shr(96, mload(0x00))
-            unlock := shr(192, mload(0x14))
-        }
+        (token, unlock) = TokenWrapperLib.parameters(this);
     }
 
     mapping(address owner => mapping(address spender => uint256)) public override allowance;
@@ -43,18 +62,6 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     function totalSupply() external view override returns (uint256) {
         (IERC20 token,) = parameters();
         return uint256(core.savedBalances(address(this), address(token), bytes32(0)));
-    }
-
-    /// @notice The underlying token being wrapped
-    function underlyingToken() external view returns (IERC20) {
-        (IERC20 token,) = parameters();
-        return token;
-    }
-
-    /// @notice Timestamp when tokens can be unwrapped
-    function unlockTime() external view returns (uint64) {
-        (, uint64 unlock) = parameters();
-        return unlock;
     }
 
     function name() external view override returns (string memory) {
@@ -108,7 +115,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     /// @notice Moves `amount` tokens from `from` to `to` using the allowance mechanism.
     /// `amount` is then deducted from the caller's allowance.
     function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
-        _spendAllowance(from, to, amount);
+        _spendAllowance(from, msg.sender, amount);
 
         uint256 balance = balanceOf[from];
         if (balance < amount) {
@@ -116,6 +123,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
         }
         unchecked {
             balanceOf[from] = balance - amount;
+            balanceOf[to] += amount;
         }
         emit Transfer(msg.sender, to, amount);
         return true;
@@ -161,8 +169,8 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
             // loads the underlying so that user can withdraw it
             core.load(address(token), bytes32(0), amount);
-            // burn the same amount of this token by withdrawing to address 0
-            core.withdraw(address(this), address(0), amount);
+            // burn the same amount of this token by saving to address 0
+            core.save(address(0), address(this), bytes32(0), amount);
         }
     }
 }
@@ -187,18 +195,18 @@ contract WrappedTokenMinter is BaseLocker {
         // now withdraw to the recipient
         accountant.withdraw(address(wrapper), recipient, amount);
         // and pay the wrapped token from the payer
-        pay(payer, address(wrapper.underlyingToken()), amount);
+        pay(payer, address(TokenWrapperLib.underlyingToken(wrapper)), amount);
     }
 }
 
 contract WrappedTokenBurner is BaseLocker {
     constructor(ICore core) BaseLocker(core) {}
 
-    function wrap(TokenWrapper wrapper, uint128 amount) external {
+    function unwrap(TokenWrapper wrapper, uint128 amount) external {
         lock(abi.encode(wrapper, msg.sender, msg.sender, amount));
     }
 
-    function wrap(TokenWrapper wrapper, address recipient, uint128 amount) external {
+    function unwrap(TokenWrapper wrapper, address recipient, uint128 amount) external {
         lock(abi.encode(wrapper, msg.sender, recipient, amount));
     }
 
@@ -207,10 +215,10 @@ contract WrappedTokenBurner is BaseLocker {
             abi.decode(data, (TokenWrapper, address, address, uint128));
 
         // this creates the deltas
-        forward(address(wrapper), abi.encode(uint256(0), amount));
+        forward(address(wrapper), abi.encode(uint256(1), amount));
         // now withdraw to the recipient
-        accountant.withdraw(address(wrapper), recipient, amount);
-        // and pay the remaining amount from the payer
+        accountant.withdraw(address(TokenWrapperLib.underlyingToken(wrapper)), recipient, amount);
+        // and pay the wrapped token from the payer
         pay(payer, address(wrapper), amount);
     }
 }

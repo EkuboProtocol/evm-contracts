@@ -52,7 +52,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     constructor(ICore core) UsesCore(core) BaseForwardee(core) {}
 
     /// @dev Returns the immutable arguments in the clone
-    function parameters() private view returns (IERC20 token, uint64 unlock) {
+    function parameters() public view returns (IERC20 token, uint64 unlock) {
         (token, unlock) = TokenWrapperLib.parameters(this);
     }
 

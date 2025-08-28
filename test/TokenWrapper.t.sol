@@ -32,6 +32,15 @@ contract TokenWrapperTest is FullTest {
         burner = new WrappedTokenBurner(core);
     }
 
+    function coolAllContracts() internal virtual override {
+        FullTest.coolAllContracts();
+        vm.cool(address(factory));
+        vm.cool(address(factory.implementation()));
+        vm.cool(address(minter));
+        vm.cool(address(burner));
+        vm.cool(address(underlying));
+    }
+
     function testDeployWrapperGas() public {
         factory.deployWrapper(IERC20(address(underlying)), 1756140269);
         vm.snapshotGasLastCall("deployWrapper");
@@ -68,10 +77,8 @@ contract TokenWrapperTest is FullTest {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
         vm.startPrank(user);
         underlying.approve(address(minter), 1);
-        vm.cool(address(factory.implementation()));
+        coolAllContracts();
         vm.cool(address(wrapper));
-        vm.cool(address(underlying));
-        vm.cool(address(user));
         minter.wrap(wrapper, 1);
         vm.snapshotGasLastCall("wrap");
     }
@@ -107,10 +114,8 @@ contract TokenWrapperTest is FullTest {
         wrapper.approve(address(burner), 1);
         assertEq(wrapper.allowance(user, address(burner)), 1);
 
-        vm.cool(address(factory.implementation()));
+        coolAllContracts();
         vm.cool(address(wrapper));
-        vm.cool(address(underlying));
-        vm.cool(address(user));
         burner.unwrap(wrapper, 1);
         vm.snapshotGasLastCall("unwrap");
     }

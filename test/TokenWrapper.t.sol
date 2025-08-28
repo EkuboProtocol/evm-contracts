@@ -56,6 +56,7 @@ contract TokenWrapperTest is FullTest {
         assertEq(wrapper.symbol(), string.concat("gTT-", toQuarter(unlockTime)));
         assertEq(wrapper.name(), string.concat("TestToken ", toDate(unlockTime)));
         assertEq(wrapper.unlockTime(), unlockTime);
+        assertEq(address(wrapper.underlyingToken()), address(underlying));
     }
 
     function testWrap(uint256 time, uint64 unlockTime, uint128 wrapAmount) public {

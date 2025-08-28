@@ -34,8 +34,8 @@ contract TokenWrapperTest is FullTest {
 
     function coolAllContracts() internal virtual override {
         FullTest.coolAllContracts();
-        vm.cool(address(factory));
         vm.cool(address(factory.implementation()));
+        vm.cool(address(factory));
         vm.cool(address(minter));
         vm.cool(address(burner));
         vm.cool(address(underlying));
@@ -64,10 +64,15 @@ contract TokenWrapperTest is FullTest {
         vm.startPrank(user);
         underlying.approve(address(minter), wrapAmount);
         if (wrapAmount > underlying.balanceOf(user)) {
+            assertEq(wrapper.totalSupply(), 0);
             vm.expectRevert();
             minter.wrap(wrapper, wrapAmount);
+            assertEq(wrapper.totalSupply(), 0);
         } else {
+            assertEq(wrapper.totalSupply(), 0);
             minter.wrap(wrapper, wrapAmount);
+            assertEq(wrapper.totalSupply(), wrapAmount);
+
             assertEq(wrapper.balanceOf(user), wrapAmount, "Didn't mint wrapper");
             assertEq(underlying.balanceOf(address(core)), wrapAmount, "Didn't transfer underlying");
         }
@@ -96,13 +101,17 @@ contract TokenWrapperTest is FullTest {
 
         vm.warp(time);
         if (time < wrapper.unlockTime() || unwrapAmount > wrapAmount) {
+            assertEq(wrapper.totalSupply(), wrapAmount);
             vm.expectRevert();
             burner.unwrap(wrapper, recipient, unwrapAmount);
-            return;
+            assertEq(wrapper.totalSupply(), wrapAmount);
+        } else {
+            assertEq(wrapper.totalSupply(), wrapAmount);
+            burner.unwrap(wrapper, recipient, unwrapAmount);
+            assertEq(wrapper.balanceOf(user), wrapAmount - unwrapAmount, "Didn't burn wrapper");
+            assertEq(underlying.balanceOf(recipient), oldBalance + unwrapAmount, "Didn't transfer underlying");
+            assertEq(wrapper.totalSupply(), wrapAmount - unwrapAmount);
         }
-        burner.unwrap(wrapper, recipient, unwrapAmount);
-        assertEq(wrapper.balanceOf(user), wrapAmount - unwrapAmount, "Didn't burn wrapper");
-        assertEq(underlying.balanceOf(recipient), oldBalance + unwrapAmount, "Didn't transfer underlying");
     }
 
     function testUnwrapGas() public {
@@ -114,8 +123,8 @@ contract TokenWrapperTest is FullTest {
         wrapper.approve(address(burner), 1);
         assertEq(wrapper.allowance(user, address(burner)), 1);
 
-        coolAllContracts();
         vm.cool(address(wrapper));
+        coolAllContracts();
         burner.unwrap(wrapper, 1);
         vm.snapshotGasLastCall("unwrap");
     }

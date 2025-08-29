@@ -149,8 +149,8 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
         // wrap
         if (callType == 0) {
             // saves the underlying so that the user has to deposit it
-            core.save(address(this), address(underlyingToken), bytes32(0), amount);
-            // reset core balance to 0
+            core.save({owner: address(this), token: address(underlyingToken), salt: bytes32(0), amount: amount});
+            // reset core balance to 0 before pay which sets it to the amount we would like to pay
             coreBalance = 0;
             // pays the amount of this token to make it available to withdraw
             (bool success,) =
@@ -161,10 +161,10 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
             if (block.timestamp < unlockTime) revert TooEarly();
 
             // loads the underlying so that user can withdraw it
-            core.load(address(underlyingToken), bytes32(0), amount);
+            core.load({token: address(underlyingToken), salt: bytes32(0), amount: amount});
             // burn the same amount of this token by withdrawing to address 0
             // this causes core to call transfer but we have a special case for it
-            core.withdraw(address(this), address(0), amount);
+            core.withdraw({token: address(this), recipient: address(0), amount: amount});
         }
     }
 }

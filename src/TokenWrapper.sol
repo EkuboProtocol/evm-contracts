@@ -10,8 +10,8 @@ import {IFlashAccountant, IPayer} from "./interfaces/IFlashAccountant.sol";
 import {toDate, toQuarter} from "./libraries/TimeDescriptor.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 
-/// @title TokenWrapper - Time-locked token wrapper
-/// @notice Wraps tokens that can only be unwrapped after a specific unlock time
+/// @title Time-locked token wrapper
+/// @notice Wraps tokens that can only be unwrapped after a specific unlock time. Wrapping and unwrapping happens via Ekubo Core#forward.
 contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     using CoreLib for *;
 
@@ -24,7 +24,10 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     /// @notice Thrown when calling transferFrom with an insufficient allowance
     error InsufficientAllowance();
 
+    /// @notice The token that is wrapped
     IERC20 public immutable underlyingToken;
+
+    /// @notice The time after which the token may be unwrapped
     uint256 public immutable unlockTime;
 
     constructor(ICore core, IERC20 _underlyingToken, uint256 _unlockTime) UsesCore(core) BaseForwardee(core) {
@@ -32,35 +35,42 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
         unlockTime = _unlockTime;
     }
 
+    /// @inheritdoc IERC20
     mapping(address owner => mapping(address spender => uint256)) public override allowance;
+
     mapping(address account => uint256) private _balanceOf;
 
     // transient storage slot 0
     // core never actually holds a real balance of this token
     uint256 private transient coreBalance;
 
+    /// @inheritdoc IERC20
     function balanceOf(address account) external view returns (uint256) {
         if (account == address(core)) return coreBalance;
         return _balanceOf[account];
     }
 
+    /// @inheritdoc IERC20
     function totalSupply() external view override returns (uint256) {
         return uint256(core.savedBalances(address(this), address(underlyingToken), bytes32(0)));
     }
 
+    /// @inheritdoc IERC20
     function name() external view override returns (string memory) {
         return string.concat(underlyingToken.name(), " ", toDate(unlockTime));
     }
 
+    /// @inheritdoc IERC20
     function symbol() external view override returns (string memory) {
         return string.concat("g", underlyingToken.symbol(), "-", toQuarter(unlockTime));
     }
 
+    /// @inheritdoc IERC20
     function decimals() external view override returns (uint8) {
         return underlyingToken.decimals();
     }
 
-    /// @notice Moves `amount` tokens from the caller's account to `to`.
+    /// @inheritdoc IERC20
     function transfer(address to, uint256 amount) external returns (bool) {
         if (msg.sender != address(core)) {
             uint256 balance = _balanceOf[msg.sender];
@@ -74,40 +84,42 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
         if (to == address(core)) {
             coreBalance += amount;
         } else if (to != address(0)) {
+            // we save storage writes on burn
             _balanceOf[to] += amount;
         }
         emit Transfer(msg.sender, to, amount);
         return true;
     }
 
+    /// @inheritdoc IERC20
     function approve(address spender, uint256 amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
 
-    function _spendAllowance(address owner, address spender, uint256 amount) internal {
-        uint256 allowanceCurrent = allowance[owner][spender];
+    /// @inheritdoc IERC20
+    function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
+        uint256 allowanceCurrent = allowance[from][msg.sender];
         if (allowanceCurrent != type(uint256).max) {
             if (allowanceCurrent < amount) revert InsufficientAllowance();
+            // since we already checked allowanceCurrent >= amount
             unchecked {
-                allowance[owner][spender] = allowanceCurrent - amount;
+                allowance[from][msg.sender] = allowanceCurrent - amount;
             }
         }
-    }
 
-    /// @notice Moves `amount` tokens from `from` to `to` using the allowance mechanism.
-    /// `amount` is then deducted from the caller's allowance.
-    function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
-        _spendAllowance(from, msg.sender, amount);
+        // we know `from` at this point will never be address(core) for amount > 0
 
         uint256 balance = _balanceOf[from];
         if (balance < amount) {
             revert InsufficientBalance();
         }
+        // since we already checked balance >= amount
         unchecked {
             _balanceOf[from] = balance - amount;
         }
+
         if (to == address(core)) {
             coreBalance += amount;
         } else {
@@ -119,6 +131,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
     function payCallback(uint256, address) external override onlyCore {
         assembly ("memory-safe") {
+            // sets coreBalance to the uint256 that is encoded after the arguments
             tstore(0, calldataload(68))
         }
     }
@@ -135,7 +148,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
             // pays the amount of this token to make it available to withdraw
             (bool success,) =
                 address(core).call(abi.encodeWithSelector(IFlashAccountant.pay.selector, address(this), amount));
-            assert(success);
+            require(success);
         } else {
             // unwrap
             if (block.timestamp < unlockTime) revert TooEarly();

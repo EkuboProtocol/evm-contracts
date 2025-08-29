@@ -164,7 +164,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
             (, uint128 amount) = abi.decode(data, (uint256, uint128));
 
             // saves the underlying so that the user has to deposit it
-            core.save(address(this), address(token), bytes32(bytes20(0)), amount);
+            core.save(address(this), address(token), bytes32(0), amount);
             // reset core balance to 0
             coreBalance = 0;
             // pays the amount of this token to make it available to withdraw

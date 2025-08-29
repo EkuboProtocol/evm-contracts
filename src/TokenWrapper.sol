@@ -57,7 +57,14 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     }
 
     mapping(address owner => mapping(address spender => uint256)) public override allowance;
-    mapping(address account => uint256) public override balanceOf;
+    mapping(address account => uint256) private _balanceOf;
+
+    uint256 private transient coreBalance;
+
+    function balanceOf(address account) external view returns (uint256) {
+        if (account == address(core)) return coreBalance;
+        return _balanceOf[account];
+    }
 
     function totalSupply() external view override returns (uint256) {
         (IERC20 token,) = parameters();
@@ -82,15 +89,15 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
     /// @notice Moves `amount` tokens from the caller's account to `to`.
     function transfer(address to, uint256 amount) external returns (bool) {
-        uint256 balance = balanceOf[msg.sender];
-        if (balance < amount) {
-            revert InsufficientBalance();
+        if (msg.sender != address(core)) {
+            uint256 balance = _balanceOf[msg.sender];
+            if (balance < amount) {
+                revert InsufficientBalance();
+            }
+            _balanceOf[msg.sender] = balance - amount;
         }
-        unchecked {
-            balanceOf[msg.sender] = balance - amount;
-            // total supply cannot exceed type(uint128).max,
-            // due to the usage of save(uint128) being required for minting
-            balanceOf[to] += amount;
+        if (to != address(0)) {
+            _balanceOf[to] += amount;
         }
         emit Transfer(msg.sender, to, amount);
         return true;
@@ -117,27 +124,28 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
         _spendAllowance(from, msg.sender, amount);
 
-        uint256 balance = balanceOf[from];
+        uint256 balance = _balanceOf[from];
         if (balance < amount) {
             revert InsufficientBalance();
         }
         unchecked {
-            balanceOf[from] = balance - amount;
-            balanceOf[to] += amount;
+            _balanceOf[from] = balance - amount;
+        }
+        if (to == address(core)) {
+            coreBalance += amount;
+        } else {
+            _balanceOf[to] += amount;
         }
         emit Transfer(msg.sender, to, amount);
         return true;
     }
 
     function payCallback(uint256, address) external override onlyCore {
-        uint128 amount;
+        uint256 amount;
         assembly ("memory-safe") {
-            amount := shr(128, shl(128, calldataload(68)))
+            amount := calldataload(68)
         }
-        unchecked {
-            balanceOf[address(core)] += amount;
-            emit Transfer(address(0), address(core), amount);
-        }
+        coreBalance = amount;
     }
 
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory) {
@@ -155,6 +163,8 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
             // saves the underlying so that the user has to deposit it
             core.save(address(this), address(token), bytes32(bytes20(0)), amount);
+            // reset core balance to 0
+            coreBalance = 0;
             // pays the amount of this token to make it available to withdraw
             (bool success,) =
                 address(core).call(abi.encodeWithSelector(IFlashAccountant.pay.selector, address(this), amount));
@@ -169,8 +179,9 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
             // loads the underlying so that user can withdraw it
             core.load(address(token), bytes32(0), amount);
-            // burn the same amount of this token by saving to address 0
-            core.save(address(0), address(this), bytes32(0), amount);
+            // burn the same amount of this token by withdrawing to address 0
+            // this causes core to call transfer but we have a special case for it
+            core.withdraw(address(this), address(0), amount);
         }
     }
 }

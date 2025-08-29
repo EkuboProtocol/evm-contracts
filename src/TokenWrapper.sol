@@ -100,7 +100,9 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
                 _balanceOf[msg.sender] = balance - amount;
             }
         }
-        if (to != address(0)) {
+        if (to == address(core)) {
+            coreBalance += amount;
+        } else if (to != address(0)) {
             _balanceOf[to] += amount;
         }
         emit Transfer(msg.sender, to, amount);

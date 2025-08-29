@@ -12,7 +12,6 @@ contract TokenWrapperFactory {
     event TokenWrapperDeployed(IERC20 underlyingToken, uint256 unlockTime, TokenWrapper tokenWrapper);
 
     ICore public immutable core;
-    TokenWrapper public immutable implementation;
 
     constructor(ICore _core) {
         core = _core;

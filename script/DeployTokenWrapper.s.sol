@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
-import {WrappedTokenMinter, WrappedTokenBurner} from "../src/TokenWrapperPeriphery.sol";
+import {TokenWrapperPeriphery} from "../src/TokenWrapperPeriphery.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 
 contract DeployTokenWrapperScript is Script {
@@ -15,8 +15,7 @@ contract DeployTokenWrapperScript is Script {
         vm.startBroadcast();
 
         new TokenWrapperFactory{salt: salt}(core);
-        new WrappedTokenMinter{salt: salt}(core);
-        new WrappedTokenBurner{salt: salt}(core);
+        new TokenWrapperPeriphery{salt: salt}(core);
 
         vm.stopBroadcast();
     }

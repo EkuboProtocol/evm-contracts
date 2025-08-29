@@ -5,34 +5,28 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FullTest} from "./FullTest.sol";
 import {TokenWrapper} from "../src/TokenWrapper.sol";
 import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
-import {WrappedTokenMinter, WrappedTokenBurner} from "../src/TokenWrapperPeriphery.sol";
+import {TokenWrapperPeriphery} from "../src/TokenWrapperPeriphery.sol";
 import {toDate, toQuarter} from "../src/libraries/TimeDescriptor.sol";
 import {TestToken} from "./TestToken.sol";
 
 contract TokenWrapperTest is FullTest {
     TokenWrapperFactory factory;
-    WrappedTokenMinter minter;
-    WrappedTokenBurner burner;
+    TokenWrapperPeriphery periphery;
     TestToken underlying;
-
-    address user = makeAddr("user");
 
     function setUp() public override {
         FullTest.setUp();
         underlying = new TestToken(address(this));
-        underlying.transfer(user, 100e18);
         factory = new TokenWrapperFactory(core);
-        minter = new WrappedTokenMinter(core);
-        burner = new WrappedTokenBurner(core);
+        periphery = new TokenWrapperPeriphery(core);
     }
 
     function coolAllContracts() internal virtual override {
         FullTest.coolAllContracts();
-        vm.cool(address(factory.implementation()));
-        vm.cool(address(factory));
-        vm.cool(address(minter));
-        vm.cool(address(burner));
         vm.cool(address(underlying));
+        vm.cool(address(factory));
+        vm.cool(address(periphery));
+        vm.cool(address(periphery));
     }
 
     function testDeployWrapperGas() public {
@@ -54,54 +48,51 @@ contract TokenWrapperTest is FullTest {
     function testWrap(uint256 time, uint64 unlockTime, uint128 wrapAmount) public {
         vm.warp(time);
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), unlockTime);
-        vm.startPrank(user);
-        underlying.approve(address(minter), wrapAmount);
-        if (wrapAmount > underlying.balanceOf(user)) {
+
+        underlying.approve(address(periphery), wrapAmount);
+        if (wrapAmount > underlying.balanceOf(address(this))) {
             assertEq(wrapper.totalSupply(), 0);
             vm.expectRevert();
-            minter.wrap(wrapper, wrapAmount);
+            periphery.wrap(wrapper, wrapAmount);
             assertEq(wrapper.totalSupply(), 0);
         } else {
             assertEq(wrapper.totalSupply(), 0);
-            minter.wrap(wrapper, wrapAmount);
+            periphery.wrap(wrapper, wrapAmount);
             assertEq(wrapper.totalSupply(), wrapAmount);
 
-            assertEq(wrapper.balanceOf(user), wrapAmount, "Didn't mint wrapper");
+            assertEq(wrapper.balanceOf(address(this)), wrapAmount, "Didn't mint wrapper");
             assertEq(underlying.balanceOf(address(core)), wrapAmount, "Didn't transfer underlying");
         }
     }
 
     function testWrapGas() public {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
-        vm.startPrank(user);
-        underlying.approve(address(minter), 1);
+        underlying.approve(address(periphery), 1);
         coolAllContracts();
         vm.cool(address(wrapper));
-        minter.wrap(wrapper, 1);
+        periphery.wrap(wrapper, 1);
         vm.snapshotGasLastCall("wrap");
     }
 
     function testUnwrapTo(address recipient, uint128 wrapAmount, uint128 unwrapAmount, uint256 time) public {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 1755616480);
-        wrapAmount = uint128(bound(wrapAmount, 0, underlying.balanceOf(user)));
 
-        vm.startPrank(user);
-        underlying.approve(address(minter), wrapAmount);
-        minter.wrap(wrapper, wrapAmount);
+        underlying.approve(address(periphery), wrapAmount);
+        periphery.wrap(wrapper, wrapAmount);
         uint256 oldBalance = underlying.balanceOf(recipient);
 
-        wrapper.approve(address(burner), wrapAmount);
+        wrapper.approve(address(periphery), wrapAmount);
 
         vm.warp(time);
         if (time < wrapper.unlockTime() || unwrapAmount > wrapAmount) {
             assertEq(wrapper.totalSupply(), wrapAmount);
             vm.expectRevert();
-            burner.unwrap(wrapper, recipient, unwrapAmount);
+            periphery.unwrap(wrapper, recipient, unwrapAmount);
             assertEq(wrapper.totalSupply(), wrapAmount);
         } else {
             assertEq(wrapper.totalSupply(), wrapAmount);
-            burner.unwrap(wrapper, recipient, unwrapAmount);
-            assertEq(wrapper.balanceOf(user), wrapAmount - unwrapAmount, "Didn't burn wrapper");
+            periphery.unwrap(wrapper, recipient, unwrapAmount);
+            assertEq(wrapper.balanceOf(address(this)), wrapAmount - unwrapAmount, "Didn't burn wrapper");
             assertEq(underlying.balanceOf(recipient), oldBalance + unwrapAmount, "Didn't transfer underlying");
             assertEq(wrapper.totalSupply(), wrapAmount - unwrapAmount);
         }
@@ -110,15 +101,15 @@ contract TokenWrapperTest is FullTest {
     function testUnwrapGas() public {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
 
-        vm.startPrank(user);
-        underlying.approve(address(minter), 1);
-        minter.wrap(wrapper, 1);
-        wrapper.approve(address(burner), 1);
-        assertEq(wrapper.allowance(user, address(burner)), 1);
+        underlying.approve(address(periphery), 1);
+        periphery.wrap(wrapper, 1);
+        wrapper.approve(address(periphery), 1);
+        assertEq(wrapper.allowance(address(this), address(periphery)), 1);
 
-        vm.cool(address(wrapper));
         coolAllContracts();
-        burner.unwrap(wrapper, 1);
+        vm.cool(address(wrapper));
+
+        periphery.unwrap(wrapper, 1);
         vm.snapshotGasLastCall("unwrap");
     }
 }

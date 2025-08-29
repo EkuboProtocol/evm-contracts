@@ -6,9 +6,10 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {TokenWrapper} from "./TokenWrapper.sol";
 
-/// @title TokenWrapperFactory - Factory for creating time-locked token wrappers
-/// @notice Creates TokenWrapper contracts with formatted names and symbols based on unlock dates
+/// @title Factory for creating time-locked token wrappers
+/// @notice Creates TokenWrapper contracts and emits events for indexing
 contract TokenWrapperFactory {
+    /// @notice Emitted whenever a token wrapper is deployed via the factory
     event TokenWrapperDeployed(IERC20 underlyingToken, uint256 unlockTime, TokenWrapper tokenWrapper);
 
     ICore public immutable core;
@@ -17,9 +18,9 @@ contract TokenWrapperFactory {
         core = _core;
     }
 
-    /// @notice Deploy a new TokenWrapper with auto-generated name and symbol
+    /// @notice Deploy a new TokenWrapper
     /// @param underlyingToken The token to be wrapped
-    /// @param unlockTime Timestamp when tokens can be unwrapped
+    /// @param unlockTime Timestamp after which wrapped tokens can be unwrapped
     /// @return tokenWrapper The deployed TokenWrapper contract
     function deployWrapper(IERC20 underlyingToken, uint256 unlockTime) external returns (TokenWrapper tokenWrapper) {
         bytes32 salt = keccak256(abi.encode(underlyingToken, unlockTime));

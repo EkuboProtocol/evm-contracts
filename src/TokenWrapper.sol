@@ -56,17 +56,17 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     }
 
     /// @inheritdoc IERC20
-    function name() external view override returns (string memory) {
+    function name() external view returns (string memory) {
         return string.concat(underlyingToken.name(), " ", toDate(unlockTime));
     }
 
     /// @inheritdoc IERC20
-    function symbol() external view override returns (string memory) {
+    function symbol() external view returns (string memory) {
         return string.concat("g", underlyingToken.symbol(), "-", toQuarter(unlockTime));
     }
 
     /// @inheritdoc IERC20
-    function decimals() external view override returns (uint8) {
+    function decimals() external view returns (uint8) {
         return underlyingToken.decimals();
     }
 
@@ -99,7 +99,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     }
 
     /// @inheritdoc IERC20
-    function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         uint256 allowanceCurrent = allowance[from][msg.sender];
         if (allowanceCurrent != type(uint256).max) {
             if (allowanceCurrent < amount) revert InsufficientAllowance();
@@ -129,13 +129,18 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
         return true;
     }
 
-    function payCallback(uint256, address) external override onlyCore {
+    /// @inheritdoc IPayer
+    function payCallback(uint256, address) external onlyCore {
         assembly ("memory-safe") {
             // sets coreBalance to the uint256 that is encoded after the arguments
             tstore(0, calldataload(68))
         }
     }
 
+    /// @dev Encode (uint256 callType, uint128 amount) in the forwarded data, where the first is callType and second is amount
+    /// @dev callType = 0 represents wrap, while callType = 1 represents unwrap
+    /// @dev For wrap, the specified amount of this wrapper token will be credited to the locker and the same amount of underlying will be debited.
+    /// @dev For unwrap, the specified amount of the underlying will be credited to the locker and the same amount of this wrapper token will be debited, iff block.timestamp > unlockTime and at least that much token has been wrapped.
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory) {
         (uint256 callType, uint128 amount) = abi.decode(data, (uint256, uint128));
 

@@ -59,6 +59,8 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     mapping(address owner => mapping(address spender => uint256)) public override allowance;
     mapping(address account => uint256) private _balanceOf;
 
+    // transient storage slot 0
+    // core never actually holds a real balance of this token
     uint256 private transient coreBalance;
 
     function balanceOf(address account) external view returns (uint256) {
@@ -94,7 +96,9 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
             if (balance < amount) {
                 revert InsufficientBalance();
             }
-            _balanceOf[msg.sender] = balance - amount;
+            unchecked {
+                _balanceOf[msg.sender] = balance - amount;
+            }
         }
         if (to != address(0)) {
             _balanceOf[to] += amount;
@@ -141,11 +145,9 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     }
 
     function payCallback(uint256, address) external override onlyCore {
-        uint256 amount;
         assembly ("memory-safe") {
-            amount := calldataload(68)
+            tstore(0, calldataload(68))
         }
-        coreBalance = amount;
     }
 
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory) {

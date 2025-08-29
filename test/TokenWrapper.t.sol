@@ -50,19 +50,12 @@ contract TokenWrapperTest is FullTest {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), unlockTime);
 
         underlying.approve(address(periphery), wrapAmount);
-        if (wrapAmount > underlying.balanceOf(address(this))) {
-            assertEq(wrapper.totalSupply(), 0);
-            vm.expectRevert();
-            periphery.wrap(wrapper, wrapAmount);
-            assertEq(wrapper.totalSupply(), 0);
-        } else {
-            assertEq(wrapper.totalSupply(), 0);
-            periphery.wrap(wrapper, wrapAmount);
-            assertEq(wrapper.totalSupply(), wrapAmount);
+        assertEq(wrapper.totalSupply(), 0);
+        periphery.wrap(wrapper, wrapAmount);
+        assertEq(wrapper.totalSupply(), wrapAmount);
 
-            assertEq(wrapper.balanceOf(address(this)), wrapAmount, "Didn't mint wrapper");
-            assertEq(underlying.balanceOf(address(core)), wrapAmount, "Didn't transfer underlying");
-        }
+        assertEq(wrapper.balanceOf(address(this)), wrapAmount, "Didn't mint wrapper");
+        assertEq(underlying.balanceOf(address(core)), wrapAmount, "Didn't transfer underlying");
     }
 
     function testWrapGas() public {
@@ -76,6 +69,7 @@ contract TokenWrapperTest is FullTest {
 
     function testUnwrapTo(address recipient, uint128 wrapAmount, uint128 unwrapAmount, uint256 time) public {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 1755616480);
+        unwrapAmount = uint128(bound(unwrapAmount, 0, wrapAmount));
 
         underlying.approve(address(periphery), wrapAmount);
         periphery.wrap(wrapper, wrapAmount);
@@ -84,9 +78,9 @@ contract TokenWrapperTest is FullTest {
         wrapper.approve(address(periphery), wrapAmount);
 
         vm.warp(time);
-        if (time < wrapper.unlockTime() || unwrapAmount > wrapAmount) {
+        if (time < wrapper.unlockTime()) {
             assertEq(wrapper.totalSupply(), wrapAmount);
-            vm.expectRevert();
+            vm.expectRevert(TokenWrapper.TooEarly.selector);
             periphery.unwrap(wrapper, recipient, unwrapAmount);
             assertEq(wrapper.totalSupply(), wrapAmount);
         } else {

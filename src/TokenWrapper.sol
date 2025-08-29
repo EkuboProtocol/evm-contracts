@@ -38,10 +38,11 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
     /// @inheritdoc IERC20
     mapping(address owner => mapping(address spender => uint256)) public override allowance;
 
+    /// @dev Not public because we use coreBalance for Core
     mapping(address account => uint256) private _balanceOf;
 
-    // transient storage slot 0
-    // core never actually holds a real balance of this token
+    /// @dev Transient storage slot 0
+    /// @dev Core never actually holds a real balance of this token, we just use this transient balance to enable low cost payments to core
     uint256 private transient coreBalance;
 
     /// @inheritdoc IERC20
@@ -52,7 +53,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
     /// @inheritdoc IERC20
     function totalSupply() external view override returns (uint256) {
-        return uint256(core.savedBalances(address(this), address(underlyingToken), bytes32(0)));
+        return uint256(core.savedBalances({owner: address(this), token: address(underlyingToken), salt: bytes32(0)}));
     }
 
     /// @inheritdoc IERC20
@@ -77,6 +78,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
             if (balance < amount) {
                 revert InsufficientBalance();
             }
+            // since we already checked balance >= amount
             unchecked {
                 _balanceOf[msg.sender] = balance - amount;
             }
@@ -84,7 +86,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
         if (to == address(core)) {
             coreBalance += amount;
         } else if (to != address(0)) {
-            // we save storage writes on burn
+            // we save storage writes on burn by checking to != address(0)
             _balanceOf[to] += amount;
         }
         emit Transfer(msg.sender, to, amount);
@@ -109,7 +111,7 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
             }
         }
 
-        // we know `from` at this point will never be address(core) for amount > 0
+        // we know `from` at this point will never be address(core) for amount > 0, since Core will never give an allowance to any address
 
         uint256 balance = _balanceOf[from];
         if (balance < amount) {

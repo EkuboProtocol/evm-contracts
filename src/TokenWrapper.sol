@@ -214,7 +214,7 @@ contract TokenWrapperFactory {
     /// @param underlyingToken The token to be wrapped
     /// @param unlockTime Timestamp when tokens can be unwrapped
     /// @return tokenWrapper The deployed TokenWrapper contract
-    function deployWrapper(IERC20 underlyingToken, uint64 unlockTime) external returns (TokenWrapper tokenWrapper) {
+    function deployWrapper(IERC20 underlyingToken, uint256 unlockTime) external returns (TokenWrapper tokenWrapper) {
         bytes32 salt = keccak256(abi.encode(underlyingToken, unlockTime));
 
         tokenWrapper = new TokenWrapper{salt: salt}(core, underlyingToken, unlockTime);

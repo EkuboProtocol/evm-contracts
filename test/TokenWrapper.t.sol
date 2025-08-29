@@ -38,10 +38,8 @@ contract TokenWrapperTest is FullTest {
         vm.snapshotGasLastCall("deployWrapper");
     }
 
-    function testTokenInfo(uint256 time, uint64 unlockTime) public {
-        time = bound(time, 0, type(uint64).max - type(uint32).max);
+    function testTokenInfo(uint256 time, uint256 unlockTime) public {
         vm.warp(time);
-        unlockTime = uint64(bound(unlockTime, vm.getBlockTimestamp() + 1, vm.getBlockTimestamp() + type(uint32).max));
 
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), unlockTime);
 

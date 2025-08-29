@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
-import {TokenWrapperFactory} from "../src/TokenWrapper.sol";
+import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
 import {WrappedTokenMinter, WrappedTokenBurner} from "../src/TokenWrapperPeriphery.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 

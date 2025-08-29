@@ -3,7 +3,8 @@ pragma solidity =0.8.28;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FullTest} from "./FullTest.sol";
-import {TokenWrapperFactory, TokenWrapper} from "../src/TokenWrapper.sol";
+import {TokenWrapper} from "../src/TokenWrapper.sol";
+import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
 import {WrappedTokenMinter, WrappedTokenBurner} from "../src/TokenWrapperPeriphery.sol";
 import {toDate, toQuarter} from "../src/libraries/TimeDescriptor.sol";
 import {TestToken} from "./TestToken.sol";

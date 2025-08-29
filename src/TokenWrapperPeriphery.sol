@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity =0.8.28;
 
 import {TokenWrapper} from "./TokenWrapper.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";

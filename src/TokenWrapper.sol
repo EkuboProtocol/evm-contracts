@@ -137,8 +137,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
         return true;
     }
 
-    /// @dev Encode (uint256 callType, uint128 amount) in the forwarded data, where the first is callType and second is amount
-    /// @dev callType = 0 represents wrap, while callType = 1 represents unwrap
+    /// @dev Encode (int256 delta) in the forwarded data, where a positive amount means wrapping and a negative amount means unwrapping.
     /// @dev For wrap, the specified amount of this wrapper token will be credited to the locker and the same amount of underlying will be debited.
     /// @dev For unwrap, the specified amount of the underlying will be credited to the locker and the same amount of this wrapper token will be debited, iff block.timestamp > unlockTime and at least that much token has been wrapped.
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory) {

@@ -48,6 +48,7 @@ contract TokenWrapperTest is FullTest {
     function testWrap(uint256 time, uint64 unlockTime, uint128 wrapAmount) public {
         vm.warp(time);
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), unlockTime);
+        wrapAmount = uint128(bound(wrapAmount, 0, uint128(type(int128).max)));
 
         underlying.approve(address(periphery), wrapAmount);
         assertEq(wrapper.totalSupply(), 0);
@@ -69,7 +70,8 @@ contract TokenWrapperTest is FullTest {
 
     function testUnwrapTo(address recipient, uint128 wrapAmount, uint128 unwrapAmount, uint256 time) public {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 1755616480);
-        unwrapAmount = uint128(bound(unwrapAmount, 0, wrapAmount));
+        wrapAmount = uint128(bound(wrapAmount, 1, uint128(type(int128).max)));
+        unwrapAmount = uint128(bound(unwrapAmount, 1, wrapAmount));
 
         underlying.approve(address(periphery), wrapAmount);
         periphery.wrap(wrapper, wrapAmount);

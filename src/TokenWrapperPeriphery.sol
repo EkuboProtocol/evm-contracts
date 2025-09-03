@@ -9,39 +9,39 @@ contract TokenWrapperPeriphery is BaseLocker {
     constructor(ICore core) BaseLocker(core) {}
 
     function wrap(TokenWrapper wrapper, uint128 amount) external {
-        lock(abi.encode(0, wrapper, msg.sender, msg.sender, amount));
+        lock(abi.encode(wrapper, msg.sender, msg.sender, int256(uint256(amount))));
     }
 
     function wrap(TokenWrapper wrapper, address recipient, uint128 amount) external {
-        lock(abi.encode(0, wrapper, msg.sender, recipient, amount));
+        lock(abi.encode(wrapper, msg.sender, recipient, int256(uint256(amount))));
     }
 
     function unwrap(TokenWrapper wrapper, uint128 amount) external {
-        lock(abi.encode(1, wrapper, msg.sender, msg.sender, amount));
+        lock(abi.encode(wrapper, msg.sender, msg.sender, -int256(uint256(amount))));
     }
 
     function unwrap(TokenWrapper wrapper, address recipient, uint128 amount) external {
-        lock(abi.encode(1, wrapper, msg.sender, recipient, amount));
+        lock(abi.encode(wrapper, msg.sender, recipient, -int256(uint256(amount))));
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (uint256 callType, TokenWrapper wrapper, address payer, address recipient, uint128 amount) =
-            abi.decode(data, (uint256, TokenWrapper, address, address, uint128));
+        (TokenWrapper wrapper, address payer, address recipient, int256 amount) =
+            abi.decode(data, (TokenWrapper, address, address, int256));
 
-        if (callType == 0) {
+        if (amount >= 0) {
             // this creates the deltas
-            forward(address(wrapper), abi.encode(uint256(0), amount));
+            forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            accountant.withdraw(address(wrapper), recipient, amount);
+            accountant.withdraw(address(wrapper), recipient, uint128(uint256(amount)));
             // and pay the wrapped token from the payer
-            pay(payer, address(wrapper.underlyingToken()), amount);
-        } else if (callType == 1) {
+            pay(payer, address(wrapper.underlyingToken()), uint256(amount));
+        } else {
             // this creates the deltas
-            forward(address(wrapper), abi.encode(uint256(1), amount));
+            forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            accountant.withdraw(address(wrapper.underlyingToken()), recipient, amount);
+            accountant.withdraw(address(wrapper.underlyingToken()), recipient, uint128(uint256(-amount)));
             // and pay the wrapped token from the payer
-            pay(payer, address(wrapper), amount);
+            pay(payer, address(wrapper), uint256(-amount));
         }
     }
 }

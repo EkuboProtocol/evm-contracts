@@ -12,7 +12,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
-function mevResistCallPoints() pure returns (CallPoints memory) {
+function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         // to store the initial tick
         beforeInitializePool: true,
@@ -30,7 +30,7 @@ function mevResistCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
+contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     error ConcentratedLiquidityPoolsOnly();
     error NonzeroFeesOnly();
     error SwapMustHappenThroughForward();
@@ -54,7 +54,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
-        return mevResistCallPoints();
+        return mevCaptureCallPoints();
     }
 
     function beforeInitializePool(address, PoolKey memory poolKey, int32 tick) external override {

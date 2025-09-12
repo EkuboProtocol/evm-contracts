@@ -39,7 +39,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
     /// @return lastUpdateTime The last time this pool was updated
     /// @return tickLast The tick from the last time the pool was touched
-    function getPoolState(bytes16 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
+    function getPoolState(bytes32 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
         assembly ("memory-safe") {
             let v := sload(poolId)
             lastUpdateTime := shr(224, v)
@@ -47,7 +47,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         }
     }
 
-    function setPoolState(bytes16 poolId, uint32 lastUpdateTime, int32 tickLast) private {
+    function setPoolState(bytes32 poolId, uint32 lastUpdateTime, int32 tickLast) private {
         assembly ("memory-safe") {
             sstore(poolId, or(shl(224, lastUpdateTime), shr(32, shl(224, tickLast))))
         }
@@ -113,7 +113,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             calldatacopy(poolKey, 36, 96)
         }
 
-        bytes16 poolId = poolKey.toPoolId();
+        bytes32 poolId = poolKey.toPoolId();
 
         (uint32 lastUpdateTime,) = getPoolState(poolId);
 
@@ -135,7 +135,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         }
     }
 
-    function loadCoreState(bytes16 poolId, address token0, address token1)
+    function loadCoreState(bytes32 poolId, address token0, address token1)
         private
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
@@ -182,7 +182,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         }
     }
 
-    function loadTick(bytes16 poolId) private view returns (int32 tick) {
+    function loadTick(bytes32 poolId) private view returns (int32 tick) {
         address c = address(core);
         assembly ("memory-safe") {
             mstore(0, poolId)
@@ -204,7 +204,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
                 abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
 
-            bytes16 poolId = poolKey.toPoolId();
+            bytes32 poolId = poolKey.toPoolId();
             (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
 
             uint32 currentTime = uint32(block.timestamp);

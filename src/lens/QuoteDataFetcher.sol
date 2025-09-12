@@ -43,7 +43,7 @@ contract QuoteDataFetcher is UsesCore {
         unchecked {
             results = new QuoteData[](poolKeys.length);
             for (uint256 i = 0; i < poolKeys.length; i++) {
-                bytes16 poolId = poolKeys[i].toPoolId();
+                bytes32 poolId = poolKeys[i].toPoolId();
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
 
                 if (!sqrtRatio.isZero()) {
@@ -93,7 +93,7 @@ contract QuoteDataFetcher is UsesCore {
     }
 
     // Returns all the initialized ticks and the liquidity delta of each tick in the given range
-    function _getInitializedTicksInRange(bytes16 poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
+    function _getInitializedTicksInRange(bytes32 poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
         internal
         view
         returns (TickDelta[] memory ticks)

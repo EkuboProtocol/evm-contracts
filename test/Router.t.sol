@@ -484,8 +484,8 @@ contract RouterTest is FullTest {
             assertEq(logs[i].data.length, 100);
             address locker = address(bytes20(LibBytes.load(logs[i].data, 0)));
             assertEq(locker, address(router));
-            bytes16 poolId = bytes16(LibBytes.load(logs[i].data, 20));
-            assertEq(poolId, poolKey.toPoolId());
+            bytes16 truncatedPoolId = bytes16(LibBytes.load(logs[i].data, 20));
+            assertEq(truncatedPoolId, bytes16(poolKey.toPoolId()));
 
             assertEq(uint256(LibBytes.load(logs[i].data, 68)) >> 128, liquidity);
         }

@@ -55,7 +55,7 @@ contract PoolKeyTest is Test {
     }
 
     function test_toPoolId_changesWithToken0(PoolKey memory poolKey) public pure {
-        bytes16 id = poolKey.toPoolId();
+        bytes32 id = poolKey.toPoolId();
         unchecked {
             poolKey.token0 = address(uint160(poolKey.token0) + 1);
         }
@@ -106,7 +106,7 @@ contract PoolKeyTest is Test {
     }
 
     function test_toPoolId_hash_matches_abi_encode(PoolKey memory pk) public pure {
-        bytes16 id = pk.toPoolId();
-        assertEq(id, bytes16(bytes32(uint256(keccak256(abi.encode(pk))) << 128)));
+        bytes32 id = pk.toPoolId();
+        assertEq(id, keccak256(abi.encode(pk)));
     }
 }

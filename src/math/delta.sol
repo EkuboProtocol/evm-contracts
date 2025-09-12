@@ -11,9 +11,15 @@ function sortAndConvertToFixedSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRat
     pure
     returns (uint256 sqrtRatioLower, uint256 sqrtRatioUpper)
 {
-    uint256 aFixed = sqrtRatioA.toFixed();
-    uint256 bFixed = sqrtRatioB.toFixed();
-    (sqrtRatioLower, sqrtRatioUpper) = (FixedPointMathLib.min(aFixed, bFixed), FixedPointMathLib.max(aFixed, bFixed));
+    sqrtRatioLower = sqrtRatioA.toFixed();
+    sqrtRatioUpper = sqrtRatioB.toFixed();
+    assembly ("memory-safe") {
+        if gt(sqrtRatioLower, sqrtRatioUpper) {
+            let tmp := sqrtRatioUpper
+            sqrtRatioUpper := sqrtRatioLower
+            sqrtRatioLower := tmp
+        }
+    }
 }
 
 function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)

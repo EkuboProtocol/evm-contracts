@@ -14,11 +14,10 @@ function sortAndConvertToFixedSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRat
     sqrtRatioLower = sqrtRatioA.toFixed();
     sqrtRatioUpper = sqrtRatioB.toFixed();
     assembly ("memory-safe") {
-        if gt(sqrtRatioLower, sqrtRatioUpper) {
-            let tmp := sqrtRatioUpper
-            sqrtRatioUpper := sqrtRatioLower
-            sqrtRatioLower := tmp
-        }
+        let diff := mul(sub(sqrtRatioLower, sqrtRatioUpper), gt(sqrtRatioLower, sqrtRatioUpper))
+
+        sqrtRatioLower := sub(sqrtRatioLower, diff)
+        sqrtRatioUpper := add(sqrtRatioUpper, diff)
     }
 }
 

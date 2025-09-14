@@ -165,12 +165,32 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
         (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
     }
 
+    function withdrawProtocolFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
+        external
+        payable
+        onlyOwner
+    {
+        lock(abi.encode(bytes1(0xee), token0, token1, amount0, amount1, recipient));
+    }
+
+    function getProtocolFees(address token0, address token1) external view returns (uint128 amount0, uint128 amount1) {
+        (amount0, amount1) = core.savedBalances(address(this), token0, token1, bytes32(0));
+    }
+
     error UnexpectedCallTypeByte(bytes1 b);
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
 
-        if (callType == 0xdd) {
+        if (callType == 0xee) {
+            (, address token0, address token1, uint128 amount0, uint128 amount1, address recipient) =
+                abi.decode(data, (bytes1, address, address, uint128, uint128, address));
+
+            core.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
+
+            withdraw(token0, amount0, recipient);
+            withdraw(token1, amount1, recipient);
+        } else if (callType == 0xdd) {
             (, address caller, uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
                 abi.decode(data, (bytes1, address, uint256, PoolKey, Bounds, uint128));
 

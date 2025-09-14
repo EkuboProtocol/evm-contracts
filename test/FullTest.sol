@@ -117,7 +117,7 @@ contract MockExtension is IExtension {
 }
 
 abstract contract FullTest is Test {
-    address immutable owner = address(0xdeadbeefdeadbeef);
+    address immutable owner = makeAddr("owner");
     BaseURLTokenURIGenerator tokenURIGenerator;
     Core core;
     Positions positions;
@@ -127,7 +127,7 @@ abstract contract FullTest is Test {
     TestToken token1;
 
     function setUp() public virtual {
-        core = new Core(owner);
+        core = new Core();
         tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
         positions = new Positions(core, tokenURIGenerator);
         router = new Router(core);

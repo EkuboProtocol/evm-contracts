@@ -7,7 +7,6 @@ import {PositionKey, Bounds} from "./types/positionKey.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {
@@ -42,7 +41,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 /// @title Ekubo Protocol
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Singleton holding all the tokens and containing all the possible operations in Ekubo Protocol
-contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
+contract Core is ICore, FlashAccountant, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
     struct TickInfo {
@@ -57,7 +56,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     }
 
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
-    mapping(address token => uint256 amountCollected) private protocolFeesCollected;
 
     mapping(bytes32 poolId => PoolState) private poolState;
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
@@ -68,20 +66,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
     mapping(bytes32 key => uint256) private savedBalances;
-
-    constructor(address owner) {
-        _initializeOwner(owner);
-    }
-
-    function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
-        protocolFeesCollected[token] -= amount;
-        if (token == NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeTransferETH(recipient, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, amount);
-        }
-        emit ProtocolFeesWithdrawn(recipient, token, amount);
-    }
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external {
@@ -171,7 +155,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             // copy the first 3 arguments in the same order
             calldatacopy(add(free, 0x20), 4, 96)
             mstore(0, keccak256(free, 128))
-            mstore(32, 8)
+            mstore(32, 7)
             let slot := keccak256(0, 64)
             let balances := sload(slot)
 
@@ -235,11 +219,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         assembly ("memory-safe") {
             if or(amount0, amount1) {
                 mstore(0, poolId)
-                mstore(32, 2)
+                mstore(32, 1)
                 let liquidity := shr(128, sload(keccak256(0, 64)))
 
                 if liquidity {
-                    mstore(32, 3)
+                    mstore(32, 2)
                     let slot0 := keccak256(0, 64)
 
                     if amount0 {
@@ -323,31 +307,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 liquidityDeltaToAmountDelta(price.sqrtRatio, params.liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
             PositionKey memory positionKey = PositionKey({salt: params.salt, owner: locker, bounds: params.bounds});
-
-            if (params.liquidityDelta < 0) {
-                if (poolKey.fee() != 0) {
-                    unchecked {
-                        // uint128(-delta0) is ok in unchecked block
-                        uint128 protocolFees0 = computeFee(uint128(-delta0), poolKey.fee());
-                        uint128 protocolFees1 = computeFee(uint128(-delta1), poolKey.fee());
-
-                        if (protocolFees0 > 0) {
-                            // this will never overflow for a well behaved token since protocol fees are stored as uint256
-                            protocolFeesCollected[poolKey.token0] += protocolFees0;
-
-                            // magnitude of protocolFees0 is at most equal to -delta0, so after addition delta0 will maximally reach 0 and no overflow/underflow check is needed
-                            // in addition, casting is safe because computed fee is never g.t. the input amount, which is an int128
-                            delta0 += int128(protocolFees0);
-                        }
-
-                        // same reasoning applies for the unchecked safety here
-                        if (protocolFees1 > 0) {
-                            protocolFeesCollected[poolKey.token1] += protocolFees1;
-                            delta1 += int128(protocolFees1);
-                        }
-                    }
-                }
-            }
 
             bytes32 positionId = positionKey.toPositionId();
             Position storage position = poolPositions[poolId][positionId];
@@ -475,7 +434,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             if (poolKey.mustLoadFees()) {
                 assembly ("memory-safe") {
                     mstore(0, poolId)
-                    mstore(32, 3)
+                    mstore(32, 2)
                     inputTokenFeesPerLiquiditySlot := add(keccak256(0, 64), increasing)
                     inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
                 }
@@ -558,7 +517,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
             assembly ("memory-safe") {
                 mstore(0, poolId)
-                mstore(32, 2)
+                mstore(32, 1)
                 sstore(keccak256(0, 64), add(add(sqrtRatio, shl(96, and(tick, 0xffffffff))), shl(128, liquidity)))
             }
 

@@ -60,7 +60,6 @@ interface IExtension {
 }
 
 interface ICore is IFlashAccountant, IExposedStorage {
-    event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
     event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
     event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
@@ -80,10 +79,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     error SqrtRatioLimitOutOfRange();
     error InvalidSqrtRatioLimit();
     error SavedBalanceTokensNotSorted();
-
-    // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
-    // To withdraw the native token protocol fees, call with token = NATIVE_TOKEN_ADDRESS
-    function withdrawProtocolFees(address recipient, address token, uint256 amount) external;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external;

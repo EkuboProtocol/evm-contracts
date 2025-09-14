@@ -110,13 +110,6 @@ contract Handler is StdUtils, StdAssertions {
         if (initialized) allPoolKeys.push(poolKey);
     }
 
-    function withdrawProtocolFees(bool isToken1, uint256 amount) external {
-        address token = isToken1 ? address(token1) : address(token0);
-
-        amount = bound(amount, 0, core.protocolFeesCollected(token));
-        core.withdrawProtocolFees(address(this), token, amount);
-    }
-
     modifier ifPoolExists() {
         if (allPoolKeys.length == 0) return;
         _;
@@ -300,9 +293,6 @@ contract SolvencyInvariantTest is FullTest {
         fae.register(core, byteToCallPoints(0xff));
 
         handler = new Handler(core, fae, positions, router, token0, token1);
-        vm.prank(owner);
-        core.transferOwnership(address(handler));
-        vm.stopPrank();
 
         // funding core makes it easier for pools to become insolvent randomly if there is a bug
         token0.transfer(address(core), type(uint128).max);

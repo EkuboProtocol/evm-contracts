@@ -152,11 +152,11 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             let freeMemPointer := mload(64)
 
             mstore(0, feesSlot)
-            mstore(32, 8)
+            mstore(32, 7)
             feesSlot := keccak256(0, 64)
 
             mstore(0, poolId)
-            mstore(32, 2)
+            mstore(32, 1)
             let stateSlot := keccak256(0, 64)
 
             // cast sig "sload()"
@@ -186,7 +186,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         address c = address(core);
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 2)
+            mstore(32, 1)
             let stateSlot := keccak256(0, 64)
 
             // cast sig "sload()"

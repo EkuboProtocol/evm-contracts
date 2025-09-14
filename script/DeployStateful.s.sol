@@ -55,7 +55,7 @@ contract DeployStatefulScript is Script {
 
         vm.startBroadcast();
 
-        Core core = new Core{salt: salt}(owner);
+        Core core = new Core{salt: salt}();
         // we deploy with empty url so it has the same address
         BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: salt}(owner, "");
         tokenURIGenerator.setBaseURL(baseUrl);

@@ -18,10 +18,6 @@ import {Core} from "../src/Core.sol";
 contract CoreTest is FullTest {
     using CoreLib for *;
 
-    function test_owner() public view {
-        assertEq(core.owner(), owner);
-    }
-
     function test_castingAssumption() public pure {
         // we make this assumption on solidity behavior in the protocol fee collection
         unchecked {

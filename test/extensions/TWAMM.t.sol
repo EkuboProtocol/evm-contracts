@@ -74,7 +74,7 @@ contract TWAMMTest is BaseTWAMMTest {
 contract TWAMMInternalMethodsTests is TWAMM, Test {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
 
-    constructor() TWAMM(new Core(address(0xdeadbeef))) {}
+    constructor() TWAMM(new Core()) {}
 
     function _registerInConstructor() internal pure override returns (bool) {
         return false;

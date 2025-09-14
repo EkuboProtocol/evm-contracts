@@ -25,17 +25,6 @@ library CoreLib {
         registered = uint256(core.sload(key)) != 0;
     }
 
-    function protocolFeesCollected(ICore core, address token) internal view returns (uint256 amountCollected) {
-        bytes32 key;
-        assembly ("memory-safe") {
-            mstore(0, token)
-            mstore(32, 1)
-            key := keccak256(0, 64)
-        }
-
-        amountCollected = uint256(core.sload(key));
-    }
-
     function poolState(ICore core, bytes32 poolId)
         internal
         view
@@ -44,7 +33,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 2)
+            mstore(32, 1)
             key := keccak256(0, 64)
         }
 
@@ -65,7 +54,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 4)
+            mstore(32, 3)
             let b := keccak256(0, 64)
             mstore(0, positionId)
             mstore(32, b)
@@ -91,7 +80,7 @@ library CoreLib {
             mstore(add(free, 0x40), token1)
             mstore(add(free, 0x60), salt)
             mstore(0, keccak256(free, 128))
-            mstore(32, 8)
+            mstore(32, 7)
             key := keccak256(0, 64)
         }
 
@@ -109,7 +98,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 5)
+            mstore(32, 4)
             let b := keccak256(0, 64)
             mstore(0, tick)
             mstore(32, b)

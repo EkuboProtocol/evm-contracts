@@ -18,6 +18,7 @@ import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {BaseURIMintableNFT} from "./base/BaseURIMintableNFT.sol";
+import {computeFee} from "./math/fee.sol";
 
 /// @title Ekubo Positions
 /// @author Moody Salem <moody@ekubo.org>
@@ -209,8 +210,23 @@ contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittab
                     UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: -int128(liquidity)})
                 );
 
-                amount0 += uint128(-delta0);
-                amount1 += uint128(-delta1);
+                uint64 fee = poolKey.fee();
+                uint128 fees0;
+                uint128 fees1;
+                if (fee != 0) {
+                    fees0 = computeFee(uint128(-delta0), fee);
+                    fees1 = computeFee(uint128(-delta1), fee);
+
+                    if (fees0 != 0 || fees1 != 0) {
+                        // we know cast won't overflow because delta0 and delta1 were originally int128
+                        core.updateSavedBalances(
+                            poolKey.token0, poolKey.token1, bytes32(0), int128(fees0), int128(fees1)
+                        );
+                    }
+                }
+
+                amount0 += uint128(-delta0) - fees0;
+                amount1 += uint128(-delta1) - fees1;
             }
 
             withdraw(poolKey.token0, amount0, recipient);

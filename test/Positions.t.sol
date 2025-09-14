@@ -63,8 +63,8 @@ contract PositionsTest is FullTest {
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity);
 
         // original 100, rounded down, minus the 50% fee
-        assertEq(amount0, 99);
-        assertEq(amount1, 99);
+        assertEq(amount0, 49);
+        assertEq(amount1, 49);
     }
 
     function test_mintAndDeposit_shared_tick_boundary(CallPoints memory callPoints) public {
@@ -119,8 +119,8 @@ contract PositionsTest is FullTest {
 
         (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
 
-        assertEq(amount0, 149);
-        assertEq(amount1, 50);
+        assertEq(amount0, 74);
+        assertEq(amount1, 25);
     }
 
     function test_collectFees_amount1(CallPoints memory callPoints) public {
@@ -150,8 +150,8 @@ contract PositionsTest is FullTest {
 
         (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
 
-        assertEq(amount0, 50);
-        assertEq(amount1, 149);
+        assertEq(amount0, 25);
+        assertEq(amount1, 74);
     }
 
     function test_collectFeesAndWithdraw(CallPoints memory callPoints) public {
@@ -182,8 +182,8 @@ contract PositionsTest is FullTest {
         assertEq(f1, 24);
 
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
-        assertEq(amount0, 173); // 124/2 + 49
-        assertEq(amount1, 99); // 75/2 + 24
+        assertEq(amount0, 111); // 124/2 + 49
+        assertEq(amount1, 61); // 75/2 + 24
     }
 
     function test_collectFeesAndWithdraw_above_range(CallPoints memory callPoints) public {
@@ -224,7 +224,7 @@ contract PositionsTest is FullTest {
 
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
         assertEq(amount0, 49);
-        assertEq(amount1, 350);
+        assertEq(amount1, 250);
     }
 
     function test_collectFeesAndWithdraw_below_range(CallPoints memory callPoints) public {
@@ -264,7 +264,7 @@ contract PositionsTest is FullTest {
         assertEq(f1, 24);
 
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
-        assertEq(amount0, 325);
+        assertEq(amount0, 225);
         assertEq(amount1, 24);
     }
 

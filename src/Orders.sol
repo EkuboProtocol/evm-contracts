@@ -9,7 +9,6 @@ import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
-import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";

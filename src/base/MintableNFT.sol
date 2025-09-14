@@ -2,24 +2,14 @@
 pragma solidity =0.8.28;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {ITokenURIGenerator} from "../interfaces/ITokenURIGenerator.sol";
 
+/// @notice NFT contract where tokens can be minted and burned freely
 abstract contract MintableNFT is ERC721 {
-    error Unauthorized(address caller, uint256 id);
-
-    ITokenURIGenerator public immutable tokenURIGenerator;
-
-    constructor(ITokenURIGenerator _tokenURIGenerator) {
-        tokenURIGenerator = _tokenURIGenerator;
-    }
-
-    function tokenURI(uint256 id) public view override returns (string memory) {
-        return tokenURIGenerator.generateTokenURI(id);
-    }
+    error NotUnauthorizedForToken(address caller, uint256 id);
 
     modifier authorizedForNft(uint256 id) {
         if (!_isApprovedOrOwner(msg.sender, id)) {
-            revert Unauthorized(msg.sender, id);
+            revert NotUnauthorizedForToken(msg.sender, id);
         }
         _;
     }

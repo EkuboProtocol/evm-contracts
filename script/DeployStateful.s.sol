@@ -5,7 +5,6 @@ import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 
@@ -56,10 +55,8 @@ contract DeployStatefulScript is Script {
         vm.startBroadcast();
 
         Core core = new Core{salt: salt}();
-        // we deploy with empty url so it has the same address
-        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: salt}(owner, "");
-        tokenURIGenerator.setBaseURL(baseUrl);
-        new Positions{salt: salt}(core, tokenURIGenerator);
+        Positions positions = new Positions{salt: salt}(core, owner);
+        positions.setBaseURL(baseUrl);
         new Oracle{
             salt: findExtensionSalt(
                 salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()

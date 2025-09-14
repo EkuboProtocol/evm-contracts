@@ -6,7 +6,6 @@ import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICo
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
@@ -118,7 +117,6 @@ contract MockExtension is IExtension {
 
 abstract contract FullTest is Test {
     address immutable owner = makeAddr("owner");
-    BaseURLTokenURIGenerator tokenURIGenerator;
     Core core;
     Positions positions;
     Router router;
@@ -128,8 +126,7 @@ abstract contract FullTest is Test {
 
     function setUp() public virtual {
         core = new Core();
-        tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
-        positions = new Positions(core, tokenURIGenerator);
+        positions = new Positions(core, owner);
         router = new Router(core);
         TestToken tokenA = new TestToken(address(this));
         TestToken tokenB = new TestToken(address(this));

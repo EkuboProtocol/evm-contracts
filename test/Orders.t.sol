@@ -19,19 +19,16 @@ import {FeeAccumulatingExtension} from "./SolvencyInvariantTest.t.sol";
 import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;
-    BaseURLTokenURIGenerator internal tokenUriGenerator;
 
     function setUp() public virtual override {
         BaseTWAMMTest.setUp();
 
-        tokenUriGenerator = new BaseURLTokenURIGenerator(address(this), "orders://");
-        orders = new Orders(core, twamm, tokenUriGenerator);
+        orders = new Orders(core, twamm, owner);
     }
 }
 

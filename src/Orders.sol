@@ -13,13 +13,13 @@ import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
-import {MintableNFT} from "./base/MintableNFT.sol";
+import {BaseURIMintableNFT} from "./base/BaseURIMintableNFT.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title Ekubo Orders
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks TWAMM orders in Ekubo Protocol
-contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
+contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, BaseURIMintableNFT {
     using TWAMMLib for *;
 
     error OrderAlreadyEnded();
@@ -27,11 +27,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     TWAMM public immutable twamm;
 
-    constructor(ICore core, TWAMM _twamm, ITokenURIGenerator tokenURIGenerator)
-        MintableNFT(tokenURIGenerator)
-        BaseLocker(core)
-        UsesCore(core)
-    {
+    constructor(ICore core, TWAMM _twamm, address owner) BaseURIMintableNFT(owner) BaseLocker(core) UsesCore(core) {
         twamm = _twamm;
     }
 

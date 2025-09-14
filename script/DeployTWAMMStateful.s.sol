@@ -5,7 +5,6 @@ import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
 import {Orders} from "../src/Orders.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {findExtensionSalt} from "./DeployStateful.s.sol";
 
 contract DeployTWAMMStatefulScript is Script {
@@ -34,11 +33,8 @@ contract DeployTWAMMStatefulScript is Script {
             )
         }(core);
 
-        BaseURLTokenURIGenerator ordersTokenURIGenerator =
-            new BaseURLTokenURIGenerator{salt: keccak256(abi.encodePacked(type(Orders).creationCode, salt))}(owner, "");
-        ordersTokenURIGenerator.setBaseURL(ordersBaseUrl);
-
-        new Orders{salt: salt}(core, twamm, ordersTokenURIGenerator);
+        Orders orders = new Orders{salt: salt}(core, twamm, owner);
+        orders.setBaseURL(ordersBaseUrl);
 
         vm.stopBroadcast();
     }

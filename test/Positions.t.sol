@@ -18,9 +18,12 @@ import {byteToCallPoints} from "../src/types/callPoints.sol";
 contract PositionsTest is FullTest {
     using CoreLib for *;
 
-    function test_metadata() public view {
+    function test_metadata() public {
         assertEq(positions.name(), "Ekubo Positions");
         assertEq(positions.symbol(), "ekuPo");
+        assertEq(positions.tokenURI(1), "1");
+        vm.prank(owner);
+        positions.setBaseURL("ekubo://positions/");
         assertEq(positions.tokenURI(1), "ekubo://positions/1");
     }
 
@@ -32,7 +35,7 @@ contract PositionsTest is FullTest {
             assertNotEq(id, positions.saltToId(minter, bytes32(uint256(salt) + 1)));
         }
         // address is also incorporated
-        Positions p2 = new Positions(core, positions.tokenURIGenerator());
+        Positions p2 = new Positions(core, owner);
         assertNotEq(id, p2.saltToId(minter, salt));
     }
 

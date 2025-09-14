@@ -17,23 +17,18 @@ import {Permittable} from "./base/Permittable.sol";
 import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
-import {MintableNFT} from "./base/MintableNFT.sol";
+import {BaseURIMintableNFT} from "./base/BaseURIMintableNFT.sol";
 
 /// @title Ekubo Positions
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks liquidity positions in Ekubo Protocol
-contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
+contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, BaseURIMintableNFT {
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();
 
     using CoreLib for ICore;
 
-    constructor(ICore core, ITokenURIGenerator tokenURIGenerator)
-        MintableNFT(tokenURIGenerator)
-        BaseLocker(core)
-        UsesCore(core)
-    {}
+    constructor(ICore core, address owner) BaseURIMintableNFT(owner) BaseLocker(core) UsesCore(core) {}
 
     function name() public pure override returns (string memory) {
         return "Ekubo Positions";

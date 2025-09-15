@@ -55,12 +55,14 @@ Ekubo Protocol is a comprehensive DeFi infrastructure that provides:
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/EkuboProtocol/solidity.git
    cd solidity
    ```
 
 2. **Install dependencies**
+
    ```bash
    forge install
    ```
@@ -79,11 +81,13 @@ forge test
 ```
 
 For verbose output:
+
 ```bash
 forge test -vvv
 ```
 
 Run specific tests:
+
 ```bash
 forge test --match-contract CoreTest
 forge test --match-test testSwap
@@ -92,6 +96,7 @@ forge test --match-test testSwap
 ### Gas Snapshots
 
 Generate gas usage snapshots:
+
 ```bash
 forge snapshot
 ```
@@ -131,6 +136,7 @@ Liquidity providers can concentrate their capital within specific price ranges, 
 ### Extension System
 
 The modular extension system allows for custom pool behaviors:
+
 - Custom fee structures
 - Oracle integration
 - MEV capture mechanisms
@@ -139,6 +145,7 @@ The modular extension system allows for custom pool behaviors:
 ### Flash Loans
 
 Built-in flash loan functionality enables:
+
 - Arbitrage opportunities
 - Liquidation mechanisms
 - Complex DeFi strategies
@@ -147,6 +154,7 @@ Built-in flash loan functionality enables:
 ### Multi-Hop Swaps
 
 Efficient routing through multiple pools:
+
 - User-specified routes
 - Slippage protection
 - Gas optimization
@@ -178,7 +186,7 @@ This project is licensed under the Ekubo DAO SRL 1.0 License - see the [LICENSE]
 
 - **Website**: [ekubo.org](https://ekubo.org)
 - **Documentation**: [docs.ekubo.org](https://docs.ekubo.org)
-- **Discord**: [discord.gg/ekubo](https://discord.gg/ekubo)
+- **Discord**: [discord.ekubo.org](https://discord.ekubo.org)
 - **Twitter**: [@EkuboProtocol](https://twitter.com/EkuboProtocol)
 
 ## Acknowledgments

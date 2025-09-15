@@ -525,14 +525,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             assembly ("memory-safe") {
                 let o := mload(0x40)
                 mstore(o, shl(96, locker))
-                // note we only emit the first 16 bytes of the pool ID because it's overwritten in the next mstore, 16 bytes * 8 gas = 128 gas saved per swap
-                // off chain, the indexers must match by prefix. in case of a collision, this can cause swaps to be misattributed, but a collision is very unlikely.
                 mstore(add(o, 20), poolId)
-                mstore(add(o, 36), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
-                mstore(add(o, 68), shl(128, liquidity))
-                mstore(add(o, 84), shl(160, sqrtRatio))
-                mstore(add(o, 96), shl(224, tick))
-                log0(o, 100)
+                mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
+                mstore(add(o, 84), shl(128, liquidity))
+                mstore(add(o, 100), shl(160, sqrtRatio))
+                mstore(add(o, 112), shl(224, tick))
+                log0(o, 116)
             }
         }
 

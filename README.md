@@ -163,12 +163,12 @@ Efficient routing through multiple pools:
 
 ## Contributing
 
-We welcome contributions from the community! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on:
+We welcome contributions from the community! Please follow these guidelines:
 
-- Code style and standards
-- Testing requirements
-- Pull request process
-- Issue reporting
+- Follow the existing code style and formatting
+- Add comprehensive tests for new functionality
+- Include natspec documentation for all public functions
+- Submit pull requests with clear descriptions
 
 ## License
 

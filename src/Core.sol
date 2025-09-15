@@ -29,36 +29,54 @@ import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 
-/// @title Ekubo Protocol
+/// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
-/// @notice Singleton holding all the tokens and containing all the possible operations in Ekubo Protocol
+/// @notice Singleton contract holding all tokens and containing all possible operations in Ekubo Protocol
+/// @dev Implements the core AMM functionality including pools, positions, swaps, and fee collection
 contract Core is ICore, FlashAccountant, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
+    /// @notice Information stored for each initialized tick
+    /// @dev Contains liquidity changes and net liquidity at the tick
     struct TickInfo {
+        /// @notice Change in liquidity when crossing this tick
         int128 liquidityDelta;
+        /// @notice Net liquidity above this tick
         uint128 liquidityNet;
     }
 
+    /// @notice Current state of a pool
+    /// @dev Packed into a single storage slot for gas efficiency
     struct PoolState {
+        /// @notice Current sqrt price ratio of the pool
         SqrtRatio sqrtRatio;
+        /// @notice Current tick of the pool
         int32 tick;
+        /// @notice Current active liquidity in the pool
         uint128 liquidity;
     }
 
+    /// @notice Mapping of extension addresses to their registration status
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
 
+    /// @notice Mapping of pool IDs to their current state
     mapping(bytes32 poolId => PoolState) private poolState;
+    /// @notice Mapping of pool IDs to their accumulated fees per liquidity
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
+    /// @notice Mapping of pool IDs to position IDs to position data
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) private poolPositions;
+    /// @notice Mapping of pool IDs to tick information
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
+    /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick
     mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
         poolTickFeesPerLiquidityOutside;
+    /// @notice Mapping of pool IDs to initialized tick bitmaps
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
+    /// @notice Mapping of saved balance keys to their values
     mapping(bytes32 key => uint256) private savedBalances;
 
-    // Extensions must call this function to become registered. The call points are validated against the caller address
+    /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
         CallPoints memory computed = addressToCallPoints(msg.sender);
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) {
@@ -69,6 +87,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         emit ExtensionRegistered(msg.sender);
     }
 
+    /// @inheritdoc ICore
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (SqrtRatio sqrtRatio) {
         poolKey.validatePoolKey();
 
@@ -97,6 +116,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
@@ -106,6 +126,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findPrevInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
+    /// @inheritdoc ICore
     function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
@@ -115,6 +136,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
+    /// @inheritdoc ICore
     function updateSavedBalances(
         address token0,
         address token1,
@@ -163,7 +185,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         _accountDebt(id, token1, delta1);
     }
 
-    // Returns the pool fees per liquidity inside the given bounds.
+    /// @notice Returns the pool fees per liquidity inside the given bounds
+    /// @dev Internal function that calculates fees per liquidity within position bounds
+    /// @param poolId Unique identifier for the pool
+    /// @param bounds Price bounds for the position
+    /// @param tickSpacing Tick spacing for the pool
+    /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
     function _getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds, uint32 tickSpacing)
         internal
         view
@@ -187,6 +214,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
         external
         view
@@ -195,9 +223,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), bounds, poolKey.tickSpacing());
     }
 
-    // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
-    // key, i.e. the current locker _must_ be the extension.
-    // The extension must call this function within a lock callback.
+    /// @inheritdoc ICore
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
         (uint256 id, address locker) = _requireLocker();
         require(locker == poolKey.extension());
@@ -237,6 +263,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         emit FeesAccumulated(poolId, amount0, amount1);
     }
 
+    /// @notice Updates tick information when liquidity is added or removed
+    /// @dev Private function that handles tick initialization and liquidity tracking
+    /// @param poolId Unique identifier for the pool
+    /// @param tick Tick to update
+    /// @param tickSpacing Tick spacing for the pool
+    /// @param liquidityDelta Change in liquidity
+    /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
         TickInfo storage tickInfo = poolTicks[poolId][tick];
 
@@ -253,6 +286,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         tickInfo.liquidityNet = liquidityNetNext;
     }
 
+    /// @notice Accounts for debt in token0, handling native token payments
+    /// @dev Private function that manages debt accounting with special handling for native tokens
+    /// @param id Lock ID for debt tracking
+    /// @param token0 Address of token0
+    /// @param debtChange Change in debt amount
     function _maybeAccountDebtToken0(uint256 id, address token0, int256 debtChange) private {
         if (msg.value == 0) {
             _accountDebt(id, token0, debtChange);
@@ -272,6 +310,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
         payable
@@ -341,6 +380,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
         external
         returns (uint128 amount0, uint128 amount1)
@@ -375,6 +415,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function swap_611415377(
         PoolKey memory poolKey,
         int128 amount,

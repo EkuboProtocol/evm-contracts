@@ -5,7 +5,7 @@ import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {FullTest} from "./FullTest.sol";
-import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
+import {RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
@@ -23,7 +23,7 @@ contract PositionsTest is FullTest {
         assertEq(positions.symbol(), "ekuPo");
         assertEq(positions.tokenURI(1), "1");
         vm.prank(owner);
-        positions.setBaseURL("ekubo://positions/");
+        positions.setBaseUrl("ekubo://positions/");
         assertEq(positions.tokenURI(1), "ekubo://positions/1");
     }
 

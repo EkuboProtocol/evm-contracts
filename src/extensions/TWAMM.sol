@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey, toConfig} from "../types/poolKey.sol";
+import {PoolKey} from "../types/poolKey.sol";
 import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
@@ -15,7 +15,6 @@ import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../math/bitmap.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {computeFee} from "../math/fee.sol";
 import {

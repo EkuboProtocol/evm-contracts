@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {ICore, PoolKey, Bounds, CallPoints, SqrtRatio, UpdatePositionParameters} from "../interfaces/ICore.sol";
-import {ILocker, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";

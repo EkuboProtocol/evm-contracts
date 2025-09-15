@@ -20,22 +20,13 @@ import {
     shouldCallAfterCollectFees
 } from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from "./math/liquidity.sol";
-import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {ICore, UpdatePositionParameters, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
-import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    NATIVE_TOKEN_ADDRESS,
-    FULL_RANGE_ONLY_TICK_SPACING,
-    MAX_TICK_SPACING
-} from "./math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 
 /// @title Ekubo Protocol

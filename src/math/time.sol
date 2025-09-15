@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {LibBit} from "solady/utils/LibBit.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 // For any given time `t`, there are up to 106 times that are greater than `t` and valid according to `isTimeValid`

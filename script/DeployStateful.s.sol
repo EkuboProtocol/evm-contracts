@@ -6,7 +6,6 @@ import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
     return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)))));
@@ -56,7 +55,7 @@ contract DeployStatefulScript is Script {
 
         Core core = new Core{salt: salt}();
         Positions positions = new Positions{salt: salt}(core, owner);
-        positions.setBaseURL(baseUrl);
+        positions.setBaseUrl(baseUrl);
         new Oracle{
             salt: findExtensionSalt(
                 salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()

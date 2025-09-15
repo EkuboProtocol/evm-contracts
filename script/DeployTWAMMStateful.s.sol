@@ -34,7 +34,7 @@ contract DeployTWAMMStatefulScript is Script {
         }(core);
 
         Orders orders = new Orders{salt: salt}(core, twamm, owner);
-        orders.setBaseURL(ordersBaseUrl);
+        orders.setBaseUrl(ordersBaseUrl);
 
         vm.stopBroadcast();
     }

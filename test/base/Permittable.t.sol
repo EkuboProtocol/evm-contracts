@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {ERC20} from "solady/tokens/ERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Permittable} from "../../src/base/Permittable.sol";
 import {TestToken} from "../TestToken.sol";

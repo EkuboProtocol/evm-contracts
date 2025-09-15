@@ -12,7 +12,6 @@ import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
-import {isPriceIncreasing} from "../src/math/swap.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract MockExtension is IExtension {

@@ -7,17 +7,17 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {MintableNFT} from "./MintableNFT.sol";
 
 abstract contract BaseURIMintableNFT is MintableNFT, Ownable {
-    string public baseURL;
+    string public baseUrl;
 
     constructor(address owner) {
         _initializeOwner(owner);
     }
 
-    function setBaseURL(string memory _baseURL) external onlyOwner {
-        baseURL = _baseURL;
+    function setBaseUrl(string memory _baseUrl) external onlyOwner {
+        baseUrl = _baseUrl;
     }
 
     function tokenURI(uint256 id) public view virtual override returns (string memory) {
-        return string(abi.encodePacked(baseURL, LibString.toString(id)));
+        return string(abi.encodePacked(baseUrl, LibString.toString(id)));
     }
 }

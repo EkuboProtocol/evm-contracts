@@ -3,16 +3,14 @@ pragma solidity =0.8.28;
 
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
-import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Core} from "../src/Core.sol";
 
 contract CoreTest is FullTest {

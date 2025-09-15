@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity =0.8.28;
 
-import {ERC721} from "solady/tokens/ERC721.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
@@ -14,7 +13,6 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Permittable} from "./base/Permittable.sol";
-import {SlippageChecker} from "./base/SlippageChecker.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {BaseURIMintableNFT} from "./base/BaseURIMintableNFT.sol";
@@ -23,7 +21,7 @@ import {computeFee} from "./math/fee.sol";
 /// @title Ekubo Positions
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks liquidity positions in Ekubo Protocol
-contract Positions is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, BaseURIMintableNFT {
+contract Positions is UsesCore, PayableMulticallable, Permittable, BaseLocker, BaseURIMintableNFT {
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();
 

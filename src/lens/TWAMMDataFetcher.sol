@@ -7,12 +7,8 @@ import {TWAMM} from "../extensions/TWAMM.sol";
 import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/positionKey.sol";
-import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {MAX_NUM_VALID_TIMES, nextValidTime} from "../math/time.sol";
-import {LibBit} from "solady/utils/LibBit.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 
 function getAllValidFutureTimes(uint256 currentTime) pure returns (uint256[] memory times) {

@@ -7,8 +7,6 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {

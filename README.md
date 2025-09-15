@@ -10,7 +10,7 @@ This repository contains the core Solidity smart contracts for **Ekubo Protocol*
 Ekubo Protocol is a comprehensive DeFi infrastructure that provides:
 
 - **Concentrated Liquidity**: Efficient capital utilization through concentrated liquidity positions
-- **Multi-Asset Pools**: Support for pools with different fee tiers and tick spacings
+- **Multiple Pool Configurations**: Support for pools with different fee tiers and tick spacings
 - **Extension System**: Modular architecture allowing custom pool behaviors through extensions
 - **TWAMM Integration**: Time-Weighted Average Market Maker for large order execution
 - **Flash Loans**: Built-in flash loan functionality for arbitrage and liquidations
@@ -147,7 +147,7 @@ Built-in flash loan functionality enables:
 ### Multi-Hop Swaps
 
 Efficient routing through multiple pools:
-- Automatic path finding
+- User-specified routes
 - Slippage protection
 - Gas optimization
 - Batch operations

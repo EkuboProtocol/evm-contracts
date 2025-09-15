@@ -26,9 +26,7 @@ abstract contract BaseLocker is ILocker {
 
     /// CALLBACK HANDLERS
 
-    /// @notice Callback function called by the flash accountant when a lock is acquired
-    /// @dev Only callable by the accountant contract
-    /// @param id The lock ID
+    /// @inheritdoc ILocker
     function locked(uint256 id) external {
         if (msg.sender != address(accountant)) revert BaseLockerAccountantOnly();
 

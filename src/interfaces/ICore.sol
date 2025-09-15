@@ -9,18 +9,47 @@ import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
+/// @notice Parameters for updating a liquidity position
+/// @dev Used to specify position bounds and liquidity changes
 struct UpdatePositionParameters {
+    /// @notice Unique identifier for the position
     bytes32 salt;
+    /// @notice Price bounds for the position
     Bounds bounds;
+    /// @notice Change in liquidity (positive for adding, negative for removing)
     int128 liquidityDelta;
 }
 
+/// @title Extension Interface
+/// @notice Interface for pool extensions that can hook into core operations
+/// @dev Extensions must register with the core contract and implement these hooks
 interface IExtension {
+    /// @notice Called before a pool is initialized
+    /// @param caller Address that initiated the pool initialization
+    /// @param key Pool key identifying the pool
+    /// @param tick Initial tick for the pool
     function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
+
+    /// @notice Called after a pool is initialized
+    /// @param caller Address that initiated the pool initialization
+    /// @param key Pool key identifying the pool
+    /// @param tick Initial tick for the pool
+    /// @param sqrtRatio Initial sqrt price ratio for the pool
     function afterInitializePool(address caller, PoolKey calldata key, int32 tick, SqrtRatio sqrtRatio) external;
 
+    /// @notice Called before a position is updated
+    /// @param locker Address that holds the lock
+    /// @param poolKey Pool key identifying the pool
+    /// @param params Parameters for the position update
     function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
         external;
+
+    /// @notice Called after a position is updated
+    /// @param locker Address that holds the lock
+    /// @param poolKey Pool key identifying the pool
+    /// @param params Parameters for the position update
+    /// @param delta0 Change in token0 balance
+    /// @param delta1 Change in token1 balance
     function afterUpdatePosition(
         address locker,
         PoolKey memory poolKey,
@@ -29,6 +58,13 @@ interface IExtension {
         int128 delta1
     ) external;
 
+    /// @notice Called before a swap is executed
+    /// @param locker Address that holds the lock
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param sqrtRatioLimit Price limit for the swap
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
     function beforeSwap(
         address locker,
         PoolKey memory poolKey,
@@ -37,6 +73,16 @@ interface IExtension {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) external;
+
+    /// @notice Called after a swap is executed
+    /// @param locker Address that holds the lock
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param sqrtRatioLimit Price limit for the swap
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param delta0 Change in token0 balance
+    /// @param delta1 Change in token1 balance
     function afterSwap(
         address locker,
         PoolKey memory poolKey,
@@ -48,7 +94,20 @@ interface IExtension {
         int128 delta1
     ) external;
 
+    /// @notice Called before fees are collected from a position
+    /// @param locker Address that holds the lock
+    /// @param poolKey Pool key identifying the pool
+    /// @param salt Unique identifier for the position
+    /// @param bounds Price bounds for the position
     function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external;
+
+    /// @notice Called after fees are collected from a position
+    /// @param locker Address that holds the lock
+    /// @param poolKey Pool key identifying the pool
+    /// @param salt Unique identifier for the position
+    /// @param bounds Price bounds for the position
+    /// @param amount0 Amount of token0 fees collected
+    /// @param amount1 Amount of token1 fees collected
     function afterCollectFees(
         address locker,
         PoolKey memory poolKey,
@@ -59,69 +118,167 @@ interface IExtension {
     ) external;
 }
 
+/// @title Core Interface
+/// @notice Main interface for the Ekubo Protocol core contract
+/// @dev Inherits from IFlashAccountant and IExposedStorage for additional functionality
 interface ICore is IFlashAccountant, IExposedStorage {
+    /// @notice Emitted when an extension is registered
+    /// @param extension Address of the registered extension
     event ExtensionRegistered(address extension);
+
+    /// @notice Emitted when a pool is initialized
+    /// @param poolId Unique identifier for the pool
+    /// @param poolKey Pool key containing token addresses and configuration
+    /// @param tick Initial tick for the pool
+    /// @param sqrtRatio Initial sqrt price ratio for the pool
     event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
+
+    /// @notice Emitted when fees are collected from a position
+    /// @param poolId Unique identifier for the pool
+    /// @param positionKey Key identifying the position
+    /// @param amount0 Amount of token0 fees collected
+    /// @param amount1 Amount of token1 fees collected
     event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
+
+    /// @notice Emitted when fees are accumulated to a pool
+    /// @param poolId Unique identifier for the pool
+    /// @param amount0 Amount of token0 fees accumulated
+    /// @param amount1 Amount of token1 fees accumulated
     event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
+
+    /// @notice Emitted when a position is updated
+    /// @param locker Address that holds the lock
+    /// @param poolId Unique identifier for the pool
+    /// @param params Parameters for the position update
+    /// @param delta0 Change in token0 balance
+    /// @param delta1 Change in token1 balance
     event PositionUpdated(
         address locker, bytes32 poolId, UpdatePositionParameters params, int128 delta0, int128 delta1
     );
 
-    // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
+    /// @notice Thrown when extension registration fails due to invalid call points
     error FailedRegisterInvalidCallPoints();
+
+    /// @notice Thrown when trying to register an already registered extension
     error ExtensionAlreadyRegistered();
+
+    /// @notice Thrown when saved balance operations would cause overflow
     error SavedBalanceOverflow();
+
+    /// @notice Thrown when trying to initialize an already initialized pool
     error PoolAlreadyInitialized();
+
+    /// @notice Thrown when trying to use an unregistered extension
     error ExtensionNotRegistered();
+
+    /// @notice Thrown when trying to operate on an uninitialized pool
     error PoolNotInitialized();
+
+    /// @notice Thrown when trying to withdraw all liquidity without collecting fees first
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
+
+    /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
+
+    /// @notice Thrown when sqrt ratio limit is invalid for the swap direction
     error InvalidSqrtRatioLimit();
+
+    /// @notice Thrown when saved balance tokens are not properly sorted
     error SavedBalanceTokensNotSorted();
 
-    // Extensions must call this function to become registered. The call points are validated against the caller address
+    /// @notice Registers an extension with the core contract
+    /// @dev Extensions must call this function to become registered. The call points are validated against the caller address
+    /// @param expectedCallPoints Call points configuration for the extension
     function registerExtension(CallPoints memory expectedCallPoints) external;
 
-    // Sets the initial price for a new pool in terms of tick.
+    /// @notice Initializes a new pool with the given tick
+    /// @dev Sets the initial price for a new pool in terms of tick
+    /// @param poolKey Pool key identifying the pool to initialize
+    /// @param tick Initial tick for the pool
+    /// @return sqrtRatio Initial sqrt price ratio for the pool
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (SqrtRatio sqrtRatio);
 
+    /// @notice Finds the previous initialized tick
+    /// @param poolId Unique identifier for the pool
+    /// @param fromTick Starting tick to search from
+    /// @param tickSpacing Tick spacing for the pool
+    /// @param skipAhead Number of ticks to skip for gas optimization
+    /// @return tick The previous initialized tick
+    /// @return isInitialized Whether the tick is initialized
     function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
 
+    /// @notice Finds the next initialized tick
+    /// @param poolId Unique identifier for the pool
+    /// @param fromTick Starting tick to search from
+    /// @param tickSpacing Tick spacing for the pool
+    /// @param skipAhead Number of ticks to skip for gas optimization
+    /// @return tick The next initialized tick
+    /// @return isInitialized Whether the tick is initialized
     function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
 
-    // Updates the saved balances to be used later. The saved balances are stored in a single slot.
-    // Note that the resulting saved balance must fit within a uint128 container.
+    /// @notice Updates saved balances for later use
+    /// @dev The saved balances are stored in a single slot. The resulting saved balance must fit within a uint128 container
+    /// @param token0 Address of the first token (must be < token1)
+    /// @param token1 Address of the second token (must be > token0)
+    /// @param salt Unique identifier for the saved balance
+    /// @param delta0 Change in token0 balance (positive for saving, negative for loading)
+    /// @param delta1 Change in token1 balance (positive for saving, negative for loading)
     function updateSavedBalances(address token0, address token1, bytes32 salt, int256 delta0, int256 delta1)
         external
         payable;
 
-    // Returns the pool fees per liquidity inside the given bounds.
+    /// @notice Returns the accumulated fees per liquidity inside the given bounds
+    /// @param poolKey Pool key identifying the pool
+    /// @param bounds Price bounds for the position
+    /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
     function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
         external
         view
-        returns (FeesPerLiquidity memory);
+        returns (FeesPerLiquidity memory feesPerLiquidity);
 
-    // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
-    // key, i.e. the current locker _must_ be the extension.
-    // The extension must call this function within a lock callback.
+    /// @notice Accumulates tokens as fees for a pool
+    /// @dev Only callable by the extension of the specified pool key. The current locker must be the extension.
+    /// The extension must call this function within a lock callback
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount0 Amount of token0 to accumulate as fees
+    /// @param amount1 Amount of token1 to accumulate as fees
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable;
 
+    /// @notice Updates a liquidity position
+    /// @param poolKey Pool key identifying the pool
+    /// @param params Parameters for the position update
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
         payable
         returns (int128 delta0, int128 delta1);
 
+    /// @notice Collects accumulated fees from a position
+    /// @param poolKey Pool key identifying the pool
+    /// @param salt Unique identifier for the position
+    /// @param bounds Price bounds for the position
+    /// @return amount0 Amount of token0 fees collected
+    /// @return amount1 Amount of token1 fees collected
     function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
         external
         returns (uint128 amount0, uint128 amount1);
 
+    /// @notice Executes a swap against a pool
+    /// @dev Function name includes hash to prevent signature collisions
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param sqrtRatioLimit Price limit for the swap
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function swap_611415377(
         PoolKey memory poolKey,
         int128 amount,

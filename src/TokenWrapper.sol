@@ -9,8 +9,10 @@ import {ICore} from "./interfaces/ICore.sol";
 import {toDate, toQuarter} from "./libraries/TimeDescriptor.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 
-/// @title Time-locked token wrapper
-/// @notice Wraps tokens that can only be unwrapped after a specific unlock time. Wrapping and unwrapping happens via Ekubo Core#forward.
+/// @title Time-locked Token Wrapper
+/// @author Ekubo Protocol
+/// @notice Wraps tokens that can only be unwrapped after a specific unlock time
+/// @dev Wrapping and unwrapping happens via Ekubo Core#forward. Implements full ERC20 functionality
 contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     using CoreLib for *;
 
@@ -23,12 +25,16 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// @notice Thrown when calling transferFrom with an insufficient allowance
     error InsufficientAllowance();
 
-    /// @notice The token that is wrapped
+    /// @notice The underlying token that is wrapped by this contract
     IERC20 public immutable underlyingToken;
 
-    /// @notice The time after which the token may be unwrapped
+    /// @notice The timestamp after which the token may be unwrapped
     uint256 public immutable unlockTime;
 
+    /// @notice Constructs a new TokenWrapper
+    /// @param core The Ekubo Core contract
+    /// @param _underlyingToken The token to be wrapped
+    /// @param _unlockTime The timestamp after which tokens can be unwrapped
     constructor(ICore core, IERC20 _underlyingToken, uint256 _unlockTime) UsesCore(core) BaseForwardee(core) {
         underlyingToken = _underlyingToken;
         unlockTime = _unlockTime;
@@ -37,20 +43,23 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// @inheritdoc IERC20
     mapping(address owner => mapping(address spender => uint256)) public override allowance;
 
-    /// @dev Not public because we use coreBalance for Core
+    /// @notice Mapping of account balances (not public because we use coreBalance for Core)
+    /// @dev Private mapping to track individual account balances
     mapping(address account => uint256) private _balanceOf;
 
-    /// @dev Transient storage slot 0
+    /// @notice Transient balance for the Core contract
     /// @dev Core never actually holds a real balance of this token, we just use this transient balance to enable low cost payments to core
     uint256 private transient coreBalance;
 
     /// @inheritdoc IERC20
+    /// @dev Returns the transient balance for Core contract, otherwise returns stored balance
     function balanceOf(address account) external view returns (uint256) {
         if (account == address(core)) return coreBalance;
         return _balanceOf[account];
     }
 
     /// @inheritdoc IERC20
+    /// @dev Total supply is tracked in Core's saved balances
     function totalSupply() external view override returns (uint256) {
         (uint128 supply,) = core.savedBalances({
             owner: address(this),
@@ -63,11 +72,13 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     }
 
     /// @inheritdoc IERC20
+    /// @dev Combines underlying token name with unlock date
     function name() external view returns (string memory) {
         return string.concat(underlyingToken.name(), " ", toDate(unlockTime));
     }
 
     /// @inheritdoc IERC20
+    /// @dev Combines "g" prefix with underlying token symbol and quarter
     function symbol() external view returns (string memory) {
         return string.concat("g", underlyingToken.symbol(), "-", toQuarter(unlockTime));
     }
@@ -137,9 +148,12 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
         return true;
     }
 
-    /// @dev Encode (int256 delta) in the forwarded data, where a positive amount means wrapping and a negative amount means unwrapping.
-    /// @dev For wrap, the specified amount of this wrapper token will be credited to the locker and the same amount of underlying will be debited.
-    /// @dev For unwrap, the specified amount of the underlying will be credited to the locker and the same amount of this wrapper token will be debited, iff block.timestamp > unlockTime and at least that much token has been wrapped.
+    /// @notice Handles wrap/unwrap operations forwarded from Core
+    /// @dev Encode (int256 delta) in the forwarded data, where a positive amount means wrapping and a negative amount means unwrapping
+    /// For wrap: the specified amount of this wrapper token will be credited to the locker and the same amount of underlying will be debited
+    /// For unwrap: the specified amount of the underlying will be credited to the locker and the same amount of this wrapper token will be debited, iff block.timestamp > unlockTime and at least that much token has been wrapped
+    /// @param data Encoded int256 delta (positive for wrap, negative for unwrap)
+    /// @return Empty bytes (no return data needed)
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory) {
         (int256 amount) = abi.decode(data, (int256));
 
@@ -157,5 +171,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
         });
 
         core.updateDebt(-amount);
+
+        return bytes("");
     }
 }

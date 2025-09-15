@@ -6,7 +6,7 @@ import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {PoolKey} from "../types/poolKey.sol";
+import {PoolKey, Config} from "../types/poolKey.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -21,6 +21,25 @@ library CoreLib {
         }
 
         registered = uint256(core.sload(key)) != 0;
+    }
+
+    function initializedPoolKey(ICore core, bytes32 poolId) internal view returns (PoolKey memory poolKey) {
+        uint256 baseKey;
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(32, 8)
+            baseKey := keccak256(0, 64)
+        }
+
+        unchecked {
+            (bytes32 token0, bytes32 token1, bytes32 config) =
+                core.sload(bytes32(baseKey), bytes32(baseKey + 1), bytes32(baseKey + 2));
+            poolKey = PoolKey({
+                token0: address(uint160(uint256(token0))),
+                token1: address(uint160(uint256(token1))),
+                config: Config.wrap(config)
+            });
+        }
     }
 
     function poolState(ICore core, bytes32 poolId)

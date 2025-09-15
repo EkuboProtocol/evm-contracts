@@ -57,6 +57,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
     mapping(bytes32 key => uint256) private savedBalances;
+    mapping(bytes32 key => PoolKey) private initializedPoolKey;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external {
@@ -89,6 +90,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         sqrtRatio = tickToSqrtRatio(tick);
         poolState[poolId] = PoolState({sqrtRatio: sqrtRatio, tick: tick, liquidity: 0});
+        initializedPoolKey[poolId] = poolKey;
 
         emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 

@@ -6,7 +6,7 @@ import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey, Config, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
@@ -94,8 +94,19 @@ contract CoreTest is FullTest {
             emit MockExtension.AfterInitializePoolCalled(address(this), key, tick, tickToSqrtRatio(tick));
         }
 
+        PoolKey memory beforeInitializeStored = core.initializedPoolKey(key.toPoolId());
+
+        assertEq(beforeInitializeStored.token0, address(0));
+        assertEq(beforeInitializeStored.token1, address(0));
+        assertEq(Config.unwrap(beforeInitializeStored.config), bytes32(0));
+
         // call under test
         core.initializePool(key, tick);
+
+        PoolKey memory afterInitializeStored = core.initializedPoolKey(key.toPoolId());
+        assertEq(afterInitializeStored.token0, key.token0);
+        assertEq(afterInitializeStored.token1, key.token1);
+        assertEq(Config.unwrap(afterInitializeStored.config), Config.unwrap(key.config));
 
         (SqrtRatio _sqrtRatio, int32 _tick,) = core.poolState(key.toPoolId());
         assertTrue(_sqrtRatio == tickToSqrtRatio(tick));

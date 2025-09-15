@@ -6,7 +6,6 @@ import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
-import {Permittable} from "./base/Permittable.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
@@ -16,7 +15,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @title Ekubo Orders
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks TWAMM orders in Ekubo Protocol
-contract Orders is UsesCore, PayableMulticallable, Permittable, BaseLocker, BaseURIMintableNFT {
+contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseURIMintableNFT {
     using TWAMMLib for *;
 
     error OrderAlreadyEnded();

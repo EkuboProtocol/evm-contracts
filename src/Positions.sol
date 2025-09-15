@@ -12,7 +12,6 @@ import {Position} from "./types/position.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
-import {Permittable} from "./base/Permittable.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {BaseURIMintableNFT} from "./base/BaseURIMintableNFT.sol";
@@ -21,7 +20,7 @@ import {computeFee} from "./math/fee.sol";
 /// @title Ekubo Positions
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks liquidity positions in Ekubo Protocol
-contract Positions is UsesCore, PayableMulticallable, Permittable, BaseLocker, BaseURIMintableNFT {
+contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseURIMintableNFT {
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();
 

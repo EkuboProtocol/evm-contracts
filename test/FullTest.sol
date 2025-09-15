@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
@@ -6,14 +6,12 @@ import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICo
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../src/types/positionKey.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
-import {isPriceIncreasing} from "../src/math/swap.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract MockExtension is IExtension {
@@ -117,8 +115,7 @@ contract MockExtension is IExtension {
 }
 
 abstract contract FullTest is Test {
-    address immutable owner = address(0xdeadbeefdeadbeef);
-    BaseURLTokenURIGenerator tokenURIGenerator;
+    address immutable owner = makeAddr("owner");
     Core core;
     Positions positions;
     Router router;
@@ -127,9 +124,8 @@ abstract contract FullTest is Test {
     TestToken token1;
 
     function setUp() public virtual {
-        core = new Core(owner);
-        tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
-        positions = new Positions(core, tokenURIGenerator);
+        core = new Core();
+        positions = new Positions(core, owner, 0, 1);
         router = new Router(core);
         TestToken tokenA = new TestToken(address(this));
         TestToken tokenB = new TestToken(address(this));

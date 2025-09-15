@@ -1,11 +1,11 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {FullTest} from "./FullTest.sol";
-import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
+import {RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
@@ -18,7 +18,9 @@ import {byteToCallPoints} from "../src/types/callPoints.sol";
 contract PositionsTest is FullTest {
     using CoreLib for *;
 
-    function test_metadata() public view {
+    function test_metadata() public {
+        vm.prank(owner);
+        positions.setMetadata("Ekubo Positions", "ekuPo", "ekubo://positions/");
         assertEq(positions.name(), "Ekubo Positions");
         assertEq(positions.symbol(), "ekuPo");
         assertEq(positions.tokenURI(1), "ekubo://positions/1");
@@ -32,7 +34,7 @@ contract PositionsTest is FullTest {
             assertNotEq(id, positions.saltToId(minter, bytes32(uint256(salt) + 1)));
         }
         // address is also incorporated
-        Positions p2 = new Positions(core, positions.tokenURIGenerator());
+        Positions p2 = new Positions(core, owner, 0, 1);
         assertNotEq(id, p2.saltToId(minter, salt));
     }
 
@@ -62,9 +64,6 @@ contract PositionsTest is FullTest {
         // original 100, rounded down, minus the 50% fee
         assertEq(amount0, 49);
         assertEq(amount1, 49);
-
-        assertEq(core.protocolFeesCollected(poolKey.token0), 50);
-        assertEq(core.protocolFeesCollected(poolKey.token1), 50);
     }
 
     function test_mintAndDeposit_shared_tick_boundary(CallPoints memory callPoints) public {
@@ -117,16 +116,10 @@ contract PositionsTest is FullTest {
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
-        assertEq(core.protocolFeesCollected(poolKey.token0), 0);
-        assertEq(core.protocolFeesCollected(poolKey.token1), 0);
-
         (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
 
         assertEq(amount0, 74);
         assertEq(amount1, 25);
-
-        assertEq(core.protocolFeesCollected(poolKey.token0), 75);
-        assertEq(core.protocolFeesCollected(poolKey.token1), 25);
     }
 
     function test_collectFees_amount1(CallPoints memory callPoints) public {
@@ -150,9 +143,6 @@ contract PositionsTest is FullTest {
         assertEq(amount0, 0);
         assertEq(amount1, 49);
 
-        assertEq(core.protocolFeesCollected(poolKey.token0), 0);
-        assertEq(core.protocolFeesCollected(poolKey.token1), 0);
-
         (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
         assertEq(amount0, 0);
         assertEq(amount1, 0);
@@ -161,9 +151,6 @@ contract PositionsTest is FullTest {
 
         assertEq(amount0, 25);
         assertEq(amount1, 74);
-
-        assertEq(core.protocolFeesCollected(poolKey.token0), 25);
-        assertEq(core.protocolFeesCollected(poolKey.token1), 75);
     }
 
     function test_collectFeesAndWithdraw(CallPoints memory callPoints) public {

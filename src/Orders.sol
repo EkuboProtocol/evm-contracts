@@ -1,25 +1,21 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {ERC721} from "solady/tokens/ERC721.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
-import {Permittable} from "./base/Permittable.sol";
-import {SlippageChecker} from "./base/SlippageChecker.sol";
-import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
-import {MintableNFT} from "./base/MintableNFT.sol";
+import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title Ekubo Orders
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks TWAMM orders in Ekubo Protocol
-contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
+contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using TWAMMLib for *;
 
     error OrderAlreadyEnded();
@@ -27,20 +23,8 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
     TWAMM public immutable twamm;
 
-    constructor(ICore core, TWAMM _twamm, ITokenURIGenerator tokenURIGenerator)
-        MintableNFT(tokenURIGenerator)
-        BaseLocker(core)
-        UsesCore(core)
-    {
+    constructor(ICore core, TWAMM _twamm, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {
         twamm = _twamm;
-    }
-
-    function name() public pure override returns (string memory) {
-        return "Ekubo DCA Orders";
-    }
-
-    function symbol() public pure override returns (string memory) {
-        return "ekuOrd";
     }
 
     function mintAndIncreaseSellAmount(OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)

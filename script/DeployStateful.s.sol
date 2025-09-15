@@ -1,13 +1,11 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 
 function getCreate2Address(address deployer, bytes32 salt, bytes32 initCodeHash) pure returns (address) {
     return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, initCodeHash)))));
@@ -55,11 +53,13 @@ contract DeployStatefulScript is Script {
 
         vm.startBroadcast();
 
-        Core core = new Core{salt: salt}(owner);
-        // we deploy with empty url so it has the same address
-        BaseURLTokenURIGenerator tokenURIGenerator = new BaseURLTokenURIGenerator{salt: salt}(owner, "");
-        tokenURIGenerator.setBaseURL(baseUrl);
-        new Positions{salt: salt}(core, tokenURIGenerator);
+        Core core = new Core{salt: salt}();
+        Positions positions = new Positions{salt: salt}(core, owner, 0, 1);
+        positions.setMetadata(
+            vm.envOr("POSITIONS_CONTRACT_NAME", string("Ekubo Positions")),
+            vm.envOr("POSITIONS_CONTRACT_SYMBOL", string("ekuPo")),
+            baseUrl
+        );
         new Oracle{
             salt: findExtensionSalt(
                 salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()

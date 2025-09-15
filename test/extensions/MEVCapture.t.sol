@@ -1,7 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {UpdatePositionParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
@@ -16,7 +15,7 @@ import {
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
-import {MEVResist, mevResistCallPoints} from "../../src/extensions/MEVResist.sol";
+import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
@@ -25,45 +24,45 @@ import {TestToken} from "../TestToken.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
-import {MEVResistRouter} from "../../src/MEVResistRouter.sol";
+import {MEVCaptureRouter} from "../../src/MEVCaptureRouter.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-abstract contract BaseMEVResistTest is FullTest {
-    MEVResist internal mevResist;
+abstract contract BaseMEVCaptureTest is FullTest {
+    MEVCapture internal mevCapture;
 
     function setUp() public virtual override {
         FullTest.setUp();
-        address deployAddress = address(uint160(mevResistCallPoints().toUint8()) << 152);
-        deployCodeTo("MEVResist.sol", abi.encode(core), deployAddress);
-        mevResist = MEVResist(deployAddress);
-        router = new MEVResistRouter(core, address(mevResist));
+        address deployAddress = address(uint160(mevCaptureCallPoints().toUint8()) << 152);
+        deployCodeTo("MEVCapture.sol", abi.encode(core), deployAddress);
+        mevCapture = MEVCapture(deployAddress);
+        router = new MEVCaptureRouter(core, address(mevCapture));
     }
 
     function coolAllContracts() internal virtual override {
         FullTest.coolAllContracts();
-        vm.cool(address(mevResist));
+        vm.cool(address(mevCapture));
     }
 
-    function createMEVResistPool(uint64 fee, uint32 tickSpacing, int32 tick)
+    function createMEVCapturePool(uint64 fee, uint32 tickSpacing, int32 tick)
         internal
         returns (PoolKey memory poolKey)
     {
-        poolKey = createPool(address(token0), address(token1), tick, fee, tickSpacing, address(mevResist));
+        poolKey = createPool(address(token0), address(token1), tick, fee, tickSpacing, address(mevCapture));
     }
 }
 
-contract MEVResistTest is BaseMEVResistTest {
+contract MEVCaptureTest is BaseMEVCaptureTest {
     using CoreLib for *;
     using ExposedStorageLib for *;
 
     function test_isRegistered() public view {
-        assertTrue(core.isExtensionRegistered(address(mevResist)));
+        assertTrue(core.isExtensionRegistered(address(mevCapture)));
     }
 
     function getPoolState(bytes32 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
-        bytes32 v = mevResist.sload(poolId);
+        bytes32 v = mevCapture.sload(poolId);
         assembly ("memory-safe") {
             lastUpdateTime := shr(224, v)
             tickLast := signextend(31, shr(192, v))
@@ -78,7 +77,7 @@ contract MEVResistTest is BaseMEVResistTest {
         fee = uint64(bound(fee, 1, type(uint64).max));
         tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
 
-        PoolKey memory poolKey = createMEVResistPool({fee: fee, tickSpacing: tickSpacing, tick: tick});
+        PoolKey memory poolKey = createMEVCapturePool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
         (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
@@ -87,7 +86,7 @@ contract MEVResistTest is BaseMEVResistTest {
         unchecked {
             vm.warp(time + uint256(warp));
         }
-        mevResist.accumulatePoolFees(poolKey);
+        mevCapture.accumulatePoolFees(poolKey);
         (lastUpdateTime, tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
@@ -96,23 +95,23 @@ contract MEVResistTest is BaseMEVResistTest {
     function test_accumulate_fees_for_any_pool(uint256 time, PoolKey memory poolKey) public {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
-        mevResist.accumulatePoolFees(poolKey);
+        mevCapture.accumulatePoolFees(poolKey);
         (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, 0);
     }
 
     function test_pool_initialization_validation() public {
-        vm.expectRevert(MEVResist.ConcentratedLiquidityPoolsOnly.selector);
-        createMEVResistPool({fee: 1, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, tick: 0});
+        vm.expectRevert(MEVCapture.ConcentratedLiquidityPoolsOnly.selector);
+        createMEVCapturePool({fee: 1, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, tick: 0});
 
-        vm.expectRevert(MEVResist.NonzeroFeesOnly.selector);
-        createMEVResistPool({fee: 0, tickSpacing: 1, tick: 0});
+        vm.expectRevert(MEVCapture.NonzeroFeesOnly.selector);
+        createMEVCapturePool({fee: 0, tickSpacing: 1, tick: 0});
     }
 
     function test_swap_input_token0_no_movement() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -136,7 +135,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_quote() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         (int128 delta0, int128 delta1) = router.quote({
@@ -153,7 +152,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_output_token0_no_movement() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
@@ -177,7 +176,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_input_token1_no_movement() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
@@ -201,7 +200,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_output_token1_no_movement() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -227,7 +226,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_input_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -251,7 +250,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_output_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
@@ -275,7 +274,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_input_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
@@ -299,7 +298,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_output_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -323,7 +322,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_extra_fees_are_accumulated_in_next_block() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         Bounds memory bounds = Bounds(-100_000, 100_000);
         (uint256 id,) = createPosition(poolKey, bounds, 1_000_000, 1_000_000);
 
@@ -354,7 +353,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_initial_tick_far_from_zero_no_additional_fees() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -378,7 +377,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_initial_tick_far_from_zero_no_additional_fees_output() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
@@ -402,7 +401,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_second_swap_with_additional_fees_gas_price() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -435,7 +434,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_second_swap_after_some_time_gas_price() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -476,7 +475,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_max_fee_token0_input() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -498,7 +497,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_max_fee_token1_input() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
@@ -520,7 +519,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_max_fee_token0_output() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
@@ -542,7 +541,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_swap_max_fee_token1_output() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
@@ -564,7 +563,7 @@ contract MEVResistTest is BaseMEVResistTest {
 
     function test_new_position_does_not_get_fees() public {
         PoolKey memory poolKey =
-            createMEVResistPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
         Bounds memory bounds = Bounds(600_000, 800_000);
         (uint256 id1,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
 

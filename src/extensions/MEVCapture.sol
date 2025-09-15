@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity ^0.8.28;
 
 import {ICore, PoolKey, Bounds, CallPoints, SqrtRatio, UpdatePositionParameters} from "../interfaces/ICore.sol";
-import {ILocker, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
@@ -12,7 +12,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
-function mevResistCallPoints() pure returns (CallPoints memory) {
+function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         // to store the initial tick
         beforeInitializePool: true,
@@ -30,7 +30,7 @@ function mevResistCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
+contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     error ConcentratedLiquidityPoolsOnly();
     error NonzeroFeesOnly();
     error SwapMustHappenThroughForward();
@@ -54,7 +54,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
-        return mevResistCallPoints();
+        return mevCaptureCallPoints();
     }
 
     function beforeInitializePool(address, PoolKey memory poolKey, int32 tick) external override {
@@ -125,7 +125,9 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.load(poolKey.token0, poolKey.token1, poolId, fees0, fees1);
+                    core.updateSavedBalances(
+                        poolKey.token0, poolKey.token1, poolId, -int256(uint256(fees0)), -int256(uint256(fees1))
+                    );
                 }
 
                 setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tick});
@@ -150,11 +152,11 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             let freeMemPointer := mload(64)
 
             mstore(0, feesSlot)
-            mstore(32, 8)
+            mstore(32, 7)
             feesSlot := keccak256(0, 64)
 
             mstore(0, poolId)
-            mstore(32, 2)
+            mstore(32, 1)
             let stateSlot := keccak256(0, 64)
 
             // cast sig "sload()"
@@ -184,7 +186,7 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         address c = address(core);
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 2)
+            mstore(32, 1)
             let stateSlot := keccak256(0, 64)
 
             // cast sig "sload()"
@@ -198,87 +200,84 @@ contract MEVResist is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     }
 
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory result) {
-        (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
-            abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
-
-        bytes32 poolId = poolKey.toPoolId();
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
-
-        uint32 currentTime = uint32(block.timestamp);
-
         unchecked {
+            (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
+                abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
+
+            bytes32 poolId = poolKey.toPoolId();
+            (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
+
+            uint32 currentTime = uint32(block.timestamp);
+
+            int256 saveDelta0;
+            int256 saveDelta1;
+
             if (lastUpdateTime != currentTime) {
-                (int32 tick, uint128 fees0, uint128 fees1) = loadCoreState(poolId, poolKey.token0, poolKey.token1);
+                (int32 tick, uint128 fees0, uint128 fees1) =
+                    loadCoreState({poolId: poolId, token0: poolKey.token0, token1: poolKey.token1});
 
                 if (fees0 != 0 || fees1 != 0) {
                     core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.load(poolKey.token0, poolKey.token1, poolId, fees0, fees1);
+                    // never overflows int256 container
+                    saveDelta0 -= int256(uint256(fees0));
+                    saveDelta1 -= int256(uint256(fees1));
                 }
 
                 tickLast = tick;
+                setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
             }
-        }
 
-        (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
-        int32 tickAfterSwap = loadTick(poolId);
+            int32 tickAfterSwap = loadTick(poolId);
 
-        // however many tick spacings were crossed is the fee multiplier
-        uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickLast) << 64) / poolKey.tickSpacing();
-        uint64 poolFee = poolKey.fee();
-        uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
+            // however many tick spacings were crossed is the fee multiplier
+            uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickLast) << 64) / poolKey.tickSpacing();
+            uint64 poolFee = poolKey.fee();
+            uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
-        if (additionalFee != 0) {
-            if (amount < 0) {
-                // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
-                if (delta0 > 0) {
-                    uint128 fee;
-                    unchecked {
+            if (additionalFee != 0) {
+                if (amount < 0) {
+                    // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
+                    if (delta0 > 0) {
                         uint128 inputAmount = uint128(uint256(int256(delta0)));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
-                        fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
-                    }
+                        int128 fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
-                    delta0 += SafeCastLib.toInt128(fee);
-                } else if (delta1 > 0) {
-                    uint128 fee;
-                    unchecked {
+                        saveDelta0 += fee;
+                        delta0 += fee;
+                    } else if (delta1 > 0) {
                         uint128 inputAmount = uint128(uint256(int256(delta1)));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
-                        fee = amountBeforeFee(inputAmount, additionalFee) - inputAmount;
-                    }
+                        int128 fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
-                    delta1 += SafeCastLib.toInt128(fee);
-                }
-            } else {
-                if (delta0 < 0) {
-                    uint128 fee;
-                    unchecked {
+                        saveDelta1 += fee;
+                        delta1 += fee;
+                    }
+                } else {
+                    if (delta0 < 0) {
                         uint128 outputAmount = uint128(uint256(-int256(delta0)));
-                        fee = computeFee(outputAmount, additionalFee);
-                    }
+                        int128 fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, fee, 0);
-                    delta0 += SafeCastLib.toInt128(fee);
-                } else if (delta1 < 0) {
-                    uint128 fee;
-                    unchecked {
+                        saveDelta0 += fee;
+                        delta0 += fee;
+                    } else if (delta1 < 0) {
                         uint128 outputAmount = uint128(uint256(-int256(delta1)));
-                        fee = computeFee(outputAmount, additionalFee);
-                    }
+                        int128 fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
 
-                    core.save(address(this), poolKey.token0, poolKey.token1, poolId, 0, fee);
-                    delta1 += SafeCastLib.toInt128(fee);
+                        saveDelta1 += fee;
+                        delta1 += fee;
+                    }
                 }
             }
+
+            if (saveDelta0 != 0 || saveDelta1 != 0) {
+                core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, saveDelta0, saveDelta1);
+            }
+
+            result = abi.encode(delta0, delta1);
         }
-
-        setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
-
-        result = abi.encode(delta0, delta1);
     }
 }

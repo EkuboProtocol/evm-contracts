@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {ICore} from "../interfaces/ICore.sol";
@@ -7,7 +7,6 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library CoreLib {
@@ -24,17 +23,6 @@ library CoreLib {
         registered = uint256(core.sload(key)) != 0;
     }
 
-    function protocolFeesCollected(ICore core, address token) internal view returns (uint256 amountCollected) {
-        bytes32 key;
-        assembly ("memory-safe") {
-            mstore(0, token)
-            mstore(32, 1)
-            key := keccak256(0, 64)
-        }
-
-        amountCollected = uint256(core.sload(key));
-    }
-
     function poolState(ICore core, bytes32 poolId)
         internal
         view
@@ -43,7 +31,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 2)
+            mstore(32, 1)
             key := keccak256(0, 64)
         }
 
@@ -64,7 +52,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 4)
+            mstore(32, 3)
             let b := keccak256(0, 64)
             mstore(0, positionId)
             mstore(32, b)
@@ -77,37 +65,20 @@ library CoreLib {
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 
-    function savedBalances(ICore core, address owner, address token, bytes32 salt)
-        internal
-        view
-        returns (uint128 savedBalance)
-    {
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(owner))),
-            bytes32(uint256(uint160(token))),
-            bytes32(uint256(type(uint160).max)),
-            salt
-        );
-        assembly ("memory-safe") {
-            mstore(0, key)
-            mstore(32, 8)
-            key := keccak256(0, 64)
-        }
-
-        savedBalance = uint128(uint256(core.sload(key)) >> 128);
-    }
-
     function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
         internal
         view
         returns (uint128 savedBalance0, uint128 savedBalance1)
     {
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
-        );
+        bytes32 key;
         assembly ("memory-safe") {
-            mstore(0, key)
-            mstore(32, 8)
+            let free := mload(0x40)
+            mstore(free, owner)
+            mstore(add(free, 0x20), token0)
+            mstore(add(free, 0x40), token1)
+            mstore(add(free, 0x60), salt)
+            mstore(0, keccak256(free, 128))
+            mstore(32, 7)
             key := keccak256(0, 64)
         }
 
@@ -125,7 +96,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 5)
+            mstore(32, 4)
             let b := keccak256(0, 64)
             mstore(0, tick)
             mstore(32, b)
@@ -150,13 +121,5 @@ library CoreLib {
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1) {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
-    }
-
-    function save(ICore core, address owner, address token, bytes32 salt, uint128 amount) internal {
-        core.save(owner, token, address(type(uint160).max), salt, amount, 0);
-    }
-
-    function load(ICore core, address token, bytes32 salt, uint128 amount) internal {
-        core.load(token, address(type(uint160).max), salt, amount, 0);
     }
 }

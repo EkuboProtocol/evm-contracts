@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
@@ -6,13 +6,12 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {BaseForwardee} from "./base/BaseForwardee.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
-import {IFlashAccountant, IPayer} from "./interfaces/IFlashAccountant.sol";
 import {toDate, toQuarter} from "./libraries/TimeDescriptor.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 
 /// @title Time-locked token wrapper
 /// @notice Wraps tokens that can only be unwrapped after a specific unlock time. Wrapping and unwrapping happens via Ekubo Core#forward.
-contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
+contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     using CoreLib for *;
 
     /// @notice Thrown when trying to unwrap the token before the token has unlocked
@@ -53,7 +52,14 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
 
     /// @inheritdoc IERC20
     function totalSupply() external view override returns (uint256) {
-        return uint256(core.savedBalances({owner: address(this), token: address(underlyingToken), salt: bytes32(0)}));
+        (uint128 supply,) = core.savedBalances({
+            owner: address(this),
+            token0: address(underlyingToken),
+            token1: address(type(uint160).max),
+            salt: bytes32(0)
+        });
+
+        return supply;
     }
 
     /// @inheritdoc IERC20
@@ -131,40 +137,25 @@ contract TokenWrapper is UsesCore, IERC20, IPayer, BaseForwardee {
         return true;
     }
 
-    /// @inheritdoc IPayer
-    function payCallback(uint256, address) external onlyCore {
-        assembly ("memory-safe") {
-            // sets coreBalance to the uint256 that is encoded after the arguments
-            tstore(0, calldataload(68))
-        }
-    }
-
-    /// @dev Encode (uint256 callType, uint128 amount) in the forwarded data, where the first is callType and second is amount
-    /// @dev callType = 0 represents wrap, while callType = 1 represents unwrap
+    /// @dev Encode (int256 delta) in the forwarded data, where a positive amount means wrapping and a negative amount means unwrapping.
     /// @dev For wrap, the specified amount of this wrapper token will be credited to the locker and the same amount of underlying will be debited.
     /// @dev For unwrap, the specified amount of the underlying will be credited to the locker and the same amount of this wrapper token will be debited, iff block.timestamp > unlockTime and at least that much token has been wrapped.
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory) {
-        (uint256 callType, uint128 amount) = abi.decode(data, (uint256, uint128));
+        (int256 amount) = abi.decode(data, (int256));
 
-        // wrap
-        if (callType == 0) {
-            // saves the underlying so that the user has to deposit it
-            core.save({owner: address(this), token: address(underlyingToken), salt: bytes32(0), amount: amount});
-            // reset core balance to 0 before pay which sets it to the amount we would like to pay
-            coreBalance = 0;
-            // pays the amount of this token to make it available to withdraw
-            (bool success,) =
-                address(core).call(abi.encodeWithSelector(IFlashAccountant.pay.selector, address(this), amount));
-            require(success);
-        } else {
-            // unwrap
+        // unwrap
+        if (amount < 0) {
             if (block.timestamp < unlockTime) revert TooEarly();
-
-            // loads the underlying so that user can withdraw it
-            core.load({token: address(underlyingToken), salt: bytes32(0), amount: amount});
-            // burn the same amount of this token by withdrawing to address 0
-            // this causes core to call transfer but we have a special case for it
-            core.withdraw({token: address(this), recipient: address(0), amount: amount});
         }
+
+        core.updateSavedBalances({
+            token0: address(underlyingToken),
+            token1: address(type(uint160).max),
+            salt: bytes32(0),
+            delta0: amount,
+            delta1: 0
+        });
+
+        core.updateDebt(-amount);
     }
 }

@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {Oracle} from "../src/extensions/Oracle.sol";
-import {IForwardee} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {Router} from "../src/Router.sol";

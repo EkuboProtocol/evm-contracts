@@ -1,11 +1,10 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
 import {Orders} from "../src/Orders.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {findExtensionSalt} from "./DeployStateful.s.sol";
 
 contract DeployTWAMMStatefulScript is Script {
@@ -34,11 +33,12 @@ contract DeployTWAMMStatefulScript is Script {
             )
         }(core);
 
-        BaseURLTokenURIGenerator ordersTokenURIGenerator =
-            new BaseURLTokenURIGenerator{salt: keccak256(abi.encodePacked(type(Orders).creationCode, salt))}(owner, "");
-        ordersTokenURIGenerator.setBaseURL(ordersBaseUrl);
-
-        new Orders{salt: salt}(core, twamm, ordersTokenURIGenerator);
+        Orders orders = new Orders{salt: salt}(core, twamm, owner);
+        orders.setMetadata(
+            vm.envOr("ORDERS_CONTRACT_NAME", string("Ekubo DCA Orders")),
+            vm.envOr("ORDERS_CONTRACT_SYMBOL", string("ekuOrd")),
+            ordersBaseUrl
+        );
 
         vm.stopBroadcast();
     }

@@ -1,18 +1,14 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
-import {IForwardee} from "./interfaces/IFlashAccountant.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
-import {Permittable} from "./base/Permittable.sol";
-import {SlippageChecker} from "./base/SlippageChecker.sol";
-import {SqrtRatio, toSqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRatio.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./types/sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 
@@ -52,7 +48,7 @@ function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 a
 /// @title Ekubo Router
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol
-contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker {
+contract Router is UsesCore, PayableMulticallable, BaseLocker {
     using CoreLib for *;
 
     error PartialSwapsDisallowed();

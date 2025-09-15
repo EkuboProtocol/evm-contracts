@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
@@ -60,7 +60,6 @@ interface IExtension {
 }
 
 interface ICore is IFlashAccountant, IExposedStorage {
-    event ProtocolFeesWithdrawn(address recipient, address token, uint256 amount);
     event ExtensionRegistered(address extension);
     event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
     event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
@@ -72,7 +71,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     // This error is thrown by swaps and deposits when this particular deployment of the contract is expired.
     error FailedRegisterInvalidCallPoints();
     error ExtensionAlreadyRegistered();
-    error InsufficientSavedBalance();
+    error SavedBalanceOverflow();
     error PoolAlreadyInitialized();
     error ExtensionNotRegistered();
     error PoolNotInitialized();
@@ -80,10 +79,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     error SqrtRatioLimitOutOfRange();
     error InvalidSqrtRatioLimit();
     error SavedBalanceTokensNotSorted();
-
-    // Allows the owner of the contract to withdraw the protocol withdrawal fees collected
-    // To withdraw the native token protocol fees, call with token = NATIVE_TOKEN_ADDRESS
-    function withdrawProtocolFees(address recipient, address token, uint256 amount) external;
 
     // Extensions must call this function to become registered. The call points are validated against the caller address
     function registerExtension(CallPoints memory expectedCallPoints) external;
@@ -101,11 +96,9 @@ interface ICore is IFlashAccountant, IExposedStorage {
         view
         returns (int32 tick, bool isInitialized);
 
-    // Loads 2 tokens from the saved balances of the caller as payment in the current context.
-    function load(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) external;
-
-    // Saves an amount of 2 tokens to be used later, in a single slot.
-    function save(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
+    // Updates the saved balances to be used later. The saved balances are stored in a single slot.
+    // Note that the resulting saved balance must fit within a uint128 container.
+    function updateSavedBalances(address token0, address token1, bytes32 salt, int256 delta0, int256 delta1)
         external
         payable;
 

@@ -171,7 +171,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
         });
 
         core.updateDebt(-amount);
-        
+
         return bytes("");
     }
 }

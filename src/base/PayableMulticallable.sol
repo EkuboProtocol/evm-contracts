@@ -2,9 +2,17 @@
 pragma solidity =0.8.28;
 
 import {Multicallable} from "solady/utils/Multicallable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 abstract contract PayableMulticallable is Multicallable {
     function multicall(bytes[] calldata data) public payable override returns (bytes[] memory) {
         _multicallDirectReturn(_multicall(data));
+    }
+
+    // Allows a caller to refund any ETH sent to this contract for purpose of transient payments
+    function refundNativeToken() external payable {
+        if (address(this).balance != 0) {
+            SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
+        }
     }
 }

@@ -9,13 +9,13 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
-import {BaseURIMintableNFT} from "./base/BaseURIMintableNFT.sol";
+import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title Ekubo Orders
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks TWAMM orders in Ekubo Protocol
-contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseURIMintableNFT {
+contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using TWAMMLib for *;
 
     error OrderAlreadyEnded();
@@ -23,16 +23,8 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseURIMintableNF
 
     TWAMM public immutable twamm;
 
-    constructor(ICore core, TWAMM _twamm, address owner) BaseURIMintableNFT(owner) BaseLocker(core) UsesCore(core) {
+    constructor(ICore core, TWAMM _twamm, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {
         twamm = _twamm;
-    }
-
-    function name() public pure override returns (string memory) {
-        return "Ekubo DCA Orders";
-    }
-
-    function symbol() public pure override returns (string memory) {
-        return "ekuOrd";
     }
 
     function mintAndIncreaseSellAmount(OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)

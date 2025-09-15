@@ -125,7 +125,7 @@ abstract contract FullTest is Test {
 
     function setUp() public virtual {
         core = new Core();
-        positions = new Positions(core, owner);
+        positions = new Positions(core, owner, 0, 1);
         router = new Router(core);
         TestToken tokenA = new TestToken(address(this));
         TestToken tokenB = new TestToken(address(this));

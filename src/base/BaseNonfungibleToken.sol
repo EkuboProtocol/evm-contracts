@@ -2,10 +2,38 @@
 pragma solidity =0.8.28;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
+import {LibString} from "solady/utils/LibString.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 
-/// @notice NFT contract where tokens can be minted and burned freely
-abstract contract MintableNFT is ERC721 {
+/// @notice NFT contract where tokens can be minted and burned freely, and the owner can change the metadata
+abstract contract BaseNonfungibleToken is Ownable, ERC721 {
     error NotUnauthorizedForToken(address caller, uint256 id);
+
+    string private _name;
+    string private _symbol;
+    string public baseUrl;
+
+    constructor(address owner) {
+        _initializeOwner(owner);
+    }
+
+    function setMetadata(string memory newName, string memory newSymbol, string memory newBaseUrl) external onlyOwner {
+        _name = newName;
+        _symbol = newSymbol;
+        baseUrl = newBaseUrl;
+    }
+
+    function name() public view override returns (string memory) {
+        return _name;
+    }
+
+    function symbol() public view override returns (string memory) {
+        return _symbol;
+    }
+
+    function tokenURI(uint256 id) public view virtual override returns (string memory) {
+        return string(abi.encodePacked(baseUrl, LibString.toString(id)));
+    }
 
     modifier authorizedForNft(uint256 id) {
         if (!_isApprovedOrOwner(msg.sender, id)) {

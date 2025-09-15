@@ -19,11 +19,10 @@ contract PositionsTest is FullTest {
     using CoreLib for *;
 
     function test_metadata() public {
+        vm.prank(owner);
+        positions.setMetadata("Ekubo Positions", "ekuPo", "ekubo://positions/");
         assertEq(positions.name(), "Ekubo Positions");
         assertEq(positions.symbol(), "ekuPo");
-        assertEq(positions.tokenURI(1), "1");
-        vm.prank(owner);
-        positions.setBaseUrl("ekubo://positions/");
         assertEq(positions.tokenURI(1), "ekubo://positions/1");
     }
 
@@ -35,7 +34,7 @@ contract PositionsTest is FullTest {
             assertNotEq(id, positions.saltToId(minter, bytes32(uint256(salt) + 1)));
         }
         // address is also incorporated
-        Positions p2 = new Positions(core, owner);
+        Positions p2 = new Positions(core, owner, 0, 1);
         assertNotEq(id, p2.saltToId(minter, salt));
     }
 

@@ -34,7 +34,11 @@ contract DeployTWAMMStatefulScript is Script {
         }(core);
 
         Orders orders = new Orders{salt: salt}(core, twamm, owner);
-        orders.setBaseUrl(ordersBaseUrl);
+        orders.setMetadata(
+            vm.envOr("ORDERS_CONTRACT_NAME", string("Ekubo DCA Orders")),
+            vm.envOr("ORDERS_CONTRACT_SYMBOL", string("ekuOrd")),
+            ordersBaseUrl
+        );
 
         vm.stopBroadcast();
     }

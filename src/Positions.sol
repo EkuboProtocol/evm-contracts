@@ -14,26 +14,28 @@ import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {BaseURIMintableNFT} from "./base/BaseURIMintableNFT.sol";
+import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {computeFee} from "./math/fee.sol";
 
 /// @title Ekubo Positions
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks liquidity positions in Ekubo Protocol
-contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseURIMintableNFT {
+contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
     error DepositOverflow();
 
+    uint64 public immutable swapProtocolFeeX64;
+    uint64 public immutable withdrawalProtocolFeeDenominator;
+
     using CoreLib for ICore;
 
-    constructor(ICore core, address owner) BaseURIMintableNFT(owner) BaseLocker(core) UsesCore(core) {}
-
-    function name() public pure override returns (string memory) {
-        return "Ekubo Positions";
-    }
-
-    function symbol() public pure override returns (string memory) {
-        return "ekuPo";
+    constructor(ICore core, address owner, uint64 _swapProtocolFeeX64, uint64 _withdrawalProtocolFeeDenominator)
+        BaseNonfungibleToken(owner)
+        BaseLocker(core)
+        UsesCore(core)
+    {
+        swapProtocolFeeX64 = _swapProtocolFeeX64;
+        withdrawalProtocolFeeDenominator = _withdrawalProtocolFeeDenominator;
     }
 
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
@@ -219,6 +221,26 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseURIMintabl
             // collect first in case we are withdrawing the entire amount
             if (withFees) {
                 (amount0, amount1) = core.collectFees(poolKey, bytes32(id), bounds);
+                if (swapProtocolFeeX64 != 0) {
+                    uint128 swapProtocolFee0;
+                    uint128 swapProtocolFee1;
+
+                    swapProtocolFee0 = computeFee(amount0, swapProtocolFeeX64);
+                    swapProtocolFee1 = computeFee(amount1, swapProtocolFeeX64);
+
+                    if (swapProtocolFee0 != 0 || swapProtocolFee1 != 0) {
+                        core.updateSavedBalances(
+                            poolKey.token0,
+                            poolKey.token1,
+                            bytes32(0),
+                            int128(swapProtocolFee0),
+                            int128(swapProtocolFee1)
+                        );
+
+                        amount0 -= swapProtocolFee0;
+                        amount1 -= swapProtocolFee1;
+                    }
+                }
             }
 
             if (liquidity != 0) {
@@ -228,22 +250,23 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseURIMintabl
                 );
 
                 uint64 fee = poolKey.fee();
-                uint128 fees0;
-                uint128 fees1;
-                if (fee != 0) {
-                    fees0 = computeFee(uint128(-delta0), fee);
-                    fees1 = computeFee(uint128(-delta1), fee);
 
-                    if (fees0 != 0 || fees1 != 0) {
+                uint128 withdrawalFee0;
+                uint128 withdrawalFee1;
+                if (fee != 0 && withdrawalProtocolFeeDenominator != 0) {
+                    withdrawalFee0 = computeFee(uint128(-delta0), fee / withdrawalProtocolFeeDenominator);
+                    withdrawalFee1 = computeFee(uint128(-delta1), fee / withdrawalProtocolFeeDenominator);
+
+                    if (withdrawalFee0 != 0 || withdrawalFee1 != 0) {
                         // we know cast won't overflow because delta0 and delta1 were originally int128
                         core.updateSavedBalances(
-                            poolKey.token0, poolKey.token1, bytes32(0), int128(fees0), int128(fees1)
+                            poolKey.token0, poolKey.token1, bytes32(0), int128(withdrawalFee0), int128(withdrawalFee1)
                         );
                     }
                 }
 
-                amount0 += uint128(-delta0) - fees0;
-                amount1 += uint128(-delta1) - fees1;
+                amount0 += uint128(-delta0) - withdrawalFee0;
+                amount1 += uint128(-delta1) - withdrawalFee1;
             }
 
             withdraw(poolKey.token0, amount0, recipient);

@@ -54,8 +54,12 @@ contract DeployStatefulScript is Script {
         vm.startBroadcast();
 
         Core core = new Core{salt: salt}();
-        Positions positions = new Positions{salt: salt}(core, owner);
-        positions.setBaseUrl(baseUrl);
+        Positions positions = new Positions{salt: salt}(core, owner, 0, 1);
+        positions.setMetadata(
+            vm.envOr("POSITIONS_CONTRACT_NAME", string("Ekubo Positions")),
+            vm.envOr("POSITIONS_CONTRACT_SYMBOL", string("ekuPo")),
+            baseUrl
+        );
         new Oracle{
             salt: findExtensionSalt(
                 salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()

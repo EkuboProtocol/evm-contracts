@@ -21,7 +21,7 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
 
     /// @notice Thrown when trying to modify an order that has already ended
     error OrderAlreadyEnded();
-    
+
     /// @notice Thrown when the calculated sale rate exceeds the maximum allowed
     error MaxSaleRateExceeded();
 

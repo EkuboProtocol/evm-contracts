@@ -76,12 +76,12 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
 
     /// @notice Thrown when a swap doesn't consume the full input amount
     error PartialSwapsDisallowed();
-    
+
     /// @notice Thrown when the calculated amount doesn't meet the minimum threshold
     /// @param expectedAmount The minimum expected amount
     /// @param calculatedAmount The actual calculated amount
     error SlippageCheckFailed(int256 expectedAmount, int256 calculatedAmount);
-    
+
     /// @notice Thrown when tokens don't match across multiple swaps
     /// @param index The index of the mismatched swap
     error TokensMismatch(uint256 index);

@@ -29,7 +29,7 @@ interface IExtension {
     /// @param key Pool key identifying the pool
     /// @param tick Initial tick for the pool
     function beforeInitializePool(address caller, PoolKey calldata key, int32 tick) external;
-    
+
     /// @notice Called after a pool is initialized
     /// @param caller Address that initiated the pool initialization
     /// @param key Pool key identifying the pool
@@ -43,7 +43,7 @@ interface IExtension {
     /// @param params Parameters for the position update
     function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
         external;
-    
+
     /// @notice Called after a position is updated
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
@@ -73,7 +73,7 @@ interface IExtension {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) external;
-    
+
     /// @notice Called after a swap is executed
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
@@ -100,7 +100,7 @@ interface IExtension {
     /// @param salt Unique identifier for the position
     /// @param bounds Price bounds for the position
     function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external;
-    
+
     /// @notice Called after fees are collected from a position
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
@@ -125,27 +125,27 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Emitted when an extension is registered
     /// @param extension Address of the registered extension
     event ExtensionRegistered(address extension);
-    
+
     /// @notice Emitted when a pool is initialized
     /// @param poolId Unique identifier for the pool
     /// @param poolKey Pool key containing token addresses and configuration
     /// @param tick Initial tick for the pool
     /// @param sqrtRatio Initial sqrt price ratio for the pool
     event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
-    
+
     /// @notice Emitted when fees are collected from a position
     /// @param poolId Unique identifier for the pool
     /// @param positionKey Key identifying the position
     /// @param amount0 Amount of token0 fees collected
     /// @param amount1 Amount of token1 fees collected
     event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
-    
+
     /// @notice Emitted when fees are accumulated to a pool
     /// @param poolId Unique identifier for the pool
     /// @param amount0 Amount of token0 fees accumulated
     /// @param amount1 Amount of token1 fees accumulated
     event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
-    
+
     /// @notice Emitted when a position is updated
     /// @param locker Address that holds the lock
     /// @param poolId Unique identifier for the pool
@@ -158,31 +158,31 @@ interface ICore is IFlashAccountant, IExposedStorage {
 
     /// @notice Thrown when extension registration fails due to invalid call points
     error FailedRegisterInvalidCallPoints();
-    
+
     /// @notice Thrown when trying to register an already registered extension
     error ExtensionAlreadyRegistered();
-    
+
     /// @notice Thrown when saved balance operations would cause overflow
     error SavedBalanceOverflow();
-    
+
     /// @notice Thrown when trying to initialize an already initialized pool
     error PoolAlreadyInitialized();
-    
+
     /// @notice Thrown when trying to use an unregistered extension
     error ExtensionNotRegistered();
-    
+
     /// @notice Thrown when trying to operate on an uninitialized pool
     error PoolNotInitialized();
-    
+
     /// @notice Thrown when trying to withdraw all liquidity without collecting fees first
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
-    
+
     /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
-    
+
     /// @notice Thrown when sqrt ratio limit is invalid for the swap direction
     error InvalidSqrtRatioLimit();
-    
+
     /// @notice Thrown when saved balance tokens are not properly sorted
     error SavedBalanceTokensNotSorted();
 

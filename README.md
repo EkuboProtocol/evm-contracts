@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Ekubo--DAO--SRL--1.0-blue.svg)](LICENSE)
 [![Foundry](https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg)](https://getfoundry.sh/)
 
-This repository contains the core Solidity smart contracts for **Ekubo Protocol**, a next-generation automated market maker (AMM) built on Starknet.
+This repository contains the core Solidity smart contracts for **Ekubo Protocol**, a next-generation automated market maker (AMM).
 
 ## Overview
 
@@ -34,9 +34,9 @@ Ekubo Protocol is a comprehensive DeFi infrastructure that provides:
 
 ### Extensions
 
-- **`Oracle.sol`**: Price oracle functionality
-- **`TWAMM.sol`**: Time-Weighted Average Market Maker implementation
-- **`MEVCapture.sol`**: MEV capture and redistribution mechanism
+- **`extensions/Oracle.sol`**: Price oracle functionality
+- **`extensions/TWAMM.sol`**: Time-Weighted Average Market Maker implementation
+- **`extensions/MEVCapture.sol`**: MEV capture and redistribution mechanism
 
 ### Libraries and Types
 
@@ -153,14 +153,6 @@ Efficient routing through multiple pools:
 - Batch operations
 
 ## Security
-
-### Audits
-
-The protocol undergoes regular security audits by leading firms. Audit reports are available in the `/audits` directory.
-
-### Bug Bounty
-
-We maintain an active bug bounty program. Please refer to our security policy for responsible disclosure guidelines.
 
 ### Best Practices
 

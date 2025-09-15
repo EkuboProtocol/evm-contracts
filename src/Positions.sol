@@ -26,13 +26,13 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
     /// @param liquidity The actual liquidity that would be provided
     /// @param minLiquidity The minimum liquidity required
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
-    
+
     /// @notice Thrown when deposit amount would cause overflow
     error DepositOverflow();
 
     /// @notice Protocol fee rate for swaps (as a fraction of 2^64)
     uint64 public immutable swapProtocolFeeX64;
-    
+
     /// @notice Denominator for withdrawal protocol fee calculation
     uint64 public immutable withdrawalProtocolFeeDenominator;
 

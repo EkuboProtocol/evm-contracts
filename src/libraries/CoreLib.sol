@@ -8,10 +8,16 @@ import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
 
-// Common storage getters we need for external contracts are defined here instead of in the core contract
+/// @title Core Library
+/// @notice Library providing common storage getters for external contracts
+/// @dev These functions access Core contract storage directly for gas efficiency
 library CoreLib {
     using ExposedStorageLib for *;
 
+    /// @notice Checks if an extension is registered with the core contract
+    /// @param core The core contract instance
+    /// @param extension The extension address to check
+    /// @return registered True if the extension is registered
     function isExtensionRegistered(ICore core, address extension) internal view returns (bool registered) {
         bytes32 key;
         assembly ("memory-safe") {
@@ -23,6 +29,12 @@ library CoreLib {
         registered = uint256(core.sload(key)) != 0;
     }
 
+    /// @notice Gets the current state of a pool
+    /// @param core The core contract instance
+    /// @param poolId The unique identifier for the pool
+    /// @return sqrtRatio Current sqrt price ratio of the pool
+    /// @return tick Current tick of the pool
+    /// @return liquidity Current active liquidity in the pool
     function poolState(ICore core, bytes32 poolId)
         internal
         view
@@ -44,6 +56,11 @@ library CoreLib {
         }
     }
 
+    /// @notice Gets position data for a specific position in a pool
+    /// @param core The core contract instance
+    /// @param poolId The unique identifier for the pool
+    /// @param positionId The unique identifier for the position
+    /// @return position The position data including liquidity and fees
     function poolPositions(ICore core, bytes32 poolId, bytes32 positionId)
         internal
         view
@@ -65,6 +82,14 @@ library CoreLib {
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 
+    /// @notice Gets saved balances for a specific owner and token pair
+    /// @param core The core contract instance
+    /// @param owner The owner of the saved balances
+    /// @param token0 The first token address
+    /// @param token1 The second token address
+    /// @param salt The salt used for the saved balance key
+    /// @return savedBalance0 The saved balance of token0
+    /// @return savedBalance1 The saved balance of token1
     function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
         internal
         view
@@ -88,6 +113,12 @@ library CoreLib {
         savedBalance1 = uint128(value);
     }
 
+    /// @notice Gets tick information for a specific tick in a pool
+    /// @param core The core contract instance
+    /// @param poolId The unique identifier for the pool
+    /// @param tick The tick to query
+    /// @return liquidityDelta The liquidity change when crossing this tick
+    /// @return liquidityNet The net liquidity above this tick
     function poolTicks(ICore core, bytes32 poolId, int32 tick)
         internal
         view
@@ -111,6 +142,16 @@ library CoreLib {
         liquidityNet = uint128(bytes16(data));
     }
 
+    /// @notice Executes a swap against the core contract
+    /// @param core The core contract instance
+    /// @param value Native token value to send with the swap
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param sqrtRatioLimit Price limit for the swap
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function swap(
         ICore core,
         uint256 value,

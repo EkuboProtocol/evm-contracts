@@ -2,11 +2,12 @@
 pragma solidity =0.8.28;
 
 import {OrderKey} from "../extensions/TWAMM.sol";
+import {IBaseNonfungibleToken} from "./IBaseNonfungibleToken.sol";
 
 /// @title Orders Interface
 /// @notice Interface for managing TWAMM (Time-Weighted Average Market Maker) orders as NFTs
 /// @dev Defines the interface for creating, modifying, and collecting proceeds from long-term orders
-interface IOrders {
+interface IOrders is IBaseNonfungibleToken {
     /// @notice Thrown when trying to modify an order that has already ended
     error OrderAlreadyEnded();
 

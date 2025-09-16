@@ -5,8 +5,10 @@ import {ERC721} from "solady/tokens/ERC721.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
+import {IBaseNonfungibleToken} from "../interfaces/IBaseNonfungibleToken.sol";
+
 /// @notice NFT contract where tokens can be minted and burned freely, and the owner can change the metadata
-abstract contract BaseNonfungibleToken is Ownable, ERC721 {
+abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721 {
     error NotUnauthorizedForToken(address caller, uint256 id);
 
     string private _name;

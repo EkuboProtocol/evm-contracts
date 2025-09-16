@@ -8,7 +8,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {nextValidTime} from "./math/time.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
-import {Orders} from "./Orders.sol";
+import {IBaseNonfungibleToken} from "./interfaces/IBaseNonfungibleToken.sol";
 import {OrderKey} from "./extensions/TWAMM.sol";
 
 /// @notice Configuration and state for revenue buyback orders for a specific token
@@ -76,7 +76,7 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
         _initializeOwner(owner);
         ORDERS = _orders;
         BUY_TOKEN = _buyToken;
-        NFT_ID = Orders(address(ORDERS)).mint();
+        NFT_ID = ORDERS.mint();
     }
 
     /// @notice Approves the Orders contract to spend unlimited amounts of a token

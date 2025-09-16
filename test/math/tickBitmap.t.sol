@@ -12,7 +12,6 @@ import {
     findPrevInitializedTick
 } from "../../src/math/tickBitmap.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
-import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {Bitmap} from "../../src/math/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 

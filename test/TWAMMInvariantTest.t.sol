@@ -11,7 +11,7 @@ import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SaleRateOverflow} from "../src/math/twamm.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -27,7 +27,6 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {LibBit} from "solady/utils/LibBit.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract Handler is StdUtils, StdAssertions {

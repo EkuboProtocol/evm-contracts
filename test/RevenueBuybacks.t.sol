@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {EkuboRevenueBuybacks, BuybacksState, IOrders} from "../src/RevenueBuybacks.sol";
+import {EkuboRevenueBuybacks, BuybacksState} from "../src/RevenueBuybacks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
@@ -31,7 +31,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
 
         // it always buys back the buybacksToken
-        rb = new EkuboRevenueBuybacks(positions, address(this), IOrders(address(orders)), address(buybacksToken));
+        rb = new EkuboRevenueBuybacks(positions, address(this), orders, address(buybacksToken));
 
         vm.prank(positions.owner());
         positions.transferOwnership(address(rb));

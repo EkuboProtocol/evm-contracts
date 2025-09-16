@@ -6,22 +6,9 @@ import {Multicallable} from "solady/utils/Multicallable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {nextValidTime} from "./math/time.sol";
+import {Orders} from "./Orders.sol";
 import {Positions} from "./Positions.sol";
 import {OrderKey} from "./extensions/TWAMM.sol";
-
-interface IOrders {
-    function mint() external payable returns (uint256 id);
-
-    function increaseSellAmount(uint256 id, OrderKey memory orderKey, uint128 amount, uint112 maxSaleRate)
-        external
-        payable
-        returns (uint112 saleRate);
-
-    function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)
-        external
-        payable
-        returns (uint128 proceeds);
-}
 
 struct BuybacksState {
     // New orders will be placed for the minimum duration that is larger than the target order duration
@@ -41,7 +28,7 @@ struct BuybacksState {
 /// @notice Creates revenue buyback orders regularly according to specified configurations
 abstract contract RevenueBuybacks is Ownable, Multicallable {
     // Used to create and manage the orders
-    IOrders public immutable orders;
+    Orders public immutable orders;
     // The ID of the token with which all the orders are associated
     uint256 public immutable nftId;
     // The token that is repurchased with revenue
@@ -58,7 +45,7 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
     // The current state of each of the buybacks
     mapping(address token => BuybacksState state) public states;
 
-    constructor(address owner, IOrders _orders, address _buyToken) {
+    constructor(address owner, Orders _orders, address _buyToken) {
         _initializeOwner(owner);
         orders = _orders;
         buyToken = _buyToken;
@@ -154,7 +141,7 @@ contract EkuboRevenueBuybacks is RevenueBuybacks {
 
     Positions public immutable positions;
 
-    constructor(Positions _positions, address owner, IOrders orders, address buyToken)
+    constructor(Positions _positions, address owner, Orders orders, address buyToken)
         RevenueBuybacks(owner, orders, buyToken)
     {
         positions = _positions;

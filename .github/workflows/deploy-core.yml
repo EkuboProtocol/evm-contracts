@@ -1,0 +1,39 @@
+name: Deploy Core
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    strategy:
+      fail-fast: false
+      matrix:
+        rpc_urls:
+          - eth-sepolia
+          - eth-holesky
+          # - eth-mainnet
+
+    name: Foundry project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show Forge version
+        run: |
+          forge --version
+
+      - name: Run DeployCore Script
+        run: |
+          forge script DeployCore \
+            --rpc-url https://${{ matrix.alchemy_chain_identifiers }}.g.alchemy.com/v2/${{ secrets.ALCHEMY_API_KEY }} \
+            --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} \ 
+            --broadcast
+        env:
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}

@@ -24,6 +24,10 @@ contract DeployCore is Script {
             revert CoreAddressDifferentThanExpected(actual, expected);
         }
 
+        if (address(expected).code.length != 0) {
+            return;
+        }
+
         vm.startBroadcast();
         Core core = new Core{salt: salt}();
         vm.stopBroadcast();

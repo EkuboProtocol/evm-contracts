@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {IERC721} from "forge-std/interfaces/IERC721.sol";
-
 /// @title Base Nonfungible Token Interface
 /// @notice Interface for the base NFT functionality used by Positions and Orders contracts
-/// @dev Extends IERC721 with BaseNonfungibleToken-specific functions
-interface IBaseNonfungibleToken is IERC721 {
+/// @dev Defines the essential NFT functions needed by other contracts in the system
+interface IBaseNonfungibleToken {
+    function setMetadata(string memory newName, string memory newSymbol, string memory newBaseUrl) external;
+
     // BaseNonfungibleToken specific functions
     /// @notice Converts a minter address and salt to a token ID
     /// @param minter The minter address

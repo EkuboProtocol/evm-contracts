@@ -4,11 +4,12 @@ pragma solidity =0.8.28;
 import {PoolKey} from "../types/poolKey.sol";
 import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {IBaseNonfungibleToken} from "./IBaseNonfungibleToken.sol";
 
 /// @title Positions Interface
 /// @notice Interface for managing liquidity positions as NFTs in Ekubo Protocol
 /// @dev Defines the interface for depositing, withdrawing, and collecting fees from liquidity positions
-interface IPositions {
+interface IPositions is IBaseNonfungibleToken {
     /// @notice Thrown when deposit fails due to insufficient liquidity for the given slippage tolerance
     /// @param liquidity The actual liquidity that would be provided
     /// @param minLiquidity The minimum liquidity required

@@ -76,7 +76,7 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
         _initializeOwner(owner);
         ORDERS = _orders;
         BUY_TOKEN = _buyToken;
-        NFT_ID = IBaseNonfungibleToken(address(ORDERS)).mint();
+        NFT_ID = ORDERS.mint();
     }
 
     /// @notice Approves the Orders contract to spend unlimited amounts of a token

@@ -7,11 +7,7 @@ import {console} from "forge-std/console.sol";
 
 contract PrintCoreInitCodeHashScript is Script {
     function run() public {
-        address owner = vm.getWallets()[0];
-
-        console.log("Owner: ", owner);
-
-        console.log("Core init code hash");
-        console.logBytes32(keccak256(abi.encodePacked(type(Core).creationCode, abi.encode(owner))));
+        console.log("Core init code hash: ");
+        console.logBytes32(keccak256(type(Core).creationCode));
     }
 }

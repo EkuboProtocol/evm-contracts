@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
+import {IPositions} from "./interfaces/IPositions.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionKey, Bounds} from "./types/positionKey.sol";
@@ -21,15 +22,7 @@ import {computeFee} from "./math/fee.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks liquidity positions in Ekubo Protocol as NFTs
 /// @dev Manages liquidity positions, fee collection, and protocol fees
-contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
-    /// @notice Thrown when deposit fails due to insufficient liquidity for the given slippage tolerance
-    /// @param liquidity The actual liquidity that would be provided
-    /// @param minLiquidity The minimum liquidity required
-    error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
-
-    /// @notice Thrown when deposit amount would cause overflow
-    error DepositOverflow();
-
+contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     /// @notice Protocol fee rate for swaps (as a fraction of 2^64)
     uint64 public immutable swapProtocolFeeX64;
 
@@ -52,15 +45,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         withdrawalProtocolFeeDenominator = _withdrawalProtocolFeeDenominator;
     }
 
-    /// @notice Gets the liquidity, principal amounts, and accumulated fees for a position
-    /// @param id The NFT token ID representing the position
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @return liquidity Current liquidity in the position
-    /// @return principal0 Principal amount of token0 in the position
-    /// @return principal1 Principal amount of token1 in the position
-    /// @return fees0 Accumulated fees in token0
-    /// @return fees1 Accumulated fees in token1
+    /// @inheritdoc IPositions
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
         external
         view
@@ -86,16 +71,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
     }
 
-    /// @notice Deposits tokens into a liquidity position
-    /// @param id The NFT token ID representing the position
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @param maxAmount0 Maximum amount of token0 to deposit
-    /// @param maxAmount1 Maximum amount of token1 to deposit
-    /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
-    /// @return liquidity Amount of liquidity added to the position
-    /// @return amount0 Actual amount of token0 deposited
-    /// @return amount1 Actual amount of token1 deposited
+    /// @inheritdoc IPositions
     function deposit(
         uint256 id,
         PoolKey memory poolKey,
@@ -122,12 +98,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
             abi.decode(lock(abi.encode(bytes1(0xdd), msg.sender, id, poolKey, bounds, liquidity)), (uint128, uint128));
     }
 
-    /// @notice Collects accumulated fees from a position to msg.sender
-    /// @param id The NFT token ID representing the position
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @return amount0 Amount of token0 fees collected
-    /// @return amount1 Amount of token1 fees collected
+    /// @inheritdoc IPositions
     function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
         public
         payable
@@ -137,13 +108,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         (amount0, amount1) = collectFees(id, poolKey, bounds, msg.sender);
     }
 
-    /// @notice Collects accumulated fees from a position to a specified recipient
-    /// @param id The NFT token ID representing the position
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @param recipient Address to receive the collected fees
-    /// @return amount0 Amount of token0 fees collected
-    /// @return amount1 Amount of token1 fees collected
+    /// @inheritdoc IPositions
     function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
         public
         payable
@@ -153,15 +118,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         (amount0, amount1) = withdraw(id, poolKey, bounds, 0, recipient, true);
     }
 
-    /// @notice Withdraws liquidity from a position
-    /// @param id The NFT token ID representing the position
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @param liquidity Amount of liquidity to withdraw
-    /// @param recipient Address to receive the withdrawn tokens
-    /// @param withFees Whether to also collect accumulated fees
-    /// @return amount0 Amount of token0 withdrawn
-    /// @return amount1 Amount of token1 withdrawn
+    /// @inheritdoc IPositions
     function withdraw(
         uint256 id,
         PoolKey memory poolKey,
@@ -175,13 +132,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         );
     }
 
-    /// @notice Withdraws liquidity from a position to msg.sender with fees
-    /// @param id The NFT token ID representing the position
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @param liquidity Amount of liquidity to withdraw
-    /// @return amount0 Amount of token0 withdrawn
-    /// @return amount1 Amount of token1 withdrawn
+    /// @inheritdoc IPositions
     function withdraw(uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity)
         public
         payable
@@ -190,11 +141,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         (amount0, amount1) = withdraw(id, poolKey, bounds, liquidity, address(msg.sender), true);
     }
 
-    /// @notice Initializes a pool if it hasn't been initialized yet
-    /// @param poolKey Pool key identifying the pool
-    /// @param tick Initial tick for the pool if initialization is needed
-    /// @return initialized Whether the pool was initialized by this call
-    /// @return sqrtRatio The sqrt price ratio of the pool (existing or newly set)
+    /// @inheritdoc IPositions
     function maybeInitializePool(PoolKey memory poolKey, int32 tick)
         external
         payable
@@ -208,16 +155,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         }
     }
 
-    /// @notice Mints a new NFT and deposits liquidity into it
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @param maxAmount0 Maximum amount of token0 to deposit
-    /// @param maxAmount1 Maximum amount of token1 to deposit
-    /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
-    /// @return id The newly minted NFT token ID
-    /// @return liquidity Amount of liquidity added to the position
-    /// @return amount0 Actual amount of token0 deposited
-    /// @return amount1 Actual amount of token1 deposited
+    /// @inheritdoc IPositions
     function mintAndDeposit(
         PoolKey memory poolKey,
         Bounds memory bounds,
@@ -229,17 +167,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
     }
 
-    /// @notice Mints a new NFT with a specific salt and deposits liquidity into it
-    /// @param salt Salt for deterministic NFT ID generation
-    /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
-    /// @param maxAmount0 Maximum amount of token0 to deposit
-    /// @param maxAmount1 Maximum amount of token1 to deposit
-    /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
-    /// @return id The newly minted NFT token ID
-    /// @return liquidity Amount of liquidity added to the position
-    /// @return amount0 Actual amount of token0 deposited
-    /// @return amount1 Actual amount of token1 deposited
+    /// @inheritdoc IPositions
     function mintAndDepositWithSalt(
         bytes32 salt,
         PoolKey memory poolKey,
@@ -252,12 +180,7 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
     }
 
-    /// @notice Withdraws accumulated protocol fees (only callable by owner)
-    /// @param token0 Address of token0
-    /// @param token1 Address of token1
-    /// @param amount0 Amount of token0 fees to withdraw
-    /// @param amount1 Amount of token1 fees to withdraw
-    /// @param recipient Address to receive the protocol fees
+    /// @inheritdoc IPositions
     function withdrawProtocolFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
         external
         payable
@@ -266,18 +189,10 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
         lock(abi.encode(bytes1(0xee), token0, token1, amount0, amount1, recipient));
     }
 
-    /// @notice Gets the accumulated protocol fees for a token pair
-    /// @param token0 Address of token0
-    /// @param token1 Address of token1
-    /// @return amount0 Amount of token0 protocol fees
-    /// @return amount1 Amount of token1 protocol fees
+    /// @inheritdoc IPositions
     function getProtocolFees(address token0, address token1) external view returns (uint128 amount0, uint128 amount1) {
         (amount0, amount1) = core.savedBalances(address(this), token0, token1, bytes32(0));
     }
-
-    /// @notice Thrown when an unexpected call type byte is encountered
-    /// @param b The unexpected call type byte
-    error UnexpectedCallTypeByte(bytes1 b);
 
     /// @notice Handles lock callback data for position operations
     /// @dev Internal function that processes different types of position operations

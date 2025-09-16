@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
+import {IOrders} from "./interfaces/IOrders.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
@@ -16,14 +17,8 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks TWAMM (Time-Weighted Average Market Maker) orders in Ekubo Protocol as NFTs
 /// @dev Manages long-term orders that execute over time through the TWAMM extension
-contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
+contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using TWAMMLib for *;
-
-    /// @notice Thrown when trying to modify an order that has already ended
-    error OrderAlreadyEnded();
-
-    /// @notice Thrown when the calculated sale rate exceeds the maximum allowed
-    error MaxSaleRateExceeded();
 
     /// @notice The TWAMM extension contract that handles order execution
     TWAMM public immutable twamm;
@@ -36,12 +31,7 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
         twamm = _twamm;
     }
 
-    /// @notice Mints a new NFT and creates a TWAMM order
-    /// @param orderKey Key identifying the order parameters
-    /// @param amount Amount of tokens to sell over the order duration
-    /// @param maxSaleRate Maximum acceptable sale rate (for slippage protection)
-    /// @return id The newly minted NFT token ID
-    /// @return saleRate The calculated sale rate for the order
+    /// @inheritdoc IOrders
     function mintAndIncreaseSellAmount(OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)
         public
         payable
@@ -51,12 +41,7 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
         saleRate = increaseSellAmount(id, orderKey, amount, maxSaleRate);
     }
 
-    /// @notice Increases the sell amount for an existing TWAMM order
-    /// @param id The NFT token ID representing the order
-    /// @param orderKey Key identifying the order parameters
-    /// @param amount Additional amount of tokens to sell
-    /// @param maxSaleRate Maximum acceptable sale rate (for slippage protection)
-    /// @return saleRate The calculated sale rate for the additional amount
+    /// @inheritdoc IOrders
     function increaseSellAmount(uint256 id, OrderKey memory orderKey, uint128 amount, uint112 maxSaleRate)
         public
         payable
@@ -80,12 +65,7 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
         lock(abi.encode(bytes1(0xdd), msg.sender, id, orderKey, saleRate));
     }
 
-    /// @notice Decreases the sale rate for an existing TWAMM order
-    /// @param id The NFT token ID representing the order
-    /// @param orderKey Key identifying the order parameters
-    /// @param saleRateDecrease Amount to decrease the sale rate by
-    /// @param recipient Address to receive the refunded tokens
-    /// @return refund Amount of tokens refunded
+    /// @inheritdoc IOrders
     function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease, address recipient)
         public
         payable
@@ -102,11 +82,7 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
         );
     }
 
-    /// @notice Decreases the sale rate for an existing TWAMM order (refund to msg.sender)
-    /// @param id The NFT token ID representing the order
-    /// @param orderKey Key identifying the order parameters
-    /// @param saleRateDecrease Amount to decrease the sale rate by
-    /// @return refund Amount of tokens refunded
+    /// @inheritdoc IOrders
     function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease)
         external
         payable
@@ -115,11 +91,7 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
         refund = decreaseSaleRate(id, orderKey, saleRateDecrease, msg.sender);
     }
 
-    /// @notice Collects the proceeds from a TWAMM order
-    /// @param id The NFT token ID representing the order
-    /// @param orderKey Key identifying the order parameters
-    /// @param recipient Address to receive the proceeds
-    /// @return proceeds Amount of tokens collected as proceeds
+    /// @inheritdoc IOrders
     function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)
         public
         payable
@@ -129,22 +101,12 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
         proceeds = abi.decode(lock(abi.encode(bytes1(0xff), id, orderKey, recipient)), (uint128));
     }
 
-    /// @notice Collects the proceeds from a TWAMM order (to msg.sender)
-    /// @param id The NFT token ID representing the order
-    /// @param orderKey Key identifying the order parameters
-    /// @return proceeds Amount of tokens collected as proceeds
+    /// @inheritdoc IOrders
     function collectProceeds(uint256 id, OrderKey memory orderKey) external payable returns (uint128 proceeds) {
         proceeds = collectProceeds(id, orderKey, msg.sender);
     }
 
-    /// @notice Executes virtual orders and returns current order information
-    /// @dev Updates the order state by executing any pending virtual orders
-    /// @param id The NFT token ID representing the order
-    /// @param orderKey Key identifying the order parameters
-    /// @return saleRate Current sale rate of the order
-    /// @return amountSold Total amount sold so far
-    /// @return remainingSellAmount Amount remaining to be sold
-    /// @return purchasedAmount Amount of tokens purchased (proceeds available)
+    /// @inheritdoc IOrders
     function executeVirtualOrdersAndGetCurrentOrderInfo(uint256 id, OrderKey memory orderKey)
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
@@ -197,10 +159,6 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
             }
         }
     }
-
-    /// @notice Thrown when an unexpected call type byte is encountered
-    /// @param b The unexpected call type byte
-    error UnexpectedCallTypeByte(bytes1 b);
 
     /// @notice Handles lock callback data for order operations
     /// @dev Internal function that processes different types of order operations

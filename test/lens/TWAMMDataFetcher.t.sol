@@ -6,7 +6,7 @@ import {PoolState, TWAMMDataFetcher, getAllValidFutureTimes} from "../../src/len
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {isTimeValid, nextValidTime} from "../../src/math/time.sol";
-import {OrderKey} from "../../src/extensions/TWAMM.sol";
+import {ITWAMM} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TWAMMDataFetcherTest is BaseOrdersTest {
@@ -83,14 +83,14 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
 
             orders.mintAndIncreaseSellAmount(
                 ordersPlaced % 2 == 0
-                    ? OrderKey({
+                    ? ITWAMM.OrderKey({
                         sellToken: address(token0),
                         buyToken: address(token1),
                         fee: fee,
                         startTime: startTime,
                         endTime: endTime
                     })
-                    : OrderKey({
+                    : ITWAMM.OrderKey({
                         sellToken: address(token1),
                         buyToken: address(token0),
                         fee: fee,
@@ -147,7 +147,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
         orders.mintAndIncreaseSellAmount(
-            OrderKey({
+            ITWAMM.OrderKey({
                 sellToken: address(token0),
                 buyToken: address(token1),
                 fee: 1000,
@@ -159,7 +159,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         );
 
         orders.mintAndIncreaseSellAmount(
-            OrderKey({
+            ITWAMM.OrderKey({
                 sellToken: address(token1),
                 buyToken: address(token0),
                 fee: 1000,

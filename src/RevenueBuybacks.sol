@@ -9,7 +9,7 @@ import {nextValidTime} from "./math/time.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
 import {IBaseNonfungibleToken} from "./interfaces/IBaseNonfungibleToken.sol";
-import {OrderKey} from "./extensions/TWAMM.sol";
+import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 
 /// @notice Configuration and state for revenue buyback orders for a specific token
 /// @dev Tracks the parameters and timing for automated buyback order creation
@@ -103,7 +103,9 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
     /// @return proceeds The amount of buyToken received from the completed order
     function collect(address token, uint64 fee, uint256 endTime) external returns (uint128 proceeds) {
         proceeds = ORDERS.collectProceeds(
-            NFT_ID, OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: fee, startTime: 0, endTime: endTime}), owner()
+            NFT_ID,
+            ITWAMM.OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: fee, startTime: 0, endTime: endTime}),
+            owner()
         );
     }
 
@@ -146,7 +148,13 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
                 if (amountToSpend != 0) {
                     saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
                         NFT_ID,
-                        OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: state.fee, startTime: 0, endTime: endTime}),
+                        ITWAMM.OrderKey({
+                            sellToken: token,
+                            buyToken: BUY_TOKEN,
+                            fee: state.fee,
+                            startTime: 0,
+                            endTime: endTime
+                        }),
                         uint128(amountToSpend),
                         type(uint112).max
                     );

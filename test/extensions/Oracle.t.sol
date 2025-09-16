@@ -15,6 +15,7 @@ import {
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Oracle, oracleCallPoints} from "../../src/extensions/Oracle.sol";
+import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {OracleLib} from "../../src/libraries/OracleLib.sol";
@@ -247,10 +248,10 @@ contract OracleTest is BaseOracleTest {
         uint256 timeToCheck = startTime + checkOffset;
 
         if (timeToCheck > vm.getBlockTimestamp()) {
-            vm.expectRevert(Oracle.FutureTime.selector);
+            vm.expectRevert(IOracle.FutureTime.selector);
             oracle.extrapolateSnapshot(token, startTime + checkOffset);
         } else if (timeToCheck < oracle.getEarliestSnapshotTimestamp(token)) {
-            vm.expectRevert(abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, token, timeToCheck));
+            vm.expectRevert(abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, token, timeToCheck));
             oracle.extrapolateSnapshot(token, timeToCheck);
         } else {
             (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
@@ -495,16 +496,16 @@ contract OracleTest is BaseOracleTest {
         // end time is start+18
         advanceTime(3);
 
-        vm.expectRevert(abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), startTime));
+        vm.expectRevert(abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), startTime));
         oracle.extrapolateSnapshot(address(token1), startTime);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), startTime + 2)
+            abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), startTime + 2)
         );
         oracle.extrapolateSnapshot(address(token1), startTime + 2);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), startTime + 4)
+            abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), startTime + 4)
         );
         oracle.extrapolateSnapshot(address(token1), startTime + 4);
 
@@ -529,18 +530,18 @@ contract OracleTest is BaseOracleTest {
         assertEq(secondsPerLiquidityCumulative, uint256(18) << 128);
         assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000 * 4));
 
-        vm.expectRevert(Oracle.FutureTime.selector);
+        vm.expectRevert(IOracle.FutureTime.selector);
         oracle.extrapolateSnapshot(address(token1), startTime + 19);
     }
 
     function test_createPool_beforeInitializePool_reverts() public {
-        vm.expectRevert(Oracle.PairsWithNativeTokenOnly.selector);
+        vm.expectRevert(IOracle.PairsWithNativeTokenOnly.selector);
         createPool(address(token0), address(token1), 0, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
 
-        vm.expectRevert(Oracle.TickSpacingMustBeMaximum.selector);
+        vm.expectRevert(IOracle.TickSpacingMustBeMaximum.selector);
         createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, 100, address(oracle));
 
-        vm.expectRevert(Oracle.FeeMustBeZero.selector);
+        vm.expectRevert(IOracle.FeeMustBeZero.selector);
         createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
     }
 
@@ -619,17 +620,17 @@ contract OracleTest is BaseOracleTest {
         movePrice(poolKey, 693147);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), startTime - 1)
+            abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), startTime - 1)
         );
         oracle.findPreviousSnapshot(address(token1), startTime - 1);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), startTime - 4)
+            abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), startTime - 4)
         );
         oracle.findPreviousSnapshot(address(token1), startTime - 4);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), startTime - 5)
+            abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), startTime - 5)
         );
         oracle.findPreviousSnapshot(address(token1), startTime - 5);
 
@@ -672,7 +673,7 @@ contract OracleTest is BaseOracleTest {
         assertEq(s.tickCumulative, 10 * 2 * 693147);
 
         // if we pass in a future time it reverts
-        vm.expectRevert(abi.encodeWithSelector(Oracle.FutureTime.selector));
+        vm.expectRevert(abi.encodeWithSelector(IOracle.FutureTime.selector));
         oracle.findPreviousSnapshot(address(token1), startTime + 100);
     }
 
@@ -701,12 +702,12 @@ contract OracleTest is BaseOracleTest {
         advanceTime(5);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 1)
+            abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 1)
         );
         oracle.extrapolateSnapshot(address(token1), poolCreationTime - 1);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Oracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 6)
+            abi.encodeWithSelector(IOracle.NoPreviousSnapshotExists.selector, address(token1), poolCreationTime - 6)
         );
         oracle.extrapolateSnapshot(address(token1), poolCreationTime - 6);
 

@@ -6,7 +6,8 @@ import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {TWAMM, orderKeyToPoolKey, OrderKey} from "../src/extensions/TWAMM.sol";
+import {TWAMM, orderKeyToPoolKey} from "../src/extensions/TWAMM.sol";
+import {ITWAMM} from "../src/interfaces/extensions/ITWAMM.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {nextValidTime} from "../src/math/time.sol";
@@ -42,7 +43,7 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     struct OrderInfo {
-        OrderKey orderKey;
+        ITWAMM.OrderKey orderKey;
         uint112 saleRate;
     }
 
@@ -251,7 +252,7 @@ contract Handler is StdUtils, StdAssertions {
         (address sellToken, address buyToken) =
             isToken1 ? (poolKey.token1, poolKey.token0) : (poolKey.token0, poolKey.token1);
 
-        OrderKey memory orderKey = OrderKey({
+        ITWAMM.OrderKey memory orderKey = ITWAMM.OrderKey({
             sellToken: sellToken,
             buyToken: buyToken,
             fee: poolKey.fee(),
@@ -267,7 +268,7 @@ contract Handler is StdUtils, StdAssertions {
                 sig := mload(add(err, 32))
             }
             // 0xc902643d == SaleRateDeltaOverflow()
-            if (sig != SaleRateOverflow.selector && sig != TWAMM.MaxSaleRateDeltaPerTime.selector && sig != 0xc902643d)
+            if (sig != SaleRateOverflow.selector && sig != ITWAMM.MaxSaleRateDeltaPerTime.selector && sig != 0xc902643d)
             {
                 revert UnexpectedError(err);
             }
@@ -286,7 +287,8 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            if (sig != IOrders.OrderAlreadyEnded.selector && sig != TWAMM.MustCollectProceedsBeforeCanceling.selector) {
+            if (sig != IOrders.OrderAlreadyEnded.selector && sig != ITWAMM.MustCollectProceedsBeforeCanceling.selector)
+            {
                 revert UnexpectedError(err);
             }
         }

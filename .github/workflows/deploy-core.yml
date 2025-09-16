@@ -12,6 +12,31 @@ jobs:
           - eth-sepolia
           - eth-holesky
           # - eth-mainnet
+          - worldchain-sepolia
+          # - worldchain-mainnet
+          - shape-sepolia
+          # - shape-mainnet
+          - zksync-sepolia
+          # - zksync-mainnet
+          - opt-sepolia
+          # - opt-mainnet
+          - polygon-amoy
+          # - polygon-mainnet
+          - arb-sepolia
+          # - arb-mainnet
+          - arbnova-sepolia
+          # - arbnova-mainnet
+          - unichain-sepolia
+          # - unichain-mainnet
+          - abstract-testnet
+          # - abstract-mainnet
+          - soneium-minato
+          # - soneium-mainnet
+          - monad-testnet
+          - berachain-bepolia
+          # - berachain-mainnet
+          - blast-sepolia
+          # - blast-mainnet
 
     name: Foundry project
     runs-on: ubuntu-latest

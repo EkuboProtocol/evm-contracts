@@ -19,7 +19,9 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
+import {IPositions} from "../src/interfaces/IPositions.sol";
 import {Orders} from "../src/Orders.sol";
+import {IOrders} from "../src/interfaces/IOrders.sol";
 import {TestToken} from "./TestToken.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -142,7 +144,7 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
                     && sig != SafeTransferLib.TransferFromFailed.selector
@@ -283,7 +285,7 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            if (sig != Orders.OrderAlreadyEnded.selector && sig != TWAMM.MustCollectProceedsBeforeCanceling.selector) {
+            if (sig != IOrders.OrderAlreadyEnded.selector && sig != TWAMM.MustCollectProceedsBeforeCanceling.selector) {
                 revert UnexpectedError(err);
             }
         }

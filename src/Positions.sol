@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
+import {IPositions} from "./interfaces/IPositions.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionKey, Bounds} from "./types/positionKey.sol";
@@ -21,15 +22,7 @@ import {computeFee} from "./math/fee.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks liquidity positions in Ekubo Protocol as NFTs
 /// @dev Manages liquidity positions, fee collection, and protocol fees
-contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
-    /// @notice Thrown when deposit fails due to insufficient liquidity for the given slippage tolerance
-    /// @param liquidity The actual liquidity that would be provided
-    /// @param minLiquidity The minimum liquidity required
-    error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
-
-    /// @notice Thrown when deposit amount would cause overflow
-    error DepositOverflow();
-
+contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     /// @notice Protocol fee rate for swaps (as a fraction of 2^64)
     uint64 public immutable swapProtocolFeeX64;
 
@@ -274,10 +267,6 @@ contract Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibl
     function getProtocolFees(address token0, address token1) external view returns (uint128 amount0, uint128 amount1) {
         (amount0, amount1) = core.savedBalances(address(this), token0, token1, bytes32(0));
     }
-
-    /// @notice Thrown when an unexpected call type byte is encountered
-    /// @param b The unexpected call type byte
-    error UnexpectedCallTypeByte(bytes1 b);
 
     /// @notice Handles lock callback data for position operations
     /// @dev Internal function that processes different types of position operations

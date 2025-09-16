@@ -16,6 +16,7 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
+import {IPositions} from "../src/interfaces/IPositions.sol";
 import {TestToken} from "./TestToken.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
@@ -152,7 +153,7 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
             ) {
                 revert UnexpectedError(err);

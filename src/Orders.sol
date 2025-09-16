@@ -4,6 +4,7 @@ pragma solidity =0.8.28;
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
+import {IOrders} from "./interfaces/IOrders.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
@@ -16,14 +17,8 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Tracks TWAMM (Time-Weighted Average Market Maker) orders in Ekubo Protocol as NFTs
 /// @dev Manages long-term orders that execute over time through the TWAMM extension
-contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
+contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using TWAMMLib for *;
-
-    /// @notice Thrown when trying to modify an order that has already ended
-    error OrderAlreadyEnded();
-
-    /// @notice Thrown when the calculated sale rate exceeds the maximum allowed
-    error MaxSaleRateExceeded();
 
     /// @notice The TWAMM extension contract that handles order execution
     TWAMM public immutable twamm;
@@ -197,10 +192,6 @@ contract Orders is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleTo
             }
         }
     }
-
-    /// @notice Thrown when an unexpected call type byte is encountered
-    /// @param b The unexpected call type byte
-    error UnexpectedCallTypeByte(bytes1 b);
 
     /// @notice Handles lock callback data for order operations
     /// @dev Internal function that processes different types of order operations

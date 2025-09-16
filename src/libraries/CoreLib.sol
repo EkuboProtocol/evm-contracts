@@ -82,6 +82,23 @@ library CoreLib {
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 
+    function savedBalancesSlot(address owner, address token0, address token1, bytes32 salt)
+        internal
+        view
+        returns (bytes32 slot)
+    {
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+            mstore(free, owner)
+            mstore(add(free, 0x20), token0)
+            mstore(add(free, 0x40), token1)
+            mstore(add(free, 0x60), salt)
+            mstore(0, keccak256(free, 128))
+            mstore(32, 7)
+            slot := keccak256(0, 64)
+        }
+    }
+
     /// @notice Gets saved balances for a specific owner and token pair
     /// @param core The core contract instance
     /// @param owner The owner of the saved balances
@@ -95,17 +112,7 @@ library CoreLib {
         view
         returns (uint128 savedBalance0, uint128 savedBalance1)
     {
-        bytes32 key;
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-            mstore(free, owner)
-            mstore(add(free, 0x20), token0)
-            mstore(add(free, 0x40), token1)
-            mstore(add(free, 0x60), salt)
-            mstore(0, keccak256(free, 128))
-            mstore(32, 7)
-            key := keccak256(0, 64)
-        }
+        bytes32 key = savedBalancesSlot(owner, token0, token1, salt);
 
         uint256 value = uint256(core.sload(key));
 

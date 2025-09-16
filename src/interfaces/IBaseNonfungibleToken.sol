@@ -5,11 +5,6 @@ pragma solidity =0.8.28;
 /// @notice Interface for the base NFT functionality used by Positions and Orders contracts
 /// @dev Defines the essential NFT functions needed by other contracts in the system
 interface IBaseNonfungibleToken {
-    /// @notice Thrown when caller is not authorized for the token
-    /// @param caller The unauthorized caller
-    /// @param id The token ID
-    error NotUnauthorizedForToken(address caller, uint256 id);
-
     // Essential ERC721 functions
     /// @notice Returns the owner of a specific token
     /// @param id The token ID

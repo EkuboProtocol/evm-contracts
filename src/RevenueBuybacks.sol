@@ -7,14 +7,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {nextValidTime} from "./math/time.sol";
 import {Positions} from "./Positions.sol";
-
-struct OrderKey {
-    address sellToken;
-    address buyToken;
-    uint64 fee;
-    uint256 startTime;
-    uint256 endTime;
-}
+import {OrderKey} from "./extensions/TWAMM.sol";
 
 interface IOrders {
     function mint() external payable returns (uint256 id);
@@ -91,7 +84,7 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
         );
     }
 
-    // Necessary to withdraw available tokens in ETH
+    // Necessary to receive available revenue in ETH
     receive() external payable {}
 
     // Anyone can call this to move the collected proceeds into the current order,
@@ -134,6 +127,10 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
         }
     }
 
+    function isConfigured(address token) internal view returns (bool) {
+        return states[token].minOrderDuration != 0;
+    }
+
     function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
         external
         onlyOwner
@@ -152,6 +149,9 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
 }
 
 contract EkuboRevenueBuybacks is RevenueBuybacks {
+    /// @notice Thrown when neither of the tokens is configured
+    error RevenueTokenNotConfigured();
+
     Positions public immutable positions;
 
     constructor(Positions _positions, address owner, IOrders orders, address buyToken)
@@ -165,8 +165,10 @@ contract EkuboRevenueBuybacks is RevenueBuybacks {
         Ownable(address(positions)).transferOwnership(msg.sender);
     }
 
-    /// @notice Must be called before roll in order to collect revenue
+    /// @notice Must be called before roll in order to collect revenue to the contract
     function withdrawAvailableTokens(address token0, address token1) external {
+        if (!isConfigured(token0) && !isConfigured(token1)) revert RevenueTokenNotConfigured();
+
         (uint128 amount0, uint128 amount1) = positions.getProtocolFees(token0, token1);
         if (amount0 != 0 || amount1 != 0) {
             positions.withdrawProtocolFees(token0, token1, amount0, amount1, address(this));

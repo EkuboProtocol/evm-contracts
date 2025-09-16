@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rpc_urls:
+        alchemy_chain_identifiers:
           - eth-sepolia
           - eth-holesky
           # - eth-mainnet

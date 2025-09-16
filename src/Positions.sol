@@ -24,10 +24,10 @@ import {computeFee} from "./math/fee.sol";
 /// @dev Manages liquidity positions, fee collection, and protocol fees
 contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     /// @notice Protocol fee rate for swaps (as a fraction of 2^64)
-    uint64 public immutable swapProtocolFeeX64;
+    uint64 public immutable SWAP_PROTOCOL_FEE_X64;
 
     /// @notice Denominator for withdrawal protocol fee calculation
-    uint64 public immutable withdrawalProtocolFeeDenominator;
+    uint64 public immutable WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR;
 
     using CoreLib for ICore;
 
@@ -41,8 +41,8 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         BaseLocker(core)
         UsesCore(core)
     {
-        swapProtocolFeeX64 = _swapProtocolFeeX64;
-        withdrawalProtocolFeeDenominator = _withdrawalProtocolFeeDenominator;
+        SWAP_PROTOCOL_FEE_X64 = _swapProtocolFeeX64;
+        WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR = _withdrawalProtocolFeeDenominator;
     }
 
     /// @inheritdoc IPositions
@@ -52,9 +52,9 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
     {
         bytes32 poolId = poolKey.toPoolId();
-        (SqrtRatio sqrtRatio,,) = core.poolState(poolId);
+        (SqrtRatio sqrtRatio,,) = CORE.poolState(poolId);
         bytes32 positionId = PositionKey(bytes32(id), address(this), bounds).toPositionId();
-        Position memory position = core.poolPositions(poolId, positionId);
+        Position memory position = CORE.poolPositions(poolId, positionId);
 
         liquidity = position.liquidity;
 
@@ -67,7 +67,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
         (principal0, principal1) = (uint128(-delta0), uint128(-delta1));
 
-        FeesPerLiquidity memory feesPerLiquidityInside = core.getPoolFeesPerLiquidityInside(poolKey, bounds);
+        FeesPerLiquidity memory feesPerLiquidityInside = CORE.getPoolFeesPerLiquidityInside(poolKey, bounds);
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
     }
 
@@ -80,7 +80,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         uint128 maxAmount1,
         uint128 minLiquidity
     ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        (SqrtRatio sqrtRatio,,) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio,,) = CORE.poolState(poolKey.toPoolId());
 
         liquidity = maxLiquidity(
             sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), maxAmount0, maxAmount1
@@ -148,10 +148,10 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         returns (bool initialized, SqrtRatio sqrtRatio)
     {
         // the before update position hook shouldn't be taken into account here
-        (sqrtRatio,,) = core.poolState(poolKey.toPoolId());
+        (sqrtRatio,,) = CORE.poolState(poolKey.toPoolId());
         if (sqrtRatio.isZero()) {
             initialized = true;
-            sqrtRatio = core.initializePool(poolKey, tick);
+            sqrtRatio = CORE.initializePool(poolKey, tick);
         }
     }
 
@@ -191,7 +191,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
     /// @inheritdoc IPositions
     function getProtocolFees(address token0, address token1) external view returns (uint128 amount0, uint128 amount1) {
-        (amount0, amount1) = core.savedBalances(address(this), token0, token1, bytes32(0));
+        (amount0, amount1) = CORE.savedBalances(address(this), token0, token1, bytes32(0));
     }
 
     /// @notice Handles lock callback data for position operations
@@ -205,7 +205,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             (, address token0, address token1, uint128 amount0, uint128 amount1, address recipient) =
                 abi.decode(data, (bytes1, address, address, uint128, uint128, address));
 
-            core.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
+            CORE.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
 
             withdraw(token0, amount0, recipient);
             withdraw(token1, amount1, recipient);
@@ -213,7 +213,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             (, address caller, uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
                 abi.decode(data, (bytes1, address, uint256, PoolKey, Bounds, uint128));
 
-            (int128 delta0, int128 delta1) = core.updatePosition(
+            (int128 delta0, int128 delta1) = CORE.updatePosition(
                 poolKey,
                 UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: int128(liquidity)})
             );
@@ -240,16 +240,16 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
             // collect first in case we are withdrawing the entire amount
             if (withFees) {
-                (amount0, amount1) = core.collectFees(poolKey, bytes32(id), bounds);
-                if (swapProtocolFeeX64 != 0) {
+                (amount0, amount1) = CORE.collectFees(poolKey, bytes32(id), bounds);
+                if (SWAP_PROTOCOL_FEE_X64 != 0) {
                     uint128 swapProtocolFee0;
                     uint128 swapProtocolFee1;
 
-                    swapProtocolFee0 = computeFee(amount0, swapProtocolFeeX64);
-                    swapProtocolFee1 = computeFee(amount1, swapProtocolFeeX64);
+                    swapProtocolFee0 = computeFee(amount0, SWAP_PROTOCOL_FEE_X64);
+                    swapProtocolFee1 = computeFee(amount1, SWAP_PROTOCOL_FEE_X64);
 
                     if (swapProtocolFee0 != 0 || swapProtocolFee1 != 0) {
-                        core.updateSavedBalances(
+                        CORE.updateSavedBalances(
                             poolKey.token0,
                             poolKey.token1,
                             bytes32(0),
@@ -264,7 +264,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             }
 
             if (liquidity != 0) {
-                (int128 delta0, int128 delta1) = core.updatePosition(
+                (int128 delta0, int128 delta1) = CORE.updatePosition(
                     poolKey,
                     UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: -int128(liquidity)})
                 );
@@ -273,13 +273,13 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
                 uint128 withdrawalFee0;
                 uint128 withdrawalFee1;
-                if (fee != 0 && withdrawalProtocolFeeDenominator != 0) {
-                    withdrawalFee0 = computeFee(uint128(-delta0), fee / withdrawalProtocolFeeDenominator);
-                    withdrawalFee1 = computeFee(uint128(-delta1), fee / withdrawalProtocolFeeDenominator);
+                if (fee != 0 && WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR != 0) {
+                    withdrawalFee0 = computeFee(uint128(-delta0), fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);
+                    withdrawalFee1 = computeFee(uint128(-delta1), fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);
 
                     if (withdrawalFee0 != 0 || withdrawalFee1 != 0) {
                         // we know cast won't overflow because delta0 and delta1 were originally int128
-                        core.updateSavedBalances(
+                        CORE.updateSavedBalances(
                             poolKey.token0, poolKey.token1, bytes32(0), int128(withdrawalFee0), int128(withdrawalFee1)
                         );
                     }

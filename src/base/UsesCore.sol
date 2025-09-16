@@ -6,14 +6,14 @@ import {ICore} from "../interfaces/ICore.sol";
 abstract contract UsesCore {
     error CoreOnly();
 
-    ICore internal immutable core;
+    ICore internal immutable CORE;
 
     constructor(ICore _core) {
-        core = _core;
+        CORE = _core;
     }
 
     modifier onlyCore() {
-        if (msg.sender != address(core)) revert CoreOnly();
+        if (msg.sender != address(CORE)) revert CoreOnly();
         _;
     }
 }

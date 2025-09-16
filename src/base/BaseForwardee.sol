@@ -6,14 +6,14 @@ import {IForwardee, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 abstract contract BaseForwardee is IForwardee {
     error BaseForwardeeAccountantOnly();
 
-    IFlashAccountant private immutable accountant;
+    IFlashAccountant private immutable ACCOUNTANT;
 
     constructor(IFlashAccountant _accountant) {
-        accountant = _accountant;
+        ACCOUNTANT = _accountant;
     }
 
     function forwarded(uint256 id, address originalLocker) external {
-        if (msg.sender != address(accountant)) revert BaseForwardeeAccountantOnly();
+        if (msg.sender != address(ACCOUNTANT)) revert BaseForwardeeAccountantOnly();
 
         bytes memory data = msg.data[68:];
 

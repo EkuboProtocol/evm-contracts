@@ -50,9 +50,9 @@ function liquidityDeltaToAmountDelta(
 
 function maxLiquidityForToken0(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint128 amount) pure returns (uint256) {
     unchecked {
-        uint256 numerator_1 = FixedPointMathLib.fullMulDivN(sqrtRatioLower, sqrtRatioUpper, 128);
+        uint256 numerator1 = FixedPointMathLib.fullMulDivN(sqrtRatioLower, sqrtRatioUpper, 128);
 
-        return FixedPointMathLib.fullMulDiv(amount, numerator_1, (sqrtRatioUpper - sqrtRatioLower));
+        return FixedPointMathLib.fullMulDiv(amount, numerator1, (sqrtRatioUpper - sqrtRatioLower));
     }
 }
 

@@ -12,10 +12,10 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 contract MEVCaptureRouter is Router {
     using CoreLib for *;
 
-    address public immutable mevCapture;
+    address public immutable MEV_CAPTURE;
 
     constructor(ICore core, address _mevCapture) Router(core) {
-        mevCapture = _mevCapture;
+        MEV_CAPTURE = _mevCapture;
     }
 
     function _swap(
@@ -26,11 +26,11 @@ contract MEVCaptureRouter is Router {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal override returns (int128 delta0, int128 delta1) {
-        if (poolKey.extension() != address(mevCapture)) {
+        if (poolKey.extension() != address(MEV_CAPTURE)) {
             (delta0, delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         } else {
             (delta0, delta1) = abi.decode(
-                forward(address(mevCapture), abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
+                forward(address(MEV_CAPTURE), abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
                 (int128, int128)
             );
             if (value != 0) {

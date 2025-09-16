@@ -49,17 +49,17 @@ contract TWAMMDataFetcher is UsesCore {
     using CoreLib for *;
     using TWAMMLib for *;
 
-    TWAMM public immutable twamm;
+    TWAMM public immutable TWAMM_EXTENSION;
 
     constructor(ICore core, TWAMM _twamm) UsesCore(core) {
-        twamm = _twamm;
+        TWAMM_EXTENSION = _twamm;
     }
 
     function getPoolState(PoolKey memory poolKey) public view returns (PoolState memory state) {
         unchecked {
-            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolKey.toPoolId());
+            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolKey.toPoolId());
             (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
-                twamm.poolState(poolKey.toPoolId());
+                TWAMM_EXTENSION.poolState(poolKey.toPoolId());
 
             uint256 lastTimeReal = block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime);
 
@@ -79,7 +79,7 @@ contract TWAMMDataFetcher is UsesCore {
             }
 
             (bool success, bytes memory result) =
-                address(twamm).staticcall(abi.encodePacked(IExposedStorage.sload.selector, timeInfoSlots));
+                address(TWAMM_EXTENSION).staticcall(abi.encodePacked(IExposedStorage.sload.selector, timeInfoSlots));
 
             assert(success);
 
@@ -120,7 +120,7 @@ contract TWAMMDataFetcher is UsesCore {
     }
 
     function executeVirtualOrdersAndGetPoolState(PoolKey memory poolKey) public returns (PoolState memory state) {
-        twamm.lockAndExecuteVirtualOrders(poolKey);
+        TWAMM_EXTENSION.lockAndExecuteVirtualOrders(poolKey);
         state = getPoolState(poolKey);
     }
 }

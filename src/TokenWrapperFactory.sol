@@ -19,12 +19,12 @@ contract TokenWrapperFactory {
     event TokenWrapperDeployed(IERC20 underlyingToken, uint256 unlockTime, TokenWrapper tokenWrapper);
 
     /// @notice The core contract associated with all the token wrappers that are deployed
-    ICore public immutable core;
+    ICore public immutable CORE;
 
     /// @notice Constructs the TokenWrapperFactory
     /// @param _core The Ekubo Core contract
     constructor(ICore _core) {
-        core = _core;
+        CORE = _core;
     }
 
     /// @notice Deploys a new TokenWrapper contract
@@ -35,7 +35,7 @@ contract TokenWrapperFactory {
     function deployWrapper(IERC20 underlyingToken, uint256 unlockTime) external returns (TokenWrapper tokenWrapper) {
         bytes32 salt = EfficientHashLib.hash(uint256(uint160(address(underlyingToken))), unlockTime);
 
-        tokenWrapper = new TokenWrapper{salt: salt}(core, underlyingToken, unlockTime);
+        tokenWrapper = new TokenWrapper{salt: salt}(CORE, underlyingToken, unlockTime);
 
         emit TokenWrapperDeployed(underlyingToken, unlockTime, tokenWrapper);
     }

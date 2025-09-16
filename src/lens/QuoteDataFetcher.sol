@@ -42,7 +42,7 @@ contract QuoteDataFetcher is UsesCore {
             results = new QuoteData[](poolKeys.length);
             for (uint256 i = 0; i < poolKeys.length; i++) {
                 bytes32 poolId = poolKeys[i].toPoolId();
-                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
+                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolId);
 
                 if (!sqrtRatio.isZero()) {
                     int256 minTick;
@@ -102,12 +102,12 @@ contract QuoteDataFetcher is UsesCore {
             DynamicArrayLib.DynamicArray memory packedTicks;
 
             while (toTick >= fromTick) {
-                (int32 tick, bool initialized) = core.prevInitializedTick(
+                (int32 tick, bool initialized) = CORE.prevInitializedTick(
                     poolId, toTick, tickSpacing, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
                 );
 
                 if (initialized && tick >= fromTick) {
-                    (int128 liquidityDelta,) = core.poolTicks(poolId, tick);
+                    (int128 liquidityDelta,) = CORE.poolTicks(poolId, tick);
                     uint256 v;
                     assembly ("memory-safe") {
                         v := or(shl(128, tick), and(liquidityDelta, 0xffffffffffffffffffffffffffffffff))

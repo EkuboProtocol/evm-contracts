@@ -87,7 +87,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     /// @notice Accumulates any pool fees from past blocks
     function accumulatePoolFees(PoolKey memory poolKey) public {
         // the only thing we lock for is accumulating fees, so all we need to encode is the pool key
-        address target = address(core);
+        address target = address(CORE);
         assembly ("memory-safe") {
             let o := mload(0x40)
             mstore(o, shl(224, 0xf83d08ba))
@@ -124,8 +124,8 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                 (int32 tick, uint128 fees0, uint128 fees1) = loadCoreState(poolId, poolKey.token0, poolKey.token1);
 
                 if (fees0 != 0 || fees1 != 0) {
-                    core.accumulateAsFees(poolKey, fees0, fees1);
-                    core.updateSavedBalances(
+                    CORE.accumulateAsFees(poolKey, fees0, fees1);
+                    CORE.updateSavedBalances(
                         poolKey.token0, poolKey.token1, poolId, -int256(uint256(fees0)), -int256(uint256(fees1))
                     );
                 }
@@ -147,7 +147,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             poolId
         );
 
-        address c = address(core);
+        address c = address(CORE);
         assembly ("memory-safe") {
             let freeMemPointer := mload(64)
 
@@ -183,7 +183,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     }
 
     function loadTick(bytes32 poolId) private view returns (int32 tick) {
-        address c = address(core);
+        address c = address(CORE);
         assembly ("memory-safe") {
             mstore(0, poolId)
             mstore(32, 1)
@@ -217,7 +217,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                     loadCoreState({poolId: poolId, token0: poolKey.token0, token1: poolKey.token1});
 
                 if (fees0 != 0 || fees1 != 0) {
-                    core.accumulateAsFees(poolKey, fees0, fees1);
+                    CORE.accumulateAsFees(poolKey, fees0, fees1);
                     // never overflows int256 container
                     saveDelta0 -= int256(uint256(fees0));
                     saveDelta1 -= int256(uint256(fees1));
@@ -227,7 +227,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
                 setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
             }
 
-            (int128 delta0, int128 delta1) = core.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (int128 delta0, int128 delta1) = CORE.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
             int32 tickAfterSwap = loadTick(poolId);
 
@@ -274,7 +274,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
             }
 
             if (saveDelta0 != 0 || saveDelta1 != 0) {
-                core.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, saveDelta0, saveDelta1);
+                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, saveDelta0, saveDelta1);
             }
 
             result = abi.encode(delta0, delta1);

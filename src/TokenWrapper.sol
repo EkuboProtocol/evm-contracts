@@ -26,18 +26,18 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     error InsufficientAllowance();
 
     /// @notice The underlying token that is wrapped by this contract
-    IERC20 public immutable underlyingToken;
+    IERC20 public immutable UNDERLYING_TOKEN;
 
     /// @notice The timestamp after which the token may be unwrapped
-    uint256 public immutable unlockTime;
+    uint256 public immutable UNLOCK_TIME;
 
     /// @notice Constructs a new TokenWrapper
     /// @param core The Ekubo Core contract
     /// @param _underlyingToken The token to be wrapped
     /// @param _unlockTime The timestamp after which tokens can be unwrapped
     constructor(ICore core, IERC20 _underlyingToken, uint256 _unlockTime) UsesCore(core) BaseForwardee(core) {
-        underlyingToken = _underlyingToken;
-        unlockTime = _unlockTime;
+        UNDERLYING_TOKEN = _underlyingToken;
+        UNLOCK_TIME = _unlockTime;
     }
 
     /// @inheritdoc IERC20
@@ -54,16 +54,16 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// @inheritdoc IERC20
     /// @dev Returns the transient balance for Core contract, otherwise returns stored balance
     function balanceOf(address account) external view returns (uint256) {
-        if (account == address(core)) return coreBalance;
+        if (account == address(CORE)) return coreBalance;
         return _balanceOf[account];
     }
 
     /// @inheritdoc IERC20
     /// @dev Total supply is tracked in Core's saved balances
     function totalSupply() external view override returns (uint256) {
-        (uint128 supply,) = core.savedBalances({
+        (uint128 supply,) = CORE.savedBalances({
             owner: address(this),
-            token0: address(underlyingToken),
+            token0: address(UNDERLYING_TOKEN),
             token1: address(type(uint160).max),
             salt: bytes32(0)
         });
@@ -74,23 +74,23 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// @inheritdoc IERC20
     /// @dev Combines underlying token name with unlock date
     function name() external view returns (string memory) {
-        return string.concat(underlyingToken.name(), " ", toDate(unlockTime));
+        return string.concat(UNDERLYING_TOKEN.name(), " ", toDate(UNLOCK_TIME));
     }
 
     /// @inheritdoc IERC20
     /// @dev Combines "g" prefix with underlying token symbol and quarter
     function symbol() external view returns (string memory) {
-        return string.concat("g", underlyingToken.symbol(), "-", toQuarter(unlockTime));
+        return string.concat("g", UNDERLYING_TOKEN.symbol(), "-", toQuarter(UNLOCK_TIME));
     }
 
     /// @inheritdoc IERC20
     function decimals() external view returns (uint8) {
-        return underlyingToken.decimals();
+        return UNDERLYING_TOKEN.decimals();
     }
 
     /// @inheritdoc IERC20
     function transfer(address to, uint256 amount) external returns (bool) {
-        if (msg.sender != address(core)) {
+        if (msg.sender != address(CORE)) {
             uint256 balance = _balanceOf[msg.sender];
             if (balance < amount) {
                 revert InsufficientBalance();
@@ -100,7 +100,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
                 _balanceOf[msg.sender] = balance - amount;
             }
         }
-        if (to == address(core)) {
+        if (to == address(CORE)) {
             coreBalance += amount;
         } else if (to != address(0)) {
             // we save storage writes on burn by checking to != address(0)
@@ -139,7 +139,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
             _balanceOf[from] = balance - amount;
         }
 
-        if (to == address(core)) {
+        if (to == address(CORE)) {
             coreBalance += amount;
         } else {
             _balanceOf[to] += amount;
@@ -159,18 +159,18 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
 
         // unwrap
         if (amount < 0) {
-            if (block.timestamp < unlockTime) revert TooEarly();
+            if (block.timestamp < UNLOCK_TIME) revert TooEarly();
         }
 
-        core.updateSavedBalances({
-            token0: address(underlyingToken),
+        CORE.updateSavedBalances({
+            token0: address(UNDERLYING_TOKEN),
             token1: address(type(uint160).max),
             salt: bytes32(0),
             delta0: amount,
             delta1: 0
         });
 
-        core.updateDebt(-amount);
+        CORE.updateDebt(-amount);
 
         return bytes("");
     }

@@ -36,10 +36,10 @@ contract PriceFetcher {
     error MinimumOnePeriodRealizedVolatility();
     error VolatilityRequiresMoreIntervals();
 
-    Oracle public immutable oracle;
+    Oracle public immutable ORACLE;
 
     constructor(Oracle _oracle) {
-        oracle = _oracle;
+        ORACLE = _oracle;
     }
 
     struct PeriodAverage {
@@ -62,9 +62,9 @@ contract PriceFetcher {
                     baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
 
                 (uint160 secondsPerLiquidityCumulativeEnd, int64 tickCumulativeEnd) =
-                    oracle.extrapolateSnapshot(otherToken, endTime);
+                    ORACLE.extrapolateSnapshot(otherToken, endTime);
                 (uint160 secondsPerLiquidityCumulativeStart, int64 tickCumulativeStart) =
-                    oracle.extrapolateSnapshot(otherToken, startTime);
+                    ORACLE.extrapolateSnapshot(otherToken, startTime);
 
                 return PeriodAverage(
                     uint128(
@@ -104,7 +104,7 @@ contract PriceFetcher {
                 averages = new PeriodAverage[](numIntervals);
 
                 Oracle.Observation[] memory observations =
-                    oracle.getExtrapolatedSnapshotsForSortedTimestamps(otherToken, timestamps);
+                    ORACLE.getExtrapolatedSnapshotsForSortedTimestamps(otherToken, timestamps);
 
                 // for each but the last observation, populate the period
                 for (uint256 i = 0; i < numIntervals; i++) {
@@ -152,7 +152,7 @@ contract PriceFetcher {
         uint32 period
     ) public view returns (uint64 startTime, PeriodAverage[] memory averages) {
         uint256 earliestObservationTime = FixedPointMathLib.max(
-            oracle.getEarliestSnapshotTimestamp(baseToken), oracle.getEarliestSnapshotTimestamp(quoteToken)
+            ORACLE.getEarliestSnapshotTimestamp(baseToken), ORACLE.getEarliestSnapshotTimestamp(quoteToken)
         );
 
         // no observations available for the period, return an empty array
@@ -216,7 +216,7 @@ contract PriceFetcher {
                 if (token == NATIVE_TOKEN_ADDRESS) {
                     results[i] = PeriodAverage(type(uint128).max, 0);
                 } else {
-                    uint256 maxPeriodForToken = oracle.getMaximumObservationPeriod(token);
+                    uint256 maxPeriodForToken = ORACLE.getMaximumObservationPeriod(token);
 
                     if (maxPeriodForToken >= observationPeriod) {
                         results[i] = getAveragesOverPeriod(token, NATIVE_TOKEN_ADDRESS, startTime, endTime);

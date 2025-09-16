@@ -108,7 +108,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal virtual returns (int128 delta0, int128 delta1) {
-        (delta0, delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        (delta0, delta1) = CORE.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {

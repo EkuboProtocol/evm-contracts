@@ -21,14 +21,14 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     using TWAMMLib for *;
 
     /// @notice The TWAMM extension contract that handles order execution
-    TWAMM public immutable twamm;
+    TWAMM public immutable TWAMM_EXTENSION;
 
     /// @notice Constructs the Orders contract
     /// @param core The core contract instance
     /// @param _twamm The TWAMM extension contract
     /// @param owner The owner of the contract (for access control)
     constructor(ICore core, TWAMM _twamm, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {
-        twamm = _twamm;
+        TWAMM_EXTENSION = _twamm;
     }
 
     /// @inheritdoc IOrders
@@ -112,16 +112,16 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
         unchecked {
-            PoolKey memory poolKey = orderKeyToPoolKey(orderKey, address(twamm));
-            twamm.lockAndExecuteVirtualOrders(poolKey);
+            PoolKey memory poolKey = orderKeyToPoolKey(orderKey, address(TWAMM_EXTENSION));
+            TWAMM_EXTENSION.lockAndExecuteVirtualOrders(poolKey);
 
             uint32 lastUpdateTime;
             uint256 rewardRateSnapshot;
             (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
-                twamm.orderState(address(this), bytes32(id), orderKey.toOrderId());
+                TWAMM_EXTENSION.orderState(address(this), bytes32(id), orderKey.toOrderId());
 
             if (saleRate != 0) {
-                uint256 rewardRateInside = twamm.getRewardRateInside(
+                uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(
                     poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
                 );
 
@@ -172,7 +172,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
 
             int256 amount = abi.decode(
                 forward(
-                    address(twamm),
+                    address(TWAMM_EXTENSION),
                     abi.encode(
                         uint256(0),
                         UpdateSaleRateParams({
@@ -198,7 +198,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
 
             uint128 proceeds = abi.decode(
                 forward(
-                    address(twamm),
+                    address(TWAMM_EXTENSION),
                     abi.encode(uint256(1), CollectProceedsParams({salt: bytes32(id), orderKey: orderKey}))
                 ),
                 (uint128)

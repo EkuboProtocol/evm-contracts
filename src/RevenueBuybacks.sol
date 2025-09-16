@@ -39,15 +39,15 @@ struct BuybacksState {
 abstract contract RevenueBuybacks is Ownable, Multicallable {
     /// @notice The Orders contract used to create and manage TWAMM orders
     /// @dev All buyback orders are created through this contract
-    IOrders public immutable orders;
+    IOrders public immutable ORDERS;
 
     /// @notice The NFT token ID that represents all buyback orders created by this contract
     /// @dev A single NFT is minted and reused for all buyback orders to simplify management
-    uint256 public immutable nftId;
+    uint256 public immutable NFT_ID;
 
     /// @notice The token that is purchased with collected revenue
     /// @dev This is typically the protocol's governance or utility token
-    address public immutable buyToken;
+    address public immutable BUY_TOKEN;
 
     /// @notice Thrown when minimum order duration exceeds target order duration
     /// @dev This would prevent orders from being created since the condition would never be met
@@ -74,16 +74,16 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
     /// @param _buyToken The token that will be purchased with collected revenue
     constructor(address owner, IOrders _orders, address _buyToken) {
         _initializeOwner(owner);
-        orders = _orders;
-        buyToken = _buyToken;
-        nftId = Orders(address(orders)).mint();
+        ORDERS = _orders;
+        BUY_TOKEN = _buyToken;
+        NFT_ID = Orders(address(ORDERS)).mint();
     }
 
     /// @notice Approves the Orders contract to spend unlimited amounts of a token
     /// @dev Must be called at least once for each revenue token before creating buyback orders
     /// @param token The token to approve for spending by the Orders contract
     function approveMax(address token) external {
-        SafeTransferLib.safeApproveWithRetry(token, address(orders), type(uint256).max);
+        SafeTransferLib.safeApproveWithRetry(token, address(ORDERS), type(uint256).max);
     }
 
     /// @notice Withdraws leftover tokens from the contract (only callable by owner)
@@ -102,8 +102,8 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
     /// @param endTime The end time of the order to collect proceeds from
     /// @return proceeds The amount of buyToken received from the completed order
     function collect(address token, uint64 fee, uint256 endTime) external returns (uint128 proceeds) {
-        proceeds = orders.collectProceeds(
-            nftId, OrderKey({sellToken: token, buyToken: buyToken, fee: fee, startTime: 0, endTime: endTime}), owner()
+        proceeds = ORDERS.collectProceeds(
+            NFT_ID, OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: fee, startTime: 0, endTime: endTime}), owner()
         );
     }
 
@@ -122,8 +122,8 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
             BuybacksState memory state = states[token];
             // minOrderDuration == 0 indicates the token is not configured
             if (state.minOrderDuration != 0) {
-                bool isETH = token == address(0);
-                uint256 amountToSpend = isETH ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
+                bool isEth = token == address(0);
+                uint256 amountToSpend = isEth ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
                 uint32 timeRemaining = state.lastEndTime - uint32(block.timestamp);
                 // if the fee changed, or the amount of time exceeds the min order duration
@@ -144,9 +144,9 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
                 }
 
                 if (amountToSpend != 0) {
-                    saleRate = orders.increaseSellAmount{value: isETH ? amountToSpend : 0}(
-                        nftId,
-                        OrderKey({sellToken: token, buyToken: buyToken, fee: state.fee, startTime: 0, endTime: endTime}),
+                    saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
+                        NFT_ID,
+                        OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: state.fee, startTime: 0, endTime: endTime}),
                         uint128(amountToSpend),
                         type(uint112).max
                     );
@@ -196,7 +196,7 @@ contract EkuboRevenueBuybacks is RevenueBuybacks {
 
     /// @notice The Positions contract used to collect protocol fees
     /// @dev Protocol fees are collected from this contract and used to fund buyback orders
-    IPositions public immutable positions;
+    IPositions public immutable POSITIONS;
 
     /// @notice Constructs the EkuboRevenueBuybacks contract
     /// @param _positions The Positions contract instance for collecting protocol fees
@@ -206,14 +206,14 @@ contract EkuboRevenueBuybacks is RevenueBuybacks {
     constructor(IPositions _positions, address owner, IOrders orders, address buyToken)
         RevenueBuybacks(owner, orders, buyToken)
     {
-        positions = _positions;
+        POSITIONS = _positions;
     }
 
     /// @notice Reclaims ownership of the Positions contract
     /// @dev Transfers ownership of the Positions contract to the caller (must be owner)
     /// This is used when the Positions contract should be owned by this buybacks contract
     function reclaim() external onlyOwner {
-        Ownable(address(positions)).transferOwnership(msg.sender);
+        Ownable(address(POSITIONS)).transferOwnership(msg.sender);
     }
 
     /// @notice Withdraws available protocol fees from the Positions contract
@@ -224,9 +224,9 @@ contract EkuboRevenueBuybacks is RevenueBuybacks {
     function withdrawAvailableTokens(address token0, address token1) external {
         if (!isConfigured(token0) && !isConfigured(token1)) revert RevenueTokenNotConfigured();
 
-        (uint128 amount0, uint128 amount1) = positions.getProtocolFees(token0, token1);
+        (uint128 amount0, uint128 amount1) = POSITIONS.getProtocolFees(token0, token1);
         if (amount0 != 0 || amount1 != 0) {
-            positions.withdrawProtocolFees(token0, token1, amount0, amount1, address(this));
+            POSITIONS.withdrawProtocolFees(token0, token1, amount0, amount1, address(this));
         }
     }
 }

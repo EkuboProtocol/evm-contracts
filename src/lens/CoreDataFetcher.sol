@@ -15,7 +15,7 @@ contract CoreDataFetcher is UsesCore {
     constructor(ICore core) UsesCore(core) {}
 
     function isExtensionRegistered(address extension) external view returns (bool registered) {
-        registered = core.isExtensionRegistered(extension);
+        registered = CORE.isExtensionRegistered(extension);
     }
 
     function poolPrice(PoolKey memory poolKey) external view returns (uint256 sqrtRatioFixed, int32 tick) {
@@ -29,7 +29,7 @@ contract CoreDataFetcher is UsesCore {
         view
         returns (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity)
     {
-        (sqrtRatio, tick, liquidity) = core.poolState(poolKey.toPoolId());
+        (sqrtRatio, tick, liquidity) = CORE.poolState(poolKey.toPoolId());
     }
 
     function poolPosition(PoolKey memory poolKey, PositionKey memory positionKey)
@@ -37,7 +37,7 @@ contract CoreDataFetcher is UsesCore {
         view
         returns (Position memory position)
     {
-        position = core.poolPositions(poolKey.toPoolId(), positionKey.toPositionId());
+        position = CORE.poolPositions(poolKey.toPoolId(), positionKey.toPositionId());
     }
 
     function savedBalances(address owner, address token0, address token1, bytes32 salt)
@@ -45,7 +45,7 @@ contract CoreDataFetcher is UsesCore {
         view
         returns (uint128 savedBalance0, uint128 savedBalance1)
     {
-        (savedBalance0, savedBalance1) = core.savedBalances(owner, token0, token1, salt);
+        (savedBalance0, savedBalance1) = CORE.savedBalances(owner, token0, token1, salt);
     }
 
     function poolTicks(bytes32 poolId, int32 tick)
@@ -53,6 +53,6 @@ contract CoreDataFetcher is UsesCore {
         view
         returns (int128 liquidityDelta, uint128 liquidityNet)
     {
-        (liquidityDelta, liquidityNet) = core.poolTicks(poolId, tick);
+        (liquidityDelta, liquidityNet) = CORE.poolTicks(poolId, tick);
     }
 }

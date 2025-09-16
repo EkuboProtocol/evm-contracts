@@ -11,7 +11,7 @@ import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SaleRateOverflow} from "../src/math/twamm.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -27,7 +27,6 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {LibBit} from "solady/utils/LibBit.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract Handler is StdUtils, StdAssertions {
@@ -98,7 +97,7 @@ contract Handler is StdUtils, StdAssertions {
     function advanceTime(uint32 by) public {
         totalAdvanced += by;
         if (totalAdvanced > type(uint32).max) {
-            TWAMM twamm = orders.twamm();
+            TWAMM twamm = orders.TWAMM_EXTENSION();
             // first do the execute on all pools, because we assume all pools are executed at least this often
             for (uint256 i = 0; i < activeOrders.length; i++) {
                 twamm.lockAndExecuteVirtualOrders(orderKeyToPoolKey(activeOrders[i].orderKey, address(twamm)));
@@ -111,7 +110,9 @@ contract Handler is StdUtils, StdAssertions {
     function createNewPool(uint64 fee, int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
-            address(token0), address(token1), toConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.twamm()))
+            address(token0),
+            address(token1),
+            toConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.TWAMM_EXTENSION()))
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);

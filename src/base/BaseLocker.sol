@@ -16,19 +16,19 @@ abstract contract BaseLocker is ILocker {
     error BaseLockerAccountantOnly();
 
     /// @notice The flash accountant contract that manages locks and token transfers
-    IFlashAccountant internal immutable accountant;
+    IFlashAccountant internal immutable ACCOUNTANT;
 
     /// @notice Constructs the BaseLocker with a flash accountant
     /// @param _accountant The flash accountant contract
     constructor(IFlashAccountant _accountant) {
-        accountant = _accountant;
+        ACCOUNTANT = _accountant;
     }
 
     /// CALLBACK HANDLERS
 
     /// @inheritdoc ILocker
     function locked(uint256 id) external {
-        if (msg.sender != address(accountant)) revert BaseLockerAccountantOnly();
+        if (msg.sender != address(ACCOUNTANT)) revert BaseLockerAccountantOnly();
 
         bytes memory data = msg.data[36:];
 
@@ -47,7 +47,7 @@ abstract contract BaseLocker is ILocker {
     /// @param data The data to execute within the lock
     /// @return result The result of the lock execution
     function lock(bytes memory data) internal returns (bytes memory result) {
-        address target = address(accountant);
+        address target = address(ACCOUNTANT);
 
         assembly ("memory-safe") {
             // We will store result where the free memory pointer is now, ...
@@ -85,7 +85,7 @@ abstract contract BaseLocker is ILocker {
     /// @param data The data to execute within the lock
     /// @return result The revert data from the lock execution
     function lockAndExpectRevert(bytes memory data) internal returns (bytes memory result) {
-        address target = address(accountant);
+        address target = address(ACCOUNTANT);
 
         assembly ("memory-safe") {
             // We will store result where the free memory pointer is now, ...
@@ -123,9 +123,9 @@ abstract contract BaseLocker is ILocker {
     function pay(address from, address token, uint256 amount) internal {
         if (amount != 0) {
             if (token == NATIVE_TOKEN_ADDRESS) {
-                SafeTransferLib.safeTransferETH(address(accountant), amount);
+                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
             } else {
-                accountant.payFrom(from, token, amount);
+                ACCOUNTANT.payFrom(from, token, amount);
             }
         }
     }
@@ -136,7 +136,7 @@ abstract contract BaseLocker is ILocker {
     /// @param data The call data to forward
     /// @return result The result of the forwarded call
     function forward(address to, bytes memory data) internal returns (bytes memory result) {
-        address target = address(accountant);
+        address target = address(ACCOUNTANT);
 
         assembly ("memory-safe") {
             // We will store result where the free memory pointer is now, ...
@@ -173,7 +173,7 @@ abstract contract BaseLocker is ILocker {
     /// @param recipient The address to receive the tokens
     function withdraw(address token, uint128 amount, address recipient) internal {
         if (amount > 0) {
-            accountant.withdraw(token, recipient, amount);
+            ACCOUNTANT.withdraw(token, recipient, amount);
         }
     }
 

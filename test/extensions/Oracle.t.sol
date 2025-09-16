@@ -14,13 +14,12 @@ import {
     NATIVE_TOKEN_ADDRESS
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
-import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {Oracle, oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {OracleLib} from "../../src/libraries/OracleLib.sol";
 import {TestToken} from "../TestToken.sol";
-import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
+import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
 import {Vm} from "forge-std/Vm.sol";

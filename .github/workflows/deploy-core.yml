@@ -37,3 +37,5 @@ jobs:
             --broadcast
         env:
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          SALT: "0x81385ba264a7f8c1b8208abaa20f59081c2afc5415c2b57c383f951930ff6faa"
+          EXPECTED_ADDRESS: "0xe0e0e02b1271d26dCBA2ac92f748dC24c8629Ff8"

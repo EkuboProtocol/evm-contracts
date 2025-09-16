@@ -409,19 +409,19 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
                     uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
                     if (isToken1) {
-                        core.accumulateAsFees(poolKey, 0, fee);
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                        CORE.accumulateAsFees(poolKey, 0, fee);
+                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
                     } else {
-                        core.accumulateAsFees(poolKey, fee, 0);
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                        CORE.accumulateAsFees(poolKey, fee, 0);
+                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
                     }
 
                     amountDelta += int128(fee);
                 } else {
                     if (isToken1) {
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
                     } else {
-                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
                     }
                 }
 
@@ -449,11 +449,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                 if (purchasedAmount != 0) {
                     if (params.orderKey.sellToken > params.orderKey.buyToken) {
-                        core.updateSavedBalances(
+                        CORE.updateSavedBalances(
                             poolKey.token0, poolKey.token1, bytes32(0), -int256(purchasedAmount), 0
                         );
                     } else {
-                        core.updateSavedBalances(
+                        CORE.updateSavedBalances(
                             poolKey.token0, poolKey.token1, bytes32(0), 0, -int256(purchasedAmount)
                         );
                     }
@@ -537,7 +537,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
-                        (SqrtRatio sqrtRatio,, uint128 liquidity) = core.poolState(poolId);
+                        (SqrtRatio sqrtRatio,, uint128 liquidity) = CORE.poolState(poolId);
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                             sqrtRatio: sqrtRatio,
                             liquidity: liquidity,
@@ -550,10 +550,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         Delta memory swapDelta;
                         if (sqrtRatioNext > sqrtRatio) {
                             (swapDelta.delta0, swapDelta.delta1) =
-                                core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
+                                CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
                         } else if (sqrtRatioNext < sqrtRatio) {
                             (swapDelta.delta0, swapDelta.delta1) =
-                                core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
+                                CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
                         saveDelta0 -= swapDelta.delta0;
@@ -566,10 +566,10 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
                             (rewardDelta.delta0, rewardDelta.delta1) =
-                                core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
+                                CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
                             (rewardDelta.delta0, rewardDelta.delta1) =
-                                core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
+                                CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
                         saveDelta0 -= rewardDelta.delta0;
@@ -602,7 +602,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 }
 
                 if (saveDelta0 != 0 || saveDelta1 != 0) {
-                    core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), saveDelta0, saveDelta1);
+                    CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), saveDelta0, saveDelta1);
                 }
 
                 poolRewardRates[poolId] = rewardRates;
@@ -641,7 +641,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
     function lockAndExecuteVirtualOrders(PoolKey memory poolKey) public {
         // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
         // so we call lock on the core contract with the pool key after it
-        address target = address(core);
+        address target = address(CORE);
         assembly ("memory-safe") {
             let o := mload(0x40)
             mstore(o, shl(224, 0xf83d08ba))

@@ -98,7 +98,7 @@ contract Handler is StdUtils, StdAssertions {
     function advanceTime(uint32 by) public {
         totalAdvanced += by;
         if (totalAdvanced > type(uint32).max) {
-            TWAMM twamm = orders.twamm();
+            TWAMM twamm = orders.TWAMM_EXTENSION();
             // first do the execute on all pools, because we assume all pools are executed at least this often
             for (uint256 i = 0; i < activeOrders.length; i++) {
                 twamm.lockAndExecuteVirtualOrders(orderKeyToPoolKey(activeOrders[i].orderKey, address(twamm)));
@@ -111,7 +111,9 @@ contract Handler is StdUtils, StdAssertions {
     function createNewPool(uint64 fee, int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
-            address(token0), address(token1), toConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.twamm()))
+            address(token0),
+            address(token1),
+            toConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.TWAMM_EXTENSION()))
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);

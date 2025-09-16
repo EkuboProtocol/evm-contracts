@@ -27,14 +27,14 @@ contract MEVCaptureRouter is Router {
         uint256 skipAhead
     ) internal override returns (int128 delta0, int128 delta1) {
         if (poolKey.extension() != address(MEV_CAPTURE)) {
-            (delta0, delta1) = core.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (delta0, delta1) = CORE.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         } else {
             (delta0, delta1) = abi.decode(
                 forward(address(MEV_CAPTURE), abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
                 (int128, int128)
             );
             if (value != 0) {
-                SafeTransferLib.safeTransferETH(address(core), value);
+                SafeTransferLib.safeTransferETH(address(CORE), value);
             }
         }
     }

@@ -37,14 +37,14 @@ contract TokenWrapperPeriphery is BaseLocker {
             // this creates the deltas
             forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            accountant.withdraw(address(wrapper), recipient, uint128(uint256(amount)));
+            ACCOUNTANT.withdraw(address(wrapper), recipient, uint128(uint256(amount)));
             // and pay the wrapped token from the payer
-            pay(payer, address(wrapper.underlyingToken()), uint256(amount));
+            pay(payer, address(wrapper.UNDERLYING_TOKEN()), uint256(amount));
         } else {
             // this creates the deltas
             forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            accountant.withdraw(address(wrapper.underlyingToken()), recipient, uint128(uint256(-amount)));
+            ACCOUNTANT.withdraw(address(wrapper.UNDERLYING_TOKEN()), recipient, uint128(uint256(-amount)));
             // and pay the wrapped token from the payer
             pay(payer, address(wrapper), uint256(-amount));
         }
@@ -83,8 +83,8 @@ contract TokenWrapperTest is FullTest {
 
         assertEq(wrapper.symbol(), string.concat("gTT-", toQuarter(unlockTime)));
         assertEq(wrapper.name(), string.concat("TestToken ", toDate(unlockTime)));
-        assertEq(wrapper.unlockTime(), unlockTime);
-        assertEq(address(wrapper.underlyingToken()), address(underlying));
+        assertEq(wrapper.UNLOCK_TIME(), unlockTime);
+        assertEq(address(wrapper.UNDERLYING_TOKEN()), address(underlying));
     }
 
     function testWrap(uint256 time, uint64 unlockTime, uint128 wrapAmount) public {
@@ -122,7 +122,7 @@ contract TokenWrapperTest is FullTest {
         wrapper.approve(address(periphery), wrapAmount);
 
         vm.warp(time);
-        if (time < wrapper.unlockTime()) {
+        if (time < wrapper.UNLOCK_TIME()) {
             assertEq(wrapper.totalSupply(), wrapAmount);
             vm.expectRevert(TokenWrapper.TooEarly.selector);
             periphery.unwrap(wrapper, recipient, unwrapAmount);

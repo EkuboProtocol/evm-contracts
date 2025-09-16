@@ -35,7 +35,7 @@ contract FeeAccumulatingExtension is MockExtension, BaseLocker {
         (address sender, PoolKey memory poolKey, uint128 amount0, uint128 amount1) =
             abi.decode(data, (address, PoolKey, uint128, uint128));
 
-        ICore(payable(accountant)).accumulateAsFees(poolKey, amount0, amount1);
+        ICore(payable(ACCOUNTANT)).accumulateAsFees(poolKey, amount0, amount1);
         pay(sender, poolKey.token0, amount0);
         pay(sender, poolKey.token1, amount1);
     }

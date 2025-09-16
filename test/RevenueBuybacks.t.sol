@@ -106,7 +106,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_mint_on_create() public view {
-        assertEq(orders.ownerOf(rb.nftId()), address(rb));
+        assertEq(orders.ownerOf(rb.NFT_ID()), address(rb));
     }
 
     function test_configure() public {

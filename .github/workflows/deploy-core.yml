@@ -31,10 +31,7 @@ jobs:
 
       - name: Run DeployCore Script
         run: |
-          forge script DeployCore \
-            --rpc-url https://${{ matrix.alchemy_chain_identifiers }}.g.alchemy.com/v2/${{ secrets.ALCHEMY_API_KEY }} \
-            --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} \ 
-            --broadcast
+          forge script DeployCore --rpc-url https://${{ matrix.alchemy_chain_identifiers }}.g.alchemy.com/v2/${{ secrets.ALCHEMY_API_KEY }} --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} --broadcast
         env:
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           SALT: "0x81385ba264a7f8c1b8208abaa20f59081c2afc5415c2b57c383f951930ff6faa"

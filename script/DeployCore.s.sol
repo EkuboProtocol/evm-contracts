@@ -29,7 +29,7 @@ contract DeployCore is Script {
         }
 
         vm.startBroadcast();
-        Core core = new Core{salt: salt}();
+        new Core{salt: salt}();
         vm.stopBroadcast();
     }
 }

@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {Bitmap} from "../math/bitmap.sol";
 import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
 // Addition of the offset does two things--it centers the 0 tick within a single bitmap regardless of tick spacing,

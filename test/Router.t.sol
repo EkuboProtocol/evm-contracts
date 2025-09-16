@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../src/types/callPoints.sol";
@@ -10,8 +10,7 @@ import {
     MAX_SQRT_RATIO,
     MIN_SQRT_RATIO_RAW,
     MAX_SQRT_RATIO_RAW,
-    SqrtRatio,
-    toSqrtRatio
+    SqrtRatio
 } from "../src/types/sqrtRatio.sol";
 import {
     FULL_RANGE_ONLY_TICK_SPACING,
@@ -27,7 +26,6 @@ import {Router, defaultSqrtRatioLimit, Delta, RouteNode, TokenAmount, Swap} from
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;

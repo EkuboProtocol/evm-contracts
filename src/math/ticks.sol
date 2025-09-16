@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {MAX_TICK_SPACING, MAX_TICK_MAGNITUDE} from "./constants.sol";
+import {MAX_TICK_MAGNITUDE} from "./constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
@@ -7,7 +7,6 @@ import {PositionKey, Bounds} from "./types/positionKey.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
 import {
@@ -21,77 +20,74 @@ import {
     shouldCallAfterCollectFees
 } from "./types/callPoints.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from "./math/liquidity.sol";
-import {computeFee} from "./math/fee.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {ICore, UpdatePositionParameters, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
-import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    NATIVE_TOKEN_ADDRESS,
-    FULL_RANGE_ONLY_TICK_SPACING,
-    MAX_TICK_SPACING
-} from "./math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 
-/// @title Ekubo Protocol
+/// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
-/// @notice Singleton holding all the tokens and containing all the possible operations in Ekubo Protocol
-contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
+/// @notice Singleton contract holding all tokens and containing all possible operations in Ekubo Protocol
+/// @dev Implements the core AMM functionality including pools, positions, swaps, and fee collection
+contract Core is ICore, FlashAccountant, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
 
+    /// @notice Information stored for each initialized tick
+    /// @dev Contains liquidity changes and net liquidity at the tick
     struct TickInfo {
+        /// @notice Change in liquidity when crossing this tick
         int128 liquidityDelta;
+        /// @notice Net liquidity above this tick
         uint128 liquidityNet;
     }
 
+    /// @notice Current state of a pool
+    /// @dev Packed into a single storage slot for gas efficiency
     struct PoolState {
+        /// @notice Current sqrt price ratio of the pool
         SqrtRatio sqrtRatio;
+        /// @notice Current tick of the pool
         int32 tick;
+        /// @notice Current active liquidity in the pool
         uint128 liquidity;
     }
 
+    /// @notice Mapping of extension addresses to their registration status
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
-    mapping(address token => uint256 amountCollected) private protocolFeesCollected;
 
+    /// @notice Mapping of pool IDs to their current state
     mapping(bytes32 poolId => PoolState) private poolState;
+    /// @notice Mapping of pool IDs to their accumulated fees per liquidity
     mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
+    /// @notice Mapping of pool IDs to position IDs to position data
     mapping(bytes32 poolId => mapping(bytes32 positionId => Position position)) private poolPositions;
+    /// @notice Mapping of pool IDs to tick information
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
+    /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick
     mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
         poolTickFeesPerLiquidityOutside;
+    /// @notice Mapping of pool IDs to initialized tick bitmaps
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
+    /// @notice Mapping of saved balance keys to their values
     mapping(bytes32 key => uint256) private savedBalances;
 
-    constructor(address owner) {
-        _initializeOwner(owner);
-    }
-
-    function withdrawProtocolFees(address recipient, address token, uint256 amount) external onlyOwner {
-        protocolFeesCollected[token] -= amount;
-        if (token == NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeTransferETH(recipient, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, amount);
-        }
-        emit ProtocolFeesWithdrawn(recipient, token, amount);
-    }
-
-    // Extensions must call this function to become registered. The call points are validated against the caller address
+    /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
         CallPoints memory computed = addressToCallPoints(msg.sender);
-        if (!computed.eq(expectedCallPoints) || !computed.isValid()) revert FailedRegisterInvalidCallPoints();
+        if (!computed.eq(expectedCallPoints) || !computed.isValid()) {
+            revert FailedRegisterInvalidCallPoints();
+        }
         if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
         isExtensionRegistered[msg.sender] = true;
         emit ExtensionRegistered(msg.sender);
     }
 
+    /// @inheritdoc ICore
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (SqrtRatio sqrtRatio) {
         poolKey.validatePoolKey();
 
@@ -120,6 +116,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
@@ -129,6 +126,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findPrevInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
+    /// @inheritdoc ICore
     function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
@@ -138,60 +136,61 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
     }
 
-    function load(address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1) public {
-        // note we do not check sort order because for save it must be sorted,
-        //  so balances will always be zero if token0 and token1 are not sorted
-        //  and this method will throw InsufficientSavedBalance for non-zero amount
-        (uint256 id,) = _getLocker();
-
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(msg.sender))),
-            bytes32(uint256(uint160(token0))),
-            bytes32(uint256(uint160(token1))),
-            salt
-        );
-
-        unchecked {
-            uint256 packedBalance = savedBalances[key];
-            uint128 balance0 = uint128(packedBalance >> 128);
-            uint128 balance1 = uint128(packedBalance);
-            if (balance0 < amount0 || balance1 < amount1) {
-                revert InsufficientSavedBalance();
-            }
-
-            // unchecked is ok because we reverted if either balance < amount
-            savedBalances[key] = (uint256(balance0 - amount0) << 128) + uint256(balance1 - amount1);
-
-            _accountDebt(id, token0, -int256(uint256(amount0)));
-            _accountDebt(id, token1, -int256(uint256(amount1)));
-        }
-    }
-
-    function save(address owner, address token0, address token1, bytes32 salt, uint128 amount0, uint128 amount1)
-        public
-        payable
-    {
+    /// @inheritdoc ICore
+    function updateSavedBalances(
+        address token0,
+        address token1,
+        bytes32,
+        // positive is saving, negative is loading
+        int256 delta0,
+        int256 delta1
+    ) public payable {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
-        (uint256 id,) = _requireLocker();
+        (uint256 id, address locker) = _requireLocker();
 
-        bytes32 key = EfficientHashLib.hash(
-            bytes32(uint256(uint160(owner))), bytes32(uint256(uint160(token0))), bytes32(uint256(uint160(token1))), salt
-        );
+        assembly ("memory-safe") {
+            function addDelta(u, i) -> result {
+                // full‐width sum mod 2^256
+                let sum := add(u, i)
+                // 1 if i<0 else 0
+                let sign := shr(255, i)
+                // if sum > type(uint128).max || (i>=0 && sum<u) || (i<0 && sum>u) ⇒ 256-bit wrap or underflow
+                if or(shr(128, sum), or(and(iszero(sign), lt(sum, u)), and(sign, gt(sum, u)))) {
+                    mstore(0x00, 0x1293d6fa) // `SavedBalanceOverflow()`
+                    revert(0x1c, 0x04)
+                }
+                result := sum
+            }
 
-        uint256 packedBalances = savedBalances[key];
+            let free := mload(0x40)
+            mstore(free, locker)
+            // copy the first 3 arguments in the same order
+            calldatacopy(add(free, 0x20), 4, 96)
+            mstore(0, keccak256(free, 128))
+            mstore(32, 7)
+            let slot := keccak256(0, 64)
+            let balances := sload(slot)
 
-        uint128 balance0 = uint128(packedBalances >> 128);
-        uint128 balance1 = uint128(packedBalances);
+            let b0 := shr(128, balances)
+            let b1 := shr(128, shl(128, balances))
 
-        // we are using checked math here to protect the uint128 additions from overflowing
-        savedBalances[key] = (uint256(balance0 + amount0) << 128) + uint256(balance1 + amount1);
+            let b0Next := addDelta(b0, delta0)
+            let b1Next := addDelta(b1, delta1)
 
-        _maybeAccountDebtToken0(id, token0, int256(uint256(amount0)));
-        _accountDebt(id, token1, int256(uint256(amount1)));
+            sstore(slot, add(shl(128, b0Next), b1Next))
+        }
+
+        _maybeAccountDebtToken0(id, token0, delta0);
+        _accountDebt(id, token1, delta1);
     }
 
-    // Returns the pool fees per liquidity inside the given bounds.
+    /// @notice Returns the pool fees per liquidity inside the given bounds
+    /// @dev Internal function that calculates fees per liquidity within position bounds
+    /// @param poolId Unique identifier for the pool
+    /// @param bounds Price bounds for the position
+    /// @param tickSpacing Tick spacing for the pool
+    /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
     function _getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds, uint32 tickSpacing)
         internal
         view
@@ -215,6 +214,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
         external
         view
@@ -223,15 +223,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), bounds, poolKey.tickSpacing());
     }
 
-    function donateProtocolFees(address token, uint128 amount) external payable {
-        (uint256 id,) = _requireLocker();
-        protocolFeesCollected[token] += amount;
-        _maybeAccountDebtToken0(id, token, int256(uint256(amount)));
-    }
-
-    // Accumulates tokens to fees of a pool. Only callable by the extension of the specified pool
-    // key, i.e. the current locker _must_ be the extension.
-    // The extension must call this function within a lock callback.
+    /// @inheritdoc ICore
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
         (uint256 id, address locker) = _requireLocker();
         require(locker == poolKey.extension());
@@ -244,11 +236,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         assembly ("memory-safe") {
             if or(amount0, amount1) {
                 mstore(0, poolId)
-                mstore(32, 2)
+                mstore(32, 1)
                 let liquidity := shr(128, sload(keccak256(0, 64)))
 
                 if liquidity {
-                    mstore(32, 3)
+                    mstore(32, 2)
                     let slot0 := keccak256(0, 64)
 
                     if amount0 {
@@ -271,6 +263,13 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         emit FeesAccumulated(poolId, amount0, amount1);
     }
 
+    /// @notice Updates tick information when liquidity is added or removed
+    /// @dev Private function that handles tick initialization and liquidity tracking
+    /// @param poolId Unique identifier for the pool
+    /// @param tick Tick to update
+    /// @param tickSpacing Tick spacing for the pool
+    /// @param liquidityDelta Change in liquidity
+    /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
         TickInfo storage tickInfo = poolTicks[poolId][tick];
 
@@ -287,6 +286,11 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         tickInfo.liquidityNet = liquidityNetNext;
     }
 
+    /// @notice Accounts for debt in token0, handling native token payments
+    /// @dev Private function that manages debt accounting with special handling for native tokens
+    /// @param id Lock ID for debt tracking
+    /// @param token0 Address of token0
+    /// @param debtChange Change in debt amount
     function _maybeAccountDebtToken0(uint256 id, address token0, int256 debtChange) private {
         if (msg.value == 0) {
             _accountDebt(id, token0, debtChange);
@@ -306,6 +310,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
         payable
@@ -332,31 +337,6 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
                 liquidityDeltaToAmountDelta(price.sqrtRatio, params.liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
             PositionKey memory positionKey = PositionKey({salt: params.salt, owner: locker, bounds: params.bounds});
-
-            if (params.liquidityDelta < 0) {
-                if (poolKey.fee() != 0) {
-                    unchecked {
-                        // uint128(-delta0) is ok in unchecked block
-                        uint128 protocolFees0 = computeFee(uint128(-delta0), poolKey.fee());
-                        uint128 protocolFees1 = computeFee(uint128(-delta1), poolKey.fee());
-
-                        if (protocolFees0 > 0) {
-                            // this will never overflow for a well behaved token since protocol fees are stored as uint256
-                            protocolFeesCollected[poolKey.token0] += protocolFees0;
-
-                            // magnitude of protocolFees0 is at most equal to -delta0, so after addition delta0 will maximally reach 0 and no overflow/underflow check is needed
-                            // in addition, casting is safe because computed fee is never g.t. the input amount, which is an int128
-                            delta0 += int128(protocolFees0);
-                        }
-
-                        // same reasoning applies for the unchecked safety here
-                        if (protocolFees1 > 0) {
-                            protocolFeesCollected[poolKey.token1] += protocolFees1;
-                            delta1 += int128(protocolFees1);
-                        }
-                    }
-                }
-            }
 
             bytes32 positionId = positionKey.toPositionId();
             Position storage position = poolPositions[poolId][positionId];
@@ -400,6 +380,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
         external
         returns (uint128 amount0, uint128 amount1)
@@ -434,6 +415,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
         }
     }
 
+    /// @inheritdoc ICore
     function swap_611415377(
         PoolKey memory poolKey,
         int128 amount,
@@ -484,7 +466,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
             if (poolKey.mustLoadFees()) {
                 assembly ("memory-safe") {
                     mstore(0, poolId)
-                    mstore(32, 3)
+                    mstore(32, 2)
                     inputTokenFeesPerLiquiditySlot := add(keccak256(0, 64), increasing)
                     inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
                 }
@@ -567,7 +549,7 @@ contract Core is ICore, FlashAccountant, Ownable, ExposedStorage {
 
             assembly ("memory-safe") {
                 mstore(0, poolId)
-                mstore(32, 2)
+                mstore(32, 1)
                 sstore(keccak256(0, 64), add(add(sqrtRatio, shl(96, and(tick, 0xffffffff))), shl(128, liquidity)))
             }
 

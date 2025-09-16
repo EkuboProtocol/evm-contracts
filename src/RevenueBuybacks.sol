@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -6,8 +6,7 @@ import {Multicallable} from "solady/utils/Multicallable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {nextValidTime} from "./math/time.sol";
-import {ICore, UsesCore} from "./base/UsesCore.sol";
-import {CoreLib} from "./libraries/CoreLib.sol";
+import {Positions} from "./Positions.sol";
 
 struct OrderKey {
     address sellToken;
@@ -92,10 +91,6 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
         );
     }
 
-    // Take any collected revenue and withdraw it to this contract.
-    // This can be overridden by other protocols to enable this contract to implement token buybacks for any protocol.
-    function _withdrawAvailableTokens(address token) internal virtual;
-
     // Necessary to withdraw available tokens in ETH
     receive() external payable {}
 
@@ -106,8 +101,6 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
             BuybacksState memory state = states[token];
             // minOrderDuration == 0 indicates the token is not configured
             if (state.minOrderDuration != 0) {
-                _withdrawAvailableTokens(token);
-
                 bool isETH = token == address(0);
                 uint256 amountToSpend = isETH ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
@@ -158,21 +151,25 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
     }
 }
 
-contract EkuboRevenueBuybacks is RevenueBuybacks, UsesCore {
-    using CoreLib for *;
+contract EkuboRevenueBuybacks is RevenueBuybacks {
+    Positions public immutable positions;
 
-    constructor(ICore core, address owner, IOrders orders, address buyToken)
-        UsesCore(core)
+    constructor(Positions _positions, address owner, IOrders orders, address buyToken)
         RevenueBuybacks(owner, orders, buyToken)
-    {}
+    {
+        positions = _positions;
+    }
 
     // Reclaims ownership of the Core contract that is meant to be owned by this one.
     function reclaim() external onlyOwner {
-        Ownable(address(core)).transferOwnership(msg.sender);
+        Ownable(address(positions)).transferOwnership(msg.sender);
     }
 
-    function _withdrawAvailableTokens(address token) internal override {
-        uint256 amountCollected = core.protocolFeesCollected(token);
-        if (amountCollected != 0) core.withdrawProtocolFees(address(this), token, amountCollected);
+    /// @notice Must be called before roll in order to collect revenue
+    function withdrawAvailableTokens(address token0, address token1) external {
+        (uint128 amount0, uint128 amount1) = positions.getProtocolFees(token0, token1);
+        if (amount0 != 0 || amount1 != 0) {
+            positions.withdrawProtocolFees(token0, token1, amount0, amount1, address(this));
+        }
     }
 }

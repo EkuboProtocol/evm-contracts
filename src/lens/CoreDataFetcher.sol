@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {CoreLib} from "../libraries/CoreLib.sol";
@@ -16,10 +16,6 @@ contract CoreDataFetcher is UsesCore {
 
     function isExtensionRegistered(address extension) external view returns (bool registered) {
         registered = core.isExtensionRegistered(extension);
-    }
-
-    function protocolFeesCollected(address token) external view returns (uint256 amountCollected) {
-        amountCollected = core.protocolFeesCollected(token);
     }
 
     function poolPrice(PoolKey memory poolKey) external view returns (uint256 sqrtRatioFixed, int32 tick) {
@@ -44,8 +40,12 @@ contract CoreDataFetcher is UsesCore {
         position = core.poolPositions(poolKey.toPoolId(), positionKey.toPositionId());
     }
 
-    function savedBalances(address owner, address token, bytes32 salt) external view returns (uint256 savedBalance) {
-        savedBalance = core.savedBalances(owner, token, salt);
+    function savedBalances(address owner, address token0, address token1, bytes32 salt)
+        external
+        view
+        returns (uint128 savedBalance0, uint128 savedBalance1)
+    {
+        (savedBalance0, savedBalance1) = core.savedBalances(owner, token0, token1, salt);
     }
 
     function poolTicks(bytes32 poolId, int32 tick)

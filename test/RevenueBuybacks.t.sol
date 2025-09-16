@@ -10,34 +10,16 @@ import {Bounds} from "../src/types/positionKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
-import {BaseLocker} from "../src/base/BaseLocker.sol";
-import {UsesCore} from "../src/base/UsesCore.sol";
-
-contract Donator is BaseLocker, UsesCore {
-    constructor(ICore core) BaseLocker(core) UsesCore(core) {}
-
-    function donate(address token, uint128 amount) external payable {
-        lock(abi.encode(msg.sender, token, amount));
-    }
-
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (address caller, address token, uint128 amount) = abi.decode(data, (address, address, uint128));
-        core.donateProtocolFees(token, amount);
-        pay(caller, token, amount);
-    }
-}
 
 contract RevenueBuybacksTest is BaseOrdersTest {
     using CoreLib for *;
 
     EkuboRevenueBuybacks rb;
     TestToken buybacksToken;
-    Donator donator;
 
     function setUp() public override {
         BaseOrdersTest.setUp();
         buybacksToken = new TestToken(address(this));
-        donator = new Donator(core);
 
         // make it so buybacksToken is always greatest
         if (address(buybacksToken) < address(token1)) {
@@ -49,10 +31,40 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
 
         // it always buys back the buybacksToken
-        rb = new EkuboRevenueBuybacks(core, address(this), IOrders(address(orders)), address(buybacksToken));
+        rb = new EkuboRevenueBuybacks(positions, address(this), IOrders(address(orders)), address(buybacksToken));
 
-        vm.prank(core.owner());
-        core.transferOwnership(address(rb));
+        vm.prank(positions.owner());
+        positions.transferOwnership(address(rb));
+    }
+
+    // increases the saved balance of the core contract
+    function donateViaCore(address token0, address token1, uint128 amount0, uint128 amount1) internal {
+        (uint128 amount0Old, uint128 amount1Old) = positions.getProtocolFees(token0, token1);
+
+        vm.store(
+            address(core),
+            CoreLib.savedBalancesSlot(address(positions), token0, token1, bytes32(0)),
+            bytes32(((uint256(amount0Old + amount0) << 128)) | uint256(amount1Old + amount1))
+        );
+
+        if (token0 == address(0)) {
+            vm.deal(address(core), amount0);
+        } else {
+            TestToken(token0).transfer(address(core), amount0);
+        }
+        TestToken(token1).transfer(address(core), amount1);
+
+        (uint128 amount0After, uint128 amount1After) = positions.getProtocolFees(token0, token1);
+        assertEq(amount0After, amount0Old + amount0);
+        assertEq(amount1After, amount1Old + amount1);
+    }
+
+    function donate(address token, uint128 amount) internal {
+        if (token == address(0)) {
+            vm.deal(address(rb), amount);
+        } else {
+            TestToken(token).transfer(address(rb), amount);
+        }
     }
 
     function test_setUp_token_order() public view {
@@ -61,9 +73,9 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_reclaim_transfers_ownership() public {
-        assertEq(core.owner(), address(rb));
+        assertEq(positions.owner(), address(rb));
         rb.reclaim();
-        assertEq(core.owner(), address(this));
+        assertEq(positions.owner(), address(this));
     }
 
     function test_reclaim_fails_if_not_owner() public {
@@ -119,21 +131,6 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(lastEndTime, 0);
         assertEq(lastOrderDuration, 0);
         assertEq(lastFee, 0);
-    }
-
-    function donate(address token, uint128 amount) internal {
-        if (token != address(0)) {
-            TestToken(token).approve(address(donator), amount);
-        } else {
-            vm.deal(address(donator), amount);
-        }
-        donator.donate(address(token), amount);
-    }
-
-    function test_donate(bool isETH, uint128 amount) public {
-        address t = isETH ? address(0) : address(token0);
-        donate(t, amount);
-        assertEq(core.protocolFeesCollected(t), amount);
     }
 
     function test_roll_token() public {

@@ -1,43 +1,61 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
-import {IForwardee} from "./interfaces/IFlashAccountant.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
-import {Permittable} from "./base/Permittable.sol";
-import {SlippageChecker} from "./base/SlippageChecker.sol";
-import {SqrtRatio, toSqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRatio.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "./types/sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 
+/// @notice Represents a single hop in a multi-hop swap route
+/// @dev Contains pool information and swap parameters for one step
 struct RouteNode {
+    /// @notice Pool key identifying the pool for this hop
     PoolKey poolKey;
+    /// @notice Price limit for this hop (0 for no limit)
     SqrtRatio sqrtRatioLimit;
+    /// @notice Number of ticks to skip ahead for gas optimization
     uint256 skipAhead;
 }
 
+/// @notice Represents a token and amount pair
+/// @dev Used to specify input/output tokens and amounts in swaps
 struct TokenAmount {
+    /// @notice Address of the token
     address token;
+    /// @notice Amount of the token (positive or negative)
     int128 amount;
 }
 
+/// @notice Represents a multi-hop swap with route and initial token amount
+/// @dev Contains the complete path and starting point for a swap
 struct Swap {
+    /// @notice Array of route nodes defining the swap path
     RouteNode[] route;
+    /// @notice Initial token and amount for the swap
     TokenAmount tokenAmount;
 }
 
+/// @notice Represents the change in token balances from a swap
+/// @dev Used to track balance deltas for both tokens in a pool
 struct Delta {
+    /// @notice Change in token0 balance
     int128 amount0;
+    /// @notice Change in token1 balance
     int128 amount1;
 }
 
-/// Replaces a zero value of sqrtRatioLimit with the minimum or maximum depending on the swap direction without any jumps
+/// @notice Replaces a zero value of sqrtRatioLimit with the minimum or maximum depending on the swap direction
+/// @dev Provides default price limits to prevent reverts when no limit is specified
+/// @param sqrtRatioLimit The provided sqrt ratio limit (0 for default)
+/// @param isToken1 True if swapping token1, false if swapping token0
+/// @param amount Amount to swap (positive for exact input, negative for exact output)
+/// @return result The sqrt ratio limit to use (original or default)
 function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 amount)
     pure
     returns (SqrtRatio result)
@@ -49,18 +67,39 @@ function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 a
     }
 }
 
-/// @title Ekubo Router
+/// @title Ekubo Protocol Router
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol
-contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker {
+/// @dev Provides high-level swap functionality including single-hop, multi-hop, and batch swaps
+contract Router is UsesCore, PayableMulticallable, BaseLocker {
     using CoreLib for *;
 
+    /// @notice Thrown when a swap doesn't consume the full input amount
     error PartialSwapsDisallowed();
+
+    /// @notice Thrown when the calculated amount doesn't meet the minimum threshold
+    /// @param expectedAmount The minimum expected amount
+    /// @param calculatedAmount The actual calculated amount
     error SlippageCheckFailed(int256 expectedAmount, int256 calculatedAmount);
+
+    /// @notice Thrown when tokens don't match across multiple swaps
+    /// @param index The index of the mismatched swap
     error TokensMismatch(uint256 index);
 
+    /// @notice Constructs the Router contract
+    /// @param core The core contract instance
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
+    /// @notice Internal function to execute a swap against the core contract
+    /// @dev Virtual function that can be overridden by derived contracts
+    /// @param value Native token value to send with the swap
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param sqrtRatioLimit Price limit for the swap
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function _swap(
         uint256 value,
         PoolKey memory poolKey,
@@ -217,6 +256,16 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         }
     }
 
+    /// @notice Executes a single-hop swap with a specified recipient
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
+    /// @param recipient Address to receive the output tokens
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function swap(
         PoolKey memory poolKey,
         bool isToken1,
@@ -244,6 +293,15 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         );
     }
 
+    /// @notice Executes a single-hop swap with msg.sender as recipient
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function swap(
         PoolKey memory poolKey,
         bool isToken1,
@@ -256,6 +314,14 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
             swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender);
     }
 
+    /// @notice Executes a single-hop swap with no slippage protection
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function swap(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
         payable
@@ -264,6 +330,12 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         (delta0, delta1) = swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, type(int256).min, msg.sender);
     }
 
+    /// @notice Executes a single-hop swap using RouteNode and TokenAmount structs
+    /// @param node Route node containing pool and swap parameters
+    /// @param tokenAmount Token and amount to swap
+    /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function swap(RouteNode memory node, TokenAmount memory tokenAmount, int256 calculatedAmountThreshold)
         public
         payable
@@ -280,6 +352,10 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         );
     }
 
+    /// @notice Executes a multi-hop swap through multiple pools
+    /// @param s Swap struct containing the route and initial token amount
+    /// @param calculatedAmountThreshold Minimum final amount to receive (for slippage protection)
+    /// @return result Array of deltas for each hop in the swap
     function multihopSwap(Swap memory s, int256 calculatedAmountThreshold)
         external
         payable
@@ -288,6 +364,10 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         result = abi.decode(lock(abi.encode(bytes1(0x01), msg.sender, s, calculatedAmountThreshold)), (Delta[]));
     }
 
+    /// @notice Executes multiple multi-hop swaps in a single transaction
+    /// @param swaps Array of swap structs, each containing a route and initial token amount
+    /// @param calculatedAmountThreshold Minimum total final amount to receive (for slippage protection)
+    /// @return results Array of delta arrays, one for each swap
     function multiMultihopSwap(Swap[] memory swaps, int256 calculatedAmountThreshold)
         external
         payable
@@ -296,8 +376,20 @@ contract Router is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         results = abi.decode(lock(abi.encode(bytes1(0x02), msg.sender, swaps, calculatedAmountThreshold)), (Delta[][]));
     }
 
+    /// @notice Error used to return quote values from the quote function
+    /// @param delta0 Change in token0 balance
+    /// @param delta1 Change in token1 balance
     error QuoteReturnValue(int128 delta0, int128 delta1);
 
+    /// @notice Quotes the result of a swap without executing it
+    /// @dev Uses a revert-based mechanism to return the quote without state changes
+    /// @param poolKey Pool key identifying the pool to quote against
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
     function quote(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
         returns (int128 delta0, int128 delta1)

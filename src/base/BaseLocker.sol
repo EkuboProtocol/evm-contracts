@@ -1,21 +1,32 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {ILocker, IPayer, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {ILocker, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 
-abstract contract BaseLocker is ILocker, IPayer {
+/// @title Base Locker
+/// @notice Abstract base contract for contracts that need to interact with the flash accountant
+/// @dev Provides locking functionality and token transfer utilities
+abstract contract BaseLocker is ILocker {
+    using FlashAccountantLib for *;
+
+    /// @notice Thrown when a function is called by an address other than the accountant
     error BaseLockerAccountantOnly();
 
+    /// @notice The flash accountant contract that manages locks and token transfers
     IFlashAccountant internal immutable accountant;
 
+    /// @notice Constructs the BaseLocker with a flash accountant
+    /// @param _accountant The flash accountant contract
     constructor(IFlashAccountant _accountant) {
         accountant = _accountant;
     }
 
     /// CALLBACK HANDLERS
 
+    /// @inheritdoc ILocker
     function locked(uint256 id) external {
         if (msg.sender != address(accountant)) revert BaseLockerAccountantOnly();
 
@@ -29,21 +40,12 @@ abstract contract BaseLocker is ILocker, IPayer {
         }
     }
 
-    function payCallback(uint256, address token) external {
-        if (msg.sender != address(accountant)) revert BaseLockerAccountantOnly();
-
-        address from;
-        uint256 amount;
-        assembly ("memory-safe") {
-            from := calldataload(68)
-            amount := calldataload(100)
-        }
-
-        SafeTransferLib.safeTransferFrom2(token, from, address(accountant), amount);
-    }
-
     /// INTERNAL FUNCTIONS
 
+    /// @notice Acquires a lock and executes the provided data
+    /// @dev Internal function that calls the accountant's lock function
+    /// @param data The data to execute within the lock
+    /// @return result The result of the lock execution
     function lock(bytes memory data) internal returns (bytes memory result) {
         address target = address(accountant);
 
@@ -75,8 +77,13 @@ abstract contract BaseLocker is ILocker, IPayer {
         }
     }
 
+    /// @notice Thrown when a lock was expected to revert but didn't
     error ExpectedRevertWithinLock();
 
+    /// @notice Acquires a lock expecting it to revert and returns the revert data
+    /// @dev Used for quote functions that use reverts to return data
+    /// @param data The data to execute within the lock
+    /// @return result The revert data from the lock execution
     function lockAndExpectRevert(bytes memory data) internal returns (bytes memory result) {
         address target = address(accountant);
 
@@ -108,31 +115,26 @@ abstract contract BaseLocker is ILocker, IPayer {
         }
     }
 
+    /// @notice Pays tokens from an address to the accountant
+    /// @dev Handles both native tokens and ERC20 tokens
+    /// @param from The address to pay from
+    /// @param token The token address (or native token address for ETH)
+    /// @param amount The amount to pay
     function pay(address from, address token, uint256 amount) internal {
         if (amount != 0) {
             if (token == NATIVE_TOKEN_ADDRESS) {
                 SafeTransferLib.safeTransferETH(address(accountant), amount);
             } else {
-                address target = address(accountant);
-                assembly ("memory-safe") {
-                    let free := mload(0x40)
-                    // selector of pay(address)
-                    mstore(free, shl(224, 0x0c11dedd))
-                    mstore(add(free, 4), token)
-                    // additional data is appended to the payCallback
-                    mstore(add(free, 36), from)
-                    mstore(add(free, 68), amount)
-
-                    // if it failed, pass through revert
-                    if iszero(call(gas(), target, 0, free, 100, 0, 0)) {
-                        returndatacopy(free, 0, returndatasize())
-                        revert(free, returndatasize())
-                    }
-                }
+                accountant.payFrom(from, token, amount);
             }
         }
     }
 
+    /// @notice Forwards a call to another contract through the accountant
+    /// @dev Used to call other contracts while maintaining the lock context
+    /// @param to The address to forward the call to
+    /// @param data The call data to forward
+    /// @return result The result of the forwarded call
     function forward(address to, bytes memory data) internal returns (bytes memory result) {
         address target = address(accountant);
 
@@ -165,11 +167,20 @@ abstract contract BaseLocker is ILocker, IPayer {
         }
     }
 
+    /// @notice Withdraws tokens from the accountant to a recipient
+    /// @param token The token address to withdraw
+    /// @param amount The amount to withdraw
+    /// @param recipient The address to receive the tokens
     function withdraw(address token, uint128 amount, address recipient) internal {
         if (amount > 0) {
             accountant.withdraw(token, recipient, amount);
         }
     }
 
+    /// @notice Handles the execution of lock data
+    /// @dev Must be implemented by derived contracts to define lock behavior
+    /// @param id The lock ID
+    /// @param data The data to process within the lock
+    /// @return result The result of processing the lock data
     function handleLockData(uint256 id, bytes memory data) internal virtual returns (bytes memory result);
 }

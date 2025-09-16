@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey, toConfig} from "../types/poolKey.sol";
+import {PoolKey} from "../types/poolKey.sol";
 import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
@@ -407,25 +407,21 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
                 if (amountDelta < 0) {
                     // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 amountAbs = uint128(uint256(-amountDelta));
-                    uint128 fee = computeFee(amountAbs, poolKey.fee());
+                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
                     if (isToken1) {
                         core.accumulateAsFees(poolKey, 0, fee);
-                        core.load(poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
                     } else {
                         core.accumulateAsFees(poolKey, fee, 0);
-                        core.load(poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
                     }
 
                     amountDelta += int128(fee);
                 } else {
-                    // downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 amountAbs = uint128(uint256(amountDelta));
-
                     if (isToken1) {
-                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), 0, amountAbs);
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
                     } else {
-                        core.save(address(this), poolKey.token0, poolKey.token1, bytes32(0), amountAbs, 0);
+                        core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
                     }
                 }
 
@@ -447,19 +443,23 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                     params.orderKey.sellToken < params.orderKey.buyToken
                 );
 
-                uint128 purchasedAmount =
+                uint256 purchasedAmount =
                     computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, order.saleRate);
                 order.rewardRateSnapshot = rewardRateInside;
 
                 if (purchasedAmount != 0) {
-                    (uint128 amount0, uint128 amount1) = params.orderKey.sellToken > params.orderKey.buyToken
-                        ? (purchasedAmount, uint128(0))
-                        : (uint128(0), purchasedAmount);
-
-                    core.load(poolKey.token0, poolKey.token1, bytes32(0), amount0, amount1);
+                    if (params.orderKey.sellToken > params.orderKey.buyToken) {
+                        core.updateSavedBalances(
+                            poolKey.token0, poolKey.token1, bytes32(0), -int256(purchasedAmount), 0
+                        );
+                    } else {
+                        core.updateSavedBalances(
+                            poolKey.token0, poolKey.token1, bytes32(0), 0, -int256(purchasedAmount)
+                        );
+                    }
                 }
 
-                emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, purchasedAmount);
+                emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, uint128(purchasedAmount));
 
                 result = abi.encode(purchasedAmount);
             } else {
@@ -511,6 +511,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             if (lastVirtualOrderExecutionTime != block.timestamp) {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
 
+                int256 saveDelta0;
+                int256 saveDelta1;
+
                 uint256 time = lastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
@@ -520,8 +523,6 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         fromTime: time,
                         untilTime: block.timestamp
                     });
-
-                    Delta memory swapDelta;
 
                     // it is assumed that this will never return a value greater than type(uint32).max
                     uint256 timeElapsed = nextTime - time;
@@ -546,6 +547,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                             fee: poolKey.fee()
                         });
 
+                        Delta memory swapDelta;
                         if (sqrtRatioNext > sqrtRatio) {
                             (swapDelta.delta0, swapDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
@@ -554,20 +556,24 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
+                        saveDelta0 -= swapDelta.delta0;
+                        saveDelta1 -= swapDelta.delta1;
+
                         // this cannot overflow or underflow because swapDelta0 is constrained to int128,
                         // and amounts computed from uint112 sale rates cannot exceed uint112.max
                         rewardDelta.delta0 = swapDelta.delta0 - int256(uint256(amount0));
                         rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (swapDelta.delta0, swapDelta.delta1) =
+                            (rewardDelta.delta0, rewardDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (swapDelta.delta0, swapDelta.delta1) =
+                            (rewardDelta.delta0, rewardDelta.delta1) =
                                 core.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
-                        rewardDelta = swapDelta;
+                        saveDelta0 -= rewardDelta.delta0;
+                        saveDelta1 -= rewardDelta.delta1;
                     }
 
                     if (rewardDelta.delta0 < 0) {
@@ -592,28 +598,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     }
 
-                    if (swapDelta.delta0 < 0 || swapDelta.delta1 < 0) {
-                        core.save(
-                            address(this),
-                            poolKey.token0,
-                            poolKey.token1,
-                            bytes32(0),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta0, 0))),
-                            uint128(uint256(-FixedPointMathLib.min(swapDelta.delta1, 0)))
-                        );
-                    }
-
-                    if (swapDelta.delta0 > 0 || swapDelta.delta1 > 0) {
-                        core.load(
-                            poolKey.token0,
-                            poolKey.token1,
-                            bytes32(0),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta0, 0))),
-                            uint128(uint256(FixedPointMathLib.max(swapDelta.delta1, 0)))
-                        );
-                    }
-
                     time = nextTime;
+                }
+
+                if (saveDelta0 != 0 || saveDelta1 != 0) {
+                    core.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), saveDelta0, saveDelta1);
                 }
 
                 poolRewardRates[poolId] = rewardRates;

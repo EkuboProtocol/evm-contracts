@@ -1,14 +1,11 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
-import {FullTest} from "./FullTest.sol";
-import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
+import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
+import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {nextValidTime} from "../src/math/time.sol";
@@ -19,18 +16,16 @@ import {FeeAccumulatingExtension} from "./SolvencyInvariantTest.t.sol";
 import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;
-    BaseURLTokenURIGenerator internal tokenUriGenerator;
 
     function setUp() public virtual override {
         BaseTWAMMTest.setUp();
 
-        tokenUriGenerator = new BaseURLTokenURIGenerator(address(this), "orders://");
-        orders = new Orders(core, twamm, tokenUriGenerator);
+        orders = new Orders(core, twamm, owner);
     }
 }
 
@@ -241,7 +236,7 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(9);
         // nextValidTime will return 0 which causes it to skip the initialized time and try to swap too much
-        vm.expectRevert(ICore.InsufficientSavedBalance.selector);
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         twamm.lockAndExecuteVirtualOrders(poolKey);
     }
 

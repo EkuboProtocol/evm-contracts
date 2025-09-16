@@ -1,7 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {computeFee, amountBeforeFee} from "./fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./delta.sol";

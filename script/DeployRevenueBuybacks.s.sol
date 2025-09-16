@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
-import {ICore} from "../src/interfaces/ICore.sol";
+import {Positions} from "../src/Positions.sol";
 import {IOrders, EkuboRevenueBuybacks} from "../src/RevenueBuybacks.sol";
 
 contract DeployRevenueBuybacks is Script {
@@ -11,7 +11,7 @@ contract DeployRevenueBuybacks is Script {
     function run() public {
         address owner = vm.getWallets()[0];
         bytes32 salt = vm.envOr("SALT", bytes32(0x0));
-        ICore core = ICore(payable(vm.envAddress("CORE_ADDRESS")));
+        Positions positions = Positions(payable(vm.envAddress("POSITIONS_ADDRESS")));
         IOrders orders = IOrders(payable(vm.envAddress("ORDERS_ADDRESS")));
 
         address buyToken;
@@ -21,7 +21,7 @@ contract DeployRevenueBuybacks is Script {
 
         vm.startBroadcast();
 
-        new EkuboRevenueBuybacks{salt: salt}(core, owner, orders, buyToken);
+        new EkuboRevenueBuybacks{salt: salt}(positions, owner, orders, buyToken);
 
         vm.stopBroadcast();
     }

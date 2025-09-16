@@ -84,7 +84,7 @@ library CoreLib {
 
     function savedBalancesSlot(address owner, address token0, address token1, bytes32 salt)
         internal
-        view
+        pure
         returns (bytes32 slot)
     {
         assembly ("memory-safe") {

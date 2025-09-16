@@ -53,10 +53,15 @@ contract RevenueBuybacksTest is BaseOrdersTest {
             TestToken(token0).transfer(address(core), amount0);
         }
         TestToken(token1).transfer(address(core), amount1);
+    }
 
-        (uint128 amount0After, uint128 amount1After) = positions.getProtocolFees(token0, token1);
-        assertEq(amount0After, amount0Old + amount0);
-        assertEq(amount1After, amount1Old + amount1);
+    function test_donateViaCore(bool useEth, uint128 amount0, uint128 amount1) public {
+        address token0 = useEth ? address(0) : address(token0);
+        donateViaCore(token0, address(token1), amount0, amount1);
+
+        (uint128 amount0Next, uint128 amount1Next) = positions.getProtocolFees(token0, address(token1));
+        assertEq(amount0Next, amount0);
+        assertEq(amount1Next, amount1);
     }
 
     function donate(address token, uint128 amount) internal {

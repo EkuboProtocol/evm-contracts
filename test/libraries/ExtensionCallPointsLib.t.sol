@@ -11,13 +11,14 @@ contract ExtensionCallPointsLibTest is Test {
 
     function test_shouldCall(IExtension extension, address locker) public pure {
         CallPoints memory cp = addressToCallPoints(address(extension));
-        assertEq(extension.shouldCallBeforeInitializePool(locker), cp.beforeInitializePool);
-        assertEq(extension.shouldCallAfterInitializePool(locker), cp.afterInitializePool);
-        assertEq(extension.shouldCallBeforeSwap(locker), cp.beforeSwap);
-        assertEq(extension.shouldCallAfterSwap(locker), cp.afterSwap);
-        assertEq(extension.shouldCallBeforeUpdatePosition(locker), cp.beforeUpdatePosition);
-        assertEq(extension.shouldCallAfterUpdatePosition(locker), cp.afterUpdatePosition);
-        assertEq(extension.shouldCallBeforeCollectFees(locker), cp.beforeCollectFees);
-        assertEq(extension.shouldCallAfterCollectFees(locker), cp.afterCollectFees);
+        bool skipSelfCall = address(extension) == locker;
+        assertEq(extension.shouldCallBeforeInitializePool(locker), cp.beforeInitializePool && !skipSelfCall);
+        assertEq(extension.shouldCallAfterInitializePool(locker), cp.afterInitializePool && !skipSelfCall);
+        assertEq(extension.shouldCallBeforeSwap(locker), cp.beforeSwap && !skipSelfCall);
+        assertEq(extension.shouldCallAfterSwap(locker), cp.afterSwap && !skipSelfCall);
+        assertEq(extension.shouldCallBeforeUpdatePosition(locker), cp.beforeUpdatePosition && !skipSelfCall);
+        assertEq(extension.shouldCallAfterUpdatePosition(locker), cp.afterUpdatePosition && !skipSelfCall);
+        assertEq(extension.shouldCallBeforeCollectFees(locker), cp.beforeCollectFees && !skipSelfCall);
+        assertEq(extension.shouldCallAfterCollectFees(locker), cp.afterCollectFees && !skipSelfCall);
     }
 }

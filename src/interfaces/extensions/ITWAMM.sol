@@ -22,7 +22,7 @@ struct OrderKey {
 /// @notice Computes the order ID from an order key
 /// @param orderKey The order key
 /// @return id The computed order ID
-function toOrderId(OrderKey memory orderKey) returns (bytes32 id) {
+function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
     assembly ("memory-safe") {
         id := keccak256(orderKey, 160)
     }

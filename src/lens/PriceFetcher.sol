@@ -9,10 +9,18 @@ import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {MIN_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+/// @notice Thrown when the number of intervals is invalid (0 or max uint32)
 error InvalidNumIntervals();
+
+/// @notice Thrown when the period is invalid (0)
 error InvalidPeriod();
 
-// Gets the timestamps for the snapshots that must be fetched for the given period [endTime - (numIntervals * period), endTime]
+/// @notice Gets the timestamps for snapshots that must be fetched for a given period
+/// @dev Calculates timestamps for the range [endTime - (numIntervals * period), endTime]
+/// @param endTime The end timestamp of the period
+/// @param numIntervals The number of intervals to divide the period into
+/// @param period The duration of each interval in seconds
+/// @return timestamps Array of timestamps for the required snapshots
 function getTimestampsForPeriod(uint256 endTime, uint32 numIntervals, uint32 period)
     pure
     returns (uint256[] memory timestamps)
@@ -29,25 +37,47 @@ function getTimestampsForPeriod(uint256 endTime, uint32 numIntervals, uint32 per
     }
 }
 
+/// @title Price Fetcher
+/// @author Ekubo Protocol
+/// @notice Provides functions to fetch historical price data and calculate time-weighted averages
+/// @dev Uses the Oracle extension to access historical price and liquidity data for analysis
 contract PriceFetcher {
     using OracleLib for *;
 
+    /// @notice Thrown when end time is not greater than start time
     error EndTimeMustBeGreaterThanStartTime();
+
+    /// @notice Thrown when trying to calculate volatility with insufficient periods
     error MinimumOnePeriodRealizedVolatility();
+
+    /// @notice Thrown when volatility calculation requires more intervals
     error VolatilityRequiresMoreIntervals();
 
+    /// @notice The Oracle extension contract used for historical data
     Oracle public immutable ORACLE;
 
+    /// @notice Constructs the PriceFetcher with an Oracle instance
+    /// @param _oracle The Oracle extension to use for historical data
     constructor(Oracle _oracle) {
         ORACLE = _oracle;
     }
 
+    /// @notice Represents time-weighted average data for a period
+    /// @dev Contains both liquidity and price (tick) averages
     struct PeriodAverage {
+        /// @notice Time-weighted average liquidity for the period
         uint128 liquidity;
+        /// @notice Time-weighted average tick for the period
         int32 tick;
     }
 
-    // The returned tick always represents quoteToken / baseToken
+    /// @notice Gets time-weighted averages over a specified period
+    /// @dev The returned tick always represents quoteToken / baseToken
+    /// @param baseToken The base token address
+    /// @param quoteToken The quote token address
+    /// @param startTime The start timestamp of the period
+    /// @param endTime The end timestamp of the period
+    /// @return The period averages for liquidity and tick
     function getAveragesOverPeriod(address baseToken, address quoteToken, uint64 startTime, uint64 endTime)
         public
         view
@@ -87,6 +117,14 @@ contract PriceFetcher {
         }
     }
 
+    /// @notice Gets historical period averages for multiple intervals
+    /// @dev Calculates time-weighted averages for each period in the specified range
+    /// @param baseToken The base token address
+    /// @param quoteToken The quote token address
+    /// @param endTime The end timestamp of the range
+    /// @param numIntervals The number of intervals to calculate
+    /// @param period The duration of each interval in seconds
+    /// @return averages Array of period averages for each interval
     function getHistoricalPeriodAverages(
         address baseToken,
         address quoteToken,
@@ -144,6 +182,15 @@ contract PriceFetcher {
         }
     }
 
+    /// @notice Gets available historical period averages, adjusting for data availability
+    /// @dev Returns as much historical data as available, potentially fewer intervals than requested
+    /// @param baseToken The base token address
+    /// @param quoteToken The quote token address
+    /// @param endTime The end timestamp of the range
+    /// @param numIntervals The requested number of intervals
+    /// @param period The duration of each interval in seconds
+    /// @return startTime The actual start time of the returned data
+    /// @return averages Array of available period averages
     function getAvailableHistoricalPeriodAverages(
         address baseToken,
         address quoteToken,
@@ -176,6 +223,15 @@ contract PriceFetcher {
         }
     }
 
+    /// @notice Calculates realized volatility over a specified period
+    /// @dev Computes volatility based on tick price movements between periods
+    /// @param baseToken The base token address
+    /// @param quoteToken The quote token address
+    /// @param endTime The end timestamp of the period
+    /// @param numIntervals The number of intervals to analyze (must be >= 2)
+    /// @param period The duration of each interval in seconds
+    /// @param extrapolatedTo The time period to extrapolate volatility to
+    /// @return realizedVolatilityInTicks The calculated realized volatility in ticks
     function getRealizedVolatilityOverPeriod(
         address baseToken,
         address quoteToken,
@@ -202,6 +258,12 @@ contract PriceFetcher {
         return FixedPointMathLib.sqrt(extrapolated);
     }
 
+    /// @notice Gets oracle token averages for multiple tokens over a specified period
+    /// @dev Returns time-weighted averages for tokens that have sufficient oracle data
+    /// @param observationPeriod The period in seconds to calculate averages over
+    /// @param baseTokens Array of token addresses to get averages for
+    /// @return endTime The end timestamp used for calculations (current block timestamp)
+    /// @return results Array of period averages for each token (empty if insufficient data)
     function getOracleTokenAverages(uint64 observationPeriod, address[] memory baseTokens)
         public
         view

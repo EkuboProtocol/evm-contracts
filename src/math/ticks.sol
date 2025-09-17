@@ -5,9 +5,19 @@ import {MAX_TICK_MAGNITUDE} from "./constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 
+// Tick Math Library
+// Contains functions for converting between ticks and sqrt price ratios
+// Ticks represent discrete price points, while sqrt ratios represent the actual prices
+// The relationship is: sqrtRatio = sqrt(1.000001^tick)
+
+/// @notice Thrown when a tick value is outside the valid range
+/// @param tick The invalid tick value
 error InvalidTick(int32 tick);
 
-// Returns the sqrtRatio corresponding for the tick
+/// @notice Converts a tick to its corresponding sqrt price ratio
+/// @dev Uses bit manipulation and precomputed constants for gas efficiency
+/// @param tick The tick to convert (must be within MIN_TICK and MAX_TICK)
+/// @return r The sqrt price ratio corresponding to the tick
 function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     unchecked {
         uint256 t = FixedPointMathLib.abs(tick);
@@ -105,6 +115,10 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     }
 }
 
+/// @notice Converts a sqrt price ratio to its corresponding tick
+/// @dev Uses logarithmic calculation to find the tick that most closely represents the sqrt ratio
+/// @param sqrtRatio The sqrt price ratio to convert
+/// @return The tick corresponding to the sqrt ratio (rounded down)
 function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
     unchecked {
         uint256 sqrtRatioFixed = sqrtRatio.toFixed();

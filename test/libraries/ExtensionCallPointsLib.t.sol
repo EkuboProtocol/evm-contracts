@@ -9,7 +9,7 @@ import {IExtension} from "../../src/interfaces/ICore.sol";
 contract ExtensionCallPointsLibTest is Test {
     using ExtensionCallPointsLib for *;
 
-    function test_shouldCall(IExtension extension, address locker) public pure {
+    function check_shouldCall(IExtension extension, address locker) public pure {
         CallPoints memory cp = addressToCallPoints(address(extension));
         bool skipSelfCall = address(extension) == locker;
         assertEq(extension.shouldCallBeforeInitializePool(locker), cp.beforeInitializePool && !skipSelfCall);

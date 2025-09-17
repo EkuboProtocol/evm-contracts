@@ -153,7 +153,8 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         }
     }
 
-    /// @inheritdoc IExtension
+    /// @notice Called before a pool is initialized to set up Oracle tracking
+    /// @dev Validates pool configuration and initializes the first snapshot
     function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
         if (key.fee() != 0) revert FeeMustBeZero();
@@ -178,7 +179,8 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         _emitSnapshotEvent(token, encodedSnapshot);
     }
 
-    /// @inheritdoc IExtension
+    /// @notice Called before a position is updated to capture price/liquidity snapshot
+    /// @dev Inserts a new snapshot if liquidity is changing
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
         override
@@ -189,7 +191,8 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         }
     }
 
-    /// @inheritdoc IExtension
+    /// @notice Called before a swap to capture price/liquidity snapshot
+    /// @dev Inserts a new snapshot if a swap is occurring
     function beforeSwap(address, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
         external
         override

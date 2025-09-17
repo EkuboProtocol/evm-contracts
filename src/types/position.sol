@@ -26,8 +26,8 @@ using {fees} for Position global;
 ///      fees will never exceed type(uint128).max.
 /// @param position The position to calculate fees for
 /// @param feesPerLiquidityInside Current fees per liquidity inside the position's bounds
-/// @return The amount of token0 fees owed
-/// @return The amount of token1 fees owed
+/// @return Amount of token0 fees owed
+/// @return Amount of token1 fees owed
 function fees(Position memory position, FeesPerLiquidity memory feesPerLiquidityInside)
     pure
     returns (uint128, uint128)

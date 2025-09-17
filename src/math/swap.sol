@@ -28,7 +28,7 @@ struct SwapResult {
 /// @notice Creates a no-operation swap result
 /// @dev Used when a swap would have no effect (zero amount or already at limit price)
 /// @param sqrtRatioNext The sqrt price ratio to use in the result
-/// @return result A SwapResult with zero amounts and the provided sqrt ratio
+/// @return A SwapResult with zero amounts and the provided sqrt ratio
 function noOpSwapResult(SqrtRatio sqrtRatioNext) pure returns (SwapResult memory) {
     return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioNext});
 }
@@ -44,7 +44,7 @@ error SqrtRatioLimitWrongDirection();
 /// @param amount Amount to swap (positive for exact input, negative for exact output)
 /// @param isToken1 True if swapping token1, false if swapping token0
 /// @param fee Fee rate for the pool (as a fraction of 2^64)
-/// @return result The calculated swap result including amounts and new price
+/// @return The calculated swap result including amounts and new price
 function swapResult(
     SqrtRatio sqrtRatio,
     uint128 liquidity,

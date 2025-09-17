@@ -10,7 +10,7 @@ import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
+import {CoreLib} from "../libraries/CoreLib.sol";
 
 function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -140,34 +140,22 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
     {
-        bytes32 feesSlot = EfficientHashLib.hash(
-            bytes32(uint256(uint160(address(this)))),
-            bytes32(uint256(uint160(token0))),
-            bytes32(uint256(uint160(token1))),
-            poolId
-        );
+        bytes32 feesSlot = CoreLib.savedBalancesSlot(address(this), token0, token1, poolId);
 
         address c = address(CORE);
         assembly ("memory-safe") {
-            let freeMemPointer := mload(64)
-
-            mstore(0, feesSlot)
-            mstore(32, 7)
-            feesSlot := keccak256(0, 64)
+            let freeMemPointer := mload(0x40)
 
             mstore(0, poolId)
             mstore(32, 1)
             let stateSlot := keccak256(0, 64)
 
             // cast sig "sload()"
-            mstore(0, shl(224, 0x380eb4e0))
-            mstore(4, stateSlot)
-            mstore(36, feesSlot)
+            mstore(freeMemPointer, shl(224, 0x380eb4e0))
+            mstore(add(freeMemPointer, 4), stateSlot)
+            mstore(add(freeMemPointer, 36), feesSlot)
 
-            if iszero(staticcall(gas(), c, 0, 68, 0, 64)) { revert(0, 0) }
-
-            // set 64 back to the original value
-            mstore(64, freeMemPointer)
+            if iszero(staticcall(gas(), c, freeMemPointer, 68, 0, 64)) { revert(0, 0) }
 
             // tick := shr(96, mload(16))
             tick := shr(224, mload(16))

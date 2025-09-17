@@ -14,6 +14,12 @@ jobs:
           # - eth-mainnet
           - worldchain-sepolia
           # - worldchain-mainnet
+          - base-sepolia
+          # - base-mainnet
+          - linea-sepolia
+          # - linea-mainnet
+          - scroll-sepolia
+          # - scroll-mainnet
           - shape-sepolia
           # - shape-mainnet
           - zksync-sepolia
@@ -30,6 +36,12 @@ jobs:
           # - unichain-mainnet
           - abstract-testnet
           # - abstract-mainnet
+          - boba-sepolia
+          # - boba-mainnet
+          - ink-sepolia
+          # - ink-mainnet
+          - polygonzkevm-cardona
+          # - polygonzkevm-mainnet
           - soneium-minato
           # - soneium-mainnet
           - monad-testnet
@@ -37,6 +49,7 @@ jobs:
           # - berachain-mainnet
           - blast-sepolia
           # - blast-mainnet
+          # - metis-mainnet
 
     name: Foundry project
     runs-on: ubuntu-latest

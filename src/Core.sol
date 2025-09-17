@@ -420,9 +420,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
-        if (IExtension(extension).shouldCallBeforeSwap(locker)) {
-            IExtension(extension).beforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
-        }
+        IExtension(extension).maybeCallBeforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
         bytes32 poolId = poolKey.toPoolId();
         SqrtRatio sqrtRatio;
@@ -567,10 +565,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
         }
 
-        if (IExtension(extension).shouldCallAfterSwap(locker)) {
-            IExtension(extension).afterSwap(
-                locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1
-            );
-        }
+        IExtension(extension).maybeCallAfterSwap(
+            locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1
+        );
     }
 }

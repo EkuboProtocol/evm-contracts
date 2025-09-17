@@ -2,19 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    CallPoints,
-    addressToCallPoints,
-    byteToCallPoints,
-    shouldCallBeforeInitializePool,
-    shouldCallAfterInitializePool,
-    shouldCallBeforeSwap,
-    shouldCallAfterSwap,
-    shouldCallBeforeUpdatePosition,
-    shouldCallAfterUpdatePosition,
-    shouldCallBeforeCollectFees,
-    shouldCallAfterCollectFees
-} from "../../src/types/callPoints.sol";
+import {CallPoints, addressToCallPoints, byteToCallPoints} from "../../src/types/callPoints.sol";
 
 contract CallPointsTest is Test {
     function test_byteToCallPoints_none() public pure {
@@ -143,17 +131,5 @@ contract CallPointsTest is Test {
 
     function test_callPoints_toUint8(CallPoints memory callPoints) public pure {
         assertTrue(callPoints.eq(byteToCallPoints(callPoints.toUint8())));
-    }
-
-    function test_shouldCall(address a) public pure {
-        CallPoints memory cp = addressToCallPoints(a);
-        assertEq(shouldCallBeforeInitializePool(a), cp.beforeInitializePool);
-        assertEq(shouldCallAfterInitializePool(a), cp.afterInitializePool);
-        assertEq(shouldCallBeforeSwap(a), cp.beforeSwap);
-        assertEq(shouldCallAfterSwap(a), cp.afterSwap);
-        assertEq(shouldCallBeforeUpdatePosition(a), cp.beforeUpdatePosition);
-        assertEq(shouldCallAfterUpdatePosition(a), cp.afterUpdatePosition);
-        assertEq(shouldCallBeforeCollectFees(a), cp.beforeCollectFees);
-        assertEq(shouldCallAfterCollectFees(a), cp.afterCollectFees);
     }
 }

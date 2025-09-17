@@ -9,16 +9,7 @@ import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult}
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {Bitmap} from "./math/bitmap.sol";
-import {
-    shouldCallBeforeInitializePool,
-    shouldCallAfterInitializePool,
-    shouldCallBeforeUpdatePosition,
-    shouldCallAfterUpdatePosition,
-    shouldCallBeforeSwap,
-    shouldCallAfterSwap,
-    shouldCallBeforeCollectFees,
-    shouldCallAfterCollectFees
-} from "./types/callPoints.sol";
+import {ExtensionCallPointsLib} from "./libraries/ExtensionCallPointsLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
@@ -35,6 +26,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 /// @dev Implements the core AMM functionality including pools, positions, swaps, and fee collection
 contract Core is ICore, FlashAccountant, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
+    using ExtensionCallPointsLib for *;
 
     /// @notice Information stored for each initialized tick
     /// @dev Contains liquidity changes and net liquidity at the tick
@@ -97,7 +89,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 revert ExtensionNotRegistered();
             }
 
-            if (shouldCallBeforeInitializePool(extension) && extension != msg.sender) {
+            if (IExtension(extension).shouldCallBeforeInitializePool() && extension != msg.sender) {
                 IExtension(extension).beforeInitializePool(msg.sender, poolKey, tick);
             }
         }
@@ -111,7 +103,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 
-        if (shouldCallAfterInitializePool(extension) && extension != msg.sender) {
+        if (IExtension(extension).shouldCallAfterInitializePool() && extension != msg.sender) {
             IExtension(extension).afterInitializePool(msg.sender, poolKey, tick, sqrtRatio);
         }
     }
@@ -319,7 +311,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
-        if (shouldCallBeforeUpdatePosition(extension) && locker != extension) {
+        if (IExtension(extension).shouldCallBeforeUpdatePosition() && locker != extension) {
             IExtension(extension).beforeUpdatePosition(locker, poolKey, params);
         }
 
@@ -375,7 +367,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(locker, poolId, params, delta0, delta1);
         }
 
-        if (shouldCallAfterUpdatePosition(extension) && locker != extension) {
+        if (IExtension(extension).shouldCallAfterUpdatePosition() && locker != extension) {
             IExtension(extension).afterUpdatePosition(locker, poolKey, params, delta0, delta1);
         }
     }
@@ -388,7 +380,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
-        if (shouldCallBeforeCollectFees(extension) && locker != extension) {
+        if (IExtension(extension).shouldCallBeforeCollectFees() && locker != extension) {
             IExtension(extension).beforeCollectFees(locker, poolKey, salt, bounds);
         }
 
@@ -410,7 +402,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         emit PositionFeesCollected(poolId, positionKey, amount0, amount1);
 
-        if (shouldCallAfterCollectFees(extension) && locker != extension) {
+        if (IExtension(extension).shouldCallAfterCollectFees() && locker != extension) {
             IExtension(extension).afterCollectFees(locker, poolKey, salt, bounds, amount0, amount1);
         }
     }
@@ -428,7 +420,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
-        if (shouldCallBeforeSwap(extension) && locker != extension) {
+        if (IExtension(extension).shouldCallBeforeSwap() && locker != extension) {
             IExtension(extension).beforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         }
 
@@ -575,7 +567,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
         }
 
-        if (shouldCallAfterSwap(extension) && locker != extension) {
+        if (IExtension(extension).shouldCallAfterSwap() && locker != extension) {
             IExtension(extension).afterSwap(
                 locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1
             );

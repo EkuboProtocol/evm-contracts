@@ -8,7 +8,6 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {nextValidTime} from "./math/time.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
-import {IBaseNonfungibleToken} from "./interfaces/IBaseNonfungibleToken.sol";
 import {OrderKey} from "./interfaces/extensions/ITWAMM.sol";
 
 /// @notice Configuration and state for revenue buyback orders for a specific token

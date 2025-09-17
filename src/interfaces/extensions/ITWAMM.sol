@@ -2,7 +2,6 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../types/poolKey.sol";
-import {FeesPerLiquidity} from "../../types/feesPerLiquidity.sol";
 
 /// @notice Order key structure identifying a TWAMM order
 /// @dev Contains all parameters needed to uniquely identify an order

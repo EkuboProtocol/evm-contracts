@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {ITWAMM, OrderKey} from "./extensions/ITWAMM.sol";
+import {OrderKey} from "./extensions/ITWAMM.sol";
 import {IBaseNonfungibleToken} from "./IBaseNonfungibleToken.sol";
 
 /// @title Orders Interface

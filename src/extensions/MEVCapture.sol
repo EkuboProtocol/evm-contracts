@@ -101,7 +101,6 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         }
     }
 
-    // Executes virtual orders for the specified initialized pool key. Protected because it is only called by core.
     function locked(uint256) external override onlyCore {
         PoolKey memory poolKey;
         assembly ("memory-safe") {

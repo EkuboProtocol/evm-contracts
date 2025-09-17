@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-// @title Protocol Constants
-// @notice Contains all constant values used throughout the Ekubo Protocol
-// @dev These constants define the boundaries and special values for the protocol's operation
+// Protocol Constants
+// Contains all constant values used throughout the Ekubo Protocol
+// These constants define the boundaries and special values for the protocol's operation
 
 // The minimum tick value supported by the protocol
 // Corresponds to the minimum possible price ratio in the protocol

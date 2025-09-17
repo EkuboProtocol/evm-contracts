@@ -8,7 +8,7 @@ import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 /// @title Tick Math Library
 /// @notice Contains functions for converting between ticks and sqrt price ratios
 /// @dev Ticks represent discrete price points, while sqrt ratios represent the actual prices
-///      The relationship is: sqrtRatio = sqrt(1.0001^tick)
+///      The relationship is: sqrtRatio = sqrt(1.000001^tick)
 
 /// @notice Thrown when a tick value is outside the valid range
 /// @param tick The invalid tick value

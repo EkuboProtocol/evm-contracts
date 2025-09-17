@@ -45,7 +45,7 @@ contract DeployCore is Script {
         vm.startBroadcast();
 
         Core core;
-        if (address(expected).code.length != 0) {
+        if (address(expected).code.length == 0) {
             core = new Core{salt: salt}();
             if (address(core) != expected) {
                 revert CoreAddressDifferentThanExpected(address(core), expected);
@@ -59,7 +59,7 @@ contract DeployCore is Script {
         bytes32 oracleSalt = findExtensionSalt(salt, oracleInitCodeHash, oracleCallPoints());
         address expectedOracleAddress = getCreate2Address(oracleSalt, oracleInitCodeHash);
 
-        if (address(expectedOracleAddress).code.length != 0) {
+        if (address(expectedOracleAddress).code.length == 0) {
             Oracle oracle = new Oracle{salt: oracleSalt}(core);
             if (address(oracle) != expectedOracleAddress) {
                 revert OracleAddressDifferentThanExpected(address(oracle), expectedOracleAddress);

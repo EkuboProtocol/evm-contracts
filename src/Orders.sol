@@ -9,7 +9,7 @@ import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {TWAMM, orderKeyToPoolKey} from "./extensions/TWAMM.sol";
-import {ITWAMM, TWAMMOrderKeyLib} from "./interfaces/extensions/ITWAMM.sol";
+import {ITWAMM, OrderKey, toOrderId} from "./interfaces/extensions/ITWAMM.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -33,7 +33,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     }
 
     /// @inheritdoc IOrders
-    function mintAndIncreaseSellAmount(ITWAMM.OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)
+    function mintAndIncreaseSellAmount(OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)
         public
         payable
         returns (uint256 id, uint112 saleRate)
@@ -43,7 +43,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     }
 
     /// @inheritdoc IOrders
-    function increaseSellAmount(uint256 id, ITWAMM.OrderKey memory orderKey, uint128 amount, uint112 maxSaleRate)
+    function increaseSellAmount(uint256 id, OrderKey memory orderKey, uint128 amount, uint112 maxSaleRate)
         public
         payable
         authorizedForNft(id)
@@ -67,7 +67,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     }
 
     /// @inheritdoc IOrders
-    function decreaseSaleRate(uint256 id, ITWAMM.OrderKey memory orderKey, uint112 saleRateDecrease, address recipient)
+    function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease, address recipient)
         public
         payable
         authorizedForNft(id)
@@ -84,7 +84,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     }
 
     /// @inheritdoc IOrders
-    function decreaseSaleRate(uint256 id, ITWAMM.OrderKey memory orderKey, uint112 saleRateDecrease)
+    function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease)
         external
         payable
         returns (uint112 refund)
@@ -93,7 +93,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     }
 
     /// @inheritdoc IOrders
-    function collectProceeds(uint256 id, ITWAMM.OrderKey memory orderKey, address recipient)
+    function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)
         public
         payable
         authorizedForNft(id)
@@ -103,12 +103,12 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     }
 
     /// @inheritdoc IOrders
-    function collectProceeds(uint256 id, ITWAMM.OrderKey memory orderKey) external payable returns (uint128 proceeds) {
+    function collectProceeds(uint256 id, OrderKey memory orderKey) external payable returns (uint128 proceeds) {
         proceeds = collectProceeds(id, orderKey, msg.sender);
     }
 
     /// @inheritdoc IOrders
-    function executeVirtualOrdersAndGetCurrentOrderInfo(uint256 id, ITWAMM.OrderKey memory orderKey)
+    function executeVirtualOrdersAndGetCurrentOrderInfo(uint256 id, OrderKey memory orderKey)
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
@@ -119,7 +119,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             uint32 lastUpdateTime;
             uint256 rewardRateSnapshot;
             (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
-                TWAMM_EXTENSION.orderState(address(this), bytes32(id), TWAMMOrderKeyLib.toOrderId(orderKey));
+                TWAMM_EXTENSION.orderState(address(this), bytes32(id), toOrderId(orderKey));
 
             if (saleRate != 0) {
                 uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(
@@ -168,8 +168,8 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
         if (callType == 0xdd) {
-            (, address recipientOrPayer, uint256 id, ITWAMM.OrderKey memory orderKey, int256 saleRateDelta) =
-                abi.decode(data, (bytes1, address, uint256, ITWAMM.OrderKey, int256));
+            (, address recipientOrPayer, uint256 id, OrderKey memory orderKey, int256 saleRateDelta) =
+                abi.decode(data, (bytes1, address, uint256, OrderKey, int256));
 
             int256 amount = abi.decode(
                 forward(
@@ -194,8 +194,8 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
 
             result = abi.encode(amount);
         } else if (callType == 0xff) {
-            (, uint256 id, ITWAMM.OrderKey memory orderKey, address recipient) =
-                abi.decode(data, (bytes1, uint256, ITWAMM.OrderKey, address));
+            (, uint256 id, OrderKey memory orderKey, address recipient) =
+                abi.decode(data, (bytes1, uint256, OrderKey, address));
 
             uint128 proceeds = abi.decode(
                 forward(

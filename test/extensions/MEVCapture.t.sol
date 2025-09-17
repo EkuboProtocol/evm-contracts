@@ -14,20 +14,11 @@ import {
     NATIVE_TOKEN_ADDRESS
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
-import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
-import {OracleLib} from "../../src/libraries/OracleLib.sol";
-import {TestToken} from "../TestToken.sol";
-import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
-import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
-import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
 import {MEVCaptureRouter} from "../../src/MEVCaptureRouter.sol";
-import {Vm} from "forge-std/Vm.sol";
-import {LibBytes} from "solady/utils/LibBytes.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 abstract contract BaseMEVCaptureTest is FullTest {
     MEVCapture internal mevCapture;

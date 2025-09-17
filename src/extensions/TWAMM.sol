@@ -7,7 +7,7 @@ import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
-import {ITWAMM, TWAMMOrderKeyLib} from "../interfaces/extensions/ITWAMM.sol";
+import {ITWAMM, OrderKey, toOrderId} from "../interfaces/extensions/ITWAMM.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -36,7 +36,7 @@ function twammCallPoints() pure returns (CallPoints memory) {
     });
 }
 
-function orderKeyToPoolKey(ITWAMM.OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
+function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
     assembly ("memory-safe") {
         poolKey := mload(0x40)
 
@@ -230,7 +230,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
             uint256 callType = abi.decode(data, (uint256));
 
             if (callType == 0) {
-                (, ITWAMM.UpdateSaleRateParams memory params) = abi.decode(data, (uint256, ITWAMM.UpdateSaleRateParams));
+                (, UpdateSaleRateParams memory params) = abi.decode(data, (uint256, UpdateSaleRateParams));
 
                 if (params.orderKey.endTime <= block.timestamp) revert OrderAlreadyEnded();
 
@@ -246,8 +246,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                OrderState storage order =
-                    orderState[originalLocker][params.salt][TWAMMOrderKeyLib.toOrderId(params.orderKey)];
+                OrderState storage order = orderState[originalLocker][params.salt][toOrderId(params.orderKey)];
 
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
@@ -375,8 +374,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                OrderState storage order =
-                    orderState[originalLocker][params.salt][TWAMMOrderKeyLib.toOrderId(params.orderKey)];
+                OrderState storage order = orderState[originalLocker][params.salt][toOrderId(params.orderKey)];
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
                     params.orderKey.startTime,

@@ -4,15 +4,27 @@ pragma solidity =0.8.28;
 import {PoolKey} from "../../types/poolKey.sol";
 import {FeesPerLiquidity} from "../../types/feesPerLiquidity.sol";
 
-/// @notice Library for TWAMM OrderKey operations
-library TWAMMOrderKeyLib {
-    /// @notice Computes the order ID from an order key
-    /// @param orderKey The order key
-    /// @return id The computed order ID
-    function toOrderId(ITWAMM.OrderKey memory orderKey) internal pure returns (bytes32 id) {
-        assembly ("memory-safe") {
-            id := keccak256(orderKey, 160)
-        }
+/// @notice Order key structure identifying a TWAMM order
+/// @dev Contains all parameters needed to uniquely identify an order
+struct OrderKey {
+    /// @notice Token being sold
+    address sellToken;
+    /// @notice Token being bought
+    address buyToken;
+    /// @notice Fee tier for the order
+    uint64 fee;
+    /// @notice Start time for the order execution
+    uint256 startTime;
+    /// @notice End time for the order execution
+    uint256 endTime;
+}
+
+/// @notice Computes the order ID from an order key
+/// @param orderKey The order key
+/// @return id The computed order ID
+function toOrderId(OrderKey memory orderKey) returns (bytes32 id) {
+    assembly ("memory-safe") {
+        id := keccak256(orderKey, 160)
     }
 }
 
@@ -20,21 +32,6 @@ library TWAMMOrderKeyLib {
 /// @notice Interface for the Ekubo TWAMM Extension
 /// @dev Extension for Ekubo Protocol that enables creation of DCA orders that are executed over time
 interface ITWAMM {
-    /// @notice Order key structure identifying a TWAMM order
-    /// @dev Contains all parameters needed to uniquely identify an order
-    struct OrderKey {
-        /// @notice Token being sold
-        address sellToken;
-        /// @notice Token being bought
-        address buyToken;
-        /// @notice Fee tier for the order
-        uint64 fee;
-        /// @notice Start time for the order execution
-        uint256 startTime;
-        /// @notice End time for the order execution
-        uint256 endTime;
-    }
-
     /// @notice Parameters for updating the sale rate of an order
     /// @dev Used when creating, modifying, or canceling orders
     struct UpdateSaleRateParams {

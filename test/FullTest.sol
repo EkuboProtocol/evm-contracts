@@ -7,11 +7,10 @@ import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {PositionKey, Bounds} from "../src/types/positionKey.sol";
-import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
+import {Bounds} from "../src/types/positionKey.sol";
+import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
-import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract MockExtension is IExtension {

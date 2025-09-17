@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
-import {findExtensionSalt} from "./DeployStateful.s.sol";
+import {findExtensionSalt} from "./DeployCore.s.sol";
 
 contract DeployMEVCapture is Script {
     function run() public {

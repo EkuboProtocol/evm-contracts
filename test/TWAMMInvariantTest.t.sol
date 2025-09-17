@@ -7,8 +7,8 @@ import {Bounds} from "../src/types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {TWAMM, orderKeyToPoolKey} from "../src/extensions/TWAMM.sol";
-import {ITWAMM} from "../src/interfaces/extensions/ITWAMM.sol";
-import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
+import {Router, Delta} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
@@ -43,7 +43,7 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     struct OrderInfo {
-        ITWAMM.OrderKey orderKey;
+        OrderKey orderKey;
         uint112 saleRate;
     }
 
@@ -252,7 +252,7 @@ contract Handler is StdUtils, StdAssertions {
         (address sellToken, address buyToken) =
             isToken1 ? (poolKey.token1, poolKey.token0) : (poolKey.token0, poolKey.token1);
 
-        ITWAMM.OrderKey memory orderKey = ITWAMM.OrderKey({
+        OrderKey memory orderKey = OrderKey({
             sellToken: sellToken,
             buyToken: buyToken,
             fee: poolKey.fee(),

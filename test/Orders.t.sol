@@ -17,8 +17,7 @@ import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {TWAMM} from "../src/extensions/TWAMM.sol";
-import {ITWAMM} from "../src/interfaces/extensions/ITWAMM.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;
@@ -48,7 +47,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key = ITWAMM.OrderKey({
+        OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -77,7 +76,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token1.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key = ITWAMM.OrderKey({
+        OrderKey memory key = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
             fee: fee,
@@ -107,7 +106,7 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key0 = ITWAMM.OrderKey({
+        OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -115,7 +114,7 @@ contract OrdersTest is BaseOrdersTest {
             endTime: time + 15
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
-        ITWAMM.OrderKey memory key1 = ITWAMM.OrderKey({
+        OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
             fee: fee,
@@ -146,7 +145,7 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key0 = ITWAMM.OrderKey({
+        OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -154,7 +153,7 @@ contract OrdersTest is BaseOrdersTest {
             endTime: time + 15
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
-        ITWAMM.OrderKey memory key1 = ITWAMM.OrderKey({
+        OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
             fee: fee,
@@ -184,7 +183,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key = ITWAMM.OrderKey({
+        OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -222,7 +221,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key = ITWAMM.OrderKey({
+        OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -256,7 +255,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key = ITWAMM.OrderKey({
+        OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -304,7 +303,7 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key0 = ITWAMM.OrderKey({
+        OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -312,7 +311,7 @@ contract OrdersTest is BaseOrdersTest {
             endTime: time + 15
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
-        ITWAMM.OrderKey memory key1 = ITWAMM.OrderKey({
+        OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
             fee: fee,
@@ -369,7 +368,7 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key0 = ITWAMM.OrderKey({
+        OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -377,7 +376,7 @@ contract OrdersTest is BaseOrdersTest {
             endTime: time + 15
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1000, type(uint112).max);
-        ITWAMM.OrderKey memory key1 = ITWAMM.OrderKey({
+        OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
             fee: fee,
@@ -407,7 +406,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key = ITWAMM.OrderKey({
+        OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
             fee: fee,
@@ -433,7 +432,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key = ITWAMM.OrderKey({
+        OrderKey memory key = OrderKey({
             sellToken: address(token0),
             buyToken: address(token1),
             fee: fee,
@@ -452,8 +451,8 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key =
-            ITWAMM.OrderKey({sellToken: address(token0), buyToken: address(token1), fee: fee, startTime: 0, endTime: 1});
+        OrderKey memory key =
+            OrderKey({sellToken: address(token0), buyToken: address(token1), fee: fee, startTime: 0, endTime: 1});
 
         uint256 id = orders.mint();
 
@@ -488,7 +487,7 @@ contract OrdersTest is BaseOrdersTest {
         uint256 oID = orders.mint();
         uint112 saleRateOrder0 = orders.increaseSellAmount(
             oID,
-            ITWAMM.OrderKey({
+            OrderKey({
                 sellToken: poolKey.token1,
                 buyToken: poolKey.token0,
                 fee: poolKey.fee(),
@@ -528,7 +527,7 @@ contract OrdersTest is BaseOrdersTest {
 
         uint112 saleRateOrder1 = orders.increaseSellAmount(
             oID,
-            ITWAMM.OrderKey({
+            OrderKey({
                 sellToken: poolKey.token0,
                 buyToken: poolKey.token1,
                 fee: poolKey.fee(),
@@ -579,8 +578,8 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key =
-            ITWAMM.OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
         coolAllContracts();
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(first order)");
@@ -605,11 +604,11 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key0 =
-            ITWAMM.OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key0 =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
-        ITWAMM.OrderKey memory key1 =
-            ITWAMM.OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key1 =
+            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
         coolAllContracts();
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(second order)");
@@ -634,11 +633,11 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        ITWAMM.OrderKey memory key0 =
-            ITWAMM.OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key0 =
+            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
-        ITWAMM.OrderKey memory key1 =
-            ITWAMM.OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key1 =
+            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
 
         advanceTime(15);
@@ -670,7 +669,7 @@ contract OrdersTest is BaseOrdersTest {
             if (startTime == 0 || endTime == 0) break;
 
             orders.mintAndIncreaseSellAmount(
-                ITWAMM.OrderKey({
+                OrderKey({
                     sellToken: poolKey.token0,
                     buyToken: poolKey.token1,
                     fee: fee,
@@ -682,7 +681,7 @@ contract OrdersTest is BaseOrdersTest {
             );
 
             orders.mintAndIncreaseSellAmount(
-                ITWAMM.OrderKey({
+                OrderKey({
                     sellToken: poolKey.token1,
                     buyToken: poolKey.token0,
                     fee: fee,

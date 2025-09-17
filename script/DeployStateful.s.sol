@@ -4,29 +4,6 @@ pragma solidity =0.8.28;
 import {Script} from "forge-std/Script.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {Positions} from "../src/Positions.sol";
-import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
-import {CallPoints} from "../src/types/callPoints.sol";
-import {getCreate2Address} from "./DeployCore.s.sol";
-
-function findExtensionSalt(bytes32 startingSalt, bytes32 initCodeHash, CallPoints memory callPoints)
-    pure
-    returns (bytes32 salt)
-{
-    salt = startingSalt;
-    uint8 startingByte = callPoints.toUint8();
-
-    unchecked {
-        while (true) {
-            uint8 predictedStartingByte = uint8(uint160(getCreate2Address(salt, initCodeHash)) >> 152);
-
-            if (predictedStartingByte == startingByte) {
-                break;
-            }
-
-            salt = bytes32(uint256(salt) + 1);
-        }
-    }
-}
 
 contract DeployStatefulScript is Script {
     error UnrecognizedChainId(uint256 chainId);
@@ -54,11 +31,6 @@ contract DeployStatefulScript is Script {
             vm.envOr("POSITIONS_CONTRACT_SYMBOL", string("ekuPo")),
             baseUrl
         );
-        new Oracle{
-            salt: findExtensionSalt(
-                salt, keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core))), oracleCallPoints()
-            )
-        }(core);
 
         vm.stopBroadcast();
     }

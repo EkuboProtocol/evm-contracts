@@ -2,9 +2,8 @@
 pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {EkuboRevenueBuybacks, BuybacksState} from "../src/RevenueBuybacks.sol";
+import {EkuboRevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {Bounds} from "../src/types/positionKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -218,7 +217,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_roll_timing(
-        bool isETH,
+        bool isEth,
         uint256 startTime,
         uint32 targetOrderDuration,
         uint32 minOrderDuration,
@@ -230,7 +229,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         vm.warp(startTime);
 
-        address token = isETH ? address(0) : address(token0);
+        address token = isEth ? address(0) : address(token0);
         rb.configure({
             token: token,
             targetOrderDuration: targetOrderDuration,
@@ -238,7 +237,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
             fee: poolFee
         });
 
-        if (!isETH) {
+        if (!isEth) {
             rb.approveMax(token);
         }
 
@@ -253,7 +252,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit{value: isETH ? 1e18 : 0}(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
+        positions.mintAndDeposit{value: isEth ? 1e18 : 0}(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
 
         (uint256 endTime,) = rb.roll(token);
         assertGt(endTime, startTime, "end time gt");

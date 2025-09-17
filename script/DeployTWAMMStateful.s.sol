@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {Core} from "../src/Core.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
 import {Orders} from "../src/Orders.sol";
-import {findExtensionSalt} from "./DeployStateful.s.sol";
+import {findExtensionSalt} from "./DeployCore.s.sol";
 
 contract DeployTWAMMStatefulScript is Script {
     error UnrecognizedChainId(uint256 chainId);

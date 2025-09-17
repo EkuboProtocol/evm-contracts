@@ -5,22 +5,11 @@ import {UpdatePositionParameters} from "../../src/interfaces/ICore.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    MAX_TICK_SPACING,
-    FULL_RANGE_ONLY_TICK_SPACING,
-    NATIVE_TOKEN_ADDRESS
-} from "../../src/math/constants.sol";
+import {MIN_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
-import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
 import {TWAMM, orderKeyToPoolKey, twammCallPoints} from "../../src/extensions/TWAMM.sol";
-import {ITWAMM} from "../../src/interfaces/extensions/ITWAMM.sol";
+import {ITWAMM, OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {Core} from "../../src/Core.sol";
-import {UsesCore} from "../../src/base/UsesCore.sol";
-import {TestToken} from "../TestToken.sol";
-import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
-import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Test} from "forge-std/Test.sol";
@@ -81,7 +70,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         return false;
     }
 
-    function test_orderKeyToPoolKey(ITWAMM.OrderKey memory orderKey, address twamm) public pure {
+    function test_orderKeyToPoolKey(OrderKey memory orderKey, address twamm) public pure {
         PoolKey memory pk = orderKeyToPoolKey(orderKey, twamm);
         if (orderKey.sellToken > orderKey.buyToken) {
             assertEq(pk.token0, orderKey.buyToken);

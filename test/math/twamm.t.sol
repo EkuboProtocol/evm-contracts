@@ -14,7 +14,6 @@ import {
     SaleRateOverflow
 } from "../../src/math/twamm.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TwammTest is Test {
     function test_computeSaleRate_examples() public pure {

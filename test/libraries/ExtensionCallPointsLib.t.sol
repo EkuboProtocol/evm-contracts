@@ -9,15 +9,15 @@ import {IExtension} from "../../src/interfaces/ICore.sol";
 contract ExtensionCallPointsLibTest is Test {
     using ExtensionCallPointsLib for *;
 
-    function test_shouldCall(IExtension extension) public pure {
+    function test_shouldCall(IExtension extension, address locker) public pure {
         CallPoints memory cp = addressToCallPoints(address(extension));
-        assertEq(extension.shouldCallBeforeInitializePool(), cp.beforeInitializePool);
-        assertEq(extension.shouldCallAfterInitializePool(), cp.afterInitializePool);
-        assertEq(extension.shouldCallBeforeSwap(), cp.beforeSwap);
-        assertEq(extension.shouldCallAfterSwap(), cp.afterSwap);
-        assertEq(extension.shouldCallBeforeUpdatePosition(), cp.beforeUpdatePosition);
-        assertEq(extension.shouldCallAfterUpdatePosition(), cp.afterUpdatePosition);
-        assertEq(extension.shouldCallBeforeCollectFees(), cp.beforeCollectFees);
-        assertEq(extension.shouldCallAfterCollectFees(), cp.afterCollectFees);
+        assertEq(extension.shouldCallBeforeInitializePool(locker), cp.beforeInitializePool);
+        assertEq(extension.shouldCallAfterInitializePool(locker), cp.afterInitializePool);
+        assertEq(extension.shouldCallBeforeSwap(locker), cp.beforeSwap);
+        assertEq(extension.shouldCallAfterSwap(locker), cp.afterSwap);
+        assertEq(extension.shouldCallBeforeUpdatePosition(locker), cp.beforeUpdatePosition);
+        assertEq(extension.shouldCallAfterUpdatePosition(locker), cp.afterUpdatePosition);
+        assertEq(extension.shouldCallBeforeCollectFees(locker), cp.beforeCollectFees);
+        assertEq(extension.shouldCallAfterCollectFees(locker), cp.afterCollectFees);
     }
 }

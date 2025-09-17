@@ -8,31 +8,48 @@ import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {UsesCore} from "./UsesCore.sol";
 
+/// @title Base Extension
+/// @notice Abstract base contract for creating extensions to the Ekubo Protocol
+/// @dev Extensions can hook into various pool operations to add custom functionality
+///      Derived contracts must implement getCallPoints() and the specific hook functions they want to use
 abstract contract BaseExtension is UsesCore, IExtension {
+    /// @notice Thrown when a call point is not implemented by the extension
     error CallPointNotImplemented();
 
+    /// @notice Constructs the BaseExtension and optionally registers it with the core
+    /// @param core The core contract instance
     constructor(ICore core) UsesCore(core) {
         if (_registerInConstructor()) core.registerExtension(getCallPoints());
     }
 
+    /// @notice Determines whether the extension should register itself in the constructor
+    /// @dev Can be overridden by derived contracts to control registration timing
+    /// @return True if the extension should register in the constructor
     function _registerInConstructor() internal pure virtual returns (bool) {
         return true;
     }
 
+    /// @notice Returns the call points configuration for this extension
+    /// @dev Must be implemented by derived contracts to specify which hooks they use
+    /// @return The call points configuration
     function getCallPoints() internal virtual returns (CallPoints memory);
 
+    /// @inheritdoc IExtension
     function beforeInitializePool(address, PoolKey calldata, int32) external virtual {
         revert CallPointNotImplemented();
     }
 
+    /// @inheritdoc IExtension
     function afterInitializePool(address, PoolKey calldata, int32, SqrtRatio) external virtual {
         revert CallPointNotImplemented();
     }
 
+    /// @inheritdoc IExtension
     function beforeUpdatePosition(address, PoolKey memory, UpdatePositionParameters memory) external virtual {
         revert CallPointNotImplemented();
     }
 
+    /// @inheritdoc IExtension
     function afterUpdatePosition(address, PoolKey memory, UpdatePositionParameters memory, int128, int128)
         external
         virtual
@@ -40,18 +57,22 @@ abstract contract BaseExtension is UsesCore, IExtension {
         revert CallPointNotImplemented();
     }
 
+    /// @inheritdoc IExtension
     function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external virtual {
         revert CallPointNotImplemented();
     }
 
+    /// @inheritdoc IExtension
     function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128) external virtual {
         revert CallPointNotImplemented();
     }
 
+    /// @inheritdoc IExtension
     function beforeCollectFees(address, PoolKey memory, bytes32, Bounds memory) external virtual {
         revert CallPointNotImplemented();
     }
 
+    /// @inheritdoc IExtension
     function afterCollectFees(address, PoolKey memory, bytes32, Bounds memory, uint128, uint128) external virtual {
         revert CallPointNotImplemented();
     }

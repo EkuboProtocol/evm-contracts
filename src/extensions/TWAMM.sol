@@ -23,6 +23,9 @@ import {
 } from "../math/twamm.sol";
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 
+/// @notice Returns the call points configuration for the TWAMM extension
+/// @dev Specifies which hooks TWAMM needs to execute virtual orders and manage DCA functionality
+/// @return The call points configuration for TWAMM functionality
 function twammCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: false,
@@ -36,6 +39,11 @@ function twammCallPoints() pure returns (CallPoints memory) {
     });
 }
 
+/// @notice Converts an OrderKey to its corresponding PoolKey
+/// @dev Determines the correct token ordering and constructs the pool key with TWAMM as extension
+/// @param orderKey The order key containing sell/buy tokens and fee
+/// @param twamm The TWAMM contract address to use as the extension
+/// @return poolKey The corresponding pool key for the order
 function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
     assembly ("memory-safe") {
         poolKey := mload(0x40)
@@ -59,9 +67,10 @@ function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns
     }
 }
 
-/// @title Ekubo TWAMM
+/// @title Ekubo TWAMM (Time-Weighted Average Market Maker)
 /// @author Moody Salem <moody@ekubo.org>
-/// @notice Extension for Ekubo Protocol that enables creation of DCA orders that are executed over time
+/// @notice Extension for Ekubo Protocol that enables creation of DCA (Dollar Cost Averaging) orders that are executed over time
+/// @dev Implements virtual order execution that spreads trades over time periods to reduce price impact and provide better execution
 contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
@@ -83,7 +92,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
+    /// @notice Emits an event for virtual order execution
     /// @dev Emits an event for the virtual order execution. Assumes that saleRateToken0 and saleRateToken1 are <= type(uint112).max
+    /// @param poolId The unique identifier for the pool
+    /// @param saleRateToken0 The sale rate for token0 orders
+    /// @param saleRateToken1 The sale rate for token1 orders
     function _emitVirtualOrdersExecuted(bytes32 poolId, uint256 saleRateToken0, uint256 saleRateToken1) internal {
         assembly ("memory-safe") {
             // by writing it backwards, we overwrite only the empty bits with each subsequent write
@@ -147,6 +160,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
         }
     }
 
+    /// @notice Safely adds a change to a sale rate delta with overflow protection
+    /// @dev Ensures the resulting sale rate delta doesn't exceed the maximum allowed value
+    /// @param saleRateDelta The current sale rate delta
+    /// @param saleRateDeltaChange The change to apply to the sale rate delta
+    /// @return saleRateDeltaNext The new sale rate delta after applying the change
     function _addConstrainSaleRateDelta(int112 saleRateDelta, int256 saleRateDeltaChange)
         internal
         pure
@@ -163,6 +181,13 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
         saleRateDeltaNext = int112(result);
     }
 
+    /// @notice Updates time-specific information for TWAMM orders
+    /// @dev Manages the sale rate deltas and order counts for a specific time point
+    /// @param poolId The unique identifier for the pool
+    /// @param time The timestamp to update
+    /// @param saleRateDelta The change in sale rate for this time
+    /// @param isToken1 True if updating token1 sale rate, false for token0
+    /// @param numOrdersChange The change in number of orders referencing this time
     function _updateTime(bytes32 poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
     {
@@ -215,6 +240,9 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
         poolTimeInfos[poolId][time] = timeInfo;
     }
 
+    /// @notice Returns the call points configuration for this extension
+    /// @dev Overrides the base implementation to return TWAMM-specific call points
+    /// @return The call points configuration
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return twammCallPoints();
     }

@@ -12,6 +12,9 @@ import {BaseExtension} from "../base/BaseExtension.sol";
 import {NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+/// @notice Returns the call points configuration for the Oracle extension
+/// @dev Specifies which hooks the Oracle needs to capture price and liquidity data
+/// @return The call points configuration for Oracle functionality
 function oracleCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
@@ -25,12 +28,14 @@ function oracleCallPoints() pure returns (CallPoints memory) {
     });
 }
 
+/// @notice Converts a logical index to a storage index for circular snapshot array
 /// @dev Because the snapshots array is circular, the storage index of the most recently written snapshot can be any value in [0,c.count).
 ///      To simplify the code, we operate on the logical indices, rather than the storage indices.
 ///      For logical indices, the most recently written value is always at logicalIndex = c.count-1 and the earliest snapshot is always at logicalIndex = 0.
-/// @param index the index of the most recently written snapshot
-/// @param count the total number of snapshots that have been written
-/// @param logicalIndex the index of the snapshot for which to compute the storage index
+/// @param index The index of the most recently written snapshot
+/// @param count The total number of snapshots that have been written
+/// @param logicalIndex The index of the snapshot for which to compute the storage index
+/// @return The storage index corresponding to the logical index
 function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logicalIndex) pure returns (uint256) {
     // We assume index < count and logicalIndex < count
     unchecked {
@@ -49,6 +54,10 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
 
     constructor(ICore core) BaseExtension(core) {}
 
+    /// @notice Emits a snapshot event for off-chain indexing
+    /// @dev Uses assembly for gas-efficient event emission
+    /// @param token The token address for the snapshot
+    /// @param encodedSnapshot The encoded snapshot data
     function _emitSnapshotEvent(address token, bytes32 encodedSnapshot) private {
         unchecked {
             assembly ("memory-safe") {
@@ -68,10 +77,17 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         return PoolKey({token0: NATIVE_TOKEN_ADDRESS, token1: token, config: config});
     }
 
+    /// @notice Returns the call points configuration for this extension
+    /// @dev Overrides the base implementation to return Oracle-specific call points
+    /// @return The call points configuration
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return oracleCallPoints();
     }
 
+    /// @notice Inserts a new snapshot if enough time has passed since the last one
+    /// @dev Only inserts if block.timestamp > lastTimestamp to avoid duplicate snapshots
+    /// @param poolId The unique identifier for the pool
+    /// @param token The token address for the oracle data
     function maybeInsertSnapshot(bytes32 poolId, address token) private {
         unchecked {
             bytes32 countsSlot;
@@ -137,6 +153,7 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         }
     }
 
+    /// @inheritdoc IExtension
     function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
         if (key.fee() != 0) revert FeeMustBeZero();
@@ -161,6 +178,7 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         _emitSnapshotEvent(token, encodedSnapshot);
     }
 
+    /// @inheritdoc IExtension
     function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory params)
         external
         override
@@ -171,6 +189,7 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         }
     }
 
+    /// @inheritdoc IExtension
     function beforeSwap(address, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
         external
         override
@@ -197,9 +216,17 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         capacity = c.capacity;
     }
 
-    // Searches the logical range [min, maxExclusive) for the latest snapshot with timestamp <= time.
-    /// @dev See _getSnapshotLogical for an explanation of logical indices.
-    /// @dev We make the assumption that all snapshots for the token were written within (2**32 - 1) seconds of the current block timestamp
+    /// @notice Searches for the latest snapshot with timestamp <= time within a logical range
+    /// @dev Searches the logical range [min, maxExclusive) for the latest snapshot with timestamp <= time.
+    ///      See logicalIndexToStorageIndex for an explanation of logical indices.
+    ///      We make the assumption that all snapshots for the token were written within (2**32 - 1) seconds of the current block timestamp
+    /// @param c The counts struct containing snapshot metadata
+    /// @param token The token address to search snapshots for
+    /// @param time The target timestamp to search for
+    /// @param logicalMin The minimum logical index to search from
+    /// @param logicalMaxExclusive The maximum logical index to search to (exclusive)
+    /// @return logicalIndex The logical index of the found snapshot
+    /// @return snapshot The snapshot data at the found index
     function searchRangeForPrevious(
         Counts memory c,
         address token,
@@ -249,7 +276,15 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
         (logicalIndex, snapshot) = searchRangeForPrevious(c, token, time, 0, count);
     }
 
-    // Computes cumulative values at a given time by extrapolating from a previous snapshot.
+    /// @notice Computes cumulative values at a given time by extrapolating from a previous snapshot
+    /// @dev Uses linear interpolation between snapshots or current pool state for extrapolation
+    /// @param c The counts struct containing snapshot metadata
+    /// @param token The token address to extrapolate for
+    /// @param atTime The timestamp to extrapolate to
+    /// @param logicalIndex The logical index of the base snapshot
+    /// @param snapshot The base snapshot to extrapolate from
+    /// @return secondsPerLiquidityCumulative The extrapolated seconds per liquidity cumulative
+    /// @return tickCumulative The extrapolated tick cumulative
     function extrapolateSnapshotInternal(
         Counts memory c,
         address token,

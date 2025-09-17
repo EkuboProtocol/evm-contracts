@@ -15,6 +15,7 @@ library CoreLib {
     using ExposedStorageLib for *;
 
     /// @notice Checks if an extension is registered with the core contract
+    /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance
     /// @param extension The extension address to check
     /// @return registered True if the extension is registered
@@ -30,6 +31,7 @@ library CoreLib {
     }
 
     /// @notice Gets the current state of a pool
+    /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
     /// @return sqrtRatio Current sqrt price ratio of the pool
@@ -57,6 +59,7 @@ library CoreLib {
     }
 
     /// @notice Gets position data for a specific position in a pool
+    /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
     /// @param positionId The unique identifier for the position
@@ -82,6 +85,13 @@ library CoreLib {
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 
+    /// @notice Calculates the storage slot for saved balances
+    /// @dev Used internally to compute the correct storage location
+    /// @param owner The owner of the saved balances
+    /// @param token0 The first token address
+    /// @param token1 The second token address
+    /// @param salt The salt used for the saved balance key
+    /// @return slot The storage slot for the saved balances
     function savedBalancesSlot(address owner, address token0, address token1, bytes32 salt)
         internal
         pure
@@ -100,6 +110,7 @@ library CoreLib {
     }
 
     /// @notice Gets saved balances for a specific owner and token pair
+    /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance
     /// @param owner The owner of the saved balances
     /// @param token0 The first token address
@@ -121,6 +132,7 @@ library CoreLib {
     }
 
     /// @notice Gets tick information for a specific tick in a pool
+    /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
@@ -150,6 +162,7 @@ library CoreLib {
     }
 
     /// @notice Executes a swap against the core contract
+    /// @dev Wrapper function that calls the core contract's swap function with the correct signature
     /// @param core The core contract instance
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool

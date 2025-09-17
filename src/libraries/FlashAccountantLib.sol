@@ -3,8 +3,15 @@ pragma solidity =0.8.28;
 
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 
-/// @dev This library includes some helper functions for paying a FlashAccountant
+/// @title Flash Accountant Library
+/// @notice Provides helper functions for interacting with the Flash Accountant
+/// @dev Contains optimized assembly implementations for token payments to the accountant
 library FlashAccountantLib {
+    /// @notice Pays tokens directly to the flash accountant
+    /// @dev Uses assembly for gas optimization and handles the payment flow with start/complete calls
+    /// @param accountant The flash accountant contract to pay
+    /// @param token The token address to pay
+    /// @param amount The amount of tokens to pay
     function pay(IFlashAccountant accountant, address token, uint256 amount) internal {
         assembly ("memory-safe") {
             mstore(0x00, 0xf9b6a796)
@@ -34,6 +41,12 @@ library FlashAccountantLib {
         }
     }
 
+    /// @notice Pays tokens from a specific address to the flash accountant
+    /// @dev Uses assembly for gas optimization and handles transferFrom with start/complete payment calls
+    /// @param accountant The flash accountant contract to pay
+    /// @param from The address to transfer tokens from
+    /// @param token The token address to pay
+    /// @param amount The amount of tokens to pay
     function payFrom(IFlashAccountant accountant, address from, address token, uint256 amount) internal {
         assembly ("memory-safe") {
             mstore(0, 0xf9b6a796)

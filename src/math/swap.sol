@@ -8,9 +8,9 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {isPriceIncreasing} from "./isPriceIncreasing.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
-/// @title Swap Math Library
-/// @notice Contains the core swap calculation logic for Ekubo Protocol
-/// @dev Implements the mathematical functions needed to compute swap results including price impact, fees, and liquidity changes
+// Swap Math Library
+// Contains the core swap calculation logic for Ekubo Protocol
+// Implements the mathematical functions needed to compute swap results including price impact, fees, and liquidity changes
 
 /// @notice Result of a swap calculation
 /// @dev Contains all the information needed to execute a swap

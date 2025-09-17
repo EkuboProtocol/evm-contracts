@@ -9,11 +9,6 @@ import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {MIN_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title Price Fetcher
-/// @author Ekubo Protocol
-/// @notice Provides functions to fetch historical price data and calculate time-weighted averages
-/// @dev Uses the Oracle extension to access historical price and liquidity data for analysis
-
 /// @notice Thrown when the number of intervals is invalid (0 or max uint32)
 error InvalidNumIntervals();
 
@@ -42,6 +37,10 @@ function getTimestampsForPeriod(uint256 endTime, uint32 numIntervals, uint32 per
     }
 }
 
+/// @title Price Fetcher
+/// @author Ekubo Protocol
+/// @notice Provides functions to fetch historical price data and calculate time-weighted averages
+/// @dev Uses the Oracle extension to access historical price and liquidity data for analysis
 contract PriceFetcher {
     using OracleLib for *;
 

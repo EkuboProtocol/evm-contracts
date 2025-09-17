@@ -6,9 +6,9 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {amount0Delta, amount1Delta, sortAndConvertToFixedSqrtRatios} from "./delta.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
-/// @title Liquidity Math Library
-/// @notice Contains functions for calculating liquidity-related amounts and conversions
-/// @dev Provides utilities for converting between liquidity changes and token amounts
+// Liquidity Math Library
+// Contains functions for calculating liquidity-related amounts and conversions
+// Provides utilities for converting between liquidity changes and token amounts
 
 /// @notice Returns the token0 and token1 delta owed for a given change in liquidity
 /// @dev Calculates the token amounts required or returned when liquidity is added or removed from a position

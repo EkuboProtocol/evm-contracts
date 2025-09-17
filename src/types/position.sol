@@ -4,9 +4,9 @@ pragma solidity =0.8.28;
 import {FeesPerLiquidity} from "./feesPerLiquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @title Position Type
-/// @notice Represents a liquidity position in a pool
-/// @dev Contains the position's liquidity amount and fee tracking information
+// Position Type
+// Represents a liquidity position in a pool
+// Contains the position's liquidity amount and fee tracking information
 
 /// @notice A liquidity position in a pool
 /// @dev Tracks both the liquidity amount and the last known fees per liquidity for fee calculation

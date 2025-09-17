@@ -5,10 +5,10 @@ import {MAX_TICK_MAGNITUDE} from "./constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 
-/// @title Tick Math Library
-/// @notice Contains functions for converting between ticks and sqrt price ratios
-/// @dev Ticks represent discrete price points, while sqrt ratios represent the actual prices
-///      The relationship is: sqrtRatio = sqrt(1.000001^tick)
+// Tick Math Library
+// Contains functions for converting between ticks and sqrt price ratios
+// Ticks represent discrete price points, while sqrt ratios represent the actual prices
+// The relationship is: sqrtRatio = sqrt(1.000001^tick)
 
 /// @notice Thrown when a tick value is outside the valid range
 /// @param tick The invalid tick value

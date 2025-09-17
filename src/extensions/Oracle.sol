@@ -5,6 +5,7 @@ import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, Config} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
+import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -39,38 +40,9 @@ function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logica
 
 /// @title Ekubo Oracle Extension
 /// @author Moody Salem <moody@ekubo.org>
-/// @notice Records price and liquidity into accumulators enabling a separate contract to compute a manipulation resistant average price and liquidity.
-contract Oracle is ExposedStorage, BaseExtension {
-    error PairsWithNativeTokenOnly();
-    error FeeMustBeZero();
-    error TickSpacingMustBeMaximum();
-    error FutureTime();
-    error NoPreviousSnapshotExists(address token, uint256 time);
-    error EndTimeLessThanStartTime();
-    error TimestampsNotSorted();
-    error ZeroTimestampsProvided();
-
+/// @notice Records price and liquidity into accumulators enabling a separate contract to compute a manipulation resistant average price and liquidity
+contract Oracle is ExposedStorage, BaseExtension, IOracle {
     using CoreLib for ICore;
-
-    struct Snapshot {
-        // the truncated least significant 32 bits of the timestamp when this was snapshot was written
-        uint32 timestamp;
-        // can be used to compute harmonic mean liquidity over a period of time, in order to determine the safety of the oracle
-        uint160 secondsPerLiquidityCumulative;
-        // can be used to compute a time weighted average tick over a period of time
-        int64 tickCumulative;
-    }
-
-    struct Counts {
-        // The index of the last snapshot that was written
-        uint32 index;
-        // The number of snapshots that have been written for the pool
-        uint32 count;
-        // The maximum number of snapshots that will be stored for the token
-        uint32 capacity;
-        // The timestamp of the last snapshot that was written
-        uint32 lastTimestamp;
-    }
 
     mapping(address token => Counts) public counts;
     mapping(address token => mapping(uint256 index => Snapshot snapshot)) public snapshots;
@@ -87,7 +59,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
-    // The only allowed pool key for the given token
+    /// @inheritdoc IOracle
     function getPoolKey(address token) public view returns (PoolKey memory) {
         Config config;
         assembly ("memory-safe") {
@@ -209,7 +181,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
-    // Expands the capacity of the list of snapshots for the given token
+    /// @inheritdoc IOracle
     function expandCapacity(address token, uint32 minCapacity) external returns (uint32 capacity) {
         Counts memory c = counts[token];
 
@@ -263,7 +235,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             return (left, snapshot);
         }
     }
-    // Returns the snapshot with greatest timestamp ≤ the given time.
+    /// @inheritdoc IOracle
 
     function findPreviousSnapshot(address token, uint256 time)
         public
@@ -320,7 +292,7 @@ contract Oracle is ExposedStorage, BaseExtension {
         }
     }
 
-    // Returns cumulative snapshot values at time `atTime`.
+    /// @inheritdoc IOracle
     function extrapolateSnapshot(address token, uint256 atTime)
         public
         view
@@ -334,12 +306,7 @@ contract Oracle is ExposedStorage, BaseExtension {
             extrapolateSnapshotInternal(c, token, atTime, logicalIndex, snapshot);
     }
 
-    struct Observation {
-        uint160 secondsPerLiquidityCumulative;
-        int64 tickCumulative;
-    }
-
-    // Returns extrapolated snapshots at each of the provided sorted timestamps.
+    /// @inheritdoc IOracle
     function getExtrapolatedSnapshotsForSortedTimestamps(address token, uint256[] memory timestamps)
         public
         view

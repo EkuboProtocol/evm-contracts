@@ -14,7 +14,8 @@ import {
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {Delta, RouteNode, TokenAmount} from "../../src/Router.sol";
-import {TWAMM, OrderKey, orderKeyToPoolKey, twammCallPoints} from "../../src/extensions/TWAMM.sol";
+import {TWAMM, orderKeyToPoolKey, twammCallPoints} from "../../src/extensions/TWAMM.sol";
+import {ITWAMM} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {Core} from "../../src/Core.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {TestToken} from "../TestToken.sol";
@@ -56,7 +57,7 @@ contract TWAMMTest is BaseTWAMMTest {
     using TWAMMLib for *;
 
     function test_createPool_fails_not_full_range() public {
-        vm.expectRevert(TWAMM.TickSpacingMustBeMaximum.selector);
+        vm.expectRevert(ITWAMM.TickSpacingMustBeMaximum.selector);
         createPool(address(token0), address(token1), 0, 0, 1, address(twamm));
     }
 
@@ -80,7 +81,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         return false;
     }
 
-    function test_orderKeyToPoolKey(OrderKey memory orderKey, address twamm) public pure {
+    function test_orderKeyToPoolKey(ITWAMM.OrderKey memory orderKey, address twamm) public pure {
         PoolKey memory pk = orderKeyToPoolKey(orderKey, twamm);
         if (orderKey.sellToken > orderKey.buyToken) {
             assertEq(pk.token0, orderKey.buyToken);
@@ -234,7 +235,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         bytes32 poolId = bytes32(0);
 
         poolTimeInfos[poolId][96].numOrders = type(uint32).max;
-        vm.expectRevert(TWAMM.TimeNumOrdersOverflow.selector);
+        vm.expectRevert(ITWAMM.TimeNumOrdersOverflow.selector);
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
     }
 
@@ -242,7 +243,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     function test_updateTime_reverts_if_subtract_orders_from_zero() public {
         bytes32 poolId = bytes32(0);
 
-        vm.expectRevert(TWAMM.TimeNumOrdersOverflow.selector);
+        vm.expectRevert(ITWAMM.TimeNumOrdersOverflow.selector);
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: -1});
     }
 

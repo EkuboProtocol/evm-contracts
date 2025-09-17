@@ -7,6 +7,7 @@ import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
+import {ITWAMM, TWAMMOrderKeyLib} from "../interfaces/extensions/ITWAMM.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -35,34 +36,7 @@ function twammCallPoints() pure returns (CallPoints memory) {
     });
 }
 
-using {toOrderId} for OrderKey global;
-
-struct OrderKey {
-    address sellToken;
-    address buyToken;
-    uint64 fee;
-    uint256 startTime;
-    uint256 endTime;
-}
-
-function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
-    assembly ("memory-safe") {
-        id := keccak256(orderKey, 160)
-    }
-}
-
-struct UpdateSaleRateParams {
-    bytes32 salt;
-    OrderKey orderKey;
-    int112 saleRateDelta;
-}
-
-struct CollectProceedsParams {
-    bytes32 salt;
-    OrderKey orderKey;
-}
-
-function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
+function orderKeyToPoolKey(ITWAMM.OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
     assembly ("memory-safe") {
         poolKey := mload(0x40)
 
@@ -88,46 +62,9 @@ function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns
 /// @title Ekubo TWAMM
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Extension for Ekubo Protocol that enables creation of DCA orders that are executed over time
-contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
+contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
-
-    event OrderUpdated(address owner, bytes32 salt, OrderKey orderKey, int112 saleRateDelta);
-    event OrderProceedsWithdrawn(address owner, bytes32 salt, OrderKey orderKey, uint128 amount);
-
-    error TimeNumOrdersOverflow();
-    error TickSpacingMustBeMaximum();
-    error OrderAlreadyEnded();
-    error InvalidTimestamps();
-    error MustCollectProceedsBeforeCanceling();
-    error MaxSaleRateDeltaPerTime();
-    error PoolNotInitialized();
-
-    struct PoolState {
-        uint32 lastVirtualOrderExecutionTime;
-        // 80.32 numbers, meaning the maximum amount of either token sold per second is 1.2089258196E24
-        uint112 saleRateToken0;
-        uint112 saleRateToken1;
-    }
-
-    struct OrderState {
-        // the current sale rate of the order
-        uint112 saleRate;
-        // the last update time and amount sold are useful for determining how much has been sold via an order
-        uint32 lastUpdateTime;
-        uint112 amountSold;
-        // reward rate for the order range at the last time it was touched
-        uint256 rewardRateSnapshot;
-    }
-
-    struct TimeInfo {
-        // the number of orders referencing this timestamp. If non-zero, then the time is initialized.
-        uint32 numOrders;
-        // the change of sale rate for token0 at this time
-        int112 saleRateDeltaToken0;
-        // the change of sale rate for token1 at this time
-        int112 saleRateDeltaToken1;
-    }
 
     mapping(bytes32 poolId => PoolState) internal poolState;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
@@ -160,6 +97,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         }
     }
 
+    /// @inheritdoc ITWAMM
     function getRewardRateInside(bytes32 poolId, uint256 startTime, uint256 endTime, bool isToken1)
         public
         view
@@ -292,7 +230,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
             uint256 callType = abi.decode(data, (uint256));
 
             if (callType == 0) {
-                (, UpdateSaleRateParams memory params) = abi.decode(data, (uint256, UpdateSaleRateParams));
+                (, ITWAMM.UpdateSaleRateParams memory params) = abi.decode(data, (uint256, ITWAMM.UpdateSaleRateParams));
 
                 if (params.orderKey.endTime <= block.timestamp) revert OrderAlreadyEnded();
 
@@ -308,7 +246,8 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
+                OrderState storage order =
+                    orderState[originalLocker][params.salt][TWAMMOrderKeyLib.toOrderId(params.orderKey)];
 
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
@@ -429,13 +368,15 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
 
                 result = abi.encode(amountDelta);
             } else if (callType == 1) {
-                (, CollectProceedsParams memory params) = abi.decode(data, (uint256, CollectProceedsParams));
+                (, ITWAMM.CollectProceedsParams memory params) =
+                    abi.decode(data, (uint256, ITWAMM.CollectProceedsParams));
 
                 PoolKey memory poolKey = orderKeyToPoolKey(params.orderKey, address(this));
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                OrderState storage order = orderState[originalLocker][params.salt][params.orderKey.toOrderId()];
+                OrderState storage order =
+                    orderState[originalLocker][params.salt][TWAMMOrderKeyLib.toOrderId(params.orderKey)];
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
                     params.orderKey.startTime,
@@ -636,8 +577,7 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker {
         _executeVirtualOrdersFromWithinLock(poolKey, poolKey.toPoolId());
     }
 
-    // Locks core and executes virtual orders for the given pool key. The pool key must of course use this extension,
-    // which is checked in the locked callback.
+    /// @inheritdoc ITWAMM
     function lockAndExecuteVirtualOrders(PoolKey memory poolKey) public {
         // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
         // so we call lock on the core contract with the pool key after it

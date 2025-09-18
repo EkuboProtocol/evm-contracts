@@ -309,9 +309,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
-        if (IExtension(extension).shouldCallBeforeUpdatePosition(locker)) {
-            IExtension(extension).beforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
-        }
+        IExtension(extension).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
 
         positionId.validateBounds(poolKey.tickSpacing());
 
@@ -363,9 +361,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(locker, poolId, positionId, liquidityDelta, delta0, delta1);
         }
 
-        if (IExtension(extension).shouldCallAfterUpdatePosition(locker)) {
-            IExtension(extension).afterUpdatePosition(locker, poolKey, positionId, liquidityDelta, delta0, delta1);
-        }
+        IExtension(extension).maybeCallAfterUpdatePosition(locker, poolKey, positionId, liquidityDelta, delta0, delta1);
     }
 
     /// @inheritdoc ICore
@@ -376,9 +372,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
-        if (IExtension(extension).shouldCallBeforeCollectFees(locker)) {
-            IExtension(extension).beforeCollectFees(locker, poolKey, positionId);
-        }
+        IExtension(extension).maybeCallBeforeCollectFees(locker, poolKey, positionId);
 
         bytes32 poolId = poolKey.toPoolId();
 
@@ -398,9 +392,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         emit PositionFeesCollected(locker, poolId, positionId, amount0, amount1);
 
-        if (IExtension(extension).shouldCallAfterCollectFees(locker)) {
-            IExtension(extension).afterCollectFees(locker, poolKey, positionId, amount0, amount1);
-        }
+        IExtension(extension).maybeCallAfterCollectFees(locker, poolKey, positionId, amount0, amount1);
     }
 
     /// @inheritdoc ICore

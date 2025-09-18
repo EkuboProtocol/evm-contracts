@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
+import {PositionKey} from "../src/types/positionKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
@@ -39,7 +39,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -68,7 +68,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token1.approve(address(orders), type(uint256).max);
 
@@ -97,7 +97,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -136,7 +136,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -175,7 +175,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -213,7 +213,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -247,7 +247,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -294,7 +294,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -359,7 +359,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -398,7 +398,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -501,15 +501,15 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRateToken1, 0);
 
         uint256 pID = positions.mint();
-        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
 
-        (uint128 liquidity0,,) =
-            positions.deposit(pID, poolKey, bounds, 9065869775701580912051, 16591196256327018126941976177968210, 0);
+        (uint128 liquidity0,,) = positions.deposit(
+            pID, poolKey, MIN_TICK, MAX_TICK, 9065869775701580912051, 16591196256327018126941976177968210, 0
+        );
 
         advanceTime(102_399);
 
         (uint128 liquidity1,,) =
-            positions.deposit(pID, poolKey, bounds, 229636410600502050710229286961, 502804080817310396, 0);
+            positions.deposit(pID, poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396, 0);
         (sqrtRatio, tick, liquidity) = core.poolState(poolId);
 
         assertEq(sqrtRatio.toFixed(), 13485562298671080879303606629460147559991345152);
@@ -547,8 +547,9 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(tick, -76405628); // ~=-2.2454E-31 token1/token0
         assertEq(liquidity, liquidity0 + liquidity1);
 
-        (uint128 liquidity2,,) =
-            positions.deposit(pID, poolKey, bounds, 1412971749302168760052394, 35831434466998775335139276644539, 0);
+        (uint128 liquidity2,,) = positions.deposit(
+            pID, poolKey, MIN_TICK, MAX_TICK, 1412971749302168760052394, 35831434466998775335139276644539, 0
+        );
 
         (,, liquidity) = core.poolState(poolId);
         assertEq(liquidity, liquidity0 + liquidity1 + liquidity2);
@@ -570,7 +571,7 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -595,7 +596,7 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -624,7 +625,7 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -650,7 +651,7 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);

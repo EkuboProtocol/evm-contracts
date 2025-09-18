@@ -13,7 +13,6 @@ import {
     MAX_TICK_SPACING,
     FULL_RANGE_ONLY_TICK_SPACING
 } from "../../src/math/constants.sol";
-import {Bounds} from "../../src/types/positionKey.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 
 contract QuoteDataFetcherTest is FullTest {
@@ -26,15 +25,15 @@ contract QuoteDataFetcherTest is FullTest {
 
     function test_getQuoteData() public {
         PoolKey memory poolKey = createPool({tick: 10, fee: 0, tickSpacing: 5});
-        (, uint128 liqA) = createPosition(poolKey, Bounds(-50, 50), 500, 500);
-        (, uint128 liqB) = createPosition(poolKey, Bounds(-2000, 1200), 1000, 1000);
-        (, uint128 liqC) = createPosition(poolKey, Bounds(-400, -200), 0, 300);
-        (, uint128 liqD) = createPosition(poolKey, Bounds(250, 600), 200, 0);
-        createPosition(poolKey, Bounds(-1280, -1275), 0, 5000);
+        (, uint128 liqA) = createPosition(poolKey, -50, 50, 500, 500);
+        (, uint128 liqB) = createPosition(poolKey, -2000, 1200, 1000, 1000);
+        (, uint128 liqC) = createPosition(poolKey, -400, -200, 0, 300);
+        (, uint128 liqD) = createPosition(poolKey, 250, 600, 200, 0);
+        createPosition(poolKey, -1280, -1275, 0, 5000);
 
         PoolKey memory poolKeyFull = createPool({tick: 693147, fee: 0, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
-        (, uint128 liqF) = createPosition(poolKeyFull, Bounds(MIN_TICK, MAX_TICK), 5000, 5000);
-        (, uint128 liqG) = createPosition(poolKeyFull, Bounds(MIN_TICK, MAX_TICK), 7500, 7500);
+        (, uint128 liqF) = createPosition(poolKeyFull, MIN_TICK, MAX_TICK, 5000, 5000);
+        (, uint128 liqG) = createPosition(poolKeyFull, MIN_TICK, MAX_TICK, 7500, 7500);
 
         PoolKey memory poolKeyNoLiquidity = createPool({tick: -693147, fee: 0, tickSpacing: 100});
         PoolKey memory poolKeyDoesNotExist = PoolKey(address(token0), address(token1), toConfig(1, 1, address(0)));

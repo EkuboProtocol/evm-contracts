@@ -3,8 +3,9 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, Config} from "../types/poolKey.sol";
+import {PositionKey} from "../types/positionKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
+import {ICore} from "../interfaces/ICore.sol";
 import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -181,12 +182,12 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
 
     /// @notice Called before a position is updated to capture price/liquidity snapshot
     /// @dev Inserts a new snapshot if liquidity is changing
-    function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory params)
+    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionKey memory, int128 liquidityDelta)
         external
         override
         onlyCore
     {
-        if (params.liquidityDelta != 0) {
+        if (liquidityDelta != 0) {
             maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token1);
         }
     }

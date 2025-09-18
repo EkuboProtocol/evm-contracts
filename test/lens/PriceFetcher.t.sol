@@ -8,7 +8,6 @@ import {
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
 import {MAX_TICK, NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING} from "../../src/math/constants.sol";
-import {Bounds} from "../../src/types/positionKey.sol";
 
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;

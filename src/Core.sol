@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {PositionKey, Bounds} from "./types/positionKey.sol";
+import {PositionKey} from "./types/positionKey.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
@@ -15,7 +15,7 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from "./math/liquidity.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
-import {ICore, UpdatePositionParameters, IExtension} from "./interfaces/ICore.sol";
+import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
@@ -89,9 +89,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 revert ExtensionNotRegistered();
             }
 
-            if (IExtension(extension).shouldCallBeforeInitializePool(msg.sender)) {
-                IExtension(extension).beforeInitializePool(msg.sender, poolKey, tick);
-            }
+            IExtension(extension).maybeCallBeforeInitializePool(msg.sender, poolKey, tick);
         }
 
         bytes32 poolId = poolKey.toPoolId();
@@ -103,9 +101,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 
-        if (IExtension(extension).shouldCallAfterInitializePool(msg.sender)) {
-            IExtension(extension).afterInitializePool(msg.sender, poolKey, tick, sqrtRatio);
-        }
+        IExtension(extension).maybeCallAfterInitializePool(msg.sender, poolKey, tick, sqrtRatio);
     }
 
     /// @inheritdoc ICore
@@ -180,10 +176,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @notice Returns the pool fees per liquidity inside the given bounds
     /// @dev Internal function that calculates fees per liquidity within position bounds
     /// @param poolId Unique identifier for the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range to get the snapshot of
+    /// @param tickLower Upper tick of the price range to get the snapshot of
     /// @param tickSpacing Tick spacing for the pool
     /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
-    function _getPoolFeesPerLiquidityInside(bytes32 poolId, Bounds memory bounds, uint32 tickSpacing)
+    function _getPoolFeesPerLiquidityInside(bytes32 poolId, int32 tickLower, int32 tickUpper, uint32 tickSpacing)
         internal
         view
         returns (FeesPerLiquidity memory)
@@ -192,12 +189,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         int32 tick = poolState[poolId].tick;
         mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
-        FeesPerLiquidity memory lower = poolIdEntry[bounds.lower];
-        FeesPerLiquidity memory upper = poolIdEntry[bounds.upper];
+        FeesPerLiquidity memory lower = poolIdEntry[tickLower];
+        FeesPerLiquidity memory upper = poolIdEntry[tickUpper];
 
-        if (tick < bounds.lower) {
+        if (tick < tickLower) {
             return lower.sub(upper);
-        } else if (tick < bounds.upper) {
+        } else if (tick < tickUpper) {
             FeesPerLiquidity memory fees = poolFeesPerLiquidity[poolId];
 
             return fees.sub(lower).sub(upper);
@@ -207,12 +204,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
+    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         external
         view
         returns (FeesPerLiquidity memory)
     {
-        return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), bounds, poolKey.tickSpacing());
+        return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), tickLower, tickUpper, poolKey.tickSpacing());
     }
 
     /// @inheritdoc ICore
@@ -303,7 +300,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
+    function updatePosition(PoolKey memory poolKey, PositionKey memory positionKey, int128 liquidityDelta)
         external
         payable
         returns (int128 delta0, int128 delta1)
@@ -312,33 +309,32 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         address extension = poolKey.extension();
         if (IExtension(extension).shouldCallBeforeUpdatePosition(locker)) {
-            IExtension(extension).beforeUpdatePosition(locker, poolKey, params);
+            IExtension(extension).beforeUpdatePosition(locker, poolKey, positionKey, liquidityDelta);
         }
 
-        params.bounds.validateBounds(poolKey.tickSpacing());
+        positionKey.validateBounds(poolKey.tickSpacing());
 
-        if (params.liquidityDelta != 0) {
+        if (liquidityDelta != 0) {
             bytes32 poolId = poolKey.toPoolId();
             PoolState memory price = poolState[poolId];
             if (SqrtRatio.unwrap(price.sqrtRatio) == 0) revert PoolNotInitialized();
 
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
-                (tickToSqrtRatio(params.bounds.lower), tickToSqrtRatio(params.bounds.upper));
+                (tickToSqrtRatio(positionKey.tickLower), tickToSqrtRatio(positionKey.tickUpper));
 
             (delta0, delta1) =
-                liquidityDeltaToAmountDelta(price.sqrtRatio, params.liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
+                liquidityDeltaToAmountDelta(price.sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
-            PositionKey memory positionKey = PositionKey({salt: params.salt, owner: locker, bounds: params.bounds});
-
-            bytes32 positionId = positionKey.toPositionId();
+            bytes32 positionId = positionKey.toPositionId(locker);
             Position storage position = poolPositions[poolId][positionId];
 
-            FeesPerLiquidity memory feesPerLiquidityInside =
-                _getPoolFeesPerLiquidityInside(poolId, params.bounds, poolKey.tickSpacing());
+            FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
+                poolId, positionKey.tickLower, positionKey.tickUpper, poolKey.tickSpacing()
+            );
 
             (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
 
-            uint128 liquidityNext = addLiquidityDelta(position.liquidity, params.liquidityDelta);
+            uint128 liquidityNext = addLiquidityDelta(position.liquidity, liquidityDelta);
 
             if (liquidityNext != 0) {
                 position.liquidity = liquidityNext;
@@ -351,29 +347,29 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
 
             if (!poolKey.isFullRange()) {
-                _updateTick(poolId, params.bounds.lower, poolKey.tickSpacing(), params.liquidityDelta, false);
-                _updateTick(poolId, params.bounds.upper, poolKey.tickSpacing(), params.liquidityDelta, true);
+                _updateTick(poolId, positionKey.tickLower, poolKey.tickSpacing(), liquidityDelta, false);
+                _updateTick(poolId, positionKey.tickUpper, poolKey.tickSpacing(), liquidityDelta, true);
 
-                if (price.tick >= params.bounds.lower && price.tick < params.bounds.upper) {
-                    poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, params.liquidityDelta);
+                if (price.tick >= positionKey.tickLower && price.tick < positionKey.tickUpper) {
+                    poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, liquidityDelta);
                 }
             } else {
-                poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, params.liquidityDelta);
+                poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, liquidityDelta);
             }
 
             _maybeAccountDebtToken0(id, poolKey.token0, delta0);
             _accountDebt(id, poolKey.token1, delta1);
 
-            emit PositionUpdated(locker, poolId, params, delta0, delta1);
+            emit PositionUpdated(locker, poolId, positionKey, liquidityDelta, delta0, delta1);
         }
 
         if (IExtension(extension).shouldCallAfterUpdatePosition(locker)) {
-            IExtension(extension).afterUpdatePosition(locker, poolKey, params, delta0, delta1);
+            IExtension(extension).afterUpdatePosition(locker, poolKey, positionKey, liquidityDelta, delta0, delta1);
         }
     }
 
     /// @inheritdoc ICore
-    function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
+    function collectFees(PoolKey memory poolKey, PositionKey memory positionKey)
         external
         returns (uint128 amount0, uint128 amount1)
     {
@@ -381,16 +377,15 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         address extension = poolKey.extension();
         if (IExtension(extension).shouldCallBeforeCollectFees(locker)) {
-            IExtension(extension).beforeCollectFees(locker, poolKey, salt, bounds);
+            IExtension(extension).beforeCollectFees(locker, poolKey, positionKey);
         }
 
         bytes32 poolId = poolKey.toPoolId();
-        PositionKey memory positionKey = PositionKey({salt: salt, owner: locker, bounds: bounds});
-        bytes32 positionId = positionKey.toPositionId();
+        bytes32 positionId = positionKey.toPositionId(locker);
         Position memory position = poolPositions[poolId][positionId];
 
         FeesPerLiquidity memory feesPerLiquidityInside =
-            _getPoolFeesPerLiquidityInside(poolId, bounds, poolKey.tickSpacing());
+            _getPoolFeesPerLiquidityInside(poolId, positionKey.tickLower, positionKey.tickUpper, poolKey.tickSpacing());
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 
@@ -400,10 +395,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         _accountDebt(id, poolKey.token0, -int256(uint256(amount0)));
         _accountDebt(id, poolKey.token1, -int256(uint256(amount1)));
 
-        emit PositionFeesCollected(poolId, positionKey, amount0, amount1);
+        emit PositionFeesCollected(locker, poolId, positionKey, amount0, amount1);
 
         if (IExtension(extension).shouldCallAfterCollectFees(locker)) {
-            IExtension(extension).afterCollectFees(locker, poolKey, salt, bounds, amount0, amount1);
+            IExtension(extension).afterCollectFees(locker, poolKey, positionKey, amount0, amount1);
         }
     }
 

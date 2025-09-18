@@ -3,11 +3,11 @@ pragma solidity =0.8.28;
 
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
-import {ICore, UpdatePositionParameters} from "./interfaces/ICore.sol";
+import {ICore} from "./interfaces/ICore.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {PositionKey, Bounds} from "./types/positionKey.sol";
+import {PositionKey} from "./types/positionKey.sol";
 import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -46,28 +46,27 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
     }
 
     /// @inheritdoc IPositions
-    function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
+    function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         external
         view
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
     {
         bytes32 poolId = poolKey.toPoolId();
         (SqrtRatio sqrtRatio,,) = CORE.poolState(poolId);
-        bytes32 positionId = PositionKey(bytes32(id), address(this), bounds).toPositionId();
+        bytes32 positionId =
+            PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper}).toPositionId(address(this));
         Position memory position = CORE.poolPositions(poolId, positionId);
 
         liquidity = position.liquidity;
 
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
-            sqrtRatio,
-            -SafeCastLib.toInt128(position.liquidity),
-            tickToSqrtRatio(bounds.lower),
-            tickToSqrtRatio(bounds.upper)
+            sqrtRatio, -SafeCastLib.toInt128(position.liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
         );
 
         (principal0, principal1) = (uint128(-delta0), uint128(-delta1));
 
-        FeesPerLiquidity memory feesPerLiquidityInside = CORE.getPoolFeesPerLiquidityInside(poolKey, bounds);
+        FeesPerLiquidity memory feesPerLiquidityInside =
+            CORE.getPoolFeesPerLiquidityInside(poolKey, tickLower, tickUpper);
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
     }
 
@@ -75,16 +74,16 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
     function deposit(
         uint256 id,
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
     ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
         (SqrtRatio sqrtRatio,,) = CORE.poolState(poolKey.toPoolId());
 
-        liquidity = maxLiquidity(
-            sqrtRatio, tickToSqrtRatio(bounds.lower), tickToSqrtRatio(bounds.upper), maxAmount0, maxAmount1
-        );
+        liquidity =
+            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
 
         if (liquidity < minLiquidity) {
             revert DepositFailedDueToSlippage(liquidity, minLiquidity);
@@ -94,51 +93,54 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             revert DepositOverflow();
         }
 
-        (amount0, amount1) =
-            abi.decode(lock(abi.encode(bytes1(0xdd), msg.sender, id, poolKey, bounds, liquidity)), (uint128, uint128));
+        (amount0, amount1) = abi.decode(
+            lock(abi.encode(bytes1(0xdd), msg.sender, id, poolKey, tickLower, tickUpper, liquidity)), (uint128, uint128)
+        );
     }
 
     /// @inheritdoc IPositions
-    function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
+    function collectFees(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         public
         payable
         authorizedForNft(id)
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = collectFees(id, poolKey, bounds, msg.sender);
+        (amount0, amount1) = collectFees(id, poolKey, tickLower, tickUpper, msg.sender);
     }
 
     /// @inheritdoc IPositions
-    function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
+    function collectFees(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, address recipient)
         public
         payable
         authorizedForNft(id)
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = withdraw(id, poolKey, bounds, 0, recipient, true);
+        (amount0, amount1) = withdraw(id, poolKey, tickLower, tickUpper, 0, recipient, true);
     }
 
     /// @inheritdoc IPositions
     function withdraw(
         uint256 id,
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 liquidity,
         address recipient,
         bool withFees
     ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
         (amount0, amount1) = abi.decode(
-            lock(abi.encode(bytes1(0xff), id, poolKey, bounds, liquidity, recipient, withFees)), (uint128, uint128)
+            lock(abi.encode(bytes1(0xff), id, poolKey, tickLower, tickUpper, liquidity, recipient, withFees)),
+            (uint128, uint128)
         );
     }
 
     /// @inheritdoc IPositions
-    function withdraw(uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity)
+    function withdraw(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
         public
         payable
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = withdraw(id, poolKey, bounds, liquidity, address(msg.sender), true);
+        (amount0, amount1) = withdraw(id, poolKey, tickLower, tickUpper, liquidity, address(msg.sender), true);
     }
 
     /// @inheritdoc IPositions
@@ -158,26 +160,28 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
     /// @inheritdoc IPositions
     function mintAndDeposit(
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint();
-        (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
+        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
     }
 
     /// @inheritdoc IPositions
     function mintAndDepositWithSalt(
         bytes32 salt,
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint(salt);
-        (liquidity, amount0, amount1) = deposit(id, poolKey, bounds, maxAmount0, maxAmount1, minLiquidity);
+        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
     }
 
     /// @inheritdoc IPositions
@@ -210,12 +214,11 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             withdraw(token0, amount0, recipient);
             withdraw(token1, amount1, recipient);
         } else if (callType == 0xdd) {
-            (, address caller, uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity) =
-                abi.decode(data, (bytes1, address, uint256, PoolKey, Bounds, uint128));
+            (, address caller, uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
+            = abi.decode(data, (bytes1, address, uint256, PoolKey, int32, int32, uint128));
 
             (int128 delta0, int128 delta1) = CORE.updatePosition(
-                poolKey,
-                UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: int128(liquidity)})
+                poolKey, PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper}), int128(liquidity)
             );
 
             uint128 amount0 = uint128(delta0);
@@ -229,18 +232,21 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
                 ,
                 uint256 id,
                 PoolKey memory poolKey,
-                Bounds memory bounds,
+                int32 tickLower,
+                int32 tickUpper,
                 uint128 liquidity,
                 address recipient,
                 bool withFees
-            ) = abi.decode(data, (bytes1, uint256, PoolKey, Bounds, uint128, address, bool));
+            ) = abi.decode(data, (bytes1, uint256, PoolKey, int32, int32, uint128, address, bool));
 
             uint128 amount0;
             uint128 amount1;
 
             // collect first in case we are withdrawing the entire amount
             if (withFees) {
-                (amount0, amount1) = CORE.collectFees(poolKey, bytes32(id), bounds);
+                (amount0, amount1) = CORE.collectFees(
+                    poolKey, PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper})
+                );
                 if (SWAP_PROTOCOL_FEE_X64 != 0) {
                     uint128 swapProtocolFee0;
                     uint128 swapProtocolFee1;
@@ -266,7 +272,8 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             if (liquidity != 0) {
                 (int128 delta0, int128 delta1) = CORE.updatePosition(
                     poolKey,
-                    UpdatePositionParameters({salt: bytes32(id), bounds: bounds, liquidityDelta: -int128(liquidity)})
+                    PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper}),
+                    -int128(liquidity)
                 );
 
                 uint64 fee = poolKey.fee();

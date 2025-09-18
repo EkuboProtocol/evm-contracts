@@ -3,10 +3,10 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {Bounds} from "../types/positionKey.sol";
+import {PositionKey} from "../types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
-import {ICore, UpdatePositionParameters} from "../interfaces/ICore.sol";
+import {ICore} from "../interfaces/ICore.sol";
 import {ITWAMM, OrderKey, toOrderId} from "../interfaces/extensions/ITWAMM.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -641,12 +641,12 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeUpdatePosition(address, PoolKey memory poolKey, UpdatePositionParameters memory) external override {
+    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionKey memory, int128) external override {
         lockAndExecuteVirtualOrders(poolKey);
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeCollectFees(address, PoolKey memory poolKey, bytes32, Bounds memory) external override {
+    function beforeCollectFees(address, PoolKey memory poolKey, PositionKey memory) external override {
         lockAndExecuteVirtualOrders(poolKey);
     }
 }

@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
+import {PositionKey} from "../src/types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {TWAMM, orderKeyToPoolKey} from "../src/extensions/TWAMM.sol";
@@ -38,7 +38,8 @@ contract Handler is StdUtils, StdAssertions {
 
     struct ActivePosition {
         PoolKey poolKey;
-        Bounds bounds;
+        int32 tickLower;
+        int32 tickUpper;
         uint128 liquidity;
     }
 
@@ -130,13 +131,11 @@ contract Handler is StdUtils, StdAssertions {
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
-
-        try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
+        try positions.deposit(positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0) returns (
             uint128 liquidity, uint128, uint128
         ) {
             if (liquidity > 0) {
-                activePositions.push(ActivePosition(poolKey, bounds, liquidity));
+                activePositions.push(ActivePosition(poolKey, MIN_TICK, MAX_TICK, liquidity));
             }
         } catch (bytes memory err) {
             bytes4 sig;
@@ -162,9 +161,8 @@ contract Handler is StdUtils, StdAssertions {
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity, address(this), collectFees) returns (
-            uint128, uint128
-        ) {
+        try positions.withdraw(positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees)
+        returns (uint128, uint128) {
             p.liquidity -= liquidity;
         } catch (bytes memory err) {
             bytes4 sig;

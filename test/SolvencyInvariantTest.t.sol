@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
+import {PositionKey} from "../src/types/positionKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router} from "../src/Router.sol";
@@ -40,13 +40,13 @@ contract FeeAccumulatingExtension is MockExtension, BaseLocker {
     }
 }
 
-function maxBounds(uint32 tickSpacing) pure returns (Bounds memory) {
+function maxBounds(uint32 tickSpacing) pure returns (int32 tickLower, int32 tickUpper) {
     if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
-        return Bounds(MIN_TICK, MAX_TICK);
+        return (MIN_TICK, MAX_TICK);
     }
     int32 spacing = int32(tickSpacing);
 
-    return Bounds({lower: (MIN_TICK / spacing) * spacing, upper: (MAX_TICK / spacing) * spacing});
+    return ((MIN_TICK / spacing) * spacing, (MAX_TICK / spacing) * spacing);
 }
 
 contract Handler is StdUtils, StdAssertions {
@@ -56,7 +56,8 @@ contract Handler is StdUtils, StdAssertions {
 
     struct ActivePosition {
         PoolKey poolKey;
-        Bounds bounds;
+        int32 tickLower;
+        int32 tickUpper;
         uint128 liquidity;
     }
 
@@ -117,28 +118,28 @@ contract Handler is StdUtils, StdAssertions {
 
     error UnexpectedError(bytes data);
 
-    function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, Bounds memory bounds)
+    function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, int32 tickLower, int32 tickUpper)
         public
         ifPoolExists
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
         if (poolKey.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
-            bounds = Bounds(MIN_TICK, MAX_TICK);
+            (tickLower, tickUpper) = (MIN_TICK, MAX_TICK);
         } else {
-            Bounds memory max = maxBounds(poolKey.tickSpacing());
-            bounds.lower = int32(bound(bounds.lower, max.lower, max.upper - int32(poolKey.tickSpacing())));
+            (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.tickSpacing());
+            tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.tickSpacing())));
             // snap to nearest valid tick
-            bounds.lower = (bounds.lower / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
-            bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing()), max.upper));
-            bounds.upper = (bounds.upper / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
+            tickLower = (tickLower / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
+            tickUpper = int32(bound(tickUpper, tickLower + int32(poolKey.tickSpacing()), maxTickUpper));
+            tickUpper = (tickUpper / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
         }
 
-        try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
+        try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
             uint128 liquidity, uint128 result0, uint128 result1
         ) {
             if (liquidity > 0) {
-                activePositions.push(ActivePosition(poolKey, bounds, liquidity));
+                activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
             }
 
             bytes32 poolId = poolKey.toPoolId();
@@ -186,9 +187,8 @@ contract Handler is StdUtils, StdAssertions {
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity, address(this), collectFees) returns (
-            uint128 amount0, uint128 amount1
-        ) {
+        try positions.withdraw(positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees)
+        returns (uint128 amount0, uint128 amount1) {
             bytes32 poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));

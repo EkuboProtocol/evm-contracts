@@ -3,22 +3,11 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey, Bounds} from "../types/positionKey.sol";
+import {PositionKey} from "../types/positionKey.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-
-/// @notice Parameters for updating a liquidity position
-/// @dev Used to specify position bounds and liquidity changes
-struct UpdatePositionParameters {
-    /// @notice Unique identifier for the position
-    bytes32 salt;
-    /// @notice Price bounds for the position
-    Bounds bounds;
-    /// @notice Change in liquidity (positive for adding, negative for removing)
-    int128 liquidityDelta;
-}
 
 /// @title Extension Interface
 /// @notice Interface for pool extensions that can hook into core operations
@@ -40,20 +29,27 @@ interface IExtension {
     /// @notice Called before a position is updated
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
-    /// @param params Parameters for the position update
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
-        external;
+    /// @param positionKey The key of the position that is being updated
+    /// @param liquidityDelta The change in liquidity that is being requested for the position
+    function beforeUpdatePosition(
+        address locker,
+        PoolKey memory poolKey,
+        PositionKey memory positionKey,
+        int128 liquidityDelta
+    ) external;
 
     /// @notice Called after a position is updated
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
-    /// @param params Parameters for the position update
-    /// @param delta0 Change in token0 balance
-    /// @param delta1 Change in token1 balance
+    /// @param positionKey The key of the position that was updated
+    /// @param liquidityDelta Change in liquidity of the specified position key range
+    /// @param delta0 Change in token0 balance of the pool
+    /// @param delta1 Change in token1 balance of the pool
     function afterUpdatePosition(
         address locker,
         PoolKey memory poolKey,
-        UpdatePositionParameters memory params,
+        PositionKey memory positionKey,
+        int128 liquidityDelta,
         int128 delta0,
         int128 delta1
     ) external;
@@ -97,22 +93,19 @@ interface IExtension {
     /// @notice Called before fees are collected from a position
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
-    /// @param salt Unique identifier for the position
-    /// @param bounds Price bounds for the position
-    function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external;
+    /// @param positionKey The key of the position for which fees will be collected
+    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionKey memory positionKey) external;
 
     /// @notice Called after fees are collected from a position
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
-    /// @param salt Unique identifier for the position
-    /// @param bounds Price bounds for the position
+    /// @param positionKey The key of the position for which fees were collected
     /// @param amount0 Amount of token0 fees collected
     /// @param amount1 Amount of token1 fees collected
     function afterCollectFees(
         address locker,
         PoolKey memory poolKey,
-        bytes32 salt,
-        Bounds memory bounds,
+        PositionKey memory positionKey,
         uint128 amount0,
         uint128 amount1
     ) external;
@@ -133,27 +126,32 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param sqrtRatio Initial sqrt price ratio for the pool
     event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
 
-    /// @notice Emitted when fees are collected from a position
-    /// @param poolId Unique identifier for the pool
-    /// @param positionKey Key identifying the position
-    /// @param amount0 Amount of token0 fees collected
-    /// @param amount1 Amount of token1 fees collected
-    event PositionFeesCollected(bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1);
-
     /// @notice Emitted when fees are accumulated to a pool
     /// @param poolId Unique identifier for the pool
     /// @param amount0 Amount of token0 fees accumulated
     /// @param amount1 Amount of token1 fees accumulated
+    /// @dev Note locker is ommitted because it's always the extension of the pool associated with poolId
     event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
 
     /// @notice Emitted when a position is updated
-    /// @param locker Address that holds the lock
+    /// @param locker The locker that is updating the position
     /// @param poolId Unique identifier for the pool
-    /// @param params Parameters for the position update
+    /// @param positionKey The key of the position that is updated
+    /// @param liquidityDelta The change in liquidity for the specified pool and position keys
     /// @param delta0 Change in token0 balance
     /// @param delta1 Change in token1 balance
     event PositionUpdated(
-        address locker, bytes32 poolId, UpdatePositionParameters params, int128 delta0, int128 delta1
+        address locker, bytes32 poolId, PositionKey positionKey, int128 liquidityDelta, int128 delta0, int128 delta1
+    );
+
+    /// @notice Emitted when fees are collected from a position
+    /// @param locker The locker that is collecting fees
+    /// @param poolId Unique identifier for the pool
+    /// @param positionKey Key identifying the position
+    /// @param amount0 Amount of token0 fees collected
+    /// @param amount1 Amount of token1 fees collected
+    event PositionFeesCollected(
+        address locker, bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1
     );
 
     /// @notice Thrown when extension registration fails due to invalid call points
@@ -235,9 +233,10 @@ interface ICore is IFlashAccountant, IExposedStorage {
 
     /// @notice Returns the accumulated fees per liquidity inside the given bounds
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower bound of the price range to get the snapshot
+    /// @param tickLower Upper bound of the price range to get the snapshot
     /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
-    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, Bounds memory bounds)
+    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         external
         view
         returns (FeesPerLiquidity memory feesPerLiquidity);
@@ -252,21 +251,20 @@ interface ICore is IFlashAccountant, IExposedStorage {
 
     /// @notice Updates a liquidity position
     /// @param poolKey Pool key identifying the pool
-    /// @param params Parameters for the position update
+    /// @param positionKey The key of the position to update
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance
-    function updatePosition(PoolKey memory poolKey, UpdatePositionParameters memory params)
+    function updatePosition(PoolKey memory poolKey, PositionKey memory positionKey, int128 liquidityDelta)
         external
         payable
         returns (int128 delta0, int128 delta1);
 
     /// @notice Collects accumulated fees from a position
     /// @param poolKey Pool key identifying the pool
-    /// @param salt Unique identifier for the position
-    /// @param bounds Price bounds for the position
+    /// @param positionKey The key of the position for which to collect fees
     /// @return amount0 Amount of token0 fees collected
     /// @return amount1 Amount of token1 fees collected
-    function collectFees(PoolKey memory poolKey, bytes32 salt, Bounds memory bounds)
+    function collectFees(PoolKey memory poolKey, PositionKey memory positionKey)
         external
         returns (uint128 amount0, uint128 amount1);
 

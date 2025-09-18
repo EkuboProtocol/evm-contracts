@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {ICore, IExtension, UpdatePositionParameters} from "../interfaces/ICore.sol";
+import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {Bounds} from "../types/positionKey.sol";
+import {PositionKey} from "../types/positionKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {UsesCore} from "./UsesCore.sol";
 
@@ -45,12 +45,12 @@ abstract contract BaseExtension is UsesCore, IExtension {
     }
 
     /// @inheritdoc IExtension
-    function beforeUpdatePosition(address, PoolKey memory, UpdatePositionParameters memory) external virtual {
+    function beforeUpdatePosition(address, PoolKey memory, PositionKey memory, int128) external virtual {
         revert CallPointNotImplemented();
     }
 
     /// @inheritdoc IExtension
-    function afterUpdatePosition(address, PoolKey memory, UpdatePositionParameters memory, int128, int128)
+    function afterUpdatePosition(address, PoolKey memory, PositionKey memory, int128, int128, int128)
         external
         virtual
     {
@@ -68,12 +68,12 @@ abstract contract BaseExtension is UsesCore, IExtension {
     }
 
     /// @inheritdoc IExtension
-    function beforeCollectFees(address, PoolKey memory, bytes32, Bounds memory) external virtual {
+    function beforeCollectFees(address, PoolKey memory, PositionKey memory) external virtual {
         revert CallPointNotImplemented();
     }
 
     /// @inheritdoc IExtension
-    function afterCollectFees(address, PoolKey memory, bytes32, Bounds memory, uint128, uint128) external virtual {
+    function afterCollectFees(address, PoolKey memory, PositionKey memory, uint128, uint128) external virtual {
         revert CallPointNotImplemented();
     }
 }

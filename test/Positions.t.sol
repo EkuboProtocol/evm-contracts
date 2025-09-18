@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
+import {PositionKey} from "../src/types/positionKey.sol";
 import {FullTest} from "./FullTest.sol";
 import {RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
@@ -44,9 +44,7 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), 100);
         token1.approve(address(positions), 100);
 
-        Bounds memory bounds = Bounds({lower: -100, upper: 100});
-
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 100, 100, 0);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
         assertGt(id, 0);
         assertGt(liquidity, 0);
         assertEq(token0.balanceOf(address(core)), 100);
@@ -59,7 +57,7 @@ contract PositionsTest is FullTest {
         assertEq(liquidityNetUpper, liquidity, "upper.liquidityNet");
         assertEq(liquidityDeltaUpper, -int128(liquidity), "upper.liquidityDelta");
 
-        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity);
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity);
 
         // original 100, rounded down, minus the 50% fee
         assertEq(amount0, 49);
@@ -72,11 +70,8 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        Bounds memory boundsA = Bounds({lower: -100, upper: 100});
-        Bounds memory boundsB = Bounds({lower: -300, upper: -100});
-
-        (, uint128 liquidityA,,) = positions.mintAndDeposit(poolKey, boundsA, 100, 100, 0);
-        (, uint128 liquidityB,,) = positions.mintAndDeposit(poolKey, boundsB, 100, 100, 0);
+        (, uint128 liquidityA,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
+        (, uint128 liquidityB,,) = positions.mintAndDeposit(poolKey, -300, -100, 100, 100, 0);
 
         (int128 liquidityDelta, uint128 liquidityNet) = core.poolTicks(poolKey.toPoolId(), -300);
         assertEq(liquidityDelta, int128(liquidityB));
@@ -94,9 +89,9 @@ contract PositionsTest is FullTest {
     function test_collectFees_amount0(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, -100, 100, address(this));
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
@@ -108,15 +103,15 @@ contract PositionsTest is FullTest {
             type(int256).min
         );
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
+        (amount0, amount1) = positions.collectFees(id, poolKey, -100, 100);
         assertEq(amount0, 49);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
+        (amount0, amount1) = positions.collectFees(id, poolKey, -100, 100);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        (amount0, amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity);
 
         assertEq(amount0, 74);
         assertEq(amount1, 25);
@@ -125,9 +120,9 @@ contract PositionsTest is FullTest {
     function test_collectFees_amount1(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100), address(this));
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, -100, 100, address(this));
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
@@ -139,15 +134,15 @@ contract PositionsTest is FullTest {
             type(int256).min
         );
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
+        (amount0, amount1) = positions.collectFees(id, poolKey, -100, 100);
         assertEq(amount0, 0);
         assertEq(amount1, 49);
 
-        (amount0, amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
+        (amount0, amount1) = positions.collectFees(id, poolKey, -100, 100);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        (amount0, amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity);
 
         assertEq(amount0, 25);
         assertEq(amount1, 74);
@@ -156,7 +151,7 @@ contract PositionsTest is FullTest {
     function test_collectFeesAndWithdraw(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
@@ -174,13 +169,13 @@ contract PositionsTest is FullTest {
         );
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
-            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertEq(p0, 124);
         assertEq(p1, 75);
         assertEq(f0, 49);
         assertEq(f1, 24);
 
-        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity);
         assertEq(amount0, 111); // 124/2 + 49
         assertEq(amount1, 61); // 75/2 + 24
     }
@@ -188,7 +183,7 @@ contract PositionsTest is FullTest {
     function test_collectFeesAndWithdraw_above_range(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
@@ -215,13 +210,13 @@ contract PositionsTest is FullTest {
         });
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
-            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertEq(p0, 0);
         assertEq(p1, 200);
         assertEq(f0, 49);
         assertEq(f1, 150);
 
-        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity);
         assertEq(amount0, 49);
         assertEq(amount1, 250);
     }
@@ -229,7 +224,7 @@ contract PositionsTest is FullTest {
     function test_collectFeesAndWithdraw_below_range(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
@@ -256,13 +251,13 @@ contract PositionsTest is FullTest {
         });
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
-            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertEq(p0, 200);
         assertEq(p1, 0);
         assertEq(f0, 125);
         assertEq(f1, 24);
 
-        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, Bounds(-100, 100), liquidity);
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity);
         assertEq(amount0, 225);
         assertEq(amount1, 24);
     }
@@ -270,7 +265,7 @@ contract PositionsTest is FullTest {
     function test_collectFeesOnly(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 100, 100);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
@@ -287,13 +282,13 @@ contract PositionsTest is FullTest {
             type(int256).min
         );
 
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, Bounds(-100, 100));
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, -100, 100);
 
         assertEq(amount0, 49);
         assertEq(amount1, 24);
 
         (uint128 liquidityAfter, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
-            positions.getPositionFeesAndLiquidity(id, poolKey, Bounds(-100, 100));
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertEq(liquidityAfter, liquidity);
         assertEq(p0, 124);
         assertEq(p1, 75);
@@ -307,10 +302,8 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
-
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range max");
         assertGt(liquidity, 0);
 
@@ -323,7 +316,8 @@ contract PositionsTest is FullTest {
         assertEq(tick, MAX_TICK);
         assertEq(liqAfter, liquidity);
 
-        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(p0, 0);
         assertEq(p1, 1000000499999874989827178462785727275);
         assertEq(f0, 0);
@@ -336,10 +330,8 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
-
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range min");
         assertGt(liquidity, 0);
 
@@ -352,7 +344,8 @@ contract PositionsTest is FullTest {
         assertEq(tick, MIN_TICK - 1);
         assertEq(liqAfter, liquidity);
 
-        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(p0, 1000000499999874989935596106549936381, "principal0");
         assertEq(p1, 0, "principal1");
         assertEq(f0, ((uint128(delta0)) / 2) - 1, "fees0");
@@ -375,10 +368,8 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
-
-        (uint256 id,,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
-        (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        (uint256 id,,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
+        (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 0);
         assertEq(f1, 0);
 
@@ -386,7 +377,7 @@ contract PositionsTest is FullTest {
         token1.approve(address(fae), 2000);
         fae.accumulateFees(poolKey, 1000, 2000);
 
-        (,,, f0, f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        (,,, f0, f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 999);
         assertEq(f1, 1999);
     }
@@ -412,10 +403,8 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
-
-        (uint256 id,,,) = positions.mintAndDeposit(poolKey, bounds, 1e36, 1e36, 0);
-        (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, bounds);
+        (uint256 id,,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
+        (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 0);
         assertEq(f1, 0);
     }
@@ -425,10 +414,8 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), 100);
         token1.approve(address(positions), 100);
 
-        Bounds memory bounds = Bounds({lower: -100, upper: 100});
-
         coolAllContracts();
-        positions.mintAndDeposit(poolKey, bounds, 100, 100, 0);
+        positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
         vm.snapshotGasLastCall("mintAndDeposit");
     }
 
@@ -436,10 +423,8 @@ contract PositionsTest is FullTest {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         token1.approve(address(positions), 100);
 
-        Bounds memory bounds = Bounds({lower: -100, upper: 100});
-
         coolAllContracts();
-        positions.mintAndDeposit{value: 100}(poolKey, bounds, 100, 100, 0);
+        positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, 0);
         vm.snapshotGasLastCall("mintAndDeposit eth");
     }
 
@@ -455,10 +440,8 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        Bounds memory bounds = Bounds({lower: MIN_TICK, upper: MAX_TICK});
-
         coolAllContracts();
-        positions.mintAndDeposit(poolKey, bounds, 1e18, 1e18, 0);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range both tokens");
     }
 }

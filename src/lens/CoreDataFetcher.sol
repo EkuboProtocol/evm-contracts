@@ -32,12 +32,12 @@ contract CoreDataFetcher is UsesCore {
         (sqrtRatio, tick, liquidity) = CORE.poolState(poolKey.toPoolId());
     }
 
-    function poolPosition(PoolKey memory poolKey, PositionKey memory positionKey)
+    function poolPosition(PoolKey memory poolKey, address owner, PositionKey memory positionKey)
         external
         view
         returns (Position memory position)
     {
-        position = CORE.poolPositions(poolKey.toPoolId(), positionKey.toPositionId());
+        position = CORE.poolPositions(poolKey.toPoolId(), positionKey.toPositionId(owner));
     }
 
     function savedBalances(address owner, address token0, address token1, bytes32 salt)

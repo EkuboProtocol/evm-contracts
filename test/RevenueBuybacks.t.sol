@@ -5,7 +5,7 @@ import {BaseOrdersTest} from "./Orders.t.sol";
 import {EkuboRevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
+import {PositionKey} from "../src/types/positionKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
@@ -153,7 +153,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
         rb.approveMax(address(token0));
 
@@ -189,7 +189,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         positions.maybeInitializePool(poolKey, 0);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit{value: 1e18}(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
+        positions.mintAndDeposit{value: 1e18}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
         (uint256 endTime, uint112 saleRate) = rb.roll(address(0));
         assertEq(endTime, 3840);
@@ -252,7 +252,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit{value: isEth ? 1e18 : 0}(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18, 0);
+        positions.mintAndDeposit{value: isEth ? 1e18 : 0}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
         (uint256 endTime,) = rb.roll(token);
         assertGt(endTime, startTime, "end time gt");

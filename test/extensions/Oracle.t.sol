@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {UpdatePositionParameters} from "../../src/interfaces/ICore.sol";
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
-import {Bounds} from "../../src/types/positionKey.sol";
+import {PositionKey} from "../../src/types/positionKey.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {
@@ -74,7 +73,7 @@ abstract contract BaseOracleTest is FullTest {
         PoolKey memory pk =
             PoolKey(NATIVE_TOKEN_ADDRESS, token, toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
         {
-            (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, Bounds(MIN_TICK, MAX_TICK));
+            (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, MIN_TICK, MAX_TICK);
         }
 
         (SqrtRatio sqrtRatio,,) = core.poolState(pk.toPoolId());
@@ -88,12 +87,12 @@ abstract contract BaseOracleTest is FullTest {
 
             vm.deal(address(positions), uint128(d0));
             positions.deposit(
-                positionId, pk, Bounds(MIN_TICK, MAX_TICK), uint128(d0), uint128(d1), liquidityNext - liquidity - 1
+                positionId, pk, MIN_TICK, MAX_TICK, uint128(d0), uint128(d1), liquidityNext - liquidity - 1
             );
             (,, liquidity) = core.poolState(pk.toPoolId());
             assertApproxEqAbs(liquidity, liquidityNext, 1, "liquidity after");
         } else if (liquidity > liquidityNext) {
-            positions.withdraw(positionId, pk, Bounds(MIN_TICK, MAX_TICK), liquidity - liquidityNext);
+            positions.withdraw(positionId, pk, MIN_TICK, MAX_TICK, liquidity - liquidityNext);
             liquidity = liquidityNext;
         }
     }
@@ -548,9 +547,7 @@ contract OracleTest is BaseOracleTest {
     function test_createPosition_failsForPositionsNotWideEnough() public {
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
         vm.expectRevert(FullRangeOnlyPool.selector);
-        positions.mintAndDeposit{value: 100}(
-            poolKey, Bounds(-int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING)), 100, 100, 0
-        );
+        positions.mintAndDeposit{value: 100}(poolKey, -int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING), 100, 100, 0);
     }
 
     function test_createPosition(uint256 startTime) public {
@@ -561,8 +558,7 @@ contract OracleTest is BaseOracleTest {
 
         advanceTime(30);
 
-        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, bounds, 100, 200);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 100, 200);
         (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
 
         assertEq(count, 1);
@@ -579,7 +575,7 @@ contract OracleTest is BaseOracleTest {
         assertEq(tickCumulative, 30 * 693147);
 
         advanceTime(45);
-        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, bounds, liquidity);
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity);
         assertEq(amount0, 99);
         assertEq(amount1, 199);
 
@@ -604,14 +600,14 @@ contract OracleTest is BaseOracleTest {
         oracle.expandCapacity(address(token1), 10);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 2000);
 
         // immediately moved after initialization
         movePrice(poolKey, 693147 * 2);
 
         advanceTime(10);
 
-        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2);
+        positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity / 2);
 
         movePrice(poolKey, 693146 / 2);
 
@@ -684,14 +680,14 @@ contract OracleTest is BaseOracleTest {
         oracle.expandCapacity(address(token1), 10);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 2000);
 
         // immediately moved after initialization
         movePrice(poolKey, 693147 * 2);
 
         advanceTime(10);
 
-        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2);
+        positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity / 2);
 
         movePrice(poolKey, 693146 / 2);
 
@@ -752,11 +748,11 @@ contract OracleTest is BaseOracleTest {
         oracle.expandCapacity(address(token1), 5);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 2000);
 
         movePrice(poolKey, 693147 * 2);
         advanceTime(10);
-        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2);
+        positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity / 2);
         movePrice(poolKey, 693146 / 2);
         advanceTime(6);
         movePrice(poolKey, 693147);
@@ -777,14 +773,14 @@ contract OracleTest is BaseOracleTest {
         oracle.expandCapacity(address(token1), 5);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 2000);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 2000);
 
         // immediately moved after initialization
         movePrice(poolKey, 693147 * 2);
 
         advanceTime(10);
 
-        positions.withdraw(id, poolKey, Bounds(MIN_TICK, MAX_TICK), liquidity / 2);
+        positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity / 2);
 
         uint128 liquidity2 = liquidity - (liquidity / 2);
 
@@ -856,7 +852,9 @@ contract OracleTest is BaseOracleTest {
         oracle.beforeInitializePool(address(0), poolKey, 15);
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeUpdatePosition(address(0), poolKey, UpdatePositionParameters(bytes32(0x0), Bounds(-100, 100), 0));
+        oracle.beforeUpdatePosition(
+            address(0), poolKey, PositionKey({salt: bytes32(0x0), tickLower: -100, tickUpper: 100}), 0
+        );
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
         oracle.beforeSwap(address(0), poolKey, 0, false, SqrtRatio.wrap(0), 0);

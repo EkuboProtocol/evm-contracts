@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {PositionKey, Bounds} from "../../src/types/positionKey.sol";
+import {PositionKey} from "../../src/types/positionKey.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {
@@ -102,7 +102,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_input_token0_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -126,7 +126,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_quote() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         (int128 delta0, int128 delta1) = router.quote({
             poolKey: poolKey,
@@ -143,7 +143,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_output_token0_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -167,7 +167,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_input_token1_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -191,7 +191,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_output_token1_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -217,7 +217,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_input_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -241,7 +241,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_output_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -265,7 +265,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_input_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -289,7 +289,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_output_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, Bounds(-100_000, 100_000), 1_000_000, 1_000_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -313,8 +313,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_extra_fees_are_accumulated_in_next_block() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        Bounds memory bounds = Bounds(-100_000, 100_000);
-        (uint256 id,) = createPosition(poolKey, bounds, 1_000_000, 1_000_000);
+        (uint256 id,) = createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         router.swap({
@@ -326,17 +325,17 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, bounds);
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, -100_000, 100_000);
         assertEq(amount0, 4999);
         assertEq(amount1, 0);
 
         advanceTime(1);
-        (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
+        (amount0, amount1) = positions.collectFees(id, poolKey, -100_000, 100_000);
         assertEq(amount0, 0);
         assertEq(amount1, 11528);
 
         advanceTime(1);
-        (amount0, amount1) = positions.collectFees(id, poolKey, bounds);
+        (amount0, amount1) = positions.collectFees(id, poolKey, -100_000, 100_000);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
     }
@@ -344,7 +343,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_initial_tick_far_from_zero_no_additional_fees() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -368,7 +367,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_initial_tick_far_from_zero_no_additional_fees_output() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
@@ -392,7 +391,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_second_swap_with_additional_fees_gas_price() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         router.swap({
@@ -425,7 +424,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_second_swap_after_some_time_gas_price() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), type(uint256).max);
@@ -466,7 +465,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_max_fee_token0_input() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         (int128 delta0, int128 delta1) = router.swap({
@@ -488,7 +487,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_max_fee_token1_input() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
         (int128 delta0, int128 delta1) = router.swap({
@@ -510,7 +509,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_max_fee_token0_output() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
         (int128 delta0, int128 delta1) = router.swap({
@@ -532,7 +531,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_swap_max_fee_token1_output() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, Bounds(600_000, 800_000), 1_000_000, 2_000_000);
+        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         (int128 delta0, int128 delta1) = router.swap({
@@ -554,8 +553,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     function test_new_position_does_not_get_fees() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        Bounds memory bounds = Bounds(600_000, 800_000);
-        (uint256 id1,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
+        (uint256 id1,) = createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), type(uint256).max);
@@ -582,13 +580,13 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 748_511);
 
         advanceTime(1);
-        (uint256 id2,) = createPosition(poolKey, bounds, 1_000_000, 2_000_000);
+        (uint256 id2,) = createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id2, poolKey, bounds);
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id2, poolKey, 600_000, 800_000);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.collectFees(id1, poolKey, bounds);
+        (amount0, amount1) = positions.collectFees(id1, poolKey, 600_000, 800_000);
         assertEq(amount0, 28_842);
         assertEq(amount1, 43_371);
     }

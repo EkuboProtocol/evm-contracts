@@ -2,12 +2,12 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
+import {ICore, IExtension} from "../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
+import {PositionKey} from "../src/types/positionKey.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
@@ -30,26 +30,30 @@ contract MockExtension is IExtension {
         emit AfterInitializePoolCalled(caller, key, tick, sqrtRatio);
     }
 
-    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, UpdatePositionParameters params);
+    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, PositionKey positionKey, int128 liquidityDelta);
 
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
-        external
-    {
-        emit BeforeUpdatePositionCalled(locker, poolKey, params);
+    function beforeUpdatePosition(
+        address locker,
+        PoolKey memory poolKey,
+        PositionKey memory positionKey,
+        int128 liquidityDelta
+    ) external {
+        emit BeforeUpdatePositionCalled(locker, poolKey, positionKey, liquidityDelta);
     }
 
     event AfterUpdatePositionCalled(
-        address locker, PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1
+        address locker, PoolKey poolKey, PositionKey positionKey, int128 liquidityDelta, int128 delta0, int128 delta1
     );
 
     function afterUpdatePosition(
         address locker,
         PoolKey memory poolKey,
-        UpdatePositionParameters memory params,
+        PositionKey memory positionKey,
+        int128 liquidityDelta,
         int128 delta0,
         int128 delta1
     ) external {
-        emit AfterUpdatePositionCalled(locker, poolKey, params, delta0, delta1);
+        emit AfterUpdatePositionCalled(locker, poolKey, positionKey, liquidityDelta, delta0, delta1);
     }
 
     event BeforeSwapCalled(
@@ -91,25 +95,24 @@ contract MockExtension is IExtension {
         emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1);
     }
 
-    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, bytes32 salt, Bounds bounds);
+    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, PositionKey positionKey);
 
-    function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external {
-        emit BeforeCollectFeesCalled(locker, poolKey, salt, bounds);
+    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionKey memory positionKey) external {
+        emit BeforeCollectFeesCalled(locker, poolKey, positionKey);
     }
 
     event AfterCollectFeesCalled(
-        address locker, PoolKey poolKey, bytes32 salt, Bounds bounds, uint128 amount0, uint128 amount1
+        address locker, PoolKey poolKey, PositionKey positionKey, uint128 amount0, uint128 amount1
     );
 
     function afterCollectFees(
         address locker,
         PoolKey memory poolKey,
-        bytes32 salt,
-        Bounds memory bounds,
+        PositionKey memory positionKey,
         uint128 amount0,
         uint128 amount1
     ) external {
-        emit AfterCollectFeesCalled(locker, poolKey, salt, bounds, amount0, amount1);
+        emit AfterCollectFeesCalled(locker, poolKey, positionKey, amount0, amount1);
     }
 }
 
@@ -181,7 +184,7 @@ abstract contract FullTest is Test {
         core.initializePool(poolKey, tick);
     }
 
-    function createPosition(PoolKey memory poolKey, Bounds memory bounds, uint128 amount0, uint128 amount1)
+    function createPosition(PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 amount0, uint128 amount1)
         internal
         returns (uint256 id, uint128 liquidity)
     {
@@ -193,7 +196,7 @@ abstract contract FullTest is Test {
         }
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
-        (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, bounds, amount0, amount1, 0);
+        (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, tickLower, tickUpper, amount0, amount1, 0);
     }
 
     function advanceTime(uint32 by) internal returns (uint256 next) {

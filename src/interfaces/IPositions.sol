@@ -2,7 +2,6 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../types/poolKey.sol";
-import {Bounds} from "../types/positionKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {IBaseNonfungibleToken} from "./IBaseNonfungibleToken.sol";
 
@@ -25,13 +24,14 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Gets the liquidity, principal amounts, and accumulated fees for a position
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @return liquidity Current liquidity in the position
     /// @return principal0 Principal amount of token0 in the position
     /// @return principal1 Principal amount of token1 in the position
     /// @return fees0 Accumulated fees in token0
     /// @return fees1 Accumulated fees in token1
-    function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
+    function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         external
         view
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1);
@@ -39,7 +39,8 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Deposits tokens into a liquidity position
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @param maxAmount0 Maximum amount of token0 to deposit
     /// @param maxAmount1 Maximum amount of token1 to deposit
     /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
@@ -49,7 +50,8 @@ interface IPositions is IBaseNonfungibleToken {
     function deposit(
         uint256 id,
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
@@ -58,10 +60,11 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Collects accumulated fees from a position to msg.sender
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @return amount0 Amount of token0 fees collected
     /// @return amount1 Amount of token1 fees collected
-    function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds)
+    function collectFees(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         external
         payable
         returns (uint128 amount0, uint128 amount1);
@@ -69,11 +72,12 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Collects accumulated fees from a position to a specified recipient
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @param recipient Address to receive the collected fees
     /// @return amount0 Amount of token0 fees collected
     /// @return amount1 Amount of token1 fees collected
-    function collectFees(uint256 id, PoolKey memory poolKey, Bounds memory bounds, address recipient)
+    function collectFees(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, address recipient)
         external
         payable
         returns (uint128 amount0, uint128 amount1);
@@ -81,7 +85,8 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Withdraws liquidity from a position
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @param liquidity Amount of liquidity to withdraw
     /// @param recipient Address to receive the withdrawn tokens
     /// @param withFees Whether to also collect accumulated fees
@@ -90,7 +95,8 @@ interface IPositions is IBaseNonfungibleToken {
     function withdraw(
         uint256 id,
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 liquidity,
         address recipient,
         bool withFees
@@ -99,11 +105,12 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Withdraws liquidity from a position to msg.sender with fees
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @param liquidity Amount of liquidity to withdraw
     /// @return amount0 Amount of token0 withdrawn
     /// @return amount1 Amount of token1 withdrawn
-    function withdraw(uint256 id, PoolKey memory poolKey, Bounds memory bounds, uint128 liquidity)
+    function withdraw(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
         external
         payable
         returns (uint128 amount0, uint128 amount1);
@@ -120,7 +127,8 @@ interface IPositions is IBaseNonfungibleToken {
 
     /// @notice Mints a new NFT and deposits liquidity into it
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @param maxAmount0 Maximum amount of token0 to deposit
     /// @param maxAmount1 Maximum amount of token1 to deposit
     /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
@@ -130,7 +138,8 @@ interface IPositions is IBaseNonfungibleToken {
     /// @return amount1 Actual amount of token1 deposited
     function mintAndDeposit(
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
@@ -139,7 +148,8 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Mints a new NFT with a specific salt and deposits liquidity into it
     /// @param salt Salt for deterministic NFT ID generation
     /// @param poolKey Pool key identifying the pool
-    /// @param bounds Price bounds for the position
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
     /// @param maxAmount0 Maximum amount of token0 to deposit
     /// @param maxAmount1 Maximum amount of token1 to deposit
     /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
@@ -150,7 +160,8 @@ interface IPositions is IBaseNonfungibleToken {
     function mintAndDepositWithSalt(
         bytes32 salt,
         PoolKey memory poolKey,
-        Bounds memory bounds,
+        int32 tickLower,
+        int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity

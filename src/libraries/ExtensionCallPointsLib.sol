@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {IExtension} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
+import {PositionKey} from "../types/positionKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 /// @dev Contains methods for determining whether an extension should be called
@@ -17,6 +18,30 @@ library ExtensionCallPointsLib {
         }
     }
 
+    function maybeCallBeforeInitializePool(
+        IExtension extension,
+        address initializer,
+        PoolKey memory poolKey,
+        int32 tick
+    ) internal {
+        bool needCall = shouldCallBeforeInitializePool(extension, initializer);
+        assembly ("memory-safe") {
+            if needCall {
+                let freeMem := mload(0x40)
+                // cast sig "beforeInitializePool(address, (address, address, bytes32), int32)"
+                mstore(freeMem, shl(224, 0x1fbbb462))
+                mstore(add(freeMem, 4), initializer)
+                mcopy(add(freeMem, 36), poolKey, 96)
+                mstore(add(freeMem, 132), tick)
+                // bubbles up the revert
+                if iszero(call(gas(), extension, 0, freeMem, 164, 0, 0)) {
+                    returndatacopy(freeMem, 0, returndatasize())
+                    revert(freeMem, returndatasize())
+                }
+            }
+        }
+    }
+
     function shouldCallAfterInitializePool(IExtension extension, address initializer)
         internal
         pure
@@ -24,6 +49,32 @@ library ExtensionCallPointsLib {
     {
         assembly ("memory-safe") {
             yes := and(shr(159, extension), iszero(eq(initializer, extension)))
+        }
+    }
+
+    function maybeCallAfterInitializePool(
+        IExtension extension,
+        address initializer,
+        PoolKey memory poolKey,
+        int32 tick,
+        SqrtRatio sqrtRatio
+    ) internal {
+        bool needCall = shouldCallAfterInitializePool(extension, initializer);
+        assembly ("memory-safe") {
+            if needCall {
+                let freeMem := mload(0x40)
+                // cast sig "afterInitializePool(address, (address, address, bytes32), int32, uint96)"
+                mstore(freeMem, shl(224, 0x948374ff))
+                mstore(add(freeMem, 4), initializer)
+                mcopy(add(freeMem, 36), poolKey, 96)
+                mstore(add(freeMem, 132), tick)
+                mstore(add(freeMem, 164), sqrtRatio)
+                // bubbles up the revert
+                if iszero(call(gas(), extension, 0, freeMem, 196, 0, 0)) {
+                    returndatacopy(freeMem, 0, returndatasize())
+                    revert(freeMem, returndatasize())
+                }
+            }
         }
     }
 

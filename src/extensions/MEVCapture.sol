@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {ICore, PoolKey, PositionId, CallPoints, SqrtRatio} from "../interfaces/ICore.sol";
-import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {IMEVCapture} from "../interfaces/extensions/IMEVCapture.sol";
+import {IExtension} from "../interfaces/ICore.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
@@ -31,7 +31,7 @@ function mevCaptureCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage, IMEVCapture {
+contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage {
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
     /// @return lastUpdateTime The last time this pool was updated
@@ -54,7 +54,10 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage, IM
         return mevCaptureCallPoints();
     }
 
-    function beforeInitializePool(address, PoolKey memory poolKey, int32 tick) external override {
+    function beforeInitializePool(address, PoolKey memory poolKey, int32 tick)
+        external
+        override(BaseExtension, IExtension)
+    {
         if (poolKey.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
             revert ConcentratedLiquidityPoolsOnly();
         }
@@ -67,22 +70,32 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage, IM
     }
 
     /// @notice We only allow swapping via forward to this extension
-    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure override {
+    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256)
+        external
+        pure
+        override(BaseExtension, IExtension)
+    {
         revert SwapMustHappenThroughForward();
     }
 
     // Allows users to collect pending fees before the first swap in the block happens
-    function beforeCollectFees(address, PoolKey memory poolKey, PositionId) external override {
+    function beforeCollectFees(address, PoolKey memory poolKey, PositionId)
+        external
+        override(BaseExtension, IExtension)
+    {
         accumulatePoolFees(poolKey);
     }
 
     /// Prevents new liquidity from collecting on fees
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128) external override {
+    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128)
+        external
+        override(BaseExtension, IExtension)
+    {
         accumulatePoolFees(poolKey);
     }
 
     /// @inheritdoc IMEVCapture
-    function accumulatePoolFees(PoolKey memory poolKey) public override {
+    function accumulatePoolFees(PoolKey memory poolKey) public {
         // the only thing we lock for is accumulating fees, so all we need to encode is the pool key
         address target = address(CORE);
         assembly ("memory-safe") {
@@ -98,7 +111,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage, IM
         }
     }
 
-    function locked(uint256) external override onlyCore {
+    function locked(uint256) external onlyCore {
         PoolKey memory poolKey;
         assembly ("memory-safe") {
             poolKey := mload(0x40)

@@ -2,11 +2,14 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../types/poolKey.sol";
+import {ILocker, IForwardee} from "../IFlashAccountant.sol";
+import {IExtension} from "../ICore.sol";
+import {IExposedStorage} from "../IExposedStorage.sol";
 
 /// @title MEV Capture Interface
 /// @notice Interface for the Ekubo MEV Capture Extension
 /// @dev Extension that charges additional fees based on the relative size of the priority fee and tick movement during swaps
-interface IMEVCapture {
+interface IMEVCapture is ILocker, IExtension {
     /// @notice Thrown when trying to use MEV capture on a full-range-only pool
     /// @dev MEV capture only works with concentrated liquidity pools that have discrete tick spacing
     error ConcentratedLiquidityPoolsOnly();

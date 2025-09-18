@@ -34,11 +34,8 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
         _initializeOwner(owner);
     }
 
-    /// @notice Updates the metadata for the NFT collection
+    /// @inheritdoc IBaseNonfungibleToken
     /// @dev Only the contract owner can call this function
-    /// @param newName The new name for the NFT collection
-    /// @param newSymbol The new symbol for the NFT collection
-    /// @param newBaseUrl The new base URL for token metadata
     function setMetadata(string memory newName, string memory newSymbol, string memory newBaseUrl) external onlyOwner {
         _name = newName;
         _symbol = newSymbol;
@@ -76,13 +73,10 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
         _;
     }
 
-    /// @notice Converts a minter address and salt to a deterministic token ID
+    /// @inheritdoc IBaseNonfungibleToken
     /// @dev Uses keccak256 hash of minter, salt, chain ID, and contract address to generate unique IDs.
     ///      IDs are deterministic per (minter, salt, chainId, contract) tuple; the same pair on a
     ///      different chain or contract yields a different ID.
-    /// @param minter The address of the minter
-    /// @param salt The salt value for ID generation
-    /// @return result The resulting token ID
     function saltToId(address minter, bytes32 salt) public view returns (uint256 result) {
         assembly ("memory-safe") {
             let free := mload(0x40)
@@ -95,12 +89,11 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
         }
     }
 
-    /// @notice Mints a new token with a pseudorandom salt
+    /// @inheritdoc IBaseNonfungibleToken
     /// @dev Generates a salt using prevrandao() and gas() for pseudorandomness.
     ///      Note: This can encounter conflicts if a sender sends two identical transactions
     ///      in the same block that consume exactly the same amount of gas.
     ///      No fees are collected; any msg.value sent is ignored.
-    /// @return id The minted token ID
     function mint() public payable returns (uint256 id) {
         bytes32 salt;
         assembly ("memory-safe") {
@@ -111,22 +104,19 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
         id = mint(salt);
     }
 
-    /// @notice Mints an NFT for the caller with a deterministic ID based on the provided salt
+    /// @inheritdoc IBaseNonfungibleToken
     /// @dev The token ID is generated using saltToId(msg.sender, salt). This prevents the need
     ///      to store a counter of how many tokens were minted, as IDs are deterministic.
     ///      No fees are collected; any msg.value sent is ignored.
-    /// @param salt The salt value used for deterministic ID generation
-    /// @return id The minted token ID
     function mint(bytes32 salt) public payable returns (uint256 id) {
         id = saltToId(msg.sender, salt);
         _mint(msg.sender, id);
     }
 
-    /// @notice Burns a token, removing it from circulation
+    /// @inheritdoc IBaseNonfungibleToken
     /// @dev Can be used to refund some gas after the NFT is no longer needed.
     ///      The same ID can be recreated by the original minter by reusing the salt.
     ///      Only the token owner or approved addresses can burn the token.
-    /// @param id The token ID to burn
     function burn(uint256 id) external payable authorizedForNft(id) {
         _burn(id);
     }

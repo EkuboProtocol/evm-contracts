@@ -15,6 +15,9 @@ import {PositionId} from "../types/positionId.sol";
 library CoreLib {
     using ExposedStorageLib for *;
 
+    /// @dev Selector for withdrawMultiple() function
+    bytes4 private constant WITHDRAW_MULTIPLE_SELECTOR = 0xea6fb2eb;
+
     /// @notice Checks if an extension is registered with the core contract
     /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance

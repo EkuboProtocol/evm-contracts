@@ -563,41 +563,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     function withdrawMultiple() external {
         (uint256 id,) = _requireLocker();
 
-        assembly ("memory-safe") {
-            // Process packed calldata: each entry is (token, recipient, amount)
-            // token: 20 bytes, recipient: 20 bytes, amount: 16 bytes = 56 bytes per entry
-            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 56) } {
-                // Extract token (20 bytes at offset i)
-                let token := shr(96, calldataload(i))
-
-                // Extract recipient (20 bytes at offset i+20)
-                let recipient := shr(96, calldataload(add(i, 20)))
-
-                // Extract amount (16 bytes at offset i+40)
-                // Since CoreLib stores amount in high 16 bytes, we need to shift down
-                let amount := shr(128, calldataload(add(i, 40)))
-
-                if amount {
-                    // Update debt using the existing _accountDebt function
-                    // This ensures consistency with FlashAccountant behavior
-                }
-            }
-        }
-
-        // Process withdrawals outside assembly for better maintainability
-        assembly ("memory-safe") {
-            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 56) } {
-                let token := shr(96, calldataload(i))
-                let recipient := shr(96, calldataload(add(i, 20)))
-                let amount := shr(128, calldataload(add(i, 40)))
-
-                if amount {
-                    // Store values in memory for Solidity function call
-                    mstore(0x00, token)
-                    mstore(0x20, recipient)
-                    mstore(0x40, amount)
-                }
-            }
+        // Validate calldata length to ensure complete tuples
+        if ((msg.data.length - 4) % 56 != 0) {
+            revert("Invalid calldata length");
         }
 
         // Process each withdrawal entry

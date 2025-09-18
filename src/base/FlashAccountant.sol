@@ -266,11 +266,6 @@ abstract contract FlashAccountant is IFlashAccountant {
         unchecked {
             (uint256 id,) = _requireLocker();
 
-            // Validate calldata length to ensure complete tuples
-            if ((msg.data.length - 4) % 56 != 0) {
-                revert InvalidPackedCalldataLength();
-            }
-
             // Process each withdrawal entry
             for (uint256 i = 4; i < msg.data.length; i += 56) {
                 address token;
@@ -283,7 +278,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                     amount := shr(128, calldataload(add(i, 40)))
                 }
 
-                if (amount > 0) {
+                if (amount != 0) {
                     // Update debt using existing function for consistency
                     _accountDebt(id, token, int256(uint256(amount)));
 

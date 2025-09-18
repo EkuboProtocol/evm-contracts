@@ -25,8 +25,6 @@ interface IFlashAccountant {
     error PaymentOverflow();
     /// @notice Thrown if the argument to updateDebt is not within the bounds of type(int128)
     error UpdateDebtOverflow();
-    /// @notice Thrown when withdraw calldata length indicates an invalid call
-    error InvalidPackedCalldataLength();
 
     /// @notice Creates a lock context and calls back to the caller's locked function
     /// @dev The entrypoint for all operations on the core contract. Any data passed after the

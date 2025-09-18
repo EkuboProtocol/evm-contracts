@@ -3,7 +3,17 @@ pragma solidity =0.8.28;
 
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 
+/// @title ExposedStorage
+/// @notice Abstract contract that implements storage exposure functionality
+/// @dev This contract provides the implementation for the IExposedStorage interface,
+///      allowing inheriting contracts to expose their storage slots via view functions.
+///      Uses inline assembly for efficient storage access.
 abstract contract ExposedStorage is IExposedStorage {
+    /// @notice Loads storage slots from the contract's persistent storage
+    /// @dev Uses inline assembly to efficiently read multiple storage slots specified in calldata.
+    ///      The function expects slot addresses as 32-byte values in the calldata after the function selector.
+    ///      Each slot value is loaded using the SLOAD opcode and stored in memory, then all values
+    ///      are returned as concatenated bytes.
     function sload() external view {
         assembly ("memory-safe") {
             for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } { mstore(sub(i, 4), sload(calldataload(i))) }
@@ -11,6 +21,11 @@ abstract contract ExposedStorage is IExposedStorage {
         }
     }
 
+    /// @notice Loads storage slots from the contract's transient storage
+    /// @dev Uses inline assembly to efficiently read multiple transient storage slots specified in calldata.
+    ///      The function expects slot addresses as 32-byte values in the calldata after the function selector.
+    ///      Each slot value is loaded using the TLOAD opcode and stored in memory, then all values
+    ///      are returned as concatenated bytes. Transient storage is cleared at the end of each transaction.
     function tload() external view {
         assembly ("memory-safe") {
             for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } { mstore(sub(i, 4), tload(calldataload(i))) }

@@ -30,27 +30,27 @@ contract MockExtension is IExtension {
         emit AfterInitializePoolCalled(caller, key, tick, sqrtRatio);
     }
 
-    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, PositionId positionKey, int128 liquidityDelta);
+    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, PositionId positionId, int128 liquidityDelta);
 
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionKey, int128 liquidityDelta)
+    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
     {
-        emit BeforeUpdatePositionCalled(locker, poolKey, positionKey, liquidityDelta);
+        emit BeforeUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta);
     }
 
     event AfterUpdatePositionCalled(
-        address locker, PoolKey poolKey, PositionId positionKey, int128 liquidityDelta, int128 delta0, int128 delta1
+        address locker, PoolKey poolKey, PositionId positionId, int128 liquidityDelta, int128 delta0, int128 delta1
     );
 
     function afterUpdatePosition(
         address locker,
         PoolKey memory poolKey,
-        PositionId positionKey,
+        PositionId positionId,
         int128 liquidityDelta,
         int128 delta0,
         int128 delta1
     ) external {
-        emit AfterUpdatePositionCalled(locker, poolKey, positionKey, liquidityDelta, delta0, delta1);
+        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, delta0, delta1);
     }
 
     event BeforeSwapCalled(
@@ -92,24 +92,24 @@ contract MockExtension is IExtension {
         emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1);
     }
 
-    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, PositionId positionKey);
+    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, PositionId positionId);
 
-    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionKey) external {
-        emit BeforeCollectFeesCalled(locker, poolKey, positionKey);
+    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionId) external {
+        emit BeforeCollectFeesCalled(locker, poolKey, positionId);
     }
 
     event AfterCollectFeesCalled(
-        address locker, PoolKey poolKey, PositionId positionKey, uint128 amount0, uint128 amount1
+        address locker, PoolKey poolKey, PositionId positionId, uint128 amount0, uint128 amount1
     );
 
     function afterCollectFees(
         address locker,
         PoolKey memory poolKey,
-        PositionId positionKey,
+        PositionId positionId,
         uint128 amount0,
         uint128 amount1
     ) external {
-        emit AfterCollectFeesCalled(locker, poolKey, positionKey, amount0, amount1);
+        emit AfterCollectFeesCalled(locker, poolKey, positionId, amount0, amount1);
     }
 }
 

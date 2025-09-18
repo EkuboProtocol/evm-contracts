@@ -37,14 +37,14 @@ contract TokenWrapperPeriphery is BaseLocker {
             // this creates the deltas
             forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            ACCOUNTANT.withdraw(address(wrapper), recipient, uint128(uint256(amount)));
+            withdraw(address(wrapper), uint128(uint256(amount)), recipient);
             // and pay the wrapped token from the payer
             pay(payer, address(wrapper.UNDERLYING_TOKEN()), uint256(amount));
         } else {
             // this creates the deltas
             forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            ACCOUNTANT.withdraw(address(wrapper.UNDERLYING_TOKEN()), recipient, uint128(uint256(-amount)));
+            withdraw(address(wrapper.UNDERLYING_TOKEN()), uint128(uint256(-amount)), recipient);
             // and pay the wrapped token from the payer
             pay(payer, address(wrapper), uint256(-amount));
         }

@@ -20,6 +20,8 @@ interface IFlashAccountant {
     error PayReentrance();
     // If updateDebt is called with an amount that does not fit within a int128 container, this error is thrown
     error UpdateDebtOverflow();
+    // Thrown when withdraw calldata length is invalid
+    error InvalidPackedCalldataLength();
 
     // Create a lock context
     // Any data passed after the function signature is passed through back to the caller after the locked function signature and data, with no additional encoding
@@ -42,9 +44,10 @@ interface IFlashAccountant {
     // The computed payments for each respective token will be returned, ABI-encoded.
     function completePayments() external;
 
-    // Withdraws a token amount from the accountant to the given recipient.
-    // The contract must be locked, as it tracks the withdrawn amount against the current locker's delta.
-    function withdraw(address token, address recipient, uint128 amount) external;
+    // Withdraws tokens from the accountant to recipients using packed calldata.
+    // The contract must be locked, as it tracks the withdrawn amounts against the current locker's delta.
+    // Calldata format: each withdrawal is 56 bytes: token (20) + recipient (20) + amount (16)
+    function withdraw() external;
 
     // Updates debt for the current locker, for the token at the calling address. This is for deeply-integrated tokens that allow flash operations via the accountant.
     function updateDebt(int256 delta) external;

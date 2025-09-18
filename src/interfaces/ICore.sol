@@ -180,9 +180,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when saved balance tokens are not properly sorted
     error SavedBalanceTokensNotSorted();
 
-    /// @notice Thrown when withdrawMultiple calldata length is invalid
-    error InvalidPackedCalldataLength();
-
     /// @notice Registers an extension with the core contract
     /// @dev Extensions must call this function to become registered. The call points are validated against the caller address
     /// @param expectedCallPoints Call points configuration for the extension
@@ -283,10 +280,4 @@ interface ICore is IFlashAccountant, IExposedStorage {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) external payable returns (int128 delta0, int128 delta1);
-
-    /// @notice Withdraws multiple tokens in a single call using packed calldata
-    /// @dev Similar to complete/start payments, packs arguments after the function selector.
-    /// Each withdrawal is encoded as: token (20 bytes) + recipient (20 bytes) + amount (16 bytes) = 56 bytes total.
-    /// The contract must be locked, as it tracks withdrawn amounts against the current locker's debt.
-    function withdrawMultiple() external;
 }

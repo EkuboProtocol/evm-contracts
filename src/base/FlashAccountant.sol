@@ -282,21 +282,41 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    /// @notice Withdraws a token amount from the accountant to the given recipient
-    /// @dev The contract must be locked, as it tracks the withdrawn amount against the current locker's debt.
+    /// @notice Withdraws tokens from the accountant to recipients using packed calldata
+    /// @dev The contract must be locked, as it tracks withdrawn amounts against the current locker's debt.
+    ///      Calldata format: each withdrawal is 56 bytes: token (20) + recipient (20) + amount (16)
     ///      For native tokens, uses the NATIVE_TOKEN_ADDRESS constant and transfers ETH directly.
-    /// @param token The token address to withdraw (use NATIVE_TOKEN_ADDRESS for ETH)
-    /// @param recipient The address to receive the withdrawn tokens
-    /// @param amount The amount to withdraw (must fit within uint128)
-    function withdraw(address token, address recipient, uint128 amount) external {
+    function withdraw() external {
         (uint256 id,) = _requireLocker();
 
-        _accountDebt(id, token, int256(uint256(amount)));
+        // Validate calldata length to ensure complete tuples
+        if ((msg.data.length - 4) % 56 != 0) {
+            revert InvalidPackedCalldataLength();
+        }
 
-        if (token == NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeTransferETH(recipient, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, amount);
+        // Process each withdrawal entry
+        for (uint256 i = 4; i < msg.data.length; i += 56) {
+            address token;
+            address recipient;
+            uint128 amount;
+
+            assembly ("memory-safe") {
+                token := shr(96, calldataload(i))
+                recipient := shr(96, calldataload(add(i, 20)))
+                amount := shr(128, calldataload(add(i, 40)))
+            }
+
+            if (amount > 0) {
+                // Update debt using existing function for consistency
+                _accountDebt(id, token, int256(uint256(amount)));
+
+                // Perform the withdrawal
+                if (token == NATIVE_TOKEN_ADDRESS) {
+                    SafeTransferLib.safeTransferETH(recipient, amount);
+                } else {
+                    SafeTransferLib.safeTransfer(token, recipient, amount);
+                }
+            }
         }
     }
 

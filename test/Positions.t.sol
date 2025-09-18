@@ -442,4 +442,98 @@ contract PositionsTest is FullTest {
         positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range both tokens");
     }
+
+    function testFuzz_positions_with_any_protocol_fees(
+        uint64 swapProtocolFeeX64,
+        uint64 withdrawalProtocolFeeDenominator
+    ) public {
+        // Bound the parameters to reasonable values to avoid edge cases that would cause reverts
+        // swapProtocolFeeX64 should be less than 2^64 (which it is by type) and reasonable (< 50% fee)
+        swapProtocolFeeX64 = uint64(bound(swapProtocolFeeX64, 0, 2 ** 63)); // Max 50% protocol fee
+
+        // withdrawalProtocolFeeDenominator should be > 0 to avoid division by zero, and reasonable
+        withdrawalProtocolFeeDenominator = uint64(bound(withdrawalProtocolFeeDenominator, 1, 1000));
+
+        // Create a new Positions contract with the fuzzed parameters
+        Positions testPositions = new Positions(core, owner, swapProtocolFeeX64, withdrawalProtocolFeeDenominator);
+
+        // Verify the parameters are set correctly
+        assertEq(testPositions.SWAP_PROTOCOL_FEE_X64(), swapProtocolFeeX64);
+        assertEq(testPositions.WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR(), withdrawalProtocolFeeDenominator);
+
+        // Create a pool for testing
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100); // 50% fee pool
+
+        // Approve tokens for the test positions contract
+        token0.approve(address(testPositions), type(uint256).max);
+        token1.approve(address(testPositions), type(uint256).max);
+
+        // Test 1: Mint and deposit should work regardless of protocol fee parameters
+        (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) =
+            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, 0);
+
+        assertGt(id, 0, "Position ID should be greater than 0");
+        assertGt(liquidity, 0, "Liquidity should be greater than 0");
+        assertGt(amount0, 0, "Amount0 should be greater than 0");
+        assertGt(amount1, 0, "Amount1 should be greater than 0");
+
+        // Test 2: Generate some fees by swapping
+        token0.approve(address(router), 500);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 500}),
+            type(int256).min
+        );
+
+        // Test 3: Collect fees and verify protocol fees are handled correctly
+        uint256 balanceBefore0 = token0.balanceOf(address(this));
+        uint256 balanceBefore1 = token1.balanceOf(address(this));
+
+        (uint128 collectedFees0, uint128 collectedFees1) = testPositions.collectFees(id, poolKey, -100, 100);
+
+        uint256 balanceAfter0 = token0.balanceOf(address(this));
+        uint256 balanceAfter1 = token1.balanceOf(address(this));
+
+        // Verify we received some fees (exact amount depends on protocol fee)
+        assertEq(balanceAfter0 - balanceBefore0, collectedFees0, "Should receive collected fees0");
+        assertEq(balanceAfter1 - balanceBefore1, collectedFees1, "Should receive collected fees1");
+
+        // Test 4: Check protocol fees were accumulated if swap protocol fee > 0
+        (uint128 protocolFees0, uint128 protocolFees1) = testPositions.getProtocolFees(address(token0), address(token1));
+
+        if (swapProtocolFeeX64 > 0) {
+            // If there's a swap protocol fee, some fees should have been accumulated
+            // The exact amount depends on the fee calculation, but there should be some
+            assertTrue(protocolFees0 > 0 || protocolFees1 > 0, "Protocol fees should be accumulated when swap fee > 0");
+        }
+
+        // Test 5: Withdraw liquidity and verify withdrawal fees are handled correctly
+        balanceBefore0 = token0.balanceOf(address(this));
+        balanceBefore1 = token1.balanceOf(address(this));
+
+        (uint128 withdrawn0, uint128 withdrawn1) = testPositions.withdraw(id, poolKey, -100, 100, liquidity);
+
+        balanceAfter0 = token0.balanceOf(address(this));
+        balanceAfter1 = token1.balanceOf(address(this));
+
+        // Verify we received the withdrawn amounts
+        assertEq(balanceAfter0 - balanceBefore0, withdrawn0, "Should receive withdrawn amount0");
+        assertEq(balanceAfter1 - balanceBefore1, withdrawn1, "Should receive withdrawn amount1");
+
+        // Test 6: Verify withdrawal protocol fees were accumulated
+        (uint128 finalProtocolFees0, uint128 finalProtocolFees1) =
+            testPositions.getProtocolFees(address(token0), address(token1));
+
+        // Protocol fees should have increased if there's a withdrawal fee
+        if (withdrawalProtocolFeeDenominator > 0) {
+            assertTrue(
+                finalProtocolFees0 >= protocolFees0 && finalProtocolFees1 >= protocolFees1,
+                "Protocol fees should not decrease after withdrawal"
+            );
+        }
+
+        // Test 7: Verify position is empty after full withdrawal
+        (uint128 remainingLiquidity,,,,) = testPositions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertEq(remainingLiquidity, 0, "Position should have no liquidity after full withdrawal");
+    }
 }

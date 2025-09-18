@@ -48,12 +48,39 @@ contract PositionIdTest is Test {
         createPositionId({_salt: bytes24(0), _tickLower: 0, _tickUpper: 1}).validateBounds(2);
     }
 
-    function check_conversionToAndFrom(PositionId id) public {
+    function test_conversionToAndFrom(PositionId id) public pure {
         assertEq(
             PositionId.unwrap(
                 createPositionId({_salt: id.salt(), _tickLower: id.tickLower(), _tickUpper: id.tickUpper()})
             ),
             PositionId.unwrap(id)
         );
+    }
+
+    function test_conversionFromAndTo(bytes24 salt, int32 tickLower, int32 tickUpper) public pure {
+        PositionId id = createPositionId({_salt: salt, _tickLower: tickLower, _tickUpper: tickUpper});
+        assertEq(id.salt(), salt);
+        assertEq(id.tickLower(), tickLower);
+        assertEq(id.tickUpper(), tickUpper);
+    }
+
+    function test_conversionFromAndToDirtyBits(bytes32 saltDirty, bytes32 tickLowerDirty, bytes32 tickUpperDirty)
+        public
+        pure
+    {
+        bytes24 salt;
+        int32 tickLower;
+        int32 tickUpper;
+
+        assembly ("memory-safe") {
+            salt := saltDirty
+            tickLower := tickLowerDirty
+            tickUpper := tickUpperDirty
+        }
+
+        PositionId id = createPositionId({_salt: salt, _tickLower: tickLower, _tickUpper: tickUpper});
+        assertEq(id.salt(), salt);
+        assertEq(id.tickLower(), tickLower);
+        assertEq(id.tickUpper(), tickUpper);
     }
 }

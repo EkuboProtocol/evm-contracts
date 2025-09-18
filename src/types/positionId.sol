@@ -29,7 +29,7 @@ function tickUpper(PositionId positionId) pure returns (int32 v) {
 
 function createPositionId(bytes24 _salt, int32 _tickLower, int32 _tickUpper) pure returns (PositionId v) {
     assembly ("memory-safe") {
-        // v = (salt) | (tickLower << 32) | tickUpper
+        // v = salt | (tickLower << 32) | tickUpper
         v := or(shl(64, shr(64, _salt)), or(shl(32, and(_tickLower, 0xFFFFFFFF)), and(_tickUpper, 0xFFFFFFFF)))
     }
 }

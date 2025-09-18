@@ -54,7 +54,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         bytes32 poolId = poolKey.toPoolId();
         (SqrtRatio sqrtRatio,,) = CORE.poolState(poolId);
         PositionId positionId =
-            createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper});
+            createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper});
         Position memory position = CORE.poolPositions(poolId, address(this), positionId);
 
         liquidity = position.liquidity;
@@ -219,7 +219,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
             (int128 delta0, int128 delta1) = CORE.updatePosition(
                 poolKey,
-                createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
+                createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
                 int128(liquidity)
             );
 
@@ -248,7 +248,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             if (withFees) {
                 (amount0, amount1) = CORE.collectFees(
                     poolKey,
-                    createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper})
+                    createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper})
                 );
                 if (SWAP_PROTOCOL_FEE_X64 != 0) {
                     uint128 swapProtocolFee0;
@@ -275,7 +275,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             if (liquidity != 0) {
                 (int128 delta0, int128 delta1) = CORE.updatePosition(
                     poolKey,
-                    createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
+                    createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
                     -int128(liquidity)
                 );
 

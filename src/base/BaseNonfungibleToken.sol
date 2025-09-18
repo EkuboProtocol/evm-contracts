@@ -52,7 +52,7 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
             mstore(add(free, 64), chainid())
             mstore(add(free, 96), address())
 
-            result := shr(128, keccak256(free, 128))
+            result := keccak256(free, 128)
         }
     }
 

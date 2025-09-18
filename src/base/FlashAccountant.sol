@@ -86,22 +86,14 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    /// @notice Updates debt for the current locker, for the token at the calling address
-    /// @dev This is for deeply-integrated tokens that allow flash operations via the accountant.
-    ///      The calling address is treated as the token address.
-    /// @param delta The change in debt (must fit within int128 bounds)
+    /// @inheritdoc IFlashAccountant
     function updateDebt(int256 delta) external {
         (uint256 id,) = _getLocker();
         if (delta > type(int128).max || delta < type(int128).min) revert UpdateDebtOverflow();
         _accountDebt(id, msg.sender, delta);
     }
 
-    /// @notice Creates a lock context and calls back to the caller's locked function
-    /// @dev The entrypoint for all operations on the core contract. Any data passed after the
-    ///      function signature is passed through back to the caller after the locked function
-    ///      signature and data, with no additional encoding. Any data returned from ILocker#locked
-    ///      is also returned from this function exactly as is. Reverts are bubbled up.
-    ///      Ensures all debts are zeroed before completing the lock.
+    /// @inheritdoc IFlashAccountant
     function lock() external {
         assembly ("memory-safe") {
             let current := tload(_CURRENT_LOCKER_SLOT)
@@ -145,11 +137,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    /// @notice Forwards the lock context to another actor, allowing them to act on the original locker's debt
-    /// @dev Temporarily changes the locker to the forwarded address for the duration of the forwarded call.
-    ///      Any additional calldata is passed through to the forwardee with no additional encoding.
-    ///      Any data returned from IForwardee#forwarded is returned exactly as is. Reverts are bubbled up.
-    /// @param to The address to forward the lock context to
+    /// @inheritdoc IFlashAccountant
     function forward(address to) external {
         (uint256 id, address locker) = _requireLocker();
 
@@ -184,12 +172,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    /// @notice Initiates a payment operation by recording current token balances
-    /// @dev To make a payment to core, you must first call startPayments with all the tokens you'd like to send.
-    ///      All the tokens that will be paid must be ABI-encoded immediately after the 4 byte function selector.
-    ///      This function stores the current balance + 1 for each token to distinguish between zero balance
-    ///      and uninitialized state. Returns the current balances of all specified tokens as ABI-encoded
-    ///      raw bytes via assembly (no explicit Solidity return type).
+    /// @inheritdoc IFlashAccountant
     function startPayments() external {
         assembly ("memory-safe") {
             // 0-52 are used for the balanceOf calldata
@@ -220,11 +203,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    /// @notice Completes a payment operation by calculating and crediting token payments
-    /// @dev After tokens have been transferred, call completePayments to be credited for the tokens
-    ///      that have been paid to core. The credit goes to the current locker. Compares current
-    ///      balances with those recorded in startPayments to determine payment amounts.
-    ///      The computed payments are applied to the current locker's debt.
+    /// @inheritdoc IFlashAccountant
     function completePayments() external {
         (uint256 id,) = _getLocker();
 
@@ -282,10 +261,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    /// @notice Withdraws tokens from the accountant to recipients using packed calldata
-    /// @dev The contract must be locked, as it tracks withdrawn amounts against the current locker's debt.
-    ///      Calldata format: each withdrawal is 56 bytes: token (20) + recipient (20) + amount (16)
-    ///      For native tokens, uses the NATIVE_TOKEN_ADDRESS constant and transfers ETH directly.
+    /// @inheritdoc IFlashAccountant
     function withdraw() external {
         (uint256 id,) = _requireLocker();
 
@@ -320,11 +296,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    /// @notice Receives ETH payments and credits them against the current locker's native token debt
-    /// @dev This contract can receive ETH as a payment. The received amount is credited as a negative
-    ///      debt change for the native token. Note: because we use msg.value here, this contract can
-    ///      never be multicallable, i.e. it should never expose the ability to delegatecall itself
-    ///      more than once in a single call.
+    /// @inheritdoc IFlashAccountant
     receive() external payable {
         (uint256 id,) = _getLocker();
 

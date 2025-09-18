@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {CallPoints} from "../../src/types/callPoints.sol";
-import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {MIN_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
-import {TWAMM, orderKeyToPoolKey, twammCallPoints} from "../../src/extensions/TWAMM.sol";
-import {ITWAMM, OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
+import {ITWAMM, TWAMM, orderKeyToPoolKey, twammCallPoints} from "../../src/extensions/TWAMM.sol";
+import {OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {Core} from "../../src/Core.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";

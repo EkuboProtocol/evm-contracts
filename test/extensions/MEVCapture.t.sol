@@ -2,20 +2,11 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {PositionId} from "../../src/types/positionId.sol";
-import {tickToSqrtRatio} from "../../src/math/ticks.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    MAX_TICK_SPACING,
-    FULL_RANGE_ONLY_TICK_SPACING,
-    NATIVE_TOKEN_ADDRESS
-} from "../../src/math/constants.sol";
+import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
 import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
-import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {MEVCaptureRouter} from "../../src/MEVCaptureRouter.sol";

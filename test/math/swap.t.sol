@@ -2,7 +2,6 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
 import {Amount1DeltaOverflow} from "../../src/math/delta.sol";
 import {SwapResult, SqrtRatioLimitWrongDirection, noOpSwapResult, swapResult} from "../../src/math/swap.sol";
 import {isPriceIncreasing} from "../../src/math/isPriceIncreasing.sol";

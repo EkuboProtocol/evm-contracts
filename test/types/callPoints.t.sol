@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {CallPoints, addressToCallPoints, byteToCallPoints} from "../../src/types/callPoints.sol";
+import {CallPoints, byteToCallPoints} from "../../src/types/callPoints.sol";
 
 contract CallPointsTest is Test {
     function test_byteToCallPoints_none() public pure {

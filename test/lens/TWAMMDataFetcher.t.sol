@@ -6,7 +6,7 @@ import {PoolState, TWAMMDataFetcher, getAllValidFutureTimes} from "../../src/len
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {isTimeValid, nextValidTime} from "../../src/math/time.sol";
-import {ITWAMM, OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
+import {OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TWAMMDataFetcherTest is BaseOrdersTest {

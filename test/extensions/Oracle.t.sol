@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
-import {PositionId, createPositionId} from "../../src/types/positionId.sol";
+import {createPositionId} from "../../src/types/positionId.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {

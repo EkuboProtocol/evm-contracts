@@ -2,7 +2,6 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../types/poolKey.sol";
-import {CallPoints} from "../../types/callPoints.sol";
 
 /// @title MEV Capture Interface
 /// @notice Interface for the Ekubo MEV Capture Extension

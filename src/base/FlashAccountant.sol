@@ -16,6 +16,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     // These offsets are selected so that they do not accidentally overlap with any other base contract's use of transient storage
 
     /// @dev Transient storage slot for tracking the current locker ID and address
+    /// @dev The stored ID is kept as id + 1 to facilitate the NotLocked check (zero means unlocked)
     /// @dev Generated using: cast keccak "FlashAccountant#CURRENT_LOCKER_SLOT"
     uint256 private constant _CURRENT_LOCKER_SLOT = 0x07cc7f5195d862f505d6b095c82f92e00cfc1766f5bca4383c28dc5fca1555fd;
 
@@ -201,9 +202,9 @@ abstract contract FlashAccountant is IFlashAccountant {
      * @notice Initiates a payment operation by recording current token balances
      * @dev To make a payment to core, you must first call startPayments with all the tokens you'd like to send.
      *      All the tokens that will be paid must be ABI-encoded immediately after the 4 byte function selector.
-     *      The current balance of all the tokens will be returned, ABI-encoded.
      *      This function stores the current balance + 1 for each token to distinguish between zero balance
-     *      and uninitialized state. Returns the current balances of all specified tokens, ABI-encoded.
+     *      and uninitialized state. Returns the current balances of all specified tokens as ABI-encoded
+     *      raw bytes via assembly (no explicit Solidity return type).
      */
     function startPayments() external {
         assembly ("memory-safe") {
@@ -240,7 +241,7 @@ abstract contract FlashAccountant is IFlashAccountant {
      * @dev After tokens have been transferred, call completePayments to be credited for the tokens
      *      that have been paid to core. The credit goes to the current locker. Compares current
      *      balances with those recorded in startPayments to determine payment amounts.
-     *      The computed payments for each respective token will be returned, ABI-encoded.
+     *      The computed payments are applied to the current locker's debt.
      */
     function completePayments() external {
         (uint256 id,) = _getLocker();

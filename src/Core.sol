@@ -565,7 +565,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         // Validate calldata length to ensure complete tuples
         if ((msg.data.length - 4) % 56 != 0) {
-            revert("Invalid calldata length");
+            revert InvalidPackedCalldataLength();
         }
 
         // Process each withdrawal entry

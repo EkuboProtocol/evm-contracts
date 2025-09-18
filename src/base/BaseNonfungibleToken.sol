@@ -120,6 +120,7 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     /// @dev Can be used to refund some gas after the NFT is no longer needed.
     ///      The same ID can be recreated by the original minter by reusing the salt.
     ///      Only the token owner or approved addresses can burn the token.
+    ///      No fees are collected; any msg.value sent is ignored.
     function burn(uint256 id) external payable authorizedForNft(id) {
         _burn(id);
     }

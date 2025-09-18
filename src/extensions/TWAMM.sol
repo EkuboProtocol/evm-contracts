@@ -6,7 +6,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
-import {ICore} from "../interfaces/ICore.sol";
+import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {ITWAMM, OrderKey, toOrderId} from "../interfaces/extensions/ITWAMM.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -71,7 +71,7 @@ function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Extension for Ekubo Protocol that enables creation of DCA (Dollar Cost Averaging) orders that are executed over time
 /// @dev Implements virtual order execution that spreads trades over time periods to reduce price impact and provide better execution
-contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM {
+contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
 
@@ -624,7 +624,11 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
     ///////////////////////// Extension call points /////////////////////////
 
     // This method must be protected because it sets state directly
-    function afterInitializePool(address, PoolKey memory key, int32, SqrtRatio) external override onlyCore {
+    function afterInitializePool(address, PoolKey memory key, int32, SqrtRatio)
+        external
+        override(BaseExtension, IExtension)
+        onlyCore
+    {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         bytes32 poolId = key.toPoolId();
@@ -636,17 +640,26 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256) external override {
+    function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256)
+        external
+        override(BaseExtension, IExtension)
+    {
         lockAndExecuteVirtualOrders(poolKey);
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128) external override {
+    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128)
+        external
+        override(BaseExtension, IExtension)
+    {
         lockAndExecuteVirtualOrders(poolKey);
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeCollectFees(address, PoolKey memory poolKey, PositionId) external override {
+    function beforeCollectFees(address, PoolKey memory poolKey, PositionId)
+        external
+        override(BaseExtension, IExtension)
+    {
         lockAndExecuteVirtualOrders(poolKey);
     }
 }

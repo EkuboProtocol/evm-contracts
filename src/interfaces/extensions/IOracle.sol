@@ -2,11 +2,13 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../types/poolKey.sol";
+import {IExtension} from "../ICore.sol";
+import {IExposedStorage} from "../IExposedStorage.sol";
 
 /// @title Oracle Interface
 /// @notice Interface for the Ekubo Oracle Extension
 /// @dev Records price and liquidity into accumulators enabling a separate contract to compute a manipulation resistant average price and liquidity
-interface IOracle {
+interface IOracle is IExposedStorage, IExtension {
     /// @notice Snapshot data structure containing price and liquidity accumulator values
     /// @dev Stores cumulative values for computing time-weighted averages
     struct Snapshot {

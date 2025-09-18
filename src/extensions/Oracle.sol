@@ -5,7 +5,7 @@ import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, Config} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {ICore} from "../interfaces/ICore.sol";
+import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -47,7 +47,7 @@ function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logica
 /// @title Ekubo Oracle Extension
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Records price and liquidity into accumulators enabling a separate contract to compute a manipulation resistant average price and liquidity
-contract Oracle is ExposedStorage, BaseExtension, IOracle {
+contract Oracle is IOracle, ExposedStorage, BaseExtension {
     using CoreLib for ICore;
 
     mapping(address token => Counts) public counts;
@@ -156,7 +156,11 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
 
     /// @notice Called before a pool is initialized to set up Oracle tracking
     /// @dev Validates pool configuration and initializes the first snapshot
-    function beforeInitializePool(address, PoolKey calldata key, int32) external override onlyCore {
+    function beforeInitializePool(address, PoolKey calldata key, int32)
+        external
+        override(BaseExtension, IExtension)
+        onlyCore
+    {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
         if (key.fee() != 0) revert FeeMustBeZero();
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
@@ -184,7 +188,7 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
     /// @dev Inserts a new snapshot if liquidity is changing
     function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128 liquidityDelta)
         external
-        override
+        override(BaseExtension, IExtension)
         onlyCore
     {
         if (liquidityDelta != 0) {
@@ -196,7 +200,7 @@ contract Oracle is ExposedStorage, BaseExtension, IOracle {
     /// @dev Inserts a new snapshot if a swap is occurring
     function beforeSwap(address, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
         external
-        override
+        override(BaseExtension, IExtension)
         onlyCore
     {
         if (amount != 0) {

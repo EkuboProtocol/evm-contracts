@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
+import {ILocker, IForwardee} from "../IFlashAccountant.sol";
+import {IExtension} from "../ICore.sol";
+import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolKey} from "../../types/poolKey.sol";
 
 /// @notice Order key structure identifying a TWAMM order
@@ -30,7 +33,7 @@ function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
 /// @title TWAMM Interface
 /// @notice Interface for the Ekubo TWAMM Extension
 /// @dev Extension for Ekubo Protocol that enables creation of DCA orders that are executed over time
-interface ITWAMM {
+interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @notice Parameters for updating the sale rate of an order
     /// @dev Used when creating, modifying, or canceling orders
     struct UpdateSaleRateParams {

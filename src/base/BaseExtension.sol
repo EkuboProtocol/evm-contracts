@@ -12,7 +12,7 @@ import {UsesCore} from "./UsesCore.sol";
 /// @notice Abstract base contract for creating extensions to the Ekubo Protocol
 /// @dev Extensions can hook into various pool operations to add custom functionality
 ///      Derived contracts must implement getCallPoints() and the specific hook functions they want to use
-abstract contract BaseExtension is UsesCore, IExtension {
+abstract contract BaseExtension is IExtension, UsesCore {
     /// @notice Thrown when a call point is not implemented by the extension
     error CallPointNotImplemented();
 

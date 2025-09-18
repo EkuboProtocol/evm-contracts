@@ -34,8 +34,11 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
         _initializeOwner(owner);
     }
 
-    /// @inheritdoc IBaseNonfungibleToken
+    /// @notice Updates the metadata for the NFT collection
     /// @dev Only the contract owner can call this function
+    /// @param newName The new name for the NFT collection
+    /// @param newSymbol The new symbol for the NFT collection
+    /// @param newBaseUrl The new base URL for token metadata
     function setMetadata(string memory newName, string memory newSymbol, string memory newBaseUrl) external onlyOwner {
         _name = newName;
         _symbol = newSymbol;

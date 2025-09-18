@@ -15,17 +15,17 @@ interface IForwardee {
 ///      and ensuring all debts are settled before the transaction completes. Uses transient storage
 ///      for gas-efficient temporary state management within a single transaction.
 interface IFlashAccountant {
+    /// @notice Thrown when an operation is made that affects debts without an active lock
     error NotLocked();
+    /// @notice Thrown when a method is called by an address other than the current locker
     error LockerOnly();
-    error NoPaymentMade();
-    error StartPaymentNotCalled();
+    /// @notice Thrown when the lock callback returns without clearing all the debts either via withdrawing from or paying to the accountant
     error DebtsNotZeroed(uint256 id);
-    // Thrown if the contract receives too much payment in the payment callback or from a direct native token transfer
+    /// @notice Thrown if the contract receives a payment that exceeds type(uint128).max
     error PaymentOverflow();
-    error PayReentrance();
-    // If updateDebt is called with an amount that does not fit within a int128 container, this error is thrown
+    /// @notice Thrown if the argument to updateDebt is not within the bounds of type(int128)
     error UpdateDebtOverflow();
-    // Thrown when withdraw calldata length is invalid
+    /// @notice Thrown when withdraw calldata length indicates an invalid call
     error InvalidPackedCalldataLength();
 
     /// @notice Creates a lock context and calls back to the caller's locked function

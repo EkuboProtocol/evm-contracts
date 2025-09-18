@@ -77,7 +77,9 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     }
 
     /// @notice Converts a minter address and salt to a deterministic token ID
-    /// @dev Uses keccak256 hash of minter, salt, chain ID, and contract address to generate unique IDs
+    /// @dev Uses keccak256 hash of minter, salt, chain ID, and contract address to generate unique IDs.
+    ///      IDs are deterministic per (minter, salt, chainId, contract) tuple; the same pair on a
+    ///      different chain or contract yields a different ID.
     /// @param minter The address of the minter
     /// @param salt The salt value for ID generation
     /// @return result The resulting token ID
@@ -97,6 +99,7 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     /// @dev Generates a salt using prevrandao() and gas() for pseudorandomness.
     ///      Note: This can encounter conflicts if a sender sends two identical transactions
     ///      in the same block that consume exactly the same amount of gas.
+    ///      No fees are collected; any msg.value sent is ignored.
     /// @return id The minted token ID
     function mint() public payable returns (uint256 id) {
         bytes32 salt;
@@ -111,6 +114,7 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     /// @notice Mints an NFT for the caller with a deterministic ID based on the provided salt
     /// @dev The token ID is generated using saltToId(msg.sender, salt). This prevents the need
     ///      to store a counter of how many tokens were minted, as IDs are deterministic.
+    ///      No fees are collected; any msg.value sent is ignored.
     /// @param salt The salt value used for deterministic ID generation
     /// @return id The minted token ID
     function mint(bytes32 salt) public payable returns (uint256 id) {
@@ -118,9 +122,9 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
         _mint(msg.sender, id);
     }
 
-    /// @notice Burns a token, permanently removing it from circulation
+    /// @notice Burns a token, removing it from circulation
     /// @dev Can be used to refund some gas after the NFT is no longer needed.
-    ///      The NFT ID may be re-minted by the original minter after it is burned by re-using the same salt.
+    ///      The same ID can be recreated by the original minter by reusing the salt.
     ///      Only the token owner or approved addresses can burn the token.
     /// @param id The token ID to burn
     function burn(uint256 id) external payable authorizedForNft(id) {

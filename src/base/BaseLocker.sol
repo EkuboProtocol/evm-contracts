@@ -5,15 +5,12 @@ import {ILocker, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
-import {CoreLib} from "../libraries/CoreLib.sol";
-import {ICore} from "../interfaces/ICore.sol";
 
 /// @title Base Locker
 /// @notice Abstract base contract for contracts that need to interact with the flash accountant
 /// @dev Provides locking functionality and token transfer utilities
 abstract contract BaseLocker is ILocker {
     using FlashAccountantLib for *;
-    using CoreLib for ICore;
 
     /// @notice Thrown when a function is called by an address other than the accountant
     error BaseLockerAccountantOnly();
@@ -176,7 +173,7 @@ abstract contract BaseLocker is ILocker {
     /// @param recipient The address to receive the tokens
     function withdraw(address token, uint128 amount, address recipient) internal {
         if (amount > 0) {
-            ICore(payable(address(ACCOUNTANT))).withdraw(token, recipient, amount);
+            ACCOUNTANT.withdraw(token, recipient, amount);
         }
     }
 

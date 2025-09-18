@@ -78,7 +78,7 @@ contract WithdrawMultipleTest is Test, ILocker {
             // Store initial balance to verify the withdrawal
             uint256 initialBalance = TestToken(token).balanceOf(to);
 
-            ICore(core).withdrawSingle(token, to, amount);
+            core.withdraw(token, to, amount);
 
             // Verify the withdrawal worked
             uint256 finalBalance = TestToken(token).balanceOf(to);
@@ -122,8 +122,7 @@ contract WithdrawMultipleTest is Test, ILocker {
             uint256 initialBalance1 = TestToken(token1_).balanceOf(to1);
 
             // Call withdraw directly with packed calldata
-            bytes memory callData =
-                abi.encodePacked(core.withdraw.selector, token0_, to0, amount0, token1_, to1, amount1);
+            bytes memory callData = abi.encodePacked(bytes4(0x3ccfd60b), token0_, to0, amount0, token1_, to1, amount1);
 
             (bool success,) = address(core).call(callData);
             require(success, "withdraw failed");

@@ -188,56 +188,6 @@ library CoreLib {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 
-    /// @notice Withdraws a single token using the old withdraw interface
-    /// @dev Provides backward compatibility for the old withdraw(token, recipient, amount) signature
-    /// @param core The core contract instance
-    /// @param token The token address to withdraw
-    /// @param recipient The address to receive the tokens
-    /// @param amount The amount to withdraw
-    function withdraw(ICore core, address token, address recipient, uint128 amount) internal {
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-
-            // withdraw() selector: 0x3ccfd60b
-            mstore(free, 0x3ccfd60b00000000000000000000000000000000000000000000000000000000)
-
-            // Pack: token (20 bytes) + recipient (20 bytes) + amount (16 bytes)
-            mstore(add(free, 4), shl(96, token))
-            mstore(add(free, 24), shl(96, recipient))
-            mstore(add(free, 44), shl(128, amount))
-
-            if iszero(call(gas(), core, 0, free, 60, 0, 0)) {
-                returndatacopy(free, 0, returndatasize())
-                revert(free, returndatasize())
-            }
-        }
-    }
-
-    /// @notice Withdraws a single token using assembly to call withdraw with packed calldata
-    /// @dev Uses assembly and packed calldata for gas efficiency
-    /// @param core The core contract instance
-    /// @param token The token address to withdraw
-    /// @param recipient The address to receive the tokens
-    /// @param amount The amount to withdraw
-    function withdrawSingle(ICore core, address token, address recipient, uint128 amount) internal {
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-
-            // withdraw() selector: 0x3ccfd60b
-            mstore(free, 0x3ccfd60b00000000000000000000000000000000000000000000000000000000)
-
-            // Pack: token (20 bytes) + recipient (20 bytes) + amount (16 bytes)
-            mstore(add(free, 4), shl(96, token))
-            mstore(add(free, 24), shl(96, recipient))
-            mstore(add(free, 44), shl(128, amount))
-
-            if iszero(call(gas(), core, 0, free, 60, 0, 0)) {
-                returndatacopy(free, 0, returndatasize())
-                revert(free, returndatasize())
-            }
-        }
-    }
-
     /// @notice Withdraws two tokens using assembly to call withdraw with packed calldata
     /// @dev Uses assembly and packed calldata for gas efficiency, optimized for positions contract
     /// @param core The core contract instance

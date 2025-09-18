@@ -177,4 +177,112 @@ library ExtensionCallPointsLib {
             yes := and(shr(153, extension), iszero(eq(locker, extension)))
         }
     }
+
+    function maybeCallBeforeUpdatePosition(
+        IExtension extension,
+        address locker,
+        PoolKey memory poolKey,
+        PositionId positionId,
+        int128 liquidityDelta
+    ) internal {
+        bool needCall = shouldCallBeforeUpdatePosition(extension, locker);
+        assembly ("memory-safe") {
+            if needCall {
+                let freeMem := mload(0x40)
+                // cast sig "beforeUpdatePosition(address, (address,address,bytes32), bytes32, int128)"
+                mstore(freeMem, shl(224, 0x2465a9fd))
+                mstore(add(freeMem, 4), locker)
+                mcopy(add(freeMem, 36), poolKey, 96)
+                mstore(add(freeMem, 132), positionId)
+                mstore(add(freeMem, 164), liquidityDelta)
+                // bubbles up the revert
+                if iszero(call(gas(), extension, 0, freeMem, 196, 0, 0)) {
+                    returndatacopy(freeMem, 0, returndatasize())
+                    revert(freeMem, returndatasize())
+                }
+            }
+        }
+    }
+
+    function maybeCallAfterUpdatePosition(
+        IExtension extension,
+        address locker,
+        PoolKey memory poolKey,
+        PositionId positionId,
+        int128 liquidityDelta,
+        int128 delta0,
+        int128 delta1
+    ) internal {
+        bool needCall = shouldCallAfterUpdatePosition(extension, locker);
+        assembly ("memory-safe") {
+            if needCall {
+                let freeMem := mload(0x40)
+                // cast sig "afterUpdatePosition(address, (address,address,bytes32), bytes32, int128, int128, int128)"
+                mstore(freeMem, shl(224, 0x8f1ea21d))
+                mstore(add(freeMem, 4), locker)
+                mcopy(add(freeMem, 36), poolKey, 96)
+                mstore(add(freeMem, 132), positionId)
+                mstore(add(freeMem, 164), liquidityDelta)
+                mstore(add(freeMem, 196), delta0)
+                mstore(add(freeMem, 228), delta1)
+                // bubbles up the revert
+                if iszero(call(gas(), extension, 0, freeMem, 260, 0, 0)) {
+                    returndatacopy(freeMem, 0, returndatasize())
+                    revert(freeMem, returndatasize())
+                }
+            }
+        }
+    }
+
+    function maybeCallBeforeCollectFees(
+        IExtension extension,
+        address locker,
+        PoolKey memory poolKey,
+        PositionId positionId
+    ) internal {
+        bool needCall = shouldCallBeforeCollectFees(extension, locker);
+        assembly ("memory-safe") {
+            if needCall {
+                let freeMem := mload(0x40)
+                // cast sig "beforeCollectFees(address, (address,address,bytes32), bytes32)"
+                mstore(freeMem, shl(224, 0xc564d6cc))
+                mstore(add(freeMem, 4), locker)
+                mcopy(add(freeMem, 36), poolKey, 96)
+                mstore(add(freeMem, 132), positionId)
+                // bubbles up the revert
+                if iszero(call(gas(), extension, 0, freeMem, 164, 0, 0)) {
+                    returndatacopy(freeMem, 0, returndatasize())
+                    revert(freeMem, returndatasize())
+                }
+            }
+        }
+    }
+
+    function maybeCallAfterCollectFees(
+        IExtension extension,
+        address locker,
+        PoolKey memory poolKey,
+        PositionId positionId,
+        uint128 amount0,
+        uint128 amount1
+    ) internal {
+        bool needCall = shouldCallAfterCollectFees(extension, locker);
+        assembly ("memory-safe") {
+            if needCall {
+                let freeMem := mload(0x40)
+                // cast sig "afterCollectFees(address, (address,address,bytes32), bytes32, uint128, uint128)"
+                mstore(freeMem, shl(224, 0xf9aa0f7a))
+                mstore(add(freeMem, 4), locker)
+                mcopy(add(freeMem, 36), poolKey, 96)
+                mstore(add(freeMem, 132), positionId)
+                mstore(add(freeMem, 164), amount0)
+                mstore(add(freeMem, 196), amount1)
+                // bubbles up the revert
+                if iszero(call(gas(), extension, 0, freeMem, 228, 0, 0)) {
+                    returndatacopy(freeMem, 0, returndatasize())
+                    revert(freeMem, returndatasize())
+                }
+            }
+        }
+    }
 }

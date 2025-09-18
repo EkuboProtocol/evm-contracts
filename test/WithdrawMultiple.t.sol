@@ -6,7 +6,6 @@ import {Core} from "../src/Core.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {TestToken} from "./TestToken.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {ILocker} from "../src/interfaces/IFlashAccountant.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 

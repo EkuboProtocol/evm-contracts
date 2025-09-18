@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity ^0.8.28;
 
-import {ICore, PoolKey, PositionKey, CallPoints, SqrtRatio} from "../interfaces/ICore.sol";
+import {ICore, PoolKey, PositionId, CallPoints, SqrtRatio} from "../interfaces/ICore.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
@@ -75,12 +75,12 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     }
 
     // Allows users to collect pending fees before the first swap in the block happens
-    function beforeCollectFees(address, PoolKey memory poolKey, PositionKey memory) external override {
+    function beforeCollectFees(address, PoolKey memory poolKey, PositionId) external override {
         accumulatePoolFees(poolKey);
     }
 
     /// Prevents new liquidity from collecting on fees
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionKey memory, int128) external override {
+    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128) external override {
         accumulatePoolFees(poolKey);
     }
 

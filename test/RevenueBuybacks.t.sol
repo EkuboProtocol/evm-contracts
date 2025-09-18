@@ -5,7 +5,7 @@ import {BaseOrdersTest} from "./Orders.t.sol";
 import {EkuboRevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {PositionKey} from "../src/types/positionKey.sol";
+import {PositionId} from "../src/types/positionId.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";

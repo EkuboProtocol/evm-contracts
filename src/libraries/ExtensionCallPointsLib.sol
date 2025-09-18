@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {IExtension} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/positionKey.sol";
+import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 /// @dev Contains methods for determining whether an extension should be called

@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/positionKey.sol";
+import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore} from "../interfaces/ICore.sol";
@@ -641,12 +641,12 @@ contract TWAMM is ExposedStorage, BaseExtension, BaseForwardee, ILocker, ITWAMM 
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionKey memory, int128) external override {
+    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128) external override {
         lockAndExecuteVirtualOrders(poolKey);
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeCollectFees(address, PoolKey memory poolKey, PositionKey memory) external override {
+    function beforeCollectFees(address, PoolKey memory poolKey, PositionId) external override {
         lockAndExecuteVirtualOrders(poolKey);
     }
 }

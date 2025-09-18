@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
-import {PositionKey} from "../../src/types/positionKey.sol";
+import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {
@@ -21,7 +21,7 @@ import {OracleLib} from "../../src/libraries/OracleLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
-import {FullRangeOnlyPool} from "../../src/types/positionKey.sol";
+import {FullRangeOnlyPool} from "../../src/types/positionId.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -853,7 +853,7 @@ contract OracleTest is BaseOracleTest {
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
         oracle.beforeUpdatePosition(
-            address(0), poolKey, PositionKey({salt: bytes32(0x0), tickLower: -100, tickUpper: 100}), 0
+            address(0), poolKey, createPositionId({_salt: bytes24(0), _tickLower: -100, _tickUpper: 100}), 0
         );
 
         vm.expectRevert(UsesCore.CoreOnly.selector);

@@ -5,7 +5,7 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/positionKey.sol";
+import {PositionId} from "../types/positionId.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
@@ -32,12 +32,12 @@ contract CoreDataFetcher is UsesCore {
         (sqrtRatio, tick, liquidity) = CORE.poolState(poolKey.toPoolId());
     }
 
-    function poolPosition(PoolKey memory poolKey, address owner, PositionKey memory positionKey)
+    function poolPosition(PoolKey memory poolKey, address owner, PositionId positionId)
         external
         view
         returns (Position memory position)
     {
-        position = CORE.poolPositions(poolKey.toPoolId(), positionKey.toPositionId(owner));
+        position = CORE.poolPositions(poolKey.toPoolId(), owner, positionId);
     }
 
     function savedBalances(address owner, address token0, address token1, bytes32 salt)

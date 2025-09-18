@@ -7,6 +7,7 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
+import {PositionId} from "../types/positionId.sol";
 
 /// @title Core Library
 /// @notice Library providing common storage getters for external contracts
@@ -64,7 +65,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @param positionId The unique identifier for the position
     /// @return position The position data including liquidity and fees
-    function poolPositions(ICore core, bytes32 poolId, bytes32 positionId)
+    function poolPositions(ICore core, bytes32 poolId, address owner, PositionId positionId)
         internal
         view
         returns (Position memory position)
@@ -74,6 +75,9 @@ library CoreLib {
             mstore(0, poolId)
             mstore(32, 3)
             let b := keccak256(0, 64)
+            mstore(0, owner)
+            mstore(32, b)
+            b := keccak256(0, 64)
             mstore(0, positionId)
             mstore(32, b)
             key := keccak256(0, 64)

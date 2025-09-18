@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/positionKey.sol";
+import {PositionId} from "../types/positionId.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
@@ -31,12 +31,8 @@ interface IExtension {
     /// @param poolKey Pool key identifying the pool
     /// @param positionKey The key of the position that is being updated
     /// @param liquidityDelta The change in liquidity that is being requested for the position
-    function beforeUpdatePosition(
-        address locker,
-        PoolKey memory poolKey,
-        PositionKey memory positionKey,
-        int128 liquidityDelta
-    ) external;
+    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionKey, int128 liquidityDelta)
+        external;
 
     /// @notice Called after a position is updated
     /// @param locker Address that holds the lock
@@ -48,7 +44,7 @@ interface IExtension {
     function afterUpdatePosition(
         address locker,
         PoolKey memory poolKey,
-        PositionKey memory positionKey,
+        PositionId positionKey,
         int128 liquidityDelta,
         int128 delta0,
         int128 delta1
@@ -94,7 +90,7 @@ interface IExtension {
     /// @param locker Address that holds the lock
     /// @param poolKey Pool key identifying the pool
     /// @param positionKey The key of the position for which fees will be collected
-    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionKey memory positionKey) external;
+    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionKey) external;
 
     /// @notice Called after fees are collected from a position
     /// @param locker Address that holds the lock
@@ -105,7 +101,7 @@ interface IExtension {
     function afterCollectFees(
         address locker,
         PoolKey memory poolKey,
-        PositionKey memory positionKey,
+        PositionId positionKey,
         uint128 amount0,
         uint128 amount1
     ) external;
@@ -141,7 +137,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param delta0 Change in token0 balance
     /// @param delta1 Change in token1 balance
     event PositionUpdated(
-        address locker, bytes32 poolId, PositionKey positionKey, int128 liquidityDelta, int128 delta0, int128 delta1
+        address locker, bytes32 poolId, PositionId positionKey, int128 liquidityDelta, int128 delta0, int128 delta1
     );
 
     /// @notice Emitted when fees are collected from a position
@@ -151,7 +147,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param amount0 Amount of token0 fees collected
     /// @param amount1 Amount of token1 fees collected
     event PositionFeesCollected(
-        address locker, bytes32 poolId, PositionKey positionKey, uint128 amount0, uint128 amount1
+        address locker, bytes32 poolId, PositionId positionKey, uint128 amount0, uint128 amount1
     );
 
     /// @notice Thrown when extension registration fails due to invalid call points
@@ -254,7 +250,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param positionKey The key of the position to update
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance
-    function updatePosition(PoolKey memory poolKey, PositionKey memory positionKey, int128 liquidityDelta)
+    function updatePosition(PoolKey memory poolKey, PositionId positionKey, int128 liquidityDelta)
         external
         payable
         returns (int128 delta0, int128 delta1);
@@ -264,7 +260,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param positionKey The key of the position for which to collect fees
     /// @return amount0 Amount of token0 fees collected
     /// @return amount1 Amount of token1 fees collected
-    function collectFees(PoolKey memory poolKey, PositionKey memory positionKey)
+    function collectFees(PoolKey memory poolKey, PositionId positionKey)
         external
         returns (uint128 amount0, uint128 amount1);
 

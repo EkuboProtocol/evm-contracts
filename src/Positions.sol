@@ -7,7 +7,7 @@ import {ICore} from "./interfaces/ICore.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {PositionKey} from "./types/positionKey.sol";
+import {PositionId, createPositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -53,9 +53,9 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
     {
         bytes32 poolId = poolKey.toPoolId();
         (SqrtRatio sqrtRatio,,) = CORE.poolState(poolId);
-        bytes32 positionId =
-            PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper}).toPositionId(address(this));
-        Position memory position = CORE.poolPositions(poolId, positionId);
+        PositionId positionId =
+            createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper});
+        Position memory position = CORE.poolPositions(poolId, address(this), positionId);
 
         liquidity = position.liquidity;
 
@@ -218,7 +218,9 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             = abi.decode(data, (bytes1, address, uint256, PoolKey, int32, int32, uint128));
 
             (int128 delta0, int128 delta1) = CORE.updatePosition(
-                poolKey, PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper}), int128(liquidity)
+                poolKey,
+                createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
+                int128(liquidity)
             );
 
             uint128 amount0 = uint128(delta0);
@@ -245,7 +247,8 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             // collect first in case we are withdrawing the entire amount
             if (withFees) {
                 (amount0, amount1) = CORE.collectFees(
-                    poolKey, PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper})
+                    poolKey,
+                    createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper})
                 );
                 if (SWAP_PROTOCOL_FEE_X64 != 0) {
                     uint128 swapProtocolFee0;
@@ -272,7 +275,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             if (liquidity != 0) {
                 (int128 delta0, int128 delta1) = CORE.updatePosition(
                     poolKey,
-                    PositionKey({salt: bytes32(id), tickLower: tickLower, tickUpper: tickUpper}),
+                    createPositionId({_salt: bytes24(bytes32(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
                     -int128(liquidity)
                 );
 

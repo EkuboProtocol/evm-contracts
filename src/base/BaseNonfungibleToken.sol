@@ -58,7 +58,8 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     }
 
     /// @notice Returns the URI for a given token ID
-    /// @dev Constructs the URI by concatenating the base URL with the token ID
+    /// @dev Constructs the URI by concatenating the base URL with the token ID.
+    ///      If baseUrl is empty, returns just the stringified token ID.
     /// @param id The token ID to get the URI for
     /// @return The complete URI for the token
     function tokenURI(uint256 id) public view virtual override returns (string memory) {
@@ -98,9 +99,6 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     ///      in the same block that consume exactly the same amount of gas.
     /// @return id The minted token ID
     function mint() public payable returns (uint256 id) {
-        // generates a pseudorandom salt
-        // note this can have encounter conflicts if a sender sends two identical transactions in the same block
-        // that happen to consume exactly the same amount of gas
         bytes32 salt;
         assembly ("memory-safe") {
             mstore(0, prevrandao())

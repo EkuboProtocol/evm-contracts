@@ -81,7 +81,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage, IM
         accumulatePoolFees(poolKey);
     }
 
-    /// @notice Accumulates any pool fees from past blocks
+    /// @inheritdoc IMEVCapture
     function accumulatePoolFees(PoolKey memory poolKey) public override {
         // the only thing we lock for is accumulating fees, so all we need to encode is the pool key
         address target = address(CORE);

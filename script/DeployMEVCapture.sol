@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
-import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
+import {MEVCapture, _mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
 import {findExtensionSalt} from "./DeployCore.s.sol";
 
@@ -19,7 +19,7 @@ contract DeployMEVCapture is Script {
                 salt: findExtensionSalt(
                     salt,
                     keccak256(abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core))),
-                    mevCaptureCallPoints()
+                    _mevCaptureCallPoints()
                 )
             }(core)
         );

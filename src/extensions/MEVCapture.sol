@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {ICore, PoolKey, PositionId, CallPoints, SqrtRatio} from "../interfaces/ICore.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
+import {IMEVCapture} from "../interfaces/extensions/IMEVCapture.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
@@ -12,7 +13,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 
-function mevCaptureCallPoints() pure returns (CallPoints memory) {
+function _mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         // to store the initial tick
         beforeInitializePool: true,
@@ -30,12 +31,13 @@ function mevCaptureCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
-    error ConcentratedLiquidityPoolsOnly();
-    error NonzeroFeesOnly();
-    error SwapMustHappenThroughForward();
-
+contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage, IMEVCapture {
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
+
+    /// @inheritdoc IMEVCapture
+    function mevCaptureCallPoints() external pure returns (CallPoints memory callPoints) {
+        return _mevCaptureCallPoints();
+    }
 
     /// @return lastUpdateTime The last time this pool was updated
     /// @return tickLast The tick from the last time the pool was touched
@@ -54,7 +56,7 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
-        return mevCaptureCallPoints();
+        return _mevCaptureCallPoints();
     }
 
     function beforeInitializePool(address, PoolKey memory poolKey, int32 tick) external override {

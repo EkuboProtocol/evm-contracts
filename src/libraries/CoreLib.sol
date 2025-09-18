@@ -199,7 +199,7 @@ library CoreLib {
             let free := mload(0x40)
 
             // withdrawMultiple() selector: 0xea6fb2eb
-            mstore(free, shl(224, 0xea6fb2eb))
+            mstore(free, 0xea6fb2eb00000000000000000000000000000000000000000000000000000000)
 
             // Pack: token (20 bytes) + recipient (20 bytes) + amount (16 bytes)
             mstore(add(free, 4), shl(96, token))
@@ -233,7 +233,7 @@ library CoreLib {
             let free := mload(0x40)
 
             // withdrawMultiple() selector: 0xea6fb2eb
-            mstore(free, shl(224, 0xea6fb2eb))
+            mstore(free, 0xea6fb2eb00000000000000000000000000000000000000000000000000000000)
 
             // Pack first withdrawal: token0 (20 bytes) + recipient (20 bytes) + amount0 (16 bytes)
             mstore(add(free, 4), shl(96, token0))

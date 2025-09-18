@@ -106,5 +106,11 @@ contract DebugWithdrawTest is Test, ILocker {
         token0.transfer(address(this), amount);
         core.pay(address(token0), amount);
         console.log("Paid back withdrawMultiple debt");
+
+        // Also pay back the debt from the first withdraw call
+        vm.prank(recipient);
+        token0.transfer(address(this), amount);
+        core.pay(address(token0), amount);
+        console.log("Paid back first withdraw debt");
     }
 }

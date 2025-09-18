@@ -19,6 +19,7 @@ import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -573,48 +574,53 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 let recipient := shr(96, calldataload(add(i, 20)))
 
                 // Extract amount (16 bytes at offset i+40)
-                // Since amount is 16 bytes and we're reading 32 bytes, we need to shift appropriately
-                let amount := and(calldataload(add(i, 40)), 0xffffffffffffffffffffffffffffffff)
+                // Since CoreLib stores amount in high 16 bytes, we need to shift down
+                let amount := shr(128, calldataload(add(i, 40)))
 
                 if amount {
-                    // Update debt: _accountDebt(id, token, int256(amount))
-                    let free := mload(0x40)
-                    mstore(free, add(shl(160, id), token))
-                    let deltaSlot := keccak256(free, 32)
-                    let current := tload(deltaSlot)
+                    // Update debt using the existing _accountDebt function
+                    // This ensures consistency with FlashAccountant behavior
+                }
+            }
+        }
 
-                    let next := add(current, amount)
+        // Process withdrawals outside assembly for better maintainability
+        assembly ("memory-safe") {
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 56) } {
+                let token := shr(96, calldataload(i))
+                let recipient := shr(96, calldataload(add(i, 20)))
+                let amount := shr(128, calldataload(add(i, 40)))
 
-                    let nextZero := iszero(next)
-                    if xor(iszero(current), nextZero) {
-                        let nzdCountSlot := add(id, 0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d)
-                        tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
-                    }
+                if amount {
+                    // Store values in memory for Solidity function call
+                    mstore(0x00, token)
+                    mstore(0x20, recipient)
+                    mstore(0x40, amount)
+                }
+            }
+        }
 
-                    tstore(deltaSlot, next)
+        // Process each withdrawal entry
+        for (uint256 i = 4; i < msg.data.length; i += 56) {
+            address token;
+            address recipient;
+            uint128 amount;
 
-                    // Perform the withdrawal
-                    if iszero(token) {
-                        // Native token transfer (address(0))
-                        if iszero(call(gas(), recipient, amount, 0, 0, 0, 0)) {
-                            mstore(free, 0xb12d13eb) // `ETHTransferFailed()`
-                            revert(free, 0x04)
-                        }
-                    }
-                    if token {
-                        // ERC20 token transfer
-                        mstore(add(free, 0x14), recipient) // Store the `to` argument.
-                        mstore(add(free, 0x34), amount) // Store the `amount` argument.
-                        mstore(free, 0xa9059cbb000000000000000000000000) // `transfer(address,uint256)`.
+            assembly ("memory-safe") {
+                token := shr(96, calldataload(i))
+                recipient := shr(96, calldataload(add(i, 20)))
+                amount := shr(128, calldataload(add(i, 40)))
+            }
 
-                        let success := call(gas(), token, 0, add(free, 0x10), 0x44, free, 0x20)
-                        if iszero(and(eq(mload(free), 1), success)) {
-                            if iszero(lt(or(iszero(extcodesize(token)), returndatasize()), success)) {
-                                mstore(free, 0x90b8ec18) // `TransferFailed()`.
-                                revert(free, 0x04)
-                            }
-                        }
-                    }
+            if (amount > 0) {
+                // Update debt using existing function for consistency
+                _accountDebt(id, token, int256(uint256(amount)));
+
+                // Perform the withdrawal
+                if (token == NATIVE_TOKEN_ADDRESS) {
+                    SafeTransferLib.safeTransferETH(recipient, amount);
+                } else {
+                    SafeTransferLib.safeTransfer(token, recipient, amount);
                 }
             }
         }

@@ -8,12 +8,15 @@ import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {PositionId} from "../src/types/positionId.sol";
-import {CallPoints} from "../src/types/callPoints.sol";
+import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {BaseLocker} from "../src/base/BaseLocker.sol";
 
-contract MockExtension is IExtension {
+contract MockExtension is IExtension, BaseLocker {
+    constructor(ICore core) BaseLocker(core) {}
+
     function register(ICore core, CallPoints calldata expectedCallPoints) external {
         core.registerExtension(expectedCallPoints);
     }
@@ -111,6 +114,19 @@ contract MockExtension is IExtension {
     ) external {
         emit AfterCollectFeesCalled(locker, poolKey, positionId, amount0, amount1);
     }
+
+    function accumulateFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
+        lock(abi.encode(msg.sender, poolKey, amount0, amount1));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (address sender, PoolKey memory poolKey, uint128 amount0, uint128 amount1) =
+            abi.decode(data, (address, PoolKey, uint128, uint128));
+
+        ICore(payable(ACCOUNTANT)).accumulateAsFees(poolKey, amount0, amount1);
+        pay(sender, poolKey.token0, amount0);
+        pay(sender, poolKey.token1, amount1);
+    }
 }
 
 abstract contract FullTest is Test {
@@ -140,13 +156,17 @@ abstract contract FullTest is Test {
         vm.cool(address(this));
     }
 
-    function createAndRegisterExtension(CallPoints memory callPoints) internal returns (address) {
-        address impl = address(new MockExtension());
+    function createAndRegisterExtension() internal returns (MockExtension) {
+        return createAndRegisterExtension(byteToCallPoints(0xff));
+    }
+
+    function createAndRegisterExtension(CallPoints memory callPoints) internal returns (MockExtension) {
+        address impl = address(new MockExtension(core));
         uint8 b = callPoints.toUint8();
         address actual = address((uint160(b) << 152) + 0xdeadbeef);
         vm.etch(actual, impl.code);
         MockExtension(actual).register(core, callPoints);
-        return actual;
+        return MockExtension(actual);
     }
 
     function createPool(int32 tick, uint64 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
@@ -157,8 +177,8 @@ abstract contract FullTest is Test {
         internal
         returns (PoolKey memory poolKey)
     {
-        address extension = (callPoints.isValid()) ? createAndRegisterExtension(callPoints) : address(0);
-        poolKey = createPool(tick, fee, tickSpacing, extension);
+        address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
+        poolKey = createPool(tick, fee, tickSpacing, address(extension));
     }
 
     // creates a pool of token1/ETH

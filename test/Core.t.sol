@@ -25,7 +25,7 @@ contract CoreTest is FullTest {
     function test_registerExtension(uint8 b) public {
         b = uint8(bound(b, 1, type(uint8).max));
 
-        address impl = address(new MockExtension());
+        address impl = address(new MockExtension(core));
         address actual = address((uint160(b) << 152) + 0xdeadbeef);
         vm.etch(actual, impl.code);
 
@@ -78,7 +78,7 @@ contract CoreTest is FullTest {
         tickSpacing = uint32(bound(tickSpacing, uint256(1), uint256(MAX_TICK_SPACING)));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
 
-        address extension = callPoints.isValid() ? createAndRegisterExtension(callPoints) : address(0);
+        address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
         PoolKey memory key = PoolKey({token0: token0, token1: token1, config: toConfig(fee, tickSpacing, extension)});
 
         if (callPoints.beforeInitializePool) {
@@ -171,8 +171,8 @@ contract SavedBalancesTest is FullTest {
     }
 
     function test_save_greater_than_uint128_max(bytes32 salt, int256 delta0, int256 delta1) public {
-        delta0 = bound(delta0, int256(uint256(type(uint128).max)), type(int256).max);
-        delta1 = bound(delta1, int256(uint256(type(uint128).max)), type(int256).max);
+        delta0 = bound(delta0, int256(uint256(type(uint128).max)) + 1, type(int256).max);
+        delta1 = bound(delta1, int256(uint256(type(uint128).max)) + 1, type(int256).max);
 
         vm.expectRevert(ICore.SavedBalanceOverflow.selector);
         updateSavedBalances(address(token0), address(token1), salt, delta0, delta1);

@@ -22,23 +22,6 @@ import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 
-contract FeeAccumulatingExtension is MockExtension, BaseLocker {
-    constructor(ICore core) BaseLocker(core) {}
-
-    function accumulateFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
-        lock(abi.encode(msg.sender, poolKey, amount0, amount1));
-    }
-
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (address sender, PoolKey memory poolKey, uint128 amount0, uint128 amount1) =
-            abi.decode(data, (address, PoolKey, uint128, uint128));
-
-        ICore(payable(ACCOUNTANT)).accumulateAsFees(poolKey, amount0, amount1);
-        pay(sender, poolKey.token0, amount0);
-        pay(sender, poolKey.token1, amount1);
-    }
-}
-
 function maxBounds(uint32 tickSpacing) pure returns (int32 tickLower, int32 tickUpper) {
     if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
         return (MIN_TICK, MAX_TICK);
@@ -70,7 +53,7 @@ contract Handler is StdUtils, StdAssertions {
     Router immutable router;
     TestToken immutable token0;
     TestToken immutable token1;
-    FeeAccumulatingExtension immutable fae;
+    MockExtension immutable fae;
     ActivePosition[] activePositions;
     PoolKey[] allPoolKeys;
 
@@ -78,7 +61,7 @@ contract Handler is StdUtils, StdAssertions {
 
     constructor(
         ICore _core,
-        FeeAccumulatingExtension _fae,
+        MockExtension _fae,
         Positions _positions,
         Router _router,
         TestToken _token0,
@@ -285,13 +268,7 @@ contract SolvencyInvariantTest is FullTest {
     function setUp() public override {
         FullTest.setUp();
 
-        address impl = address(new FeeAccumulatingExtension(core));
-        address actual = address((uint160(0xff) << 152) + 0xdeadbeef);
-        vm.etch(actual, impl.code);
-        FeeAccumulatingExtension fae = FeeAccumulatingExtension(actual);
-        fae.register(core, byteToCallPoints(0xff));
-
-        handler = new Handler(core, fae, positions, router, token0, token1);
+        handler = new Handler(core, createAndRegisterExtension(), positions, router, token0, token1);
 
         // funding core makes it easier for pools to become insolvent randomly if there is a bug
         token0.transfer(address(core), type(uint128).max);

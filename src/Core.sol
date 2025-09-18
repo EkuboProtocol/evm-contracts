@@ -557,4 +557,66 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1
         );
     }
+
+    /// @inheritdoc ICore
+    function withdrawMultiple() external {
+        (uint256 id,) = _requireLocker();
+
+        assembly ("memory-safe") {
+            // Process packed calldata: each entry is (token, recipient, amount)
+            // token: 20 bytes, recipient: 20 bytes, amount: 16 bytes = 56 bytes per entry
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 56) } {
+                // Extract token (20 bytes at offset i)
+                let token := shr(96, calldataload(i))
+
+                // Extract recipient (20 bytes at offset i+20)
+                let recipient := shr(96, calldataload(add(i, 20)))
+
+                // Extract amount (16 bytes at offset i+40)
+                // Since amount is 16 bytes and we're reading 32 bytes, we need to shift appropriately
+                let amount := and(calldataload(add(i, 40)), 0xffffffffffffffffffffffffffffffff)
+
+                if amount {
+                    // Update debt: _accountDebt(id, token, int256(amount))
+                    let free := mload(0x40)
+                    mstore(free, add(shl(160, id), token))
+                    let deltaSlot := keccak256(free, 32)
+                    let current := tload(deltaSlot)
+
+                    let next := add(current, amount)
+
+                    let nextZero := iszero(next)
+                    if xor(iszero(current), nextZero) {
+                        let nzdCountSlot := add(id, 0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d)
+                        tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
+                    }
+
+                    tstore(deltaSlot, next)
+
+                    // Perform the withdrawal
+                    if iszero(token) {
+                        // Native token transfer (address(0))
+                        if iszero(call(gas(), recipient, amount, 0, 0, 0, 0)) {
+                            mstore(free, 0xb12d13eb) // `ETHTransferFailed()`
+                            revert(free, 0x04)
+                        }
+                    }
+                    if token {
+                        // ERC20 token transfer
+                        mstore(add(free, 0x14), recipient) // Store the `to` argument.
+                        mstore(add(free, 0x34), amount) // Store the `amount` argument.
+                        mstore(free, 0xa9059cbb000000000000000000000000) // `transfer(address,uint256)`.
+
+                        let success := call(gas(), token, 0, add(free, 0x10), 0x44, free, 0x20)
+                        if iszero(and(eq(mload(free), 1), success)) {
+                            if iszero(lt(or(iszero(extcodesize(token)), returndatasize()), success)) {
+                                mstore(free, 0x90b8ec18) // `TransferFailed()`.
+                                revert(free, 0x04)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

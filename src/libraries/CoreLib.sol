@@ -187,4 +187,68 @@ library CoreLib {
     ) internal returns (int128 delta0, int128 delta1) {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
+
+    /// @notice Withdraws a single token using assembly to call withdrawMultiple
+    /// @dev Uses assembly and packed calldata for gas efficiency
+    /// @param core The core contract instance
+    /// @param token The token address to withdraw
+    /// @param recipient The address to receive the tokens
+    /// @param amount The amount to withdraw
+    function withdrawSingle(ICore core, address token, address recipient, uint128 amount) internal {
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+
+            // withdrawMultiple() selector: 0xea6fb2eb
+            mstore(free, shl(224, 0xea6fb2eb))
+
+            // Pack: token (20 bytes) + recipient (20 bytes) + amount (16 bytes)
+            mstore(add(free, 4), shl(96, token))
+            mstore(add(free, 24), shl(96, recipient))
+            mstore(add(free, 44), shl(128, amount))
+
+            if iszero(call(gas(), core, 0, free, 60, 0, 0)) {
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
+            }
+        }
+    }
+
+    /// @notice Withdraws two tokens using assembly to call withdrawMultiple
+    /// @dev Uses assembly and packed calldata for gas efficiency, optimized for positions contract
+    /// @param core The core contract instance
+    /// @param token0 The first token address to withdraw
+    /// @param token1 The second token address to withdraw
+    /// @param recipient The address to receive both tokens
+    /// @param amount0 The amount of token0 to withdraw
+    /// @param amount1 The amount of token1 to withdraw
+    function withdrawTwo(
+        ICore core,
+        address token0,
+        address token1,
+        address recipient,
+        uint128 amount0,
+        uint128 amount1
+    ) internal {
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+
+            // withdrawMultiple() selector: 0xea6fb2eb
+            mstore(free, shl(224, 0xea6fb2eb))
+
+            // Pack first withdrawal: token0 (20 bytes) + recipient (20 bytes) + amount0 (16 bytes)
+            mstore(add(free, 4), shl(96, token0))
+            mstore(add(free, 24), shl(96, recipient))
+            mstore(add(free, 44), shl(128, amount0))
+
+            // Pack second withdrawal: token1 (20 bytes) + recipient (20 bytes) + amount1 (16 bytes)
+            mstore(add(free, 60), shl(96, token1))
+            mstore(add(free, 80), shl(96, recipient))
+            mstore(add(free, 100), shl(128, amount1))
+
+            if iszero(call(gas(), core, 0, free, 116, 0, 0)) {
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
+            }
+        }
+    }
 }

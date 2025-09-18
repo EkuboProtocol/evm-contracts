@@ -2,9 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    amount0Delta, amount1Delta, sortAndConvertToFixedSqrtRatios, Amount0DeltaOverflow
-} from "../../src/math/delta.sol";
+import {amount0Delta, amount1Delta, sortAndConvertToFixedSqrtRatios} from "../../src/math/delta.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";

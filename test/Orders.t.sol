@@ -2,7 +2,6 @@
 pragma solidity =0.8.28;
 
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {PositionId} from "../src/types/positionId.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
@@ -12,7 +11,6 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
-import {TWAMM} from "../src/extensions/TWAMM.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {

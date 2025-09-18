@@ -5,7 +5,6 @@ import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
-import {ILocker} from "../interfaces/IFlashAccountant.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {ITWAMM, OrderKey, toOrderId} from "../interfaces/extensions/ITWAMM.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";

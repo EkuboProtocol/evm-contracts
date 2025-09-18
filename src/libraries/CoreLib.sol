@@ -187,43 +187,4 @@ library CoreLib {
     ) internal returns (int128 delta0, int128 delta1) {
         (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
-
-    /// @notice Withdraws two tokens using assembly to call withdraw with packed calldata
-    /// @dev Uses assembly and packed calldata for gas efficiency, optimized for positions contract
-    /// @param core The core contract instance
-    /// @param token0 The first token address to withdraw
-    /// @param token1 The second token address to withdraw
-    /// @param recipient The address to receive both tokens
-    /// @param amount0 The amount of token0 to withdraw
-    /// @param amount1 The amount of token1 to withdraw
-    function withdrawTwo(
-        ICore core,
-        address token0,
-        address token1,
-        address recipient,
-        uint128 amount0,
-        uint128 amount1
-    ) internal {
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-
-            // withdraw() selector: 0x3ccfd60b
-            mstore(free, 0x3ccfd60b00000000000000000000000000000000000000000000000000000000)
-
-            // Pack first withdrawal: token0 (20 bytes) + recipient (20 bytes) + amount0 (16 bytes)
-            mstore(add(free, 4), shl(96, token0))
-            mstore(add(free, 24), shl(96, recipient))
-            mstore(add(free, 44), shl(128, amount0))
-
-            // Pack second withdrawal: token1 (20 bytes) + recipient (20 bytes) + amount1 (16 bytes)
-            mstore(add(free, 60), shl(96, token1))
-            mstore(add(free, 80), shl(96, recipient))
-            mstore(add(free, 100), shl(128, amount1))
-
-            if iszero(call(gas(), core, 0, free, 116, 0, 0)) {
-                returndatacopy(free, 0, returndatasize())
-                revert(free, returndatasize())
-            }
-        }
-    }
 }

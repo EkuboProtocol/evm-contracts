@@ -6,6 +6,7 @@ import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId, createPositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
@@ -29,7 +30,8 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
     /// @notice Denominator for withdrawal protocol fee calculation
     uint64 public immutable WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR;
 
-    using CoreLib for ICore;
+    using CoreLib for *;
+    using FlashAccountantLib for *;
 
     /// @notice Constructs the Positions contract
     /// @param core The core contract instance

@@ -20,11 +20,6 @@ interface IMEVCapture {
     /// @dev All swaps must go through the forward mechanism to ensure proper MEV fee calculation
     error SwapMustHappenThroughForward();
 
-    /// @notice Returns the call points configuration for MEV capture
-    /// @dev Specifies which pool lifecycle events the extension hooks into
-    /// @return callPoints Configuration indicating which hooks are enabled
-    function mevCaptureCallPoints() external pure returns (CallPoints memory callPoints);
-
     /// @notice Accumulates any pending pool fees from past blocks
     /// @dev This function can be called by anyone to trigger fee accumulation for a pool
     /// @dev Fees are accumulated when the pool hasn't been updated in the current block

@@ -13,7 +13,7 @@ import {
     NATIVE_TOKEN_ADDRESS
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
-import {MEVCapture, _mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
+import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
 import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
@@ -25,7 +25,7 @@ abstract contract BaseMEVCaptureTest is FullTest {
 
     function setUp() public virtual override {
         FullTest.setUp();
-        address deployAddress = address(uint160(_mevCaptureCallPoints().toUint8()) << 152);
+        address deployAddress = address(uint160(mevCaptureCallPoints().toUint8()) << 152);
         deployCodeTo("MEVCapture.sol", abi.encode(core), deployAddress);
         mevCapture = MEVCapture(deployAddress);
         router = new MEVCaptureRouter(core, address(mevCapture));

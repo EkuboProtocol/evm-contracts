@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {ICore, PoolKey, PositionId, CallPoints, SqrtRatio} from "../interfaces/ICore.sol";
 import {ILocker} from "../interfaces/IFlashAccountant.sol";
+import {IMEVCapture} from "../interfaces/extensions/IMEVCapture.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
@@ -30,11 +31,7 @@ function mevCaptureCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Charges additional fees based on the relative size of the priority fee
-contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
-    error ConcentratedLiquidityPoolsOnly();
-    error NonzeroFeesOnly();
-    error SwapMustHappenThroughForward();
-
+contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage, IMEVCapture {
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
     /// @return lastUpdateTime The last time this pool was updated
@@ -84,8 +81,8 @@ contract MEVCapture is BaseExtension, BaseForwardee, ILocker, ExposedStorage {
         accumulatePoolFees(poolKey);
     }
 
-    /// @notice Accumulates any pool fees from past blocks
-    function accumulatePoolFees(PoolKey memory poolKey) public {
+    /// @inheritdoc IMEVCapture
+    function accumulatePoolFees(PoolKey memory poolKey) public override {
         // the only thing we lock for is accumulating fees, so all we need to encode is the pool key
         address target = address(CORE);
         assembly ("memory-safe") {

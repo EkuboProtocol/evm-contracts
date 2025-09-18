@@ -14,6 +14,7 @@ import {
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
+import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
@@ -92,10 +93,10 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     }
 
     function test_pool_initialization_validation() public {
-        vm.expectRevert(MEVCapture.ConcentratedLiquidityPoolsOnly.selector);
+        vm.expectRevert(IMEVCapture.ConcentratedLiquidityPoolsOnly.selector);
         createMEVCapturePool({fee: 1, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, tick: 0});
 
-        vm.expectRevert(MEVCapture.NonzeroFeesOnly.selector);
+        vm.expectRevert(IMEVCapture.NonzeroFeesOnly.selector);
         createMEVCapturePool({fee: 0, tickSpacing: 1, tick: 0});
     }
 

@@ -6,6 +6,7 @@ import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId, createPositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
@@ -29,7 +30,8 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
     /// @notice Denominator for withdrawal protocol fee calculation
     uint64 public immutable WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR;
 
-    using CoreLib for ICore;
+    using CoreLib for *;
+    using FlashAccountantLib for *;
 
     /// @notice Constructs the Positions contract
     /// @param core The core contract instance
@@ -299,8 +301,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
                 amount1 += uint128(-delta1) - withdrawalFee1;
             }
 
-            withdraw(poolKey.token0, amount0, recipient);
-            withdraw(poolKey.token1, amount1, recipient);
+            CORE.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
 
             result = abi.encode(amount0, amount1);
         } else {

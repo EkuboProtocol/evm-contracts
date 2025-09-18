@@ -262,15 +262,34 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     /// @inheritdoc IFlashAccountant
-    function withdraw(address token, address recipient, uint128 amount) external {
-        (uint256 id,) = _requireLocker();
+    function withdraw() external {
+        unchecked {
+            (uint256 id,) = _requireLocker();
 
-        _accountDebt(id, token, int256(uint256(amount)));
+            // Process each withdrawal entry
+            for (uint256 i = 4; i < msg.data.length; i += 56) {
+                address token;
+                address recipient;
+                uint128 amount;
 
-        if (token == NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeTransferETH(recipient, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, amount);
+                assembly ("memory-safe") {
+                    token := shr(96, calldataload(i))
+                    recipient := shr(96, calldataload(add(i, 20)))
+                    amount := shr(128, calldataload(add(i, 40)))
+                }
+
+                if (amount != 0) {
+                    // Update debt using existing function for consistency
+                    _accountDebt(id, token, int256(uint256(amount)));
+
+                    // Perform the withdrawal
+                    if (token == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(recipient, amount);
+                    } else {
+                        SafeTransferLib.safeTransfer(token, recipient, amount);
+                    }
+                }
+            }
         }
     }
 

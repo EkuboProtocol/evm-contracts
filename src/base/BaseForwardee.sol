@@ -19,10 +19,14 @@ abstract contract BaseForwardee is IForwardee {
         ACCOUNTANT = _accountant;
     }
 
+    /// CALLBACK HANDLERS
+
     /// @inheritdoc IForwardee
     /// @dev Extracts the forwarded data from calldata and delegates to handleForwardData
     /// The first 68 bytes of calldata contain the function selector (4 bytes), id (32 bytes), and originalLocker (32 bytes)
     /// All remaining calldata is treated as the forwarded data
+    /// Return data from handleForwardData is returned exactly as is, with no additional encoding or decoding
+    /// Reverts are also bubbled up
     function forwarded(uint256 id, address originalLocker) external {
         if (msg.sender != address(ACCOUNTANT)) revert BaseForwardeeAccountantOnly();
 
@@ -35,6 +39,8 @@ abstract contract BaseForwardee is IForwardee {
             return(add(result, 32), mload(result))
         }
     }
+
+    /// INTERNAL FUNCTIONS
 
     /// @notice Handles the execution of forwarded data
     /// @dev Must be implemented by derived contracts to define forwarding behavior

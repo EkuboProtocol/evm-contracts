@@ -18,6 +18,11 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @dev Generated using: cast keccak "FlashAccountant#CURRENT_LOCKER_SLOT"
     uint256 private constant _CURRENT_LOCKER_SLOT = 0x07cc7f5195d862f505d6b095c82f92e00cfc1766f5bca4383c28dc5fca1555fd;
 
+    /// @dev Transient storage offset for tracking token debts for each locker
+    /// @dev Generated using: cast keccak "FlashAccountant#_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET"
+    uint256 private constant _DEBT_LOCKER_TOKEN_ADDRESS_OFFSET =
+        0x753dfe4b4dfb3ff6c11bbf6a97f3c094e91c003ce904a55cc5662fbad220f599;
+
     /// @dev Transient storage offset for tracking the count of tokens with non-zero debt for each locker
     /// @dev Generated using: cast keccak "FlashAccountant#NONZERO_DEBT_COUNT_OFFSET"
     uint256 private constant _NONZERO_DEBT_COUNT_OFFSET =
@@ -67,8 +72,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
             if iszero(iszero(debtChange)) {
-                mstore(0, add(shl(160, id), token))
-                let deltaSlot := keccak256(0, 32)
+                let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                 let current := tload(deltaSlot)
 
                 // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
@@ -245,8 +249,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 mstore(add(paymentAmounts, mul(16, div(i, 32))), shl(128, payment))
 
                 if iszero(iszero(payment)) {
-                    mstore(0, add(shl(160, id), token))
-                    let deltaSlot := keccak256(0, 32)
+                    let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                     let current := tload(deltaSlot)
 
                     // never overflows because of the payment overflow check that bounds payment to 128 bits

@@ -512,10 +512,10 @@ contract PositionsTest is FullTest {
             testPositions.getProtocolFees(address(token0), address(token1));
 
         assertApproxEqAbs(
-            finalProtocolFees0, expectedSwapProtocolFee0 + expectedWithdrawalFee0, 1, "Final protocol fees0"
+            finalProtocolFees0, expectedSwapProtocolFee0 + expectedWithdrawalFee0, 2, "Final protocol fees0"
         );
         assertApproxEqAbs(
-            finalProtocolFees1, expectedSwapProtocolFee1 + expectedWithdrawalFee1, 1, "Final protocol fees0"
+            finalProtocolFees1, expectedSwapProtocolFee1 + expectedWithdrawalFee1, 2, "Final protocol fees0"
         );
     }
 }

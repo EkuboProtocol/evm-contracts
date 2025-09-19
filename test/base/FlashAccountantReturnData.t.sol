@@ -56,15 +56,18 @@ contract FlashAccountantReturnDataTest is FullTest {
         // Additional safety checks
         require(tokenCount >= 1 && tokenCount <= 5, "Token count out of bounds");
 
-        // Create array of test tokens - use a simpler approach
+        // Create array of test tokens
         address[] memory tokens = new address[](tokenCount);
 
-        // Only use existing tokens to avoid potential issues with TestToken creation
+        // Create new TestToken instances for better test coverage
         for (uint256 i = 0; i < tokenCount; i++) {
-            if (i % 2 == 0) {
+            if (i == 0) {
                 tokens[i] = address(token0);
-            } else {
+            } else if (i == 1) {
                 tokens[i] = address(token1);
+            } else {
+                // Create new TestToken instances for additional tokens
+                tokens[i] = address(new TestToken(address(0xdead)));
             }
         }
 
@@ -146,7 +149,8 @@ contract FlashAccountantReturnDataTest is FullTest {
             } else if (i == 1) {
                 tokens[i] = address(token1);
             } else {
-                tokens[i] = address(new TestToken(address(this)));
+                // Create new TestToken instances for additional tokens
+                tokens[i] = address(new TestToken(address(0xdead)));
             }
         }
 

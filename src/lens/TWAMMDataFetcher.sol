@@ -57,7 +57,7 @@ contract TWAMMDataFetcher is UsesCore {
 
     function getPoolState(PoolKey memory poolKey) public view returns (PoolState memory state) {
         unchecked {
-            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolKey.toPoolId());
+            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolKey.toPoolId()).parse();
             (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
                 TWAMM_EXTENSION.poolState(poolKey.toPoolId());
 

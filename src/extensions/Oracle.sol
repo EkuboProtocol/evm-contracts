@@ -117,7 +117,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             // we know count is always g.t. 0 in the places this is called
             Snapshot memory last = snapshots[token][index];
 
-            (, int32 tick, uint128 liquidity) = CORE.poolState(poolId);
+            (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
 
             Snapshot memory snapshot = Snapshot({
                 timestamp: uint32(block.timestamp),
@@ -308,7 +308,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 if (logicalIndex == c.count - 1) {
                     // Use current pool state.
                     bytes32 poolId = getPoolKey(token).toPoolId();
-                    (, int32 tick, uint128 liquidity) = CORE.poolState(poolId);
+                    (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
 
                     tickCumulative += int64(tick) * int64(uint64(timePassed));
                     secondsPerLiquidityCumulative +=

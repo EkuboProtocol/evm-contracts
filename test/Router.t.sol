@@ -638,7 +638,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 499999875000098127000483558015);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
         assertEq(tick, MAX_TICK);
         assertEq(liquidityAfter, liquidity);
@@ -664,7 +664,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 0);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
         // crosses the min tick, but liquidity is still not zero
         assertEq(tick, MIN_TICK - 1);
@@ -691,7 +691,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 499999875000098127000483558015);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
         assertEq(tick, MAX_TICK);
         assertEq(liquidityAfter, 0);
@@ -717,7 +717,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 0);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
         // crosses the min tick, but liquidity is still not zero
         assertEq(tick, MIN_TICK - 1);

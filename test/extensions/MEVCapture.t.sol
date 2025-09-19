@@ -111,7 +111,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 100_000);
         assertEq(delta1, -98_049);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -9634);
     }
 
@@ -152,7 +152,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, -100_000);
         assertEq(delta1, 102_001);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 9777);
     }
 
@@ -176,7 +176,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, -98_049);
         assertEq(delta1, 100_000);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 9633);
     }
 
@@ -200,7 +200,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 102_001);
         assertEq(delta1, -100_000);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -9778);
     }
 
@@ -226,7 +226,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 500_000);
         assertEq(delta1, -471_801);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -47710);
     }
 
@@ -250,7 +250,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, -500_000);
         assertEq(delta1, 530_648);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 49375);
     }
 
@@ -274,7 +274,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, -471_801);
         assertEq(delta1, 500_000);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 47709);
     }
 
@@ -298,7 +298,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 530_648);
         assertEq(delta1, -500_000);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -49376);
     }
 
@@ -352,7 +352,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 100_000);
         assertEq(delta1, -197_432);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 690_300);
     }
 
@@ -376,7 +376,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, -100_000);
         assertEq(delta1, 205_416);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 709_845);
     }
 
@@ -409,7 +409,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 300_000);
         assertEq(delta1, -556_308);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 642_496);
     }
 
@@ -472,7 +472,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 1_054_639);
         assertEq(delta1, 0);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MIN_TICK - 1);
     }
 
@@ -494,7 +494,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 0);
         assertEq(delta1, 2_123_781);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MAX_TICK);
     }
 
@@ -516,7 +516,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, -993_170);
         assertEq(delta1, 38785072624969501783380726); // divided by 2**64 (max fee) this is ~ 2e6
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MAX_TICK);
     }
 
@@ -538,7 +538,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         assertEq(delta0, 19260097913407553165863219); // divided by 2**64 (max fee) this is ~ 1e6
         assertEq(delta1, -1_999_999);
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MIN_TICK - 1);
     }
 
@@ -568,7 +568,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        (, int32 tick,) = core.poolState(poolKey.toPoolId());
+        int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 748_511);
 
         advanceTime(1);

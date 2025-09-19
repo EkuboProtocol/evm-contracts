@@ -29,7 +29,7 @@ contract CoreDataFetcher is UsesCore {
         view
         returns (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity)
     {
-        (sqrtRatio, tick, liquidity) = CORE.poolState(poolKey.toPoolId());
+        (sqrtRatio, tick, liquidity) = CORE.poolState(poolKey.toPoolId()).parse();
     }
 
     function poolPosition(PoolKey memory poolKey, address owner, PositionId positionId)

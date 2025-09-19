@@ -36,14 +36,8 @@ library CoreLib {
     /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
-    /// @return sqrtRatio Current sqrt price ratio of the pool
-    /// @return tick Current tick of the pool
-    /// @return liquidity Current active liquidity in the pool
-    function poolState(ICore core, bytes32 poolId)
-        internal
-        view
-        returns (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity)
-    {
+    /// @return state The current state of the pool
+    function poolState(ICore core, bytes32 poolId) internal view returns (PoolState state) {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
@@ -51,9 +45,7 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        PoolState state = PoolState.wrap(core.sload(key));
-
-        (sqrtRatio, tick, liquidity) = state.parse();
+        state = PoolState.wrap(core.sload(key));
     }
 
     /// @notice Gets position data for a specific position in a pool

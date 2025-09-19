@@ -18,8 +18,8 @@ contract PoolStateTest is Test {
     function test_conversionFromAndTo(SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) public pure {
         PoolState state = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
         assertEq(SqrtRatio.unwrap(state.sqrtRatio()), SqrtRatio.unwrap(sqrtRatio));
-        assertEq(tick, tick);
-        assertEq(liquidity, liquidity);
+        assertEq(state.tick(), tick);
+        assertEq(state.liquidity(), liquidity);
     }
 
     function test_conversionFromAndToDirtyBits(bytes32 sqrtRatioDirty, bytes32 tickDirty, bytes32 liquidityDirty)

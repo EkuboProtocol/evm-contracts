@@ -198,7 +198,7 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        (SqrtRatio price,,) = core.poolState(poolKey.toPoolId());
+        SqrtRatio price = core.poolState(poolKey.toPoolId()).sqrtRatio();
 
         bool increasing = isPriceIncreasing(amount, isToken1);
 
@@ -251,7 +251,7 @@ contract Handler is StdUtils, StdAssertions {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
             PoolKey memory poolKey = allPoolKeys[i];
 
-            (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolKey.toPoolId());
+            (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolKey.toPoolId()).parse();
 
             assertGe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
             assertLe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));

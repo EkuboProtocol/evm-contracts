@@ -19,7 +19,7 @@ import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
-import {PoolState, createPoolState} from "./types/PoolState.sol";
+import {PoolState, createPoolState} from "./types/poolState.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -523,7 +523,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     : (amount - amountRemaining, calculatedAmountDelta);
             }
 
-            poolState[poolId] = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
+            PoolState nextState = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
+
+            assembly ("memory-safe") {
+                mstore(0, poolId)
+                mstore(32, 1)
+                sstore(keccak256(0, 64), nextState)
+            }
 
             if (poolKey.mustLoadFees()) {
                 assembly ("memory-safe") {

@@ -472,7 +472,7 @@ contract OrdersTest is BaseOrdersTest {
         bytes32 poolId = poolKey.toPoolId();
         positions.maybeInitializePool(poolKey, -18135370); // 0.000000013301874 token1/token0
 
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 39246041149524737549342346187898880);
         assertEq(tick, -18135370);
@@ -508,7 +508,7 @@ contract OrdersTest is BaseOrdersTest {
 
         (uint128 liquidity1,,) =
             positions.deposit(pID, poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396, 0);
-        (sqrtRatio, tick, liquidity) = core.poolState(poolId);
+        (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 13485562298671080879303606629460147559991345152);
         assertEq(tick, 34990236); // ~=1570575495728187 token1/token0
@@ -539,7 +539,7 @@ contract OrdersTest is BaseOrdersTest {
 
         router.swap(poolKey, false, 170141183460469231731563853878917070850, MIN_SQRT_RATIO, 145);
 
-        (sqrtRatio, tick, liquidity) = core.poolState(poolId);
+        (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 8721205675552749603540);
         assertEq(tick, -76405628); // ~=-2.2454E-31 token1/token0
@@ -549,7 +549,7 @@ contract OrdersTest is BaseOrdersTest {
             pID, poolKey, MIN_TICK, MAX_TICK, 1412971749302168760052394, 35831434466998775335139276644539, 0
         );
 
-        (,, liquidity) = core.poolState(poolId);
+        liquidity = core.poolState(poolId).liquidity();
         assertEq(liquidity, liquidity0 + liquidity1 + liquidity2);
 
         advanceTime(164154);

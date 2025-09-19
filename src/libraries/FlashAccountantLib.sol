@@ -18,6 +18,7 @@ library FlashAccountantLib {
             mstore(0x20, token)
 
             // accountant.startPayments()
+            // this is expected to never revert
             pop(call(gas(), accountant, 0, 0x1c, 36, 0x00, 0x00))
 
             // token#transfer
@@ -37,6 +38,7 @@ library FlashAccountantLib {
             // accountant.completePayments()
             mstore(0x00, 0x12e103f1)
             mstore(0x20, token)
+            // we ignore the potential reverts in this case because it will almost always result in nonzero debt when the lock returns
             pop(call(gas(), accountant, 0, 0x1c, 36, 0x00, 0x00))
         }
     }
@@ -53,6 +55,7 @@ library FlashAccountantLib {
             mstore(32, token)
 
             // accountant.startPayments()
+            // this is expected to never revert
             pop(call(gas(), accountant, 0, 0x1c, 36, 0x00, 0x00))
 
             // token#transferFrom
@@ -74,6 +77,7 @@ library FlashAccountantLib {
             // accountant.completePayments()
             mstore(0x00, 0x12e103f1)
             mstore(0x20, token)
+            // we ignore the potential reverts in this case because it will almost always result in nonzero debt when the lock returns
             pop(call(gas(), accountant, 0, 0x1c, 36, 0x00, 0x00))
         }
     }

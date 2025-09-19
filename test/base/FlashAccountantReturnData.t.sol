@@ -18,13 +18,14 @@ contract FlashAccountantReturnDataTest is FullTest {
     }
 
     /// @notice Test that startPayments returns the correct starting token balances
-    function test_startPayments_returnsCorrectBalances() public {
-        // Setup: Give the core contract some tokens
-        uint256 token0Amount = 1000e18;
-        uint256 token1Amount = 2000e18;
+    function test_startPayments_returnsCorrectBalances(uint128 token0Amount, uint128 token1Amount) public {
+        // Bound amounts to reasonable values to avoid overflow and ensure we have enough tokens
+        token0Amount = uint128(bound(token0Amount, 0, type(uint128).max / 2));
+        token1Amount = uint128(bound(token1Amount, 0, type(uint128).max / 2));
 
-        token0.transfer(address(core), token0Amount);
-        token1.transfer(address(core), token1Amount);
+        // Setup: Give the core contract some tokens
+        if (token0Amount > 0) token0.transfer(address(core), token0Amount);
+        if (token1Amount > 0) token1.transfer(address(core), token1Amount);
 
         // Test startPayments with two tokens
         address[] memory tokens = new address[](2);
@@ -48,35 +49,47 @@ contract FlashAccountantReturnDataTest is FullTest {
     }
 
     /// @notice Test that startPayments returns zero balances when tokens have no balance
-    function test_startPayments_returnsZeroBalances() public {
-        address[] memory tokens = new address[](2);
-        tokens[0] = address(token0);
-        tokens[1] = address(token1);
+    function test_startPayments_returnsZeroBalances(uint8 tokenCount) public {
+        // Bound token count to reasonable values (1-10 tokens)
+        tokenCount = uint8(bound(tokenCount, 1, 10));
+
+        // Create array of test tokens (reuse token0 and token1, pad with more if needed)
+        address[] memory tokens = new address[](tokenCount);
+        for (uint256 i = 0; i < tokenCount; i++) {
+            if (i == 0) {
+                tokens[i] = address(token0);
+            } else if (i == 1) {
+                tokens[i] = address(token1);
+            } else {
+                // For additional tokens, create new ones or reuse existing
+                tokens[i] = address(new TestToken(address(this)));
+            }
+        }
 
         bytes memory returnData = testLocker.testStartPayments(tokens);
 
         // The return data is raw bytes containing the balances (32 bytes each)
-        assertEq(returnData.length, 64, "Should return 64 bytes for 2 tokens");
+        assertEq(returnData.length, tokenCount * 32, "Should return 32 bytes per token");
 
-        uint256 balance0;
-        uint256 balance1;
-        assembly {
-            balance0 := mload(add(returnData, 0x20))
-            balance1 := mload(add(returnData, 0x40))
+        // Verify all balances are zero
+        for (uint256 i = 0; i < tokenCount; i++) {
+            uint256 balance;
+            assembly {
+                balance := mload(add(returnData, add(0x20, mul(i, 32))))
+            }
+            assertEq(balance, 0, "Token balance should be zero");
         }
-
-        assertEq(balance0, 0, "Token0 balance should be zero");
-        assertEq(balance1, 0, "Token1 balance should be zero");
     }
 
     /// @notice Test that completePayments returns the correct payment amounts in packed format
-    function test_completePayments_returnsCorrectPaymentAmounts() public {
-        // Setup: Give tokens to the test locker so it can make payments
-        uint256 token0Payment = 500e18;
-        uint256 token1Payment = 750e18;
+    function test_completePayments_returnsCorrectPaymentAmounts(uint128 token0Payment, uint128 token1Payment) public {
+        // Bound amounts to reasonable values to avoid overflow and ensure we have enough tokens
+        token0Payment = uint128(bound(token0Payment, 0, type(uint128).max / 2));
+        token1Payment = uint128(bound(token1Payment, 0, type(uint128).max / 2));
 
-        token0.transfer(address(testLocker), token0Payment);
-        token1.transfer(address(testLocker), token1Payment);
+        // Setup: Give tokens to the test locker so it can make payments
+        if (token0Payment > 0) token0.transfer(address(testLocker), token0Payment);
+        if (token1Payment > 0) token1.transfer(address(testLocker), token1Payment);
 
         address[] memory tokens = new address[](2);
         tokens[0] = address(token0);
@@ -115,37 +128,52 @@ contract FlashAccountantReturnDataTest is FullTest {
     }
 
     /// @notice Test that completePayments returns zero when no payments are made
-    function test_completePayments_returnsZeroWhenNoPayments() public {
-        address[] memory tokens = new address[](2);
-        tokens[0] = address(token0);
-        tokens[1] = address(token1);
+    function test_completePayments_returnsZeroWhenNoPayments(uint8 tokenCount) public {
+        // Bound token count to reasonable values (1-5 tokens for this zero-payment test)
+        tokenCount = uint8(bound(tokenCount, 1, 5));
 
-        (bytes memory startData, bytes memory completeData) = testLocker.testStartAndCompletePayments(tokens, 0, 0);
+        // Create array of test tokens
+        address[] memory tokens = new address[](tokenCount);
+        for (uint256 i = 0; i < tokenCount; i++) {
+            if (i == 0) {
+                tokens[i] = address(token0);
+            } else if (i == 1) {
+                tokens[i] = address(token1);
+            } else {
+                tokens[i] = address(new TestToken(address(this)));
+            }
+        }
+
+        // Create zero amounts array
+        uint256[] memory zeroAmounts = new uint256[](tokenCount);
+        for (uint256 i = 0; i < tokenCount; i++) {
+            zeroAmounts[i] = 0;
+        }
+
+        (bytes memory startData, bytes memory completeData) =
+            testLocker.testStartAndCompletePaymentsMultiple(tokens, zeroAmounts);
 
         // Verify startPayments returned zero balances
-        assertEq(startData.length, 64, "Should return 64 bytes for 2 tokens");
+        assertEq(startData.length, tokenCount * 32, "Should return 32 bytes per token");
 
-        uint256 initialBalance0;
-        uint256 initialBalance1;
-        assembly {
-            initialBalance0 := mload(add(startData, 0x20))
-            initialBalance1 := mload(add(startData, 0x40))
+        for (uint256 i = 0; i < tokenCount; i++) {
+            uint256 initialBalance;
+            assembly {
+                initialBalance := mload(add(startData, add(0x20, mul(i, 32))))
+            }
+            assertEq(initialBalance, 0, "Initial balance should be zero");
         }
-        assertEq(initialBalance0, 0, "Initial token0 balance should be zero");
-        assertEq(initialBalance1, 0, "Initial token1 balance should be zero");
 
         // Verify completePayments returned zero payments
-        assertEq(completeData.length, 32, "Should return 32 bytes for 2 tokens");
+        assertEq(completeData.length, tokenCount * 16, "Should return 16 bytes per token");
 
-        uint128 payment0;
-        uint128 payment1;
-        assembly {
-            payment0 := shr(128, mload(add(completeData, 0x20)))
-            payment1 := shr(128, mload(add(completeData, 0x30)))
+        for (uint256 i = 0; i < tokenCount; i++) {
+            uint128 payment;
+            assembly {
+                payment := shr(128, mload(add(completeData, add(0x20, mul(i, 16)))))
+            }
+            assertEq(payment, 0, "Payment should be zero");
         }
-
-        assertEq(payment0, 0, "Token0 payment should be zero");
-        assertEq(payment1, 0, "Token1 payment should be zero");
     }
 
     /// @notice Test startPayments and completePayments return data format with native token address
@@ -179,34 +207,39 @@ contract FlashAccountantReturnDataTest is FullTest {
     }
 
     /// @notice Test with single token to verify format consistency
-    function test_singleToken_returnDataFormat() public {
-        uint256 tokenAmount = 1000e18;
-        token0.transfer(address(core), tokenAmount);
-        token0.transfer(address(testLocker), 100e18);
+    function test_singleToken_returnDataFormat(uint128 initialAmount, uint128 paymentAmount) public {
+        // Bound amounts to reasonable values
+        initialAmount = uint128(bound(initialAmount, 0, type(uint128).max / 2));
+        paymentAmount = uint128(bound(paymentAmount, 0, type(uint128).max / 2));
+
+        // Setup: Give tokens to core and test locker
+        if (initialAmount > 0) token0.transfer(address(core), initialAmount);
+        if (paymentAmount > 0) token0.transfer(address(testLocker), paymentAmount);
 
         address[] memory tokens = new address[](1);
         tokens[0] = address(token0);
 
-        (bytes memory startData, bytes memory completeData) = testLocker.testStartAndCompletePayments(tokens, 100e18, 0);
+        (bytes memory startData, bytes memory completeData) =
+            testLocker.testStartAndCompletePayments(tokens, paymentAmount, 0);
 
         // Verify startPayments format for single token
         assertEq(startData.length, 32, "Should return 32 bytes for 1 token");
 
-        uint256 initialBalance;
+        uint256 returnedBalance;
         assembly {
-            initialBalance := mload(add(startData, 0x20))
+            returnedBalance := mload(add(startData, 0x20))
         }
-        assertEq(initialBalance, tokenAmount, "Balance should match");
+        assertEq(returnedBalance, initialAmount, "Balance should match");
 
         // Verify completePayments format for single token
         assertEq(completeData.length, 16, "Should return 16 bytes for 1 token");
 
-        uint128 payment;
+        uint128 returnedPayment;
         assembly {
-            payment := shr(128, mload(add(completeData, 0x20)))
+            returnedPayment := shr(128, mload(add(completeData, 0x20)))
         }
 
-        assertEq(payment, 100e18, "Payment amount should match");
+        assertEq(returnedPayment, paymentAmount, "Payment amount should match");
     }
 }
 
@@ -226,6 +259,14 @@ contract TestLocker is BaseLocker {
         returns (bytes memory startData, bytes memory completeData)
     {
         return abi.decode(lock(abi.encode("startAndComplete", tokens, token0Amount, token1Amount)), (bytes, bytes));
+    }
+
+    /// @notice Test both startPayments and completePayments with multiple tokens
+    function testStartAndCompletePaymentsMultiple(address[] memory tokens, uint256[] memory amounts)
+        external
+        returns (bytes memory startData, bytes memory completeData)
+    {
+        return abi.decode(lock(abi.encode("startAndCompleteMultiple", tokens, amounts)), (bytes, bytes));
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
@@ -263,6 +304,47 @@ contract TestLocker is BaseLocker {
             }
             if (tokens.length > 1 && token1Amount > 0) {
                 TestToken(tokens[1]).transfer(address(ACCOUNTANT), token1Amount);
+            }
+
+            // Call completePayments
+            bytes memory completeCallData = abi.encodeWithSelector(IFlashAccountant.completePayments.selector);
+            for (uint256 i = 0; i < tokens.length; i++) {
+                completeCallData = abi.encodePacked(completeCallData, abi.encode(tokens[i]));
+            }
+
+            (bool completeSuccess, bytes memory completeData) = address(ACCOUNTANT).call(completeCallData);
+            require(completeSuccess, "completePayments failed");
+
+            // Balance the debt by withdrawing the exact amounts that were paid
+            // Extract payment amounts from completeData to ensure exact matching
+            for (uint256 i = 0; i < tokens.length; i++) {
+                uint128 paymentAmount;
+                assembly {
+                    paymentAmount := shr(128, mload(add(completeData, add(0x20, mul(i, 16)))))
+                }
+                if (paymentAmount > 0) {
+                    withdraw(tokens[i], paymentAmount, address(this));
+                }
+            }
+
+            return abi.encode(startData, completeData);
+        } else if (keccak256(bytes(action)) == keccak256(bytes("startAndCompleteMultiple"))) {
+            (, address[] memory tokens, uint256[] memory amounts) = abi.decode(data, (string, address[], uint256[]));
+
+            // Call startPayments
+            bytes memory startCallData = abi.encodeWithSelector(IFlashAccountant.startPayments.selector);
+            for (uint256 i = 0; i < tokens.length; i++) {
+                startCallData = abi.encodePacked(startCallData, abi.encode(tokens[i]));
+            }
+
+            (bool startSuccess, bytes memory startData) = address(ACCOUNTANT).call(startCallData);
+            require(startSuccess, "startPayments failed");
+
+            // Transfer tokens to the accountant
+            for (uint256 i = 0; i < tokens.length && i < amounts.length; i++) {
+                if (amounts[i] > 0) {
+                    TestToken(tokens[i]).transfer(address(ACCOUNTANT), amounts[i]);
+                }
             }
 
             // Call completePayments

@@ -12,7 +12,7 @@ import {
     searchForNextInitializedTime,
     nextValidTime
 } from "../../src/math/timeBitmap.sol";
-import {Bitmap} from "../../src/math/bitmap.sol";
+import {Bitmap} from "../../src/types/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 

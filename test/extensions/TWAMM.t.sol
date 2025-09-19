@@ -11,7 +11,7 @@ import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Test} from "forge-std/Test.sol";
 import {searchForNextInitializedTime, flipTime} from "../../src/math/timeBitmap.sol";
-import {Bitmap} from "../../src/math/bitmap.sol";
+import {Bitmap} from "../../src/types/bitmap.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 

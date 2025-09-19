@@ -12,7 +12,7 @@ import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
-import {Bitmap} from "../math/bitmap.sol";
+import {Bitmap} from "../types/bitmap.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";

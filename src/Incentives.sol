@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {Bitmap} from "./math/bitmap.sol";
+import {Bitmap} from "./types/bitmap.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";

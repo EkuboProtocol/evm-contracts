@@ -2,7 +2,7 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Bitmap} from "../../src/math/bitmap.sol";
+import {Bitmap} from "../../src/types/bitmap.sol";
 
 contract BitmapTest is Test {
     function test_gas() public {

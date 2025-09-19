@@ -409,13 +409,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(extension).maybeCallBeforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
         bytes32 poolId = poolKey.toPoolId();
-        SqrtRatio sqrtRatio;
-        int32 tick;
-        uint128 liquidity;
-        {
-            PoolState state = poolState[poolId];
-            (sqrtRatio, tick, liquidity) = state.parse();
-        }
+
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = poolState[poolId].parse();
 
         if (sqrtRatio.isZero()) revert PoolNotInitialized();
 

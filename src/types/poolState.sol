@@ -41,7 +41,7 @@ function parse(PoolState state) pure returns (SqrtRatio r, int32 t, uint128 l) {
 
 function createPoolState(SqrtRatio _sqrtRatio, int32 _tick, uint128 _liquidity) pure returns (PoolState s) {
     assembly ("memory-safe") {
-        // s = (sqrtRatio << 160) | (tickLower << 128) | tickUpper
+        // s = (sqrtRatio << 160) | (_tick << 128) | liquidity
         s := or(shl(160, _sqrtRatio), or(shl(128, and(_tick, 0xFFFFFFFF)), shr(128, shl(128, _liquidity))))
     }
 }

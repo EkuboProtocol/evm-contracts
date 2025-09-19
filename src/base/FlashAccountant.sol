@@ -204,15 +204,15 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     /// @inheritdoc IFlashAccountant
-    function completePayments() external returns (bytes memory payments) {
+    function completePayments() external {
         (uint256 id,) = _getLocker();
 
         assembly ("memory-safe") {
-            let numTokens := div(sub(calldatasize(), 4), 32)
+            let numTokens := div(calldatasize(), 32)
             let paymentsLength := mul(numTokens, 16) // 16 bytes per uint128
 
             // Allocate memory for the return data
-            payments := mload(0x40)
+            let payments := mload(0x40)
             mstore(payments, paymentsLength) // Store length
             let paymentsData := add(payments, 32)
 
@@ -277,6 +277,9 @@ abstract contract FlashAccountant is IFlashAccountant {
                     tstore(deltaSlot, next)
                 }
             }
+
+            // Return the packed payment amounts using assembly
+            return(payments, add(32, paymentsLength))
         }
     }
 

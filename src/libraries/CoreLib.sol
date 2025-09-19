@@ -7,6 +7,7 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
+import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
 
 /// @title Core Library
@@ -50,13 +51,9 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        bytes32 p = core.sload(key);
+        PoolState state = PoolState.wrap(core.sload(key));
 
-        assembly ("memory-safe") {
-            sqrtRatio := and(p, 0xffffffffffffffffffffffff)
-            tick := and(shr(96, p), 0xffffffff)
-            liquidity := shr(128, p)
-        }
+        (sqrtRatio, tick, liquidity) = state.parse();
     }
 
     /// @notice Gets position data for a specific position in a pool

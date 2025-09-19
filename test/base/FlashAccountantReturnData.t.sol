@@ -288,6 +288,18 @@ contract TestLocker is BaseLocker {
             (bool completeSuccess, bytes memory completeData) = address(ACCOUNTANT).call(completeCallData);
             require(completeSuccess, "completePayments failed");
 
+            // Balance the debt by withdrawing the exact amounts that were paid
+            // Extract payment amounts from completeData to ensure exact matching
+            for (uint256 i = 0; i < tokens.length; i++) {
+                uint128 paymentAmount;
+                assembly {
+                    paymentAmount := shr(128, mload(add(completeData, add(0x20, mul(i, 16)))))
+                }
+                if (paymentAmount > 0) {
+                    withdraw(tokens[i], paymentAmount, address(this));
+                }
+            }
+
             return abi.encode(startData, completeData);
         } else if (keccak256(bytes(action)) == keccak256(bytes("startAndCompleteETH"))) {
             (, address[] memory tokens, uint256 ethAmount) = abi.decode(data, (string, address[], uint256));
@@ -315,6 +327,16 @@ contract TestLocker is BaseLocker {
 
             (bool completeSuccess, bytes memory completeData) = address(ACCOUNTANT).call(completeCallData);
             require(completeSuccess, "completePayments failed");
+
+            // Balance the debt by withdrawing the exact amount that was paid
+            // Extract payment amount from completeData to ensure exact matching
+            uint128 paymentAmount;
+            assembly {
+                paymentAmount := shr(128, mload(add(completeData, 0x20)))
+            }
+            if (paymentAmount > 0) {
+                withdraw(NATIVE_TOKEN_ADDRESS, paymentAmount, address(this));
+            }
 
             return abi.encode(startData, completeData);
         }

@@ -32,6 +32,8 @@ function mevCaptureCallPoints() pure returns (CallPoints memory) {
 
 /// @notice Charges additional fees based on the relative size of the priority fee
 contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage {
+    using CoreLib for *;
+
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
     /// @return lastUpdateTime The last time this pool was updated
@@ -174,19 +176,6 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         }
     }
 
-    function loadTick(bytes32 poolId) private view returns (int32 tick) {
-        address c = address(CORE);
-        assembly ("memory-safe") {
-            // cast sig "sload()"
-            mstore(0, shl(224, 0x380eb4e0))
-            mstore(4, poolId)
-
-            if iszero(staticcall(gas(), c, 0, 36, 0, 32)) { revert(0, 0) }
-
-            tick := shr(224, mload(12))
-        }
-    }
-
     function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
             (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
@@ -217,7 +206,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
             (int128 delta0, int128 delta1) = CORE.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
-            int32 tickAfterSwap = loadTick(poolId);
+            int32 tickAfterSwap = CORE.poolState(poolId).tick();
 
             // however many tick spacings were crossed is the fee multiplier
             uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickLast) << 64) / poolKey.tickSpacing();

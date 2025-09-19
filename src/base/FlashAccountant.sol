@@ -208,21 +208,10 @@ abstract contract FlashAccountant is IFlashAccountant {
         (uint256 id,) = _getLocker();
 
         assembly ("memory-safe") {
-            let tokensCount := shr(5, sub(calldatasize(), 4)) // floor((calldatasize()-4)/32)
-            let paymentsLength := shl(4, tokensCount) // tokensCount * 16 bytes
-            let end := add(4, shl(5, tokensCount)) // 4 + tokensCount * 32
-
             // Allocate memory for the return data (raw bytes, no length prefix for consistency with startPayments)
             let paymentsData := mload(0x40)
 
-            // Allocate capacity rounded up to 32-byte words to handle overlapping mstore writes safely
-            // Need extra 16 bytes since final mstore writes 16 bytes beyond paymentsLength
-            let paymentsCapacity := and(add(add(paymentsLength, 16), 31), not(31))
-            mstore(0x40, add(paymentsData, paymentsCapacity)) // Update free memory pointer
-
-            let paymentIndex := 0
-
-            for { let i := 4 } lt(i, end) { i := add(i, 32) } {
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
                 let token := shr(96, shl(96, calldataload(i)))
 
                 let offset := add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token)
@@ -255,8 +244,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 }
 
                 // Store the payment amount in the return data (16 bytes for uint128)
-                mstore(add(paymentsData, paymentIndex), shl(128, payment))
-                paymentIndex := add(paymentIndex, 16)
+                mstore(add(paymentsData, mul(16, div(i, 32))), shl(128, payment))
 
                 if iszero(iszero(payment)) {
                     mstore(0, add(shl(160, id), token))
@@ -278,7 +266,7 @@ abstract contract FlashAccountant is IFlashAccountant {
             }
 
             // Return the packed payment amounts using assembly (raw bytes, consistent with startPayments)
-            return(paymentsData, paymentsLength)
+            return(paymentsData, mul(16, div(calldatasize(), 32)))
         }
     }
 

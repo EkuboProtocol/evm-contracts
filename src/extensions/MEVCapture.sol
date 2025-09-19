@@ -155,13 +155,9 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         assembly ("memory-safe") {
             let freeMemPointer := mload(0x40)
 
-            mstore(0, poolId)
-            mstore(32, 1)
-            let stateSlot := keccak256(0, 64)
-
             // cast sig "sload()"
             mstore(freeMemPointer, shl(224, 0x380eb4e0))
-            mstore(add(freeMemPointer, 4), stateSlot)
+            mstore(add(freeMemPointer, 4), poolId)
             mstore(add(freeMemPointer, 36), feesSlot)
 
             if iszero(staticcall(gas(), c, freeMemPointer, 68, 0, 64)) { revert(0, 0) }
@@ -181,13 +177,9 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     function loadTick(bytes32 poolId) private view returns (int32 tick) {
         address c = address(CORE);
         assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 1)
-            let stateSlot := keccak256(0, 64)
-
             // cast sig "sload()"
             mstore(0, shl(224, 0x380eb4e0))
-            mstore(4, stateSlot)
+            mstore(4, poolId)
 
             if iszero(staticcall(gas(), c, 0, 36, 0, 32)) { revert(0, 0) }
 

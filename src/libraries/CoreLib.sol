@@ -38,14 +38,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @return state The current state of the pool
     function poolState(ICore core, bytes32 poolId) internal view returns (PoolState state) {
-        bytes32 key;
-        assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 1)
-            key := keccak256(0, 64)
-        }
-
-        state = PoolState.wrap(core.sload(key));
+        state = PoolState.wrap(core.sload(poolId));
     }
 
     /// @notice Gets position data for a specific position in a pool

@@ -217,7 +217,8 @@ abstract contract FlashAccountant is IFlashAccountant {
             let paymentsData := add(payments, 32)
 
             // Allocate capacity rounded up to 32-byte words to handle overlapping mstore writes safely
-            let paymentsCapacity := and(add(paymentsLength, 31), not(31))
+            // Need extra 16 bytes since final mstore writes 16 bytes beyond paymentsLength
+            let paymentsCapacity := and(add(add(paymentsLength, 16), 31), not(31))
             mstore(0x40, add(paymentsData, paymentsCapacity)) // Update free memory pointer
 
             let paymentIndex := 0

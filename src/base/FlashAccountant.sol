@@ -208,13 +208,10 @@ abstract contract FlashAccountant is IFlashAccountant {
         (uint256 id,) = _getLocker();
 
         assembly ("memory-safe") {
-            let numTokens := div(calldatasize(), 32)
-            let paymentsLength := mul(numTokens, 16) // 16 bytes per uint128
+            let paymentsLength := shr(1, sub(calldatasize(), 4)) // 16 bytes per uint128, so divide token count by 2
 
-            // Allocate memory for the return data
-            let payments := mload(0x40)
-            mstore(payments, paymentsLength) // Store length
-            let paymentsData := add(payments, 32)
+            // Allocate memory for the return data (raw bytes, no length prefix for consistency with startPayments)
+            let paymentsData := mload(0x40)
 
             // Allocate capacity rounded up to 32-byte words to handle overlapping mstore writes safely
             // Need extra 16 bytes since final mstore writes 16 bytes beyond paymentsLength
@@ -278,8 +275,8 @@ abstract contract FlashAccountant is IFlashAccountant {
                 }
             }
 
-            // Return the packed payment amounts using assembly
-            return(payments, add(32, paymentsLength))
+            // Return the packed payment amounts using assembly (raw bytes, consistent with startPayments)
+            return(paymentsData, paymentsLength)
         }
     }
 

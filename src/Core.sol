@@ -230,6 +230,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 let liquidity := shr(128, shl(128, sload(poolId)))
 
                 if liquidity {
+                    mstore(0, poolId)
                     mstore(32, 2)
                     let slot0 := keccak256(0, 64)
 

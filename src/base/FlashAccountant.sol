@@ -208,6 +208,8 @@ abstract contract FlashAccountant is IFlashAccountant {
         (uint256 id,) = _getLocker();
 
         assembly ("memory-safe") {
+            let paymentAmounts := mload(0x40)
+
             for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
                 let token := shr(96, shl(96, calldataload(i)))
 
@@ -240,6 +242,8 @@ abstract contract FlashAccountant is IFlashAccountant {
                     revert(0x1c, 4)
                 }
 
+                mstore(add(paymentAmounts, mul(16, div(i, 32))), shl(128, payment))
+
                 if iszero(iszero(payment)) {
                     mstore(0, add(shl(160, id), token))
                     let deltaSlot := keccak256(0, 32)
@@ -258,6 +262,8 @@ abstract contract FlashAccountant is IFlashAccountant {
                     tstore(deltaSlot, next)
                 }
             }
+
+            return(paymentAmounts, mul(16, div(calldatasize(), 32)))
         }
     }
 

@@ -73,11 +73,11 @@ contract FlashAccountantReturnDataTest is FullTest {
 
         // Verify all balances are zero
         for (uint256 i = 0; i < tokenCount; i++) {
-            uint256 balance;
+            uint256 tokenBalance;
             assembly {
-                balance := mload(add(returnData, add(0x20, mul(i, 32))))
+                tokenBalance := mload(add(returnData, add(0x20, mul(i, 32))))
             }
-            assertEq(balance, 0, "Token balance should be zero");
+            assertEq(tokenBalance, 0, "Token balance should be zero");
         }
     }
 

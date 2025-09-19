@@ -54,7 +54,8 @@ interface IFlashAccountant {
     ///      that have been paid to core. The credit goes to the current locker. Compares current
     ///      balances with those recorded in startPayments to determine payment amounts.
     ///      The computed payments are applied to the current locker's debt.
-    function completePayments() external;
+    /// @return payments Packed uint128 payment amounts (16 bytes each) in the same order as the tokens
+    function completePayments() external returns (bytes memory payments);
 
     /// @notice Withdraws tokens from the accountant to recipients using packed calldata
     /// @dev The contract must be locked, as it tracks withdrawn amounts against the current locker's debt.

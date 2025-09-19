@@ -309,7 +309,7 @@ contract PositionsTest is FullTest {
         (int128 delta0, int128 delta1) = router.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
         assertEq(delta0, 0);
 
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertTrue(sqrtRatio == MAX_SQRT_RATIO);
         assertEq(tick, MAX_TICK);
         assertEq(liqAfter, liquidity);
@@ -337,7 +337,7 @@ contract PositionsTest is FullTest {
         (int128 delta0, int128 delta1) = router.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
         assertEq(delta1, 0);
 
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertTrue(sqrtRatio == MIN_SQRT_RATIO);
         assertEq(tick, MIN_TICK - 1);
         assertEq(liqAfter, liquidity);

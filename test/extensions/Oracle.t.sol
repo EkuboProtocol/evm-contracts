@@ -47,7 +47,7 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function movePrice(PoolKey memory poolKey, int32 targetTick) internal {
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolKey.toPoolId()).parse();
 
         if (tick < targetTick) {
             SqrtRatio targetRatio = tickToSqrtRatio(targetTick);
@@ -59,7 +59,7 @@ abstract contract BaseOracleTest is FullTest {
             router.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }
 
-        (, tick,) = core.poolState(poolKey.toPoolId());
+        tick = core.poolState(poolKey.toPoolId()).tick();
 
         // this can happen because of rounding, we may fall just short
         assertEq(tick, targetTick, "failed to move price");
@@ -76,7 +76,7 @@ abstract contract BaseOracleTest is FullTest {
             (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, MIN_TICK, MAX_TICK);
         }
 
-        (SqrtRatio sqrtRatio,,) = core.poolState(pk.toPoolId());
+        SqrtRatio sqrtRatio = core.poolState(pk.toPoolId()).sqrtRatio();
 
         if (liquidity < liquidityNext) {
             (int128 d0, int128 d1) = liquidityDeltaToAmountDelta(
@@ -89,7 +89,7 @@ abstract contract BaseOracleTest is FullTest {
             positions.deposit(
                 positionId, pk, MIN_TICK, MAX_TICK, uint128(d0), uint128(d1), liquidityNext - liquidity - 1
             );
-            (,, liquidity) = core.poolState(pk.toPoolId());
+            liquidity = core.poolState(pk.toPoolId()).liquidity();
             assertApproxEqAbs(liquidity, liquidityNext, 1, "liquidity after");
         } else if (liquidity > liquidityNext) {
             positions.withdraw(positionId, pk, MIN_TICK, MAX_TICK, liquidity - liquidityNext);

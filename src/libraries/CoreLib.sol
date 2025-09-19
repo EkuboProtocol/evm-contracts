@@ -7,6 +7,7 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolKey} from "../types/poolKey.sol";
+import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
 
 /// @title Core Library
@@ -35,14 +36,8 @@ library CoreLib {
     /// @dev Accesses the core contract's storage directly for gas efficiency
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
-    /// @return sqrtRatio Current sqrt price ratio of the pool
-    /// @return tick Current tick of the pool
-    /// @return liquidity Current active liquidity in the pool
-    function poolState(ICore core, bytes32 poolId)
-        internal
-        view
-        returns (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity)
-    {
+    /// @return state The current state of the pool
+    function poolState(ICore core, bytes32 poolId) internal view returns (PoolState state) {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
@@ -50,13 +45,7 @@ library CoreLib {
             key := keccak256(0, 64)
         }
 
-        bytes32 p = core.sload(key);
-
-        assembly ("memory-safe") {
-            sqrtRatio := and(p, 0xffffffffffffffffffffffff)
-            tick := and(shr(96, p), 0xffffffff)
-            liquidity := shr(128, p)
-        }
+        state = PoolState.wrap(core.sload(key));
     }
 
     /// @notice Gets position data for a specific position in a pool

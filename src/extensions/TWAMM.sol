@@ -503,7 +503,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
-                        (SqrtRatio sqrtRatio,, uint128 liquidity) = CORE.poolState(poolId);
+                        (SqrtRatio sqrtRatio,, uint128 liquidity) = CORE.poolState(poolId).parse();
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                             sqrtRatio: sqrtRatio,
                             liquidity: liquidity,

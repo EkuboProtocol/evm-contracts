@@ -166,8 +166,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
             if iszero(staticcall(gas(), c, freeMemPointer, 68, 0, 64)) { revert(0, 0) }
 
-            // tick := shr(96, mload(16))
-            tick := shr(224, mload(16))
+            tick := shr(224, mload(12))
 
             let fees := mload(32)
 
@@ -192,7 +191,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
             if iszero(staticcall(gas(), c, 0, 36, 0, 32)) { revert(0, 0) }
 
-            tick := shr(224, mload(16))
+            tick := shr(224, mload(12))
         }
     }
 

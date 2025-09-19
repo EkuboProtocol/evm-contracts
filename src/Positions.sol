@@ -54,7 +54,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
     {
         bytes32 poolId = poolKey.toPoolId();
-        (SqrtRatio sqrtRatio,,) = CORE.poolState(poolId);
+        SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
         PositionId positionId =
             createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper});
         Position memory position = CORE.poolPositions(poolId, address(this), positionId);
@@ -82,7 +82,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         uint128 maxAmount1,
         uint128 minLiquidity
     ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        (SqrtRatio sqrtRatio,,) = CORE.poolState(poolKey.toPoolId());
+        SqrtRatio sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
 
         liquidity =
             maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
@@ -152,7 +152,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
         returns (bool initialized, SqrtRatio sqrtRatio)
     {
         // the before update position hook shouldn't be taken into account here
-        (sqrtRatio,,) = CORE.poolState(poolKey.toPoolId());
+        sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
         if (sqrtRatio.isZero()) {
             initialized = true;
             sqrtRatio = CORE.initializePool(poolKey, tick);

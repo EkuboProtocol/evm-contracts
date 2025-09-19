@@ -19,6 +19,7 @@ import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
+import {PoolState, createPoolState} from "./types/poolState.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -35,17 +36,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         int128 liquidityDelta;
         /// @notice Net liquidity above this tick
         uint128 liquidityNet;
-    }
-
-    /// @notice Current state of a pool
-    /// @dev Packed into a single storage slot for gas efficiency
-    struct PoolState {
-        /// @notice Current sqrt price ratio of the pool
-        SqrtRatio sqrtRatio;
-        /// @notice Current tick of the pool
-        int32 tick;
-        /// @notice Current active liquidity in the pool
-        uint128 liquidity;
     }
 
     /// @notice Mapping of extension addresses to their registration status
@@ -94,11 +84,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         bytes32 poolId = poolKey.toPoolId();
-        PoolState memory price = poolState[poolId];
-        if (SqrtRatio.unwrap(price.sqrtRatio) != 0) revert PoolAlreadyInitialized();
+        PoolState state = poolState[poolId];
+        if (state.isInitialized()) revert PoolAlreadyInitialized();
 
         sqrtRatio = tickToSqrtRatio(tick);
-        poolState[poolId] = PoolState({sqrtRatio: sqrtRatio, tick: tick, liquidity: 0});
+        poolState[poolId] = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: 0});
 
         emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 
@@ -188,7 +178,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     {
         if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) return poolFeesPerLiquidity[poolId];
 
-        int32 tick = poolState[poolId].tick;
+        int32 tick = poolState[poolId].tick();
         mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
         FeesPerLiquidity memory lower = poolIdEntry[tickLower];
         FeesPerLiquidity memory upper = poolIdEntry[tickUpper];
@@ -227,7 +217,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             if or(amount0, amount1) {
                 mstore(0, poolId)
                 mstore(32, 1)
-                let liquidity := shr(128, sload(keccak256(0, 64)))
+                let liquidity := shr(128, shl(128, sload(keccak256(0, 64))))
 
                 if liquidity {
                     mstore(32, 2)
@@ -315,14 +305,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         if (liquidityDelta != 0) {
             bytes32 poolId = poolKey.toPoolId();
-            PoolState memory price = poolState[poolId];
-            if (SqrtRatio.unwrap(price.sqrtRatio) == 0) revert PoolNotInitialized();
+            PoolState state = poolState[poolId];
+            if (!state.isInitialized()) revert PoolNotInitialized();
 
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
                 (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
 
             (delta0, delta1) =
-                liquidityDeltaToAmountDelta(price.sqrtRatio, liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
+                liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
             Position storage position = poolPositions[poolId][locker][positionId];
 
@@ -348,11 +338,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 _updateTick(poolId, positionId.tickLower(), poolKey.tickSpacing(), liquidityDelta, false);
                 _updateTick(poolId, positionId.tickUpper(), poolKey.tickSpacing(), liquidityDelta, true);
 
-                if (price.tick >= positionId.tickLower() && price.tick < positionId.tickUpper()) {
-                    poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, liquidityDelta);
+                if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
+                    poolState[poolId] = createPoolState({
+                        _sqrtRatio: state.sqrtRatio(),
+                        _tick: state.tick(),
+                        _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                    });
                 }
             } else {
-                poolState[poolId].liquidity = addLiquidityDelta(poolState[poolId].liquidity, liquidityDelta);
+                poolState[poolId] = createPoolState({
+                    _sqrtRatio: state.sqrtRatio(),
+                    _tick: state.tick(),
+                    _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                });
             }
 
             _maybeAccountDebtToken0(id, poolKey.token0, delta0);
@@ -411,13 +409,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(extension).maybeCallBeforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
         bytes32 poolId = poolKey.toPoolId();
-        SqrtRatio sqrtRatio;
-        int32 tick;
-        uint128 liquidity;
-        {
-            PoolState storage state = poolState[poolId];
-            (sqrtRatio, tick, liquidity) = (state.sqrtRatio, state.tick, state.liquidity);
-        }
+
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = poolState[poolId].parse();
 
         if (sqrtRatio.isZero()) revert PoolNotInitialized();
 
@@ -525,10 +518,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     : (amount - amountRemaining, calculatedAmountDelta);
             }
 
+            PoolState nextState = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
+
             assembly ("memory-safe") {
                 mstore(0, poolId)
                 mstore(32, 1)
-                sstore(keccak256(0, 64), add(add(sqrtRatio, shl(96, and(tick, 0xffffffff))), shl(128, liquidity)))
+                sstore(keccak256(0, 64), nextState)
             }
 
             if (poolKey.mustLoadFees()) {

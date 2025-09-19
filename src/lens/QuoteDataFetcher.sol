@@ -42,7 +42,7 @@ contract QuoteDataFetcher is UsesCore {
             results = new QuoteData[](poolKeys.length);
             for (uint256 i = 0; i < poolKeys.length; i++) {
                 bytes32 poolId = poolKeys[i].toPoolId();
-                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolId);
+                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
 
                 if (!sqrtRatio.isZero()) {
                     int256 minTick;

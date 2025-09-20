@@ -484,18 +484,34 @@ contract RouterTest is FullTest {
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 52)))), deltas[0][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 68)))), deltas[0][0].amount1);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[0].data, 84)).sqrtRatio().toFixed(),
+            340284068297894840612141065344447938560
+        );
         assertEq(PoolState.wrap(LibBytes.load(logs[0].data, 84)).tick(), 9);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 52)))), deltas[0][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 68)))), deltas[0][1].amount1);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[1].data, 84)).sqrtRatio().toFixed(),
+            340280631533626427978182251206462668800
+        );
         assertEq(PoolState.wrap(LibBytes.load(logs[1].data, 84)).tick(), -11);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 52)))), deltas[1][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 68)))), deltas[1][0].amount1);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[2].data, 84)).sqrtRatio().toFixed(),
+            340282332893229288559183010384991748096
+        );
         assertEq(PoolState.wrap(LibBytes.load(logs[2].data, 84)).tick(), -1);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 52)))), deltas[1][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 68)))), deltas[1][1].amount1);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[3].data, 84)).sqrtRatio().toFixed(),
+            340278930156329870109718837961959669760
+        );
         assertEq(PoolState.wrap(LibBytes.load(logs[3].data, 84)).tick(), -21);
     }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {Oracle} from "../extensions/Oracle.sol";
+import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {OracleLib} from "../libraries/OracleLib.sol";
 import {amount1Delta} from "../math/delta.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
@@ -55,11 +55,11 @@ contract PriceFetcher {
     error VolatilityRequiresMoreIntervals();
 
     /// @notice The Oracle extension contract used for historical data
-    Oracle public immutable ORACLE;
+    IOracle public immutable ORACLE;
 
     /// @notice Constructs the PriceFetcher with an Oracle instance
     /// @param _oracle The Oracle extension to use for historical data
-    constructor(Oracle _oracle) {
+    constructor(IOracle _oracle) {
         ORACLE = _oracle;
     }
 

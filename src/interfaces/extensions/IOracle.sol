@@ -38,17 +38,6 @@ interface IOracle is IExposedStorage, IExtension {
     /// @notice Thrown when zero timestamps are provided to a function that requires at least one
     error ZeroTimestampsProvided();
 
-    /// @notice Gets the counts and metadata for snapshots of a token
-    /// @param token The token address
-    /// @return The counts data for the token
-    function counts(address token) external view returns (Counts);
-
-    /// @notice Gets a specific snapshot for a token at a given index
-    /// @param token The token address
-    /// @param index The snapshot index
-    /// @return The snapshot data at the given index
-    function snapshots(address token, uint256 index) external view returns (Snapshot);
-
     /// @notice Gets the pool key for the given token
     /// @dev The only allowed pool key for the given token pairs with the native token
     /// @param token The token address

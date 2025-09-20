@@ -31,8 +31,9 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
+    using OracleLib for *;
 
-    Oracle internal oracle;
+    IOracle internal oracle;
 
     uint256 positionId;
 
@@ -40,7 +41,7 @@ abstract contract BaseOracleTest is FullTest {
         FullTest.setUp();
         address deployAddress = address(uint160(oracleCallPoints().toUint8()) << 152);
         deployCodeTo("Oracle.sol", abi.encode(core), deployAddress);
-        oracle = Oracle(deployAddress);
+        oracle = IOracle(deployAddress);
         positionId = positions.mint();
     }
 

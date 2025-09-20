@@ -20,6 +20,7 @@ import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
+import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -28,15 +29,6 @@ import {PoolState, createPoolState} from "./types/poolState.sol";
 contract Core is ICore, FlashAccountant, ExposedStorage {
     using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
     using ExtensionCallPointsLib for *;
-
-    /// @notice Information stored for each initialized tick
-    /// @dev Contains liquidity changes and net liquidity at the tick
-    struct TickInfo {
-        /// @notice Change in liquidity when crossing this tick
-        int128 liquidityDelta;
-        /// @notice Net liquidity above this tick
-        uint128 liquidityNet;
-    }
 
     /// @notice Mapping of extension addresses to their registration status
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
@@ -255,19 +247,33 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
-        TickInfo storage tickInfo = poolTicks[poolId][tick];
+        bytes32 slot;
+        TickInfo ti;
 
-        uint128 liquidityNetNext = addLiquidityDelta(tickInfo.liquidityNet, liquidityDelta);
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(32, 4)
+            mstore(32, keccak256(0, 64))
+            mstore(0, tick)
+            slot := keccak256(0, 64)
+            ti := sload(slot)
+        }
+
+        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = ti.parse();
+        uint128 liquidityNetNext = addLiquidityDelta(currentLiquidityNet, liquidityDelta);
         // this is checked math
         int128 liquidityDeltaNext =
-            isUpper ? tickInfo.liquidityDelta - liquidityDelta : tickInfo.liquidityDelta + liquidityDelta;
+            isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
-        if ((tickInfo.liquidityNet == 0) != (liquidityNetNext == 0)) {
+        if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
             flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
         }
 
-        tickInfo.liquidityDelta = liquidityDeltaNext;
-        tickInfo.liquidityNet = liquidityNetNext;
+        ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
+
+        assembly ("memory-safe") {
+            sstore(slot, ti)
+        }
     }
 
     /// @notice Accounts for debt in token0, handling native token payments
@@ -492,7 +498,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
 
                     if (isInitialized) {
-                        int128 liquidityDelta = poolTicks[poolId][nextTick].liquidityDelta;
+                        int128 liquidityDelta = poolTicks[poolId][nextTick].liquidityDelta();
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
                             : subLiquidityDelta(liquidity, liquidityDelta);

@@ -48,8 +48,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @notice Mapping of pool IDs to position IDs to position data
     mapping(bytes32 poolId => mapping(address owner => mapping(PositionId positionId => Position position))) private
         poolPositions;
-    /// @notice Mapping of pool IDs to tick information
-    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
+    /// @notice Mapping of pool IDs to tick information. This isn't actually used.
+    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private _poolTicks_placeholder;
     /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick
     mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
         poolTickFeesPerLiquidityOutside;
@@ -262,7 +262,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
-        TickInfo storage tickInfo = poolTicks[poolId][tick];
+        TickInfo storage tickInfo;
+        assembly ("memory-safe") {
+            tickInfo.slot := add(poolId, add(tick, 0xffffffff))
+        }
 
         uint128 liquidityNetNext = addLiquidityDelta(tickInfo.liquidityNet, liquidityDelta);
         // this is checked math
@@ -491,7 +494,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     tick = increasing ? nextTick : nextTick - 1;
 
                     if (isInitialized) {
-                        int128 liquidityDelta = poolTicks[poolId][nextTick].liquidityDelta;
+                        int128 liquidityDelta;
+                        assembly ("memory-safe") {
+                            let slot := add(poolId, add(nextTick, 0xffffffff))
+                            liquidityDelta := signextend(15, sload(slot))
+                        }
+
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
                             : subLiquidityDelta(liquidity, liquidityDelta);

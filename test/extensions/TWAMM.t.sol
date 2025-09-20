@@ -4,7 +4,7 @@ pragma solidity =0.8.28;
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
-import {ITWAMM, TWAMM, orderKeyToPoolKey, twammCallPoints} from "../../src/extensions/TWAMM.sol";
+import {ITWAMM, TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {Core} from "../../src/Core.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
@@ -69,7 +69,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     function test_orderKeyToPoolKey(OrderKey memory orderKey, address twamm) public pure {
-        PoolKey memory pk = orderKeyToPoolKey(orderKey, twamm);
+        PoolKey memory pk = orderKey.toPoolKey(twamm);
         if (orderKey.sellToken > orderKey.buyToken) {
             assertEq(pk.token0, orderKey.buyToken);
             assertEq(pk.token1, orderKey.sellToken);

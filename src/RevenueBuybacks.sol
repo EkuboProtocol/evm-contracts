@@ -8,7 +8,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {nextValidTime} from "./math/time.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
-import {OrderKey} from "./interfaces/extensions/ITWAMM.sol";
+import {OrderKey} from "./types/orderKey.sol";
 
 /// @notice Configuration and state for revenue buyback orders for a specific token
 /// @dev Tracks the parameters and timing for automated buyback order creation

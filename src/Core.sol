@@ -478,7 +478,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
                 }
 
-                amountRemaining -= result.consumedAmount;
+                unchecked {
+                    // the signs are the same and a swap round can't consume more than it was given
+                    amountRemaining -= result.consumedAmount;
+                }
                 calculatedAmount += result.calculatedAmount;
 
                 if (result.sqrtRatioNext == nextTickSqrtRatio) {

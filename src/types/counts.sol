@@ -32,6 +32,10 @@ function lastTimestamp(Counts counts) pure returns (uint32 t) {
 function createCounts(uint32 _index, uint32 _count, uint32 _capacity, uint32 _lastTimestamp) pure returns (Counts c) {
     assembly ("memory-safe") {
         // c = index | (count << 32) | (capacity << 64) | (lastTimestamp << 96)
-        c := or(or(or(_index, shl(32, _count)), shl(64, _capacity)), shl(96, _lastTimestamp))
+        c :=
+            or(
+                or(or(and(_index, 0xFFFFFFFF), shl(32, and(_count, 0xFFFFFFFF))), shl(64, and(_capacity, 0xFFFFFFFF))),
+                shl(96, and(_lastTimestamp, 0xFFFFFFFF))
+            )
     }
 }

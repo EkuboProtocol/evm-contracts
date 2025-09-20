@@ -30,6 +30,12 @@ function createSnapshot(uint32 _timestamp, uint160 _secondsPerLiquidityCumulativ
     assembly ("memory-safe") {
         // s = timestamp | (secondsPerLiquidityCumulative << 32) | (tickCumulative << 192)
         s :=
-            or(or(_timestamp, shl(32, _secondsPerLiquidityCumulative)), shl(192, and(_tickCumulative, 0xFFFFFFFFFFFFFFFF)))
+            or(
+                or(
+                    and(_timestamp, 0xFFFFFFFF),
+                    shl(32, and(_secondsPerLiquidityCumulative, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
+                ),
+                shl(192, and(_tickCumulative, 0xFFFFFFFFFFFFFFFF))
+            )
     }
 }

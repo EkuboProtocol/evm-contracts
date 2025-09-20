@@ -3,30 +3,14 @@ pragma solidity =0.8.28;
 
 import {TWAMM} from "../extensions/TWAMM.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
+import {TwammPoolState} from "../types/twammPoolState.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library TWAMMLib {
     using ExposedStorageLib for *;
 
-    function poolState(TWAMM twamm, bytes32 poolId)
-        internal
-        view
-        returns (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1)
-    {
-        bytes32 key;
-        assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 0)
-            key := keccak256(0, 64)
-        }
-
-        bytes32 s = twamm.sload(key);
-
-        assembly ("memory-safe") {
-            lastVirtualOrderExecutionTime := and(s, 0xffffffff)
-            saleRateToken0 := and(shr(32, s), 0xffffffffffffffffffffffffffff)
-            saleRateToken1 := shr(144, s)
-        }
+    function poolState(TWAMM twamm, bytes32 poolId) internal view returns (TwammPoolState twammPoolState) {
+        twammPoolState = TwammPoolState.wrap(twamm.sload(poolId));
     }
 
     function orderState(TWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
@@ -38,7 +22,7 @@ library TWAMMLib {
 
         assembly ("memory-safe") {
             mstore(0, owner)
-            mstore(32, 5)
+            mstore(32, 4)
 
             mstore(32, keccak256(0, 64))
             mstore(0, salt)

@@ -14,6 +14,7 @@ import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {PoolState} from "../types/poolState.sol";
+import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
@@ -75,7 +76,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
 
-    mapping(bytes32 poolId => TwammPoolState) internal poolState;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
     mapping(bytes32 poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
 
@@ -121,8 +121,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             switch lt(timestamp(), endTime)
             case 0 {
                 mstore(0, poolId)
-                mstore(32, 4)
-                // hash poolId,4 and store at 32
+                mstore(32, 3)
+                // hash poolId, 3 and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put start time at 0 for hashing
@@ -141,10 +141,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 switch gt(timestamp(), startTime)
                 case 1 {
                     mstore(0, poolId)
-                    mstore(32, 3)
+                    mstore(32, 2)
                     let rewardRateCurrent := sload(add(keccak256(0, 64), isToken1))
 
-                    mstore(32, 4)
+                    mstore(32, 3)
                     // hash poolId,4 and store at 32
                     mstore(32, keccak256(0, 64))
                     // now put time at 0 for hashing
@@ -212,8 +212,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
             if flip {
                 mstore(0, poolId)
-                mstore(32, 4)
-                // hash poolId,4 and store at 32
+                mstore(32, 3)
+                // hash poolId, 3 and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put time at 0 for hashing
@@ -338,12 +338,28 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 } else {
                     // we know block.timestamp < params.orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
+                    TwammPoolState currentState;
+                    assembly ("memory-safe") {
+                        currentState := sload(poolId)
+                    }
+                    (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
+
                     if (isToken1) {
-                        poolState[poolId].saleRateToken1 =
-                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken1, params.saleRateDelta));
+                        currentState = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: lastTime,
+                            _saleRateToken0: rate0,
+                            _saleRateToken1: uint112(addSaleRateDelta(rate1, params.saleRateDelta))
+                        });
                     } else {
-                        poolState[poolId].saleRateToken0 =
-                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken0, params.saleRateDelta));
+                        currentState = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: lastTime,
+                            _saleRateToken0: uint112(addSaleRateDelta(rate0, params.saleRateDelta)),
+                            _saleRateToken1: rate1
+                        });
+                    }
+
+                    assembly ("memory-safe") {
+                        sstore(poolId, currentState)
                     }
 
                     // only update the end time
@@ -443,50 +459,38 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, bytes32 poolId) internal {
         unchecked {
-            uint256 lastVirtualOrderExecutionTime;
-            uint256 saleRateToken0;
-            uint256 saleRateToken1;
+            TwammPoolState state;
 
             // load the pool state
             assembly ("memory-safe") {
-                mstore(0, poolId)
-                mstore(32, 0)
+                state := sload(poolId)
 
-                let packed := sload(keccak256(0, 64))
-                lastVirtualOrderExecutionTime := and(packed, 0xffffffff)
-
-                saleRateToken0 := shr(144, shl(112, packed))
-                saleRateToken1 := shr(144, packed)
-
-                if iszero(packed) {
-                    // slot 0 already has the poolId in it
-                    mstore(32, 6)
+                if iszero(state) {
+                    mstore(0, poolId)
+                    mstore(32, 5)
                     if iszero(sload(keccak256(0, 64))) {
                         // cast sig "PoolNotInitialized()"
                         mstore(0, shl(224, 0x486aa307))
                         revert(0, 4)
                     }
                 }
-
-                // make it a 'real' timestamp
-                // assumes that it was set to uint32(block.timestamp) at any point in the last 2**32-1 seconds
-                lastVirtualOrderExecutionTime :=
-                    sub(timestamp(), and(sub(and(timestamp(), 0xffffffff), lastVirtualOrderExecutionTime), 0xffffffff))
             }
 
-            // no-op if already executed in this block
-            if (lastVirtualOrderExecutionTime != block.timestamp) {
-                FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
+            uint256 realLastVirtualOrderExecutionTime = state.realLastVirtualOrderExecutionTime();
 
+            // no-op if already executed in this block
+            if (realLastVirtualOrderExecutionTime != block.timestamp) {
+                // initialize the values that are handled once per execution
+                FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
                 int256 saveDelta0;
                 int256 saveDelta1;
-
-                uint256 time = lastVirtualOrderExecutionTime;
+                PoolState corePoolState;
+                uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
                     (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
                         .searchForNextInitializedTime({
-                        lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
+                        lastVirtualOrderExecutionTime: realLastVirtualOrderExecutionTime,
                         fromTime: time,
                         untilTime: block.timestamp
                     });
@@ -494,21 +498,29 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     // it is assumed that this will never return a value greater than type(uint32).max
                     uint256 timeElapsed = nextTime - time;
 
-                    uint256 amount0 =
-                        computeAmountFromSaleRate({saleRate: saleRateToken0, duration: timeElapsed, roundUp: false});
+                    uint256 amount0 = computeAmountFromSaleRate({
+                        saleRate: state.saleRateToken0(),
+                        duration: timeElapsed,
+                        roundUp: false
+                    });
 
-                    uint256 amount1 =
-                        computeAmountFromSaleRate({saleRate: saleRateToken1, duration: timeElapsed, roundUp: false});
+                    uint256 amount1 = computeAmountFromSaleRate({
+                        saleRate: state.saleRateToken1(),
+                        duration: timeElapsed,
+                        roundUp: false
+                    });
 
                     Delta memory rewardDelta;
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
-                        PoolState corePoolState = CORE.poolState(poolId);
+                        if (!corePoolState.isInitialized()) {
+                            corePoolState = CORE.poolState(poolId);
+                        }
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                             sqrtRatio: corePoolState.sqrtRatio(),
                             liquidity: corePoolState.liquidity(),
-                            saleRateToken0: saleRateToken0,
-                            saleRateToken1: saleRateToken1,
+                            saleRateToken0: state.saleRateToken0(),
+                            saleRateToken1: state.saleRateToken1(),
                             timeElapsed: timeElapsed,
                             fee: poolKey.fee()
                         });
@@ -517,10 +529,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         if (sqrtRatioNext > corePoolState.sqrtRatio()) {
                             // todo: we could update corePoolState here and avoid calling into core to get it again
                             // however it causes stack too deep and it's not a huge optimization because in cases where two tokens are sold
-                            (swapDelta.delta0, swapDelta.delta1,) =
+                            (swapDelta.delta0, swapDelta.delta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
                         } else if (sqrtRatioNext < corePoolState.sqrtRatio()) {
-                            (swapDelta.delta0, swapDelta.delta1,) =
+                            (swapDelta.delta0, swapDelta.delta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
@@ -533,10 +545,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (rewardDelta.delta0, rewardDelta.delta1,) =
+                            (rewardDelta.delta0, rewardDelta.delta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (rewardDelta.delta0, rewardDelta.delta1,) =
+                            (rewardDelta.delta0, rewardDelta.delta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
@@ -545,11 +557,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     }
 
                     if (rewardDelta.delta0 < 0) {
-                        rewardRates.value0 += (uint256(-rewardDelta.delta0) << 128) / saleRateToken1;
+                        rewardRates.value0 += (uint256(-rewardDelta.delta0) << 128) / state.saleRateToken1();
                     }
 
                     if (rewardDelta.delta1 < 0) {
-                        rewardRates.value1 += (uint256(-rewardDelta.delta1) << 128) / saleRateToken0;
+                        rewardRates.value1 += (uint256(-rewardDelta.delta1) << 128) / state.saleRateToken0();
                     }
 
                     if (initialized) {
@@ -557,13 +569,22 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                         TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
 
-                        saleRateToken0 = addSaleRateDelta(saleRateToken0, timeInfo.saleRateDeltaToken0);
-                        saleRateToken1 = addSaleRateDelta(saleRateToken1, timeInfo.saleRateDeltaToken1);
+                        state = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: uint32(nextTime),
+                            _saleRateToken0: uint112(addSaleRateDelta(state.saleRateToken0(), timeInfo.saleRateDeltaToken0)),
+                            _saleRateToken1: uint112(addSaleRateDelta(state.saleRateToken1(), timeInfo.saleRateDeltaToken1))
+                        });
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
                         // this helps reduce the cost of executing virtual orders.
                         delete poolTimeInfos[poolId][nextTime];
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
+                    } else {
+                        state = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: uint32(nextTime),
+                            _saleRateToken0: state.saleRateToken0(),
+                            _saleRateToken1: state.saleRateToken1()
+                        });
                     }
 
                     time = nextTime;
@@ -576,16 +597,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 poolRewardRates[poolId] = rewardRates;
 
                 assembly ("memory-safe") {
-                    mstore(0, poolId)
-                    mstore(32, 0)
-
-                    sstore(
-                        keccak256(0, 64),
-                        or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
-                    )
+                    sstore(poolId, state)
                 }
 
-                _emitVirtualOrdersExecuted(poolId, saleRateToken0, saleRateToken1);
+                _emitVirtualOrdersExecuted(poolId, state.saleRateToken0(), state.saleRateToken1());
             }
         }
     }
@@ -633,11 +648,16 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         bytes32 poolId = key.toPoolId();
-        poolState[poolId] = TwammPoolState({
-            lastVirtualOrderExecutionTime: uint32(block.timestamp),
-            saleRateToken0: 0,
-            saleRateToken1: 0
+
+        TwammPoolState initialState = createTwammPoolState({
+            _lastVirtualOrderExecutionTime: uint32(block.timestamp),
+            _saleRateToken0: 0,
+            _saleRateToken1: 0
         });
+        assembly ("memory-safe") {
+            sstore(poolId, initialState)
+        }
+
         // we need this extra mapping since pool state can contain zero for an initialized pool
         poolInitialized[poolId] = true;
         _emitVirtualOrdersExecuted({poolId: poolId, saleRateToken0: 0, saleRateToken1: 0});

@@ -27,7 +27,7 @@ function liquidity(PoolState state) pure returns (uint128 l) {
 
 function isInitialized(PoolState state) pure returns (bool yes) {
     assembly ("memory-safe") {
-        yes := shr(160, state)
+        yes := state
     }
 }
 

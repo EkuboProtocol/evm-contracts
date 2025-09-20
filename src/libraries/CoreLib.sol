@@ -38,14 +38,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @return state The current state of the pool
     function poolState(ICore core, bytes32 poolId) internal view returns (PoolState state) {
-        bytes32 key;
-        assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 1)
-            key := keccak256(0, 64)
-        }
-
-        state = PoolState.wrap(core.sload(key));
+        state = PoolState.wrap(core.sload(poolId));
     }
 
     /// @notice Gets position data for a specific position in a pool
@@ -62,7 +55,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 3)
+            mstore(32, 2)
             let b := keccak256(0, 64)
             mstore(0, owner)
             mstore(32, b)
@@ -145,29 +138,5 @@ library CoreLib {
         liquidityDelta = int128(uint128(uint256(data)));
         // takes only most significant 128 bits
         liquidityNet = uint128(bytes16(data));
-    }
-
-    /// @notice Executes a swap against the core contract
-    /// @dev Wrapper function that calls the core contract's swap function with the correct signature
-    /// @param core The core contract instance
-    /// @param value Native token value to send with the swap
-    /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
-    function swap(
-        ICore core,
-        uint256 value,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        (delta0, delta1, stateAfter) =
-            core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 }

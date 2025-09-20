@@ -10,7 +10,6 @@ import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {SqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolState} from "./types/poolState.sol";
 
 /// @notice Represents a single hop in a multi-hop swap route
@@ -73,8 +72,6 @@ function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 a
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol
 /// @dev Provides high-level swap functionality including single-hop, multi-hop, and batch swaps
 contract Router is UsesCore, PayableMulticallable, BaseLocker {
-    using CoreLib for *;
-
     /// @notice Thrown when a swap doesn't consume the full input amount
     error PartialSwapsDisallowed();
 
@@ -109,7 +106,8 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal virtual returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        (delta0, delta1, stateAfter) =
+            CORE.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {

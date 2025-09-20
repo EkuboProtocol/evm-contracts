@@ -5,7 +5,6 @@ import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolKey} from "../../types/poolKey.sol";
-import {TwammPoolState} from "../../types/twammPoolState.sol";
 
 /// @notice Order key structure identifying a TWAMM order
 /// @dev Contains all parameters needed to uniquely identify an order

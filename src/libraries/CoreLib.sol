@@ -38,14 +38,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @return state The current state of the pool
     function poolState(ICore core, bytes32 poolId) internal view returns (PoolState state) {
-        bytes32 key;
-        assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 1)
-            key := keccak256(0, 64)
-        }
-
-        state = PoolState.wrap(core.sload(key));
+        state = PoolState.wrap(core.sload(poolId));
     }
 
     /// @notice Gets position data for a specific position in a pool
@@ -62,7 +55,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 3)
+            mstore(32, 2)
             let b := keccak256(0, 64)
             mstore(0, owner)
             mstore(32, b)
@@ -96,9 +89,7 @@ library CoreLib {
             mstore(add(free, 0x20), token0)
             mstore(add(free, 0x40), token1)
             mstore(add(free, 0x60), salt)
-            mstore(0, keccak256(free, 128))
-            mstore(32, 7)
-            slot := keccak256(0, 64)
+            slot := keccak256(free, 128)
         }
     }
 
@@ -139,7 +130,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 4)
+            mstore(32, 3)
             let b := keccak256(0, 64)
             mstore(0, tick)
             mstore(32, b)

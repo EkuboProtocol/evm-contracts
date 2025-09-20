@@ -158,13 +158,9 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         assembly ("memory-safe") {
             let freeMemPointer := mload(0x40)
 
-            mstore(0, poolId)
-            mstore(32, 1)
-            let stateSlot := keccak256(0, 64)
-
             // cast sig "sload()"
             mstore(freeMemPointer, shl(224, 0x380eb4e0))
-            mstore(add(freeMemPointer, 4), stateSlot)
+            mstore(add(freeMemPointer, 4), poolId)
             mstore(add(freeMemPointer, 36), feesSlot)
 
             if iszero(staticcall(gas(), c, freeMemPointer, 68, 0, 64)) { revert(0, 0) }

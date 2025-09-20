@@ -7,7 +7,7 @@ using {liquidityDelta, liquidityNet, parse} for TickInfo global;
 
 function liquidityDelta(TickInfo info) pure returns (int128 delta) {
     assembly ("memory-safe") {
-        delta := signextend(15, shr(128, shl(128, info)))
+        delta := signextend(15, info)
     }
 }
 
@@ -19,7 +19,7 @@ function liquidityNet(TickInfo info) pure returns (uint128 net) {
 
 function parse(TickInfo info) pure returns (int128 delta, uint128 net) {
     assembly ("memory-safe") {
-        delta := signextend(15, shr(128, shl(128, info)))
+        delta := signextend(15, info)
         net := shr(128, info)
     }
 }

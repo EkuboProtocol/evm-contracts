@@ -176,13 +176,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         FeesPerLiquidity memory upper = poolIdEntry[tickUpper];
 
         if (tick < tickLower) {
-            return lower.sub(upper);
+            lower.subAssign(upper);
+            return lower;
         } else if (tick < tickUpper) {
             FeesPerLiquidity memory fees = poolFeesPerLiquidity[poolId];
 
-            return fees.sub(lower).sub(upper);
+            fees.subAssign(lower);
+            fees.subAssign(upper);
+            return fees;
         } else {
-            return upper.sub(lower);
+            upper.subAssign(lower);
+            return upper;
         }
     }
 
@@ -464,12 +468,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
                 }
 
-                amountRemaining -= result.consumedAmount;
+                unchecked {
+                    // the signs are the same and a swap round can't consume more than it was given
+                    amountRemaining -= result.consumedAmount;
+                }
                 calculatedAmount += result.calculatedAmount;
 
                 if (result.sqrtRatioNext == nextTickSqrtRatio) {
                     sqrtRatio = result.sqrtRatioNext;
-                    tick = increasing ? nextTick : nextTick - 1;
+                    assembly ("memory-safe") {
+                        // no overflow danger because nextTick is always inside the valid tick bounds
+                        tick := sub(nextTick, iszero(increasing))
+                    }
 
                     if (isInitialized) {
                         int128 liquidityDelta = poolTicks[poolId][nextTick].liquidityDelta();

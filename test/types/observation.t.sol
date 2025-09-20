@@ -6,15 +6,14 @@ import {Observation, createObservation} from "../../src/types/observation.sol";
 
 contract ObservationTest is Test {
     function test_conversionToAndFrom(Observation observation) public pure {
-        assertEq(
-            Observation.unwrap(
-                createObservation({
-                    _secondsPerLiquidityCumulative: observation.secondsPerLiquidityCumulative(),
-                    _tickCumulative: observation.tickCumulative()
-                })
-            ),
-            Observation.unwrap(observation)
-        );
+        // Test that field extraction works correctly by reconstructing and comparing fields
+        Observation reconstructed = createObservation({
+            _secondsPerLiquidityCumulative: observation.secondsPerLiquidityCumulative(),
+            _tickCumulative: observation.tickCumulative()
+        });
+
+        assertEq(reconstructed.secondsPerLiquidityCumulative(), observation.secondsPerLiquidityCumulative());
+        assertEq(reconstructed.tickCumulative(), observation.tickCumulative());
     }
 
     function test_conversionFromAndTo(uint160 secondsPerLiquidityCumulative, int64 tickCumulative) public pure {

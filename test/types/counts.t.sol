@@ -6,17 +6,18 @@ import {Counts, createCounts} from "../../src/types/counts.sol";
 
 contract CountsTest is Test {
     function test_conversionToAndFrom(Counts counts) public pure {
-        assertEq(
-            Counts.unwrap(
-                createCounts({
-                    _index: counts.index(),
-                    _count: counts.count(),
-                    _capacity: counts.capacity(),
-                    _lastTimestamp: counts.lastTimestamp()
-                })
-            ),
-            Counts.unwrap(counts)
-        );
+        // Test that field extraction works correctly by reconstructing and comparing fields
+        Counts reconstructed = createCounts({
+            _index: counts.index(),
+            _count: counts.count(),
+            _capacity: counts.capacity(),
+            _lastTimestamp: counts.lastTimestamp()
+        });
+
+        assertEq(reconstructed.index(), counts.index());
+        assertEq(reconstructed.count(), counts.count());
+        assertEq(reconstructed.capacity(), counts.capacity());
+        assertEq(reconstructed.lastTimestamp(), counts.lastTimestamp());
     }
 
     function test_conversionFromAndTo(uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) public pure {

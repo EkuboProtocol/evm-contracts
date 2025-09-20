@@ -251,9 +251,10 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
             (, PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
                 abi.decode(data, (bytes1, PoolKey, bool, int128, SqrtRatio, uint256));
 
-            (int128 delta0, int128 delta1,) = _swap(0, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (int128 delta0, int128 delta1, PoolState stateAfter) =
+                _swap(0, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
-            revert QuoteReturnValue(delta0, delta1);
+            revert QuoteReturnValue(delta0, delta1, stateAfter);
         }
     }
 
@@ -380,7 +381,8 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @notice Error used to return quote values from the quote function
     /// @param delta0 Change in token0 balance
     /// @param delta1 Change in token1 balance
-    error QuoteReturnValue(int128 delta0, int128 delta1);
+    /// @param poolState The state after the swap
+    error QuoteReturnValue(int128 delta0, int128 delta1, PoolState poolState);
 
     /// @notice Quotes the result of a swap without executing it
     /// @dev Uses a revert-based mechanism to return the quote without state changes
@@ -393,7 +395,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @return delta1 Change in token1 balance
     function quote(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
-        returns (int128 delta0, int128 delta1)
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
     {
         sqrtRatioLimit = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
 
@@ -406,10 +408,11 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         assembly ("memory-safe") {
             sig := mload(add(revertData, 32))
         }
-        if (sig == QuoteReturnValue.selector && revertData.length == 68) {
+        if (sig == QuoteReturnValue.selector && revertData.length == 100) {
             assembly ("memory-safe") {
                 delta0 := mload(add(revertData, 36))
                 delta1 := mload(add(revertData, 68))
+                stateAfter := mload(add(revertData, 100))
             }
         } else {
             assembly ("memory-safe") {

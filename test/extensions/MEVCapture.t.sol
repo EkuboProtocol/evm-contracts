@@ -120,7 +120,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
-        (int128 delta0, int128 delta1) = router.quote({
+        (int128 delta0, int128 delta1,) = router.quote({
             poolKey: poolKey,
             isToken1: false,
             amount: 100_000,

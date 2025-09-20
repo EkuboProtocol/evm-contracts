@@ -49,7 +49,7 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 100);
 
-        (int128 delta0, int128 delta1) =
+        (int128 delta0, int128 delta1,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: false, amount: 100, skipAhead: 0});
         assertEq(delta0, 100);
         assertEq(delta1, -49);
@@ -78,7 +78,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
-        (int128 delta0, int128 delta1) = router.quote({
+        (int128 delta0, int128 delta1,) = router.quote({
             poolKey: poolKey,
             sqrtRatioLimit: MAX_SQRT_RATIO,
             isToken1: false,
@@ -113,7 +113,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 100);
 
-        (int128 delta0, int128 delta1) =
+        (int128 delta0, int128 delta1,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MAX_SQRT_RATIO, isToken1: true, amount: 100, skipAhead: 0});
         assertEq(delta0, -49);
         assertEq(delta1, 100);
@@ -133,7 +133,7 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 202);
 
-        (int128 delta0, int128 delta1) =
+        (int128 delta0, int128 delta1,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: true, amount: -100, skipAhead: 0});
         assertEq(delta0, 202);
         assertEq(delta1, -100);

@@ -2,13 +2,7 @@
   "initial_tick_far_from_zero_no_additional_fees": "95338",
   "initial_tick_far_from_zero_no_additional_fees_output": "95788",
   "input_token0_move_tick_spacings": "95175",
-  "input_token0_no_movement": "95175",
   "input_token1_move_tick_spacings": "95344",
-  "input_token1_no_movement": "95344",
   "output_token0_move_tick_spacings": "96972",
-  "output_token0_no_movement": "96904",
-  "output_token1_move_tick_spacings": "96632",
-  "output_token1_no_movement": "96572",
-  "second_swap_with_additional_fees_gas_price": "56750",
-  "third_swap_accumulates_fees": "65324"
+  "output_token1_move_tick_spacings": "96632"
 }

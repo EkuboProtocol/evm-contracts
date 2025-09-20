@@ -184,13 +184,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         FeesPerLiquidity memory upper = poolIdEntry[tickUpper];
 
         if (tick < tickLower) {
-            return lower.sub(upper);
+            lower.subAssign(upper);
+            return lower;
         } else if (tick < tickUpper) {
             FeesPerLiquidity memory fees = poolFeesPerLiquidity[poolId];
 
-            return fees.sub(lower).sub(upper);
+            fees.subAssign(lower);
+            fees.subAssign(upper);
+            return fees;
         } else {
-            return upper.sub(lower);
+            upper.subAssign(lower);
+            return upper;
         }
     }
 

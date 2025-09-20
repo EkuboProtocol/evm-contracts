@@ -7,13 +7,13 @@ using {secondsPerLiquidityCumulative, tickCumulative} for Observation global;
 
 function secondsPerLiquidityCumulative(Observation observation) pure returns (uint160 s) {
     assembly ("memory-safe") {
-        s := shr(96, shl(96, observation))
+        s := shr(96, observation)
     }
 }
 
 function tickCumulative(Observation observation) pure returns (int64 t) {
     assembly ("memory-safe") {
-        t := signextend(7, shr(192, shl(192, observation)))
+        t := signextend(7, observation)
     }
 }
 

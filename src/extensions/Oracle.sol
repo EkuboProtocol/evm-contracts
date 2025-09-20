@@ -270,8 +270,8 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             return (left, snapshot);
         }
     }
-    /// @inheritdoc IOracle
 
+    /// @inheritdoc IOracle
     function findPreviousSnapshot(address token, uint256 time)
         public
         view

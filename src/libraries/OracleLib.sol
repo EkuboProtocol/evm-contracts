@@ -4,6 +4,8 @@ pragma solidity =0.8.28;
 import {Oracle, logicalIndexToStorageIndex} from "../extensions/Oracle.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 
+/// @title Oracle Library
+/// @notice Library providing helper methods for accessing Oracle data
 library OracleLib {
     function getEarliestSnapshotTimestamp(Oracle oracle, address token) internal view returns (uint256) {
         unchecked {

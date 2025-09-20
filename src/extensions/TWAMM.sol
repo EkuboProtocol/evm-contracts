@@ -193,7 +193,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         internal
     {
         TimeInfo timeInfo = poolTimeInfos[poolId][time];
-        uint32 numOrders = timeInfo.numOrders();
+        (uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
         // note we assume this will never overflow, since it would require 2**32 separate orders to be placed
         uint32 numOrdersNext;
@@ -228,16 +228,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             poolInitializedTimesBitmap[poolId].flipTime(time);
         }
 
-        int112 newSaleRateDeltaToken0 = timeInfo.saleRateDeltaToken0();
-        int112 newSaleRateDeltaToken1 = timeInfo.saleRateDeltaToken1();
-
         if (isToken1) {
-            newSaleRateDeltaToken1 = _addConstrainSaleRateDelta(newSaleRateDeltaToken1, saleRateDelta);
+            saleRateDeltaToken1 = _addConstrainSaleRateDelta(saleRateDeltaToken1, saleRateDelta);
         } else {
-            newSaleRateDeltaToken0 = _addConstrainSaleRateDelta(newSaleRateDeltaToken0, saleRateDelta);
+            saleRateDeltaToken0 = _addConstrainSaleRateDelta(saleRateDeltaToken0, saleRateDelta);
         }
 
-        poolTimeInfos[poolId][time] = createTimeInfo(numOrdersNext, newSaleRateDeltaToken0, newSaleRateDeltaToken1);
+        poolTimeInfos[poolId][time] = createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1);
     }
 
     /// @notice Returns the call points configuration for this extension

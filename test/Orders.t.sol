@@ -492,7 +492,8 @@ contract OrdersTest is BaseOrdersTest {
             type(uint112).max
         );
 
-        (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) = twamm.poolState(poolId);
+        (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
+            twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         // 0 because the order starts in the future
         assertEq(saleRateToken0, 0);
@@ -514,7 +515,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(tick, 34990236); // ~=1570575495728187 token1/token0
         assertEq(liquidity, liquidity0 + liquidity1);
 
-        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         assertEq(saleRateToken0, 0);
         assertEq(saleRateToken1, saleRateOrder0);
@@ -532,7 +533,7 @@ contract OrdersTest is BaseOrdersTest {
             type(uint112).max
         );
 
-        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         assertEq(saleRateToken0, 0);
         assertEq(saleRateToken1, saleRateOrder0);
@@ -556,7 +557,7 @@ contract OrdersTest is BaseOrdersTest {
 
         twamm.lockAndExecuteVirtualOrders(poolKey);
 
-        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         assertEq(saleRateToken0, saleRateOrder1);
         assertEq(saleRateToken1, saleRateOrder0);

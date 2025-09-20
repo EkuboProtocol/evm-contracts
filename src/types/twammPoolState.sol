@@ -3,11 +3,23 @@ pragma solidity =0.8.28;
 
 type TwammPoolState is bytes32;
 
-using {lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1, parse} for TwammPoolState global;
+using {
+    lastVirtualOrderExecutionTime,
+    realLastVirtualOrderExecutionTime,
+    saleRateToken0,
+    saleRateToken1,
+    parse
+} for TwammPoolState global;
 
 function lastVirtualOrderExecutionTime(TwammPoolState state) pure returns (uint32 time) {
     assembly ("memory-safe") {
         time := and(state, 0xffffffff)
+    }
+}
+
+function realLastVirtualOrderExecutionTime(TwammPoolState state) view returns (uint256 time) {
+    assembly ("memory-safe") {
+        time := sub(timestamp(), and(sub(and(timestamp(), 0xffffffff), and(state, 0xffffffff)), 0xffffffff))
     }
 }
 

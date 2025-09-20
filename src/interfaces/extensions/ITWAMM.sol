@@ -5,30 +5,7 @@ import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolKey} from "../../types/poolKey.sol";
-
-/// @notice Order key structure identifying a TWAMM order
-/// @dev Contains all parameters needed to uniquely identify an order
-struct OrderKey {
-    /// @notice Token being sold
-    address sellToken;
-    /// @notice Token being bought
-    address buyToken;
-    /// @notice Fee tier for the order
-    uint64 fee;
-    /// @notice Start time for the order execution
-    uint256 startTime;
-    /// @notice End time for the order execution
-    uint256 endTime;
-}
-
-/// @notice Computes the order ID from an order key
-/// @param orderKey The order key
-/// @return id The computed order ID
-function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
-    assembly ("memory-safe") {
-        id := keccak256(orderKey, 160)
-    }
-}
+import {OrderKey} from "../../types/orderKey.sol";
 
 /// @title TWAMM Interface
 /// @notice Interface for the Ekubo TWAMM Extension
@@ -116,4 +93,17 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @dev The pool key must use this extension, which is checked in the locked callback
     /// @param poolKey Pool key identifying the pool
     function lockAndExecuteVirtualOrders(PoolKey memory poolKey) external;
+
+    /// @notice Gets the current state of an order
+    /// @param owner The owner of the order
+    /// @param salt The salt used for the order
+    /// @param orderId The unique identifier for the order
+    /// @return saleRate The current sale rate of the order
+    /// @return lastUpdateTime The last time the order was updated
+    /// @return amountSold The total amount sold by the order so far
+    /// @return rewardRateSnapshot The reward rate snapshot at the last update
+    function getOrderState(address owner, bytes32 salt, bytes32 orderId)
+        external
+        view
+        returns (uint112 saleRate, uint32 lastUpdateTime, uint112 amountSold, uint256 rewardRateSnapshot);
 }

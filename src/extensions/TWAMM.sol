@@ -6,7 +6,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
-import {ITWAMM, OrderKey, toOrderId} from "../interfaces/extensions/ITWAMM.sol";
+import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -39,34 +39,6 @@ function twammCallPoints() pure returns (CallPoints memory) {
         beforeCollectFees: true,
         afterCollectFees: false
     });
-}
-
-/// @notice Converts an OrderKey to its corresponding PoolKey
-/// @dev Determines the correct token ordering and constructs the pool key with TWAMM as extension
-/// @param orderKey The order key containing sell/buy tokens and fee
-/// @param twamm The TWAMM contract address to use as the extension
-/// @return poolKey The corresponding pool key for the order
-function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
-    assembly ("memory-safe") {
-        poolKey := mload(0x40)
-
-        let sellToken := mload(orderKey)
-        let buyToken := mload(add(orderKey, 32))
-        let fee := mload(add(orderKey, 64))
-
-        let xoredTokens := xor(sellToken, buyToken)
-        let sellIsZero := gt(buyToken, sellToken)
-
-        let token0 := xor(sellToken, mul(xoredTokens, iszero(sellIsZero)))
-        let token1 := xor(sellToken, mul(xoredTokens, sellIsZero))
-
-        mstore(poolKey, token0)
-        mstore(add(poolKey, 32), token1)
-        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, fee)))
-
-        // move free memory pointer forward 96 bytes
-        mstore(0x40, add(poolKey, 96))
-    }
 }
 
 /// @title Ekubo TWAMM (Time-Weighted Average Market Maker)
@@ -115,14 +87,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         }
     }
 
-    /// @notice Gets the current state of an order
-    /// @param owner The owner of the order
-    /// @param salt The salt used for the order
-    /// @param orderId The unique identifier for the order
-    /// @return saleRate The current sale rate of the order
-    /// @return lastUpdateTime The last time the order was updated
-    /// @return amountSold The total amount sold by the order so far
-    /// @return rewardRateSnapshot The reward rate snapshot at the last update
+    /// @inheritdoc ITWAMM
     function getOrderState(address owner, bytes32 salt, bytes32 orderId)
         external
         view
@@ -293,11 +258,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     revert InvalidTimestamps();
                 }
 
-                PoolKey memory poolKey = orderKeyToPoolKey(params.orderKey, address(this));
+                PoolKey memory poolKey = params.orderKey.toPoolKey(address(this));
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                bytes32 orderId = toOrderId(params.orderKey);
+                bytes32 orderId = params.orderKey.toOrderId();
                 OrderState order = orderState[originalLocker][params.salt][orderId];
                 uint256 rewardRateSnapshot = orderRewardRateSnapshot[originalLocker][params.salt][orderId];
 
@@ -438,11 +403,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 (, ITWAMM.CollectProceedsParams memory params) =
                     abi.decode(data, (uint256, ITWAMM.CollectProceedsParams));
 
-                PoolKey memory poolKey = orderKeyToPoolKey(params.orderKey, address(this));
+                PoolKey memory poolKey = params.orderKey.toPoolKey(address(this));
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                bytes32 orderId = toOrderId(params.orderKey);
+                bytes32 orderId = params.orderKey.toOrderId();
                 OrderState order = orderState[originalLocker][params.salt][orderId];
                 uint256 rewardRateSnapshot = orderRewardRateSnapshot[originalLocker][params.salt][orderId];
                 uint256 rewardRateInside = getRewardRateInside(

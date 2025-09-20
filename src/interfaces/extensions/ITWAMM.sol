@@ -5,6 +5,7 @@ import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolKey} from "../../types/poolKey.sol";
+import {TimeInfo} from "../../types/timeInfo.sol";
 
 /// @notice Order key structure identifying a TWAMM order
 /// @dev Contains all parameters needed to uniquely identify an order
@@ -65,17 +66,6 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
         uint112 amountSold;
         /// @notice Reward rate snapshot at the last update
         uint256 rewardRateSnapshot;
-    }
-
-    /// @notice Information about orders at a specific time
-    /// @dev Used to track sale rate changes at specific timestamps
-    struct TimeInfo {
-        /// @notice Number of orders referencing this timestamp
-        uint32 numOrders;
-        /// @notice Change in sale rate for token0 at this time
-        int112 saleRateDeltaToken0;
-        /// @notice Change in sale rate for token1 at this time
-        int112 saleRateDeltaToken1;
     }
 
     /// @notice Emitted when an order is updated

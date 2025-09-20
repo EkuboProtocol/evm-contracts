@@ -12,6 +12,9 @@ import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {Snapshot, createSnapshot} from "../types/snapshot.sol";
+import {Counts, createCounts} from "../types/counts.sol";
+import {Observation, createObservation} from "../types/observation.sol";
 
 /// @notice Returns the call points configuration for the Oracle extension
 /// @dev Specifies which hooks the Oracle needs to capture price and liquidity data
@@ -49,9 +52,6 @@ function logicalIndexToStorageIndex(uint256 index, uint256 count, uint256 logica
 /// @notice Records price and liquidity into accumulators enabling a separate contract to compute a manipulation resistant average price and liquidity
 contract Oracle is IOracle, ExposedStorage, BaseExtension {
     using CoreLib for ICore;
-
-    mapping(address token => Counts) public counts;
-    mapping(address token => mapping(uint256 index => Snapshot snapshot)) public snapshots;
 
     constructor(ICore core) BaseExtension(core) {}
 
@@ -91,66 +91,48 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     /// @param token The token address for the oracle data
     function maybeInsertSnapshot(bytes32 poolId, address token) private {
         unchecked {
-            bytes32 countsSlot;
-
-            uint256 index;
-            uint256 count;
-            uint256 capacity;
-
-            uint32 lastTimestamp;
-
+            Counts c;
             assembly ("memory-safe") {
-                mstore(0, token)
-                mstore(32, 0)
-                countsSlot := keccak256(0, 64)
-
-                let packed := sload(countsSlot)
-                index := and(packed, 0xffffffff)
-                count := and(shr(32, packed), 0xffffffff)
-                capacity := and(shr(64, packed), 0xffffffff)
-                lastTimestamp := and(shr(96, packed), 0xffffffff)
+                c := sload(token)
             }
 
-            uint32 timePassed = uint32(block.timestamp) - lastTimestamp;
+            uint32 timePassed = uint32(block.timestamp) - c.lastTimestamp();
             if (timePassed == 0) return;
 
+            uint32 index = c.index();
+
             // we know count is always g.t. 0 in the places this is called
-            Snapshot memory last = snapshots[token][index];
+            Snapshot last;
+            assembly ("memory-safe") {
+                last := sload(or(shl(32, token), index))
+            }
 
             (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
 
-            Snapshot memory snapshot = Snapshot({
-                timestamp: uint32(block.timestamp),
-                secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative
+            Snapshot snapshot = createSnapshot({
+                _timestamp: uint32(block.timestamp),
+                _secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative()
                     + ((uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity))),
-                tickCumulative: last.tickCumulative + int64(uint64(timePassed)) * tick
+                _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * tick
             });
 
-            bytes32 encodedSnapshot;
+            uint32 count = c.count();
+            uint32 capacity = c.capacity();
 
+            bool isLastIndex = index == count - 1;
+            bool incrementCount = isLastIndex && capacity > count;
+
+            if (incrementCount) count++;
+            index = (index + 1) % count;
+            uint32 lastTimestamp = uint32(block.timestamp);
+
+            c = createCounts({_index: index, _count: count, _capacity: capacity, _lastTimestamp: lastTimestamp});
             assembly ("memory-safe") {
-                let isLastIndex := eq(index, sub(count, 1))
-                let incrementCount := and(isLastIndex, gt(capacity, count))
-
-                count := add(count, incrementCount)
-                index := mod(add(index, 1), count)
-                lastTimestamp := and(timestamp(), 0xffffffff)
-
-                // capacity, count and index are all only set/modified from assembly so we know there is no dirty upper bits
-                sstore(countsSlot, or(shl(96, lastTimestamp), or(or(shl(64, capacity), shl(32, count)), index)))
-
-                encodedSnapshot :=
-                    or(or(lastTimestamp, shl(32, mload(add(snapshot, 32)))), shl(192, mload(add(snapshot, 64))))
-
-                mstore(0, token)
-                mstore(32, 1)
-                mstore(32, keccak256(0, 64))
-                mstore(0, index)
-
-                sstore(keccak256(0, 64), encodedSnapshot)
+                sstore(token, c)
+                sstore(or(shl(32, token), index), snapshot)
             }
 
-            _emitSnapshotEvent(token, encodedSnapshot);
+            _emitSnapshotEvent(token, Snapshot.unwrap(snapshot));
         }
     }
 
@@ -170,18 +152,28 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
         // in case expandCapacity is called before the pool is initialized:
         //  remember we have the capacity since the snapshot storage has been initialized
         uint32 lastTimestamp = uint32(block.timestamp);
-        counts[token] = Counts({
-            index: 0,
-            count: 1,
-            capacity: uint32(FixedPointMathLib.max(1, counts[token].capacity)),
-            lastTimestamp: lastTimestamp
+
+        Counts c;
+        assembly ("memory-safe") {
+            c := sload(token)
+        }
+
+        c = createCounts({
+            _index: 0,
+            _count: 1,
+            _capacity: uint32(FixedPointMathLib.max(1, c.capacity())),
+            _lastTimestamp: lastTimestamp
         });
-        Snapshot memory snapshot = Snapshot(lastTimestamp, 0, 0);
-        snapshots[token][0] = snapshot;
 
-        bytes32 encodedSnapshot = bytes32(block.timestamp % (1 << 32));
+        Snapshot snapshot =
+            createSnapshot({_timestamp: lastTimestamp, _secondsPerLiquidityCumulative: 0, _tickCumulative: 0});
 
-        _emitSnapshotEvent(token, encodedSnapshot);
+        assembly ("memory-safe") {
+            sstore(token, c)
+            sstore(shl(32, token), snapshot)
+        }
+
+        _emitSnapshotEvent(token, Snapshot.unwrap(snapshot));
     }
 
     /// @notice Called before a position is updated to capture price/liquidity snapshot
@@ -210,18 +202,30 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @inheritdoc IOracle
     function expandCapacity(address token, uint32 minCapacity) external returns (uint32 capacity) {
-        Counts memory c = counts[token];
-
-        if (c.capacity < minCapacity) {
-            for (uint256 i = c.capacity; i < minCapacity; i++) {
-                // Simply initialize the slot, it will be overwritten
-                snapshots[token][i] = Snapshot(1, 0, 0);
-            }
-            c.capacity = minCapacity;
-            counts[token] = c;
+        Counts c;
+        assembly ("memory-safe") {
+            c := sload(token)
         }
 
-        capacity = c.capacity;
+        if (c.capacity() < minCapacity) {
+            for (uint256 i = c.capacity(); i < minCapacity; i++) {
+                assembly ("memory-safe") {
+                    // Simply initialize the slot, it will be overwritten when the index is reached
+                    sstore(or(shl(32, token), i), 1)
+                }
+            }
+            c = createCounts({
+                _index: c.index(),
+                _count: c.count(),
+                _capacity: minCapacity,
+                _lastTimestamp: c.lastTimestamp()
+            });
+            assembly ("memory-safe") {
+                sstore(token, c)
+            }
+        }
+
+        capacity = c.capacity();
     }
 
     /// @notice Searches for the latest snapshot with timestamp <= time within a logical range
@@ -236,12 +240,12 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     /// @return logicalIndex The logical index of the found snapshot
     /// @return snapshot The snapshot data at the found index
     function searchRangeForPrevious(
-        Counts memory c,
+        Counts c,
         address token,
         uint256 time,
         uint256 logicalMin,
         uint256 logicalMaxExclusive
-    ) private view returns (uint256 logicalIndex, Snapshot memory snapshot) {
+    ) private view returns (uint256 logicalIndex, Snapshot snapshot) {
         unchecked {
             if (logicalMin >= logicalMaxExclusive) {
                 revert NoPreviousSnapshotExists(token, time);
@@ -250,21 +254,27 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             uint32 current = uint32(block.timestamp);
             uint32 targetDiff = current - uint32(time);
 
-            mapping(uint256 => Snapshot) storage tSnapshots = snapshots[token];
-
             uint256 left = logicalMin;
             uint256 right = logicalMaxExclusive - 1;
             while (left < right) {
                 uint256 mid = (left + right + 1) >> 1;
-                Snapshot memory midSnapshot = tSnapshots[logicalIndexToStorageIndex(c.index, c.count, mid)];
-                if (current - midSnapshot.timestamp >= targetDiff) {
+                uint256 storageIndex = logicalIndexToStorageIndex(c.index(), c.count(), mid);
+                Snapshot midSnapshot;
+                assembly ("memory-safe") {
+                    midSnapshot := sload(or(shl(32, token), storageIndex))
+                }
+                if (current - midSnapshot.timestamp() >= targetDiff) {
                     left = mid;
                 } else {
                     right = mid - 1;
                 }
             }
-            snapshot = tSnapshots[logicalIndexToStorageIndex(c.index, c.count, left)];
-            if (current - snapshot.timestamp < targetDiff) {
+
+            uint256 resultIndex = logicalIndexToStorageIndex(c.index(), c.count(), left);
+            assembly ("memory-safe") {
+                snapshot := sload(or(shl(32, token), resultIndex))
+            }
+            if (current - snapshot.timestamp() < targetDiff) {
                 revert NoPreviousSnapshotExists(token, time);
             }
             return (left, snapshot);
@@ -275,12 +285,15 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     function findPreviousSnapshot(address token, uint256 time)
         public
         view
-        returns (uint256 count, uint256 logicalIndex, Snapshot memory snapshot)
+        returns (uint256 count, uint256 logicalIndex, Snapshot snapshot)
     {
         if (time > block.timestamp) revert FutureTime();
 
-        Counts memory c = counts[token];
-        count = c.count;
+        Counts c;
+        assembly ("memory-safe") {
+            c := sload(token)
+        }
+        count = c.count();
         (logicalIndex, snapshot) = searchRangeForPrevious(c, token, time, 0, count);
     }
 
@@ -294,18 +307,18 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     /// @return secondsPerLiquidityCumulative The extrapolated seconds per liquidity cumulative
     /// @return tickCumulative The extrapolated tick cumulative
     function extrapolateSnapshotInternal(
-        Counts memory c,
+        Counts c,
         address token,
         uint256 atTime,
         uint256 logicalIndex,
-        Snapshot memory snapshot
+        Snapshot snapshot
     ) private view returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) {
         unchecked {
-            secondsPerLiquidityCumulative = snapshot.secondsPerLiquidityCumulative;
-            tickCumulative = snapshot.tickCumulative;
-            uint32 timePassed = uint32(atTime) - snapshot.timestamp;
+            secondsPerLiquidityCumulative = snapshot.secondsPerLiquidityCumulative();
+            tickCumulative = snapshot.tickCumulative();
+            uint32 timePassed = uint32(atTime) - snapshot.timestamp();
             if (timePassed != 0) {
-                if (logicalIndex == c.count - 1) {
+                if (logicalIndex == c.count() - 1) {
                     // Use current pool state.
                     bytes32 poolId = getPoolKey(token).toPoolId();
                     (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
@@ -315,19 +328,22 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                         (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
                 } else {
                     // Use the next snapshot.
-                    Snapshot memory next =
-                        snapshots[token][logicalIndexToStorageIndex(c.index, c.count, logicalIndex + 1)];
+                    uint256 logicalIndexNext = logicalIndexToStorageIndex(c.index(), c.count(), logicalIndex + 1);
+                    Snapshot next;
+                    assembly ("memory-safe") {
+                        next := sload(or(shl(32, token), logicalIndexNext))
+                    }
 
-                    uint32 timestampDifference = next.timestamp - snapshot.timestamp;
+                    uint32 timestampDifference = next.timestamp() - snapshot.timestamp();
 
                     tickCumulative += int64(
-                        int256(uint256(timePassed)) * (next.tickCumulative - snapshot.tickCumulative)
+                        int256(uint256(timePassed)) * (next.tickCumulative() - snapshot.tickCumulative())
                             / int256(uint256(timestampDifference))
                     );
                     secondsPerLiquidityCumulative += uint160(
                         (
                             uint256(timePassed)
-                                * (next.secondsPerLiquidityCumulative - snapshot.secondsPerLiquidityCumulative)
+                                * (next.secondsPerLiquidityCumulative() - snapshot.secondsPerLiquidityCumulative())
                         ) / timestampDifference
                     );
                 }
@@ -343,8 +359,11 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     {
         if (atTime > block.timestamp) revert FutureTime();
 
-        Counts memory c = counts[token];
-        (uint256 logicalIndex, Snapshot memory snapshot) = searchRangeForPrevious(c, token, atTime, 0, c.count);
+        Counts c;
+        assembly ("memory-safe") {
+            c := sload(token)
+        }
+        (uint256 logicalIndex, Snapshot snapshot) = searchRangeForPrevious(c, token, atTime, 0, c.count());
         (secondsPerLiquidityCumulative, tickCumulative) =
             extrapolateSnapshotInternal(c, token, atTime, logicalIndex, snapshot);
     }
@@ -361,9 +380,12 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             uint256 endTime = timestamps[timestamps.length - 1];
             if (endTime < startTime) revert EndTimeLessThanStartTime();
 
-            Counts memory c = counts[token];
-            (uint256 indexFirst,) = searchRangeForPrevious(c, token, startTime, 0, c.count);
-            (uint256 indexLast,) = searchRangeForPrevious(c, token, endTime, indexFirst, c.count);
+            Counts c;
+            assembly ("memory-safe") {
+                c := sload(token)
+            }
+            (uint256 indexFirst,) = searchRangeForPrevious(c, token, startTime, 0, c.count());
+            (uint256 indexLast,) = searchRangeForPrevious(c, token, endTime, indexFirst, c.count());
 
             observations = new Observation[](timestamps.length);
             uint256 lastTimestamp;
@@ -376,11 +398,11 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                     revert FutureTime();
                 }
 
-                (uint256 logicalIndex, Snapshot memory snapshot) =
+                (uint256 logicalIndex, Snapshot snapshot) =
                     searchRangeForPrevious(c, token, timestamp, indexFirst, indexLast + 1);
                 (uint160 spcCumulative, int64 tcCumulative) =
                     extrapolateSnapshotInternal(c, token, timestamp, logicalIndex, snapshot);
-                observations[i] = Observation(spcCumulative, tcCumulative);
+                observations[i] = createObservation(spcCumulative, tcCumulative);
                 indexFirst = logicalIndex;
                 lastTimestamp = timestamp;
             }

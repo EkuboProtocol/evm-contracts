@@ -565,15 +565,12 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         poolRewardRatesBefore[poolId][nextTime] = rewardRates;
 
                         TimeInfo timeInfo = poolTimeInfos[poolId][nextTime];
+                        (, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
                         state = createTwammPoolState({
                             _lastVirtualOrderExecutionTime: uint32(nextTime),
-                            _saleRateToken0: uint112(
-                                addSaleRateDelta(state.saleRateToken0(), timeInfo.saleRateDeltaToken0())
-                            ),
-                            _saleRateToken1: uint112(
-                                addSaleRateDelta(state.saleRateToken1(), timeInfo.saleRateDeltaToken1())
-                            )
+                            _saleRateToken0: uint112(addSaleRateDelta(state.saleRateToken0(), saleRateDeltaToken0)),
+                            _saleRateToken1: uint112(addSaleRateDelta(state.saleRateToken1(), saleRateDeltaToken1))
                         });
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.

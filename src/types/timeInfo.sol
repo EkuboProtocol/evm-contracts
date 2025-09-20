@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
+/// @notice Packed representation of time-specific order information
+/// @dev Bit layout (256 bits total):
+///      - bits 255-224: numOrders (uint32)
+///      - bits 223-112: saleRateDeltaToken0 (int112)
+///      - bits 111-0:   saleRateDeltaToken1 (int112)
 type TimeInfo is bytes32;
 
 using {numOrders, saleRateDeltaToken0, saleRateDeltaToken1, parse} for TimeInfo global;

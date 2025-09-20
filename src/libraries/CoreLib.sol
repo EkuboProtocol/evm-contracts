@@ -166,7 +166,8 @@ library CoreLib {
         bool isToken1,
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
-    ) internal returns (int128 delta0, int128 delta1) {
-        (delta0, delta1) = core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+    ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+        (delta0, delta1, stateAfter) =
+            core.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 }

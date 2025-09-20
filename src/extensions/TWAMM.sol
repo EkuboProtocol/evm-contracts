@@ -13,6 +13,7 @@ import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../types/bitmap.sol";
+import {PoolState} from "../types/poolState.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
@@ -74,7 +75,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
 
-    mapping(bytes32 poolId => PoolState) internal poolState;
+    mapping(bytes32 poolId => TwammPoolState) internal poolState;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
     mapping(bytes32 poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
 
@@ -500,13 +501,12 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         computeAmountFromSaleRate({saleRate: saleRateToken1, duration: timeElapsed, roundUp: false});
 
                     Delta memory rewardDelta;
-
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
-                        (SqrtRatio sqrtRatio,, uint128 liquidity) = CORE.poolState(poolId).parse();
+                        PoolState corePoolState = CORE.poolState(poolId);
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
-                            sqrtRatio: sqrtRatio,
-                            liquidity: liquidity,
+                            sqrtRatio: corePoolState.sqrtRatio(),
+                            liquidity: corePoolState.liquidity(),
                             saleRateToken0: saleRateToken0,
                             saleRateToken1: saleRateToken1,
                             timeElapsed: timeElapsed,
@@ -514,11 +514,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         });
 
                         Delta memory swapDelta;
-                        if (sqrtRatioNext > sqrtRatio) {
-                            (swapDelta.delta0, swapDelta.delta1) =
+                        if (sqrtRatioNext > corePoolState.sqrtRatio()) {
+                            // todo: we could update corePoolState here and avoid calling into core to get it again
+                            // however it causes stack too deep and it's not a huge optimization because in cases where two tokens are sold
+                            (swapDelta.delta0, swapDelta.delta1,) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
-                        } else if (sqrtRatioNext < sqrtRatio) {
-                            (swapDelta.delta0, swapDelta.delta1) =
+                        } else if (sqrtRatioNext < corePoolState.sqrtRatio()) {
+                            (swapDelta.delta0, swapDelta.delta1,) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
@@ -531,10 +533,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (rewardDelta.delta0, rewardDelta.delta1) =
+                            (rewardDelta.delta0, rewardDelta.delta1,) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (rewardDelta.delta0, rewardDelta.delta1) =
+                            (rewardDelta.delta0, rewardDelta.delta1,) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
@@ -631,8 +633,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         bytes32 poolId = key.toPoolId();
-        poolState[poolId] =
-            PoolState({lastVirtualOrderExecutionTime: uint32(block.timestamp), saleRateToken0: 0, saleRateToken1: 0});
+        poolState[poolId] = TwammPoolState({
+            lastVirtualOrderExecutionTime: uint32(block.timestamp),
+            saleRateToken0: 0,
+            saleRateToken1: 0
+        });
         // we need this extra mapping since pool state can contain zero for an initialized pool
         poolInitialized[poolId] = true;
         _emitVirtualOrdersExecuted({poolId: poolId, saleRateToken0: 0, saleRateToken1: 0});

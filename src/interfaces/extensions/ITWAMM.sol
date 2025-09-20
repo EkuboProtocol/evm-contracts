@@ -56,7 +56,7 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
 
     /// @notice State of a TWAMM pool
     /// @dev Tracks the current sale rates and last execution time
-    struct PoolState {
+    struct TwammPoolState {
         /// @notice Last time virtual orders were executed for this pool
         uint32 lastVirtualOrderExecutionTime;
         /// @notice Current sale rate for token0 (80.32 fixed point)

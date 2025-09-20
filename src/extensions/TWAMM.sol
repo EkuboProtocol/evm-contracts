@@ -144,8 +144,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             switch lt(timestamp(), endTime)
             case 0 {
                 mstore(0, poolId)
-                mstore(32, 3)
-                // hash poolId, 3 and store at 32
+                mstore(32, poolRewardRatesBefore.slot)
+                // hash poolId, poolRewardRatesBefore.slot and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put start time at 0 for hashing
@@ -164,11 +164,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 switch gt(timestamp(), startTime)
                 case 1 {
                     mstore(0, poolId)
-                    mstore(32, 2)
+                    mstore(32, poolRewardRates.slot)
                     let rewardRateCurrent := sload(add(keccak256(0, 64), isToken1))
 
-                    mstore(32, 3)
-                    // hash poolId,4 and store at 32
+                    mstore(32, poolRewardRatesBefore.slot)
+                    // hash poolId, poolRewardRatesBefore.slot and store at 32
                     mstore(32, keccak256(0, 64))
                     // now put time at 0 for hashing
                     mstore(0, startTime)
@@ -235,8 +235,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
             if flip {
                 mstore(0, poolId)
-                mstore(32, 3)
-                // hash poolId, 3 and store at 32
+                mstore(32, poolRewardRatesBefore.slot)
+                // hash poolId, poolRewardRatesBefore.slot and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put time at 0 for hashing
@@ -492,7 +492,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 if iszero(state) {
                     mstore(0, poolId)
-                    mstore(32, 5)
+                    mstore(32, poolInitialized.slot)
                     if iszero(sload(keccak256(0, 64))) {
                         // cast sig "PoolNotInitialized()"
                         mstore(0, shl(224, 0x486aa307))

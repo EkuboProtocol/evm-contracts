@@ -484,7 +484,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
                 int256 saveDelta0;
                 int256 saveDelta1;
-                PoolState corePoolState = CORE.poolState(poolId);
+                PoolState corePoolState;
                 uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
@@ -513,6 +513,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     Delta memory rewardDelta;
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
+                        if (!corePoolState.isInitialized()) {
+                            corePoolState = CORE.poolState(poolId);
+                        }
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                             sqrtRatio: corePoolState.sqrtRatio(),
                             liquidity: corePoolState.liquidity(),

@@ -18,6 +18,9 @@ import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {OracleLib} from "../../src/libraries/OracleLib.sol";
+import {Observation} from "../../src/types/observation.sol";
+import {Snapshot} from "../../src/types/snapshot.sol";
+import {Counts} from "../../src/types/counts.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
@@ -158,44 +161,48 @@ contract ManyObservationsOracleTest is BaseOracleTest {
         timestamps[3] = startTime + 36;
         timestamps[4] = startTime + 40;
         timestamps[5] = startTime + 44;
-        Oracle.Observation[] memory observations = oracle.getExtrapolatedSnapshotsForSortedTimestamps(token, timestamps);
+        Observation[] memory observations = oracle.getExtrapolatedSnapshotsForSortedTimestamps(token, timestamps);
         // startTime
-        assertEq(observations[0].secondsPerLiquidityCumulative, 0);
-        assertEq(observations[0].tickCumulative, 0);
+        assertEq(observations[0].secondsPerLiquidityCumulative(), 0);
+        assertEq(observations[0].tickCumulative(), 0);
 
         // startTime + 6
-        assertEq(observations[1].secondsPerLiquidityCumulative, (uint160(6) << 128) / 100_000);
-        assertEq(observations[1].tickCumulative, int64(6) * 1386256);
+        assertEq(observations[1].secondsPerLiquidityCumulative(), (uint160(6) << 128) / 100_000);
+        assertEq(observations[1].tickCumulative(), int64(6) * 1386256);
 
         // startTime + 18
         assertEq(
-            observations[2].secondsPerLiquidityCumulative,
+            observations[2].secondsPerLiquidityCumulative(),
             ((uint160(12) << 128) / 100_000) + ((uint160(6) << 128) / 5_000)
         );
-        assertEq(observations[2].tickCumulative, (int64(12) * 1386256) + (-693129 * 6));
+        assertEq(observations[2].tickCumulative(), (int64(12) * 1386256) + (-693129 * 6));
 
         // startTime + 36
         assertEq(
-            observations[3].secondsPerLiquidityCumulative,
+            observations[3].secondsPerLiquidityCumulative(),
             ((uint160(12) << 128) / 100_000) + ((uint160(12) << 128) / 5_000) + ((uint160(12) << 128) / 75_000)
         );
-        assertEq(observations[3].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12));
+        assertEq(observations[3].tickCumulative(), (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12));
 
         // startTime + 40
         assertEq(
-            observations[4].secondsPerLiquidityCumulative,
+            observations[4].secondsPerLiquidityCumulative(),
             ((uint160(12) << 128) / 100_000) + ((uint160(12) << 128) / 5_000) + ((uint160(12) << 128) / 75_000)
                 + ((uint160(4) << 128) / 50_000)
         );
-        assertEq(observations[4].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 4));
+        assertEq(
+            observations[4].tickCumulative(), (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 4)
+        );
 
         // startTime + 44
         assertEq(
-            observations[5].secondsPerLiquidityCumulative,
+            observations[5].secondsPerLiquidityCumulative(),
             ((uint160(12) << 128) / 100_000) + ((uint160(12) << 128) / 5_000) + ((uint160(12) << 128) / 75_000)
                 + ((uint160(8) << 128) / 50_000)
         );
-        assertEq(observations[5].tickCumulative, (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 8));
+        assertEq(
+            observations[5].tickCumulative(), (int64(12) * 1386256) + (-693129 * 12) + (693129 * 12) + (1386256 * 8)
+        );
     }
 }
 
@@ -307,18 +314,17 @@ contract OracleTest is BaseOracleTest {
         vm.warp(time);
         createOraclePool(address(token1), 1000);
 
-        (uint64 index, uint64 count, uint64 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
+        Counts c = oracle.counts(address(token1));
 
-        assertEq(index, 0);
-        assertEq(count, 1);
-        assertEq(capacity, 1);
-        assertEq(lastTimestamp, uint32(time));
+        assertEq(c.index(), 0);
+        assertEq(c.count(), 1);
+        assertEq(c.capacity(), 1);
+        assertEq(c.lastTimestamp(), uint32(time));
 
-        (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
-            oracle.snapshots(address(token1), 0);
-        assertEq(timestamp, uint32(time));
-        assertEq(secondsPerLiquidityCumulative, 0);
-        assertEq(tickCumulative, 0);
+        Snapshot snapshot = oracle.snapshots(address(token1), 0);
+        assertEq(snapshot.timestamp(), uint32(time));
+        assertEq(snapshot.secondsPerLiquidityCumulative(), 0);
+        assertEq(snapshot.tickCumulative(), 0);
     }
 
     function test_snapshotEvent_emitted_at_create(uint256 time) public {
@@ -385,11 +391,11 @@ contract OracleTest is BaseOracleTest {
         vm.warp(time);
         oracle.expandCapacity(address(token1), 10);
         createOraclePool(address(token1), 0);
-        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
-        assertEq(index, 0);
-        assertEq(count, 1);
-        assertEq(capacity, 10);
-        assertEq(lastTimestamp, uint32(block.timestamp));
+        Counts c = oracle.counts(address(token1));
+        assertEq(c.index(), 0);
+        assertEq(c.count(), 1);
+        assertEq(c.capacity(), 10);
+        assertEq(c.lastTimestamp(), uint32(block.timestamp));
     }
 
     function test_expandCapacity_returns_old_if_not_expanded() public {
@@ -401,11 +407,11 @@ contract OracleTest is BaseOracleTest {
         vm.warp(time);
         createOraclePool(address(token1), 0);
         oracle.expandCapacity(address(token1), 10);
-        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
-        assertEq(index, 0);
-        assertEq(count, 1);
-        assertEq(capacity, 10);
-        assertEq(lastTimestamp, uint32(time));
+        Counts c = oracle.counts(address(token1));
+        assertEq(c.index(), 0);
+        assertEq(c.count(), 1);
+        assertEq(c.capacity(), 10);
+        assertEq(c.lastTimestamp(), uint32(time));
     }
 
     function test_expandCapacity_doesNotOverwrite(uint256 startTime) public {
@@ -419,24 +425,23 @@ contract OracleTest is BaseOracleTest {
         movePrice(pk, 1000);
         oracle.expandCapacity(address(token1), 2);
 
-        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
-        assertEq(index, 0);
-        assertEq(count, 1);
-        assertEq(capacity, 2);
-        assertEq(lastTimestamp, uint32(startTime + 18));
-        (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
-            oracle.snapshots(address(token1), 0);
+        Counts c = oracle.counts(address(token1));
+        assertEq(c.index(), 0);
+        assertEq(c.count(), 1);
+        assertEq(c.capacity(), 2);
+        assertEq(c.lastTimestamp(), uint32(startTime + 18));
+        Snapshot snapshot = oracle.snapshots(address(token1), 0);
         unchecked {
-            assertEq(timestamp, uint32(startTime) + 18);
+            assertEq(snapshot.timestamp(), uint32(startTime) + 18);
         }
-        assertEq(secondsPerLiquidityCumulative, uint256(18) << 128);
-        assertEq(tickCumulative, (2000 * 12) + (-500 * 6));
+        assertEq(snapshot.secondsPerLiquidityCumulative(), uint256(18) << 128);
+        assertEq(snapshot.tickCumulative(), (2000 * 12) + (-500 * 6));
 
         // empty snapshot initialized
-        (timestamp, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 1);
-        assertEq(timestamp, 1); // this is an empty snapshot
-        assertEq(secondsPerLiquidityCumulative, 0);
-        assertEq(tickCumulative, 0);
+        snapshot = oracle.snapshots(address(token1), 1);
+        assertEq(snapshot.timestamp(), 1); // this is an empty snapshot
+        assertEq(snapshot.secondsPerLiquidityCumulative(), 0);
+        assertEq(snapshot.tickCumulative(), 0);
     }
 
     function test_snapshots_circularWriteAtCapacity(uint256 startTime) public {
@@ -458,19 +463,18 @@ contract OracleTest is BaseOracleTest {
         advanceTime(4);
         movePrice(pk, 0);
 
-        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
-        assertEq(index, 0, "index");
-        assertEq(count, 3, "count");
-        assertEq(capacity, 3, "capacity");
-        assertEq(lastTimestamp, uint32(startTime + 2 + 3 + 6 + 4));
+        Counts c = oracle.counts(address(token1));
+        assertEq(c.index(), 0, "index");
+        assertEq(c.count(), 3, "count");
+        assertEq(c.capacity(), 3, "capacity");
+        assertEq(c.lastTimestamp(), uint32(startTime + 2 + 3 + 6 + 4));
 
-        (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
-            oracle.snapshots(address(token1), 0);
+        Snapshot snapshot = oracle.snapshots(address(token1), 0);
         unchecked {
-            assertEq(timestamp, uint32(startTime) + 4 + 6 + 3 + 2);
+            assertEq(snapshot.timestamp(), uint32(startTime) + 4 + 6 + 3 + 2);
         }
-        assertEq(secondsPerLiquidityCumulative, uint256(4 + 6 + 3 + 2) << 128);
-        assertEq(tickCumulative, (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000 * 4));
+        assertEq(snapshot.secondsPerLiquidityCumulative(), uint256(4 + 6 + 3 + 2) << 128);
+        assertEq(snapshot.tickCumulative(), (2000 * 2) + (-500 * 3) + (700 * 6) + (-5000 * 4));
     }
 
     function test_snapshots_extrapolateWorksAfterRotate(uint256 startTime) public {
@@ -559,38 +563,37 @@ contract OracleTest is BaseOracleTest {
         advanceTime(30);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 100, 200);
-        (uint32 index, uint32 count, uint32 capacity, uint32 lastTimestamp) = oracle.counts(address(token1));
+        Counts c = oracle.counts(address(token1));
 
-        assertEq(count, 1);
-        assertEq(index, 0);
-        assertEq(capacity, 1);
-        assertEq(lastTimestamp, uint32(startTime + 30));
-        (uint32 timestamp, uint160 secondsPerLiquidityCumulative, int64 tickCumulative) =
-            oracle.snapshots(address(token1), 0);
+        assertEq(c.count(), 1);
+        assertEq(c.index(), 0);
+        assertEq(c.capacity(), 1);
+        assertEq(c.lastTimestamp(), uint32(startTime + 30));
+        Snapshot snapshot = oracle.snapshots(address(token1), 0);
         unchecked {
-            assertEq(timestamp, uint32(startTime) + 30);
+            assertEq(snapshot.timestamp(), uint32(startTime) + 30);
         }
-        assertEq(secondsPerLiquidityCumulative, uint160(30) << 128);
+        assertEq(snapshot.secondsPerLiquidityCumulative(), uint160(30) << 128);
         // the tick is flipped so that the price is always oracleToken/token
-        assertEq(tickCumulative, 30 * 693147);
+        assertEq(snapshot.tickCumulative(), 30 * 693147);
 
         advanceTime(45);
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity);
         assertEq(amount0, 99);
         assertEq(amount1, 199);
 
-        (index, count, capacity, lastTimestamp) = oracle.counts(address(token1));
-        assertEq(count, 1);
-        assertEq(index, 0);
-        assertEq(capacity, 1);
-        assertEq(lastTimestamp, uint32(startTime + 75));
+        Counts c2 = oracle.counts(address(token1));
+        assertEq(c2.count(), 1);
+        assertEq(c2.index(), 0);
+        assertEq(c2.capacity(), 1);
+        assertEq(c2.lastTimestamp(), uint32(startTime + 75));
 
-        (timestamp, secondsPerLiquidityCumulative, tickCumulative) = oracle.snapshots(address(token1), 0);
+        snapshot = oracle.snapshots(address(token1), 0);
         unchecked {
-            assertEq(timestamp, uint32(startTime) + 75);
+            assertEq(snapshot.timestamp(), uint32(startTime) + 75);
         }
-        assertEq(secondsPerLiquidityCumulative, (uint160(30) << 128) + ((uint160(45) << 128) / liquidity));
-        assertEq(tickCumulative, 75 * 693147);
+        assertEq(snapshot.secondsPerLiquidityCumulative(), (uint160(30) << 128) + ((uint160(45) << 128) / liquidity));
+        assertEq(snapshot.tickCumulative(), 75 * 693147);
     }
 
     function test_findPreviousSnapshot(uint256 startTime) public {
@@ -630,43 +633,43 @@ contract OracleTest is BaseOracleTest {
         );
         oracle.findPreviousSnapshot(address(token1), startTime - 5);
 
-        (, uint256 i, Oracle.Snapshot memory s) = oracle.findPreviousSnapshot(address(token1), startTime);
+        (, uint256 i, Snapshot s) = oracle.findPreviousSnapshot(address(token1), startTime);
         assertEq(i, 0);
-        assertEq(s.timestamp, uint32(startTime));
-        assertEq(s.secondsPerLiquidityCumulative, 0);
-        assertEq(s.tickCumulative, 0);
+        assertEq(s.timestamp(), uint32(startTime));
+        assertEq(s.secondsPerLiquidityCumulative(), 0);
+        assertEq(s.tickCumulative(), 0);
 
         (, i, s) = oracle.findPreviousSnapshot(address(token1), startTime + 9);
         assertEq(i, 0);
         unchecked {
-            assertEq(s.timestamp, uint32(startTime));
+            assertEq(s.timestamp(), uint32(startTime));
         }
-        assertEq(s.secondsPerLiquidityCumulative, 0);
-        assertEq(s.tickCumulative, 0);
+        assertEq(s.secondsPerLiquidityCumulative(), 0);
+        assertEq(s.tickCumulative(), 0);
 
         (, i, s) = oracle.findPreviousSnapshot(address(token1), startTime + 10);
         assertEq(i, 1);
         unchecked {
-            assertEq(s.timestamp, uint32(startTime) + 10);
+            assertEq(s.timestamp(), uint32(startTime) + 10);
         }
-        assertEq(s.secondsPerLiquidityCumulative, (uint160(10) << 128) / liquidity);
-        assertEq(s.tickCumulative, 10 * 2 * 693147);
+        assertEq(s.secondsPerLiquidityCumulative(), (uint160(10) << 128) / liquidity);
+        assertEq(s.tickCumulative(), 10 * 2 * 693147);
 
         (, i, s) = oracle.findPreviousSnapshot(address(token1), startTime + 11);
         assertEq(i, 1);
         unchecked {
-            assertEq(s.timestamp, uint32(startTime) + 10);
+            assertEq(s.timestamp(), uint32(startTime) + 10);
         }
-        assertEq(s.secondsPerLiquidityCumulative, (uint160(10) << 128) / liquidity);
-        assertEq(s.tickCumulative, 10 * 2 * 693147);
+        assertEq(s.secondsPerLiquidityCumulative(), (uint160(10) << 128) / liquidity);
+        assertEq(s.tickCumulative(), 10 * 2 * 693147);
 
         (, i, s) = oracle.findPreviousSnapshot(address(token1), startTime + 15);
         assertEq(i, 1);
         unchecked {
-            assertEq(s.timestamp, uint32(startTime) + 10);
+            assertEq(s.timestamp(), uint32(startTime) + 10);
         }
-        assertEq(s.secondsPerLiquidityCumulative, (uint160(10) << 128) / liquidity);
-        assertEq(s.tickCumulative, 10 * 2 * 693147);
+        assertEq(s.secondsPerLiquidityCumulative(), (uint160(10) << 128) / liquidity);
+        assertEq(s.tickCumulative(), 10 * 2 * 693147);
 
         // if we pass in a future time it reverts
         vm.expectRevert(abi.encodeWithSelector(IOracle.FutureTime.selector));
@@ -802,7 +805,7 @@ contract OracleTest is BaseOracleTest {
         timestamps[6] = poolCreationTime + 18;
         timestamps[7] = poolCreationTime + 21;
         coolAllContracts();
-        Oracle.Observation[] memory observations =
+        Observation[] memory observations =
             oracle.getExtrapolatedSnapshotsForSortedTimestamps(address(token1), timestamps);
 
         vm.snapshotGasLastCall("oracle.getExtrapolatedSnapshots(address(token1), 21, 3, 8)");
@@ -810,39 +813,39 @@ contract OracleTest is BaseOracleTest {
         assertEq(observations.length, timestamps.length);
 
         // liquidity
-        assertEq(observations[0].secondsPerLiquidityCumulative, 0);
-        assertEq(observations[1].secondsPerLiquidityCumulative, (uint256(3) << 128) / liquidity);
-        assertEq(observations[2].secondsPerLiquidityCumulative, (uint256(6) << 128) / liquidity);
-        assertEq(observations[3].secondsPerLiquidityCumulative, (uint256(9) << 128) / liquidity);
+        assertEq(observations[0].secondsPerLiquidityCumulative(), 0);
+        assertEq(observations[1].secondsPerLiquidityCumulative(), (uint256(3) << 128) / liquidity);
+        assertEq(observations[2].secondsPerLiquidityCumulative(), (uint256(6) << 128) / liquidity);
+        assertEq(observations[3].secondsPerLiquidityCumulative(), (uint256(9) << 128) / liquidity);
         assertEq(
-            observations[4].secondsPerLiquidityCumulative,
+            observations[4].secondsPerLiquidityCumulative(),
             ((uint256(10) << 128) / liquidity) + ((uint256(2) << 128) / liquidity2)
         );
         assertEq(
-            observations[5].secondsPerLiquidityCumulative,
+            observations[5].secondsPerLiquidityCumulative(),
             // rounded down
             ((uint256(10) << 128) / liquidity) + ((uint256(5) << 128) / liquidity2) - 1
         );
         assertEq(
-            observations[6].secondsPerLiquidityCumulative,
+            observations[6].secondsPerLiquidityCumulative(),
             // rounded down
             ((uint256(10) << 128) / liquidity) + ((uint256(8) << 128) / liquidity2) - 1
         );
         assertEq(
-            observations[7].secondsPerLiquidityCumulative,
+            observations[7].secondsPerLiquidityCumulative(),
             // rounded down
             ((uint256(10) << 128) / liquidity) + ((uint256(11) << 128) / liquidity2) - 1
         );
 
         // ticks always expressed in oracle token / token
-        assertEq(observations[0].tickCumulative, 0);
-        assertEq(observations[1].tickCumulative, (693147 * 2) * 3);
-        assertEq(observations[2].tickCumulative, (693147 * 2) * 6);
-        assertEq(observations[3].tickCumulative, (693147 * 2) * 9);
-        assertEq(observations[4].tickCumulative, (693147 * 2) * 10 + ((346573) * 2));
-        assertEq(observations[5].tickCumulative, (693147 * 2) * 10 + ((346573) * 5));
-        assertEq(observations[6].tickCumulative, (693147 * 2) * 10 + ((346573) * 6) + (693147 * 2));
-        assertEq(observations[7].tickCumulative, (693147 * 2) * 10 + ((346573) * 6) + (693147 * 5));
+        assertEq(observations[0].tickCumulative(), 0);
+        assertEq(observations[1].tickCumulative(), (693147 * 2) * 3);
+        assertEq(observations[2].tickCumulative(), (693147 * 2) * 6);
+        assertEq(observations[3].tickCumulative(), (693147 * 2) * 9);
+        assertEq(observations[4].tickCumulative(), (693147 * 2) * 10 + ((346573) * 2));
+        assertEq(observations[5].tickCumulative(), (693147 * 2) * 10 + ((346573) * 5));
+        assertEq(observations[6].tickCumulative(), (693147 * 2) * 10 + ((346573) * 6) + (693147 * 2));
+        assertEq(observations[7].tickCumulative(), (693147 * 2) * 10 + ((346573) * 6) + (693147 * 5));
     }
 
     function test_cannotCallExtensionMethodsDirectly() public {

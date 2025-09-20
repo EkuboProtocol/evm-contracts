@@ -14,6 +14,7 @@ import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {PoolState} from "../types/poolState.sol";
+import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
@@ -338,12 +339,21 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 } else {
                     // we know block.timestamp < params.orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
+                    TwammPoolState currentState = poolState[poolId];
+                    (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
+
                     if (isToken1) {
-                        poolState[poolId].saleRateToken1 =
-                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken1, params.saleRateDelta));
+                        poolState[poolId] = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: lastTime,
+                            _saleRateToken0: rate0,
+                            _saleRateToken1: uint112(addSaleRateDelta(rate1, params.saleRateDelta))
+                        });
                     } else {
-                        poolState[poolId].saleRateToken0 =
-                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken0, params.saleRateDelta));
+                        poolState[poolId] = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: lastTime,
+                            _saleRateToken0: uint112(addSaleRateDelta(rate0, params.saleRateDelta)),
+                            _saleRateToken1: rate1
+                        });
                     }
 
                     // only update the end time
@@ -633,10 +643,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         bytes32 poolId = key.toPoolId();
-        poolState[poolId] = TwammPoolState({
-            lastVirtualOrderExecutionTime: uint32(block.timestamp),
-            saleRateToken0: 0,
-            saleRateToken1: 0
+        poolState[poolId] = createTwammPoolState({
+            _lastVirtualOrderExecutionTime: uint32(block.timestamp),
+            _saleRateToken0: 0,
+            _saleRateToken1: 0
         });
         // we need this extra mapping since pool state can contain zero for an initialized pool
         poolInitialized[poolId] = true;

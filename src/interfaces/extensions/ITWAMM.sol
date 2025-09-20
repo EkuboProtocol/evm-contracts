@@ -5,6 +5,7 @@ import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolKey} from "../../types/poolKey.sol";
+import {TwammPoolState} from "../../types/twammPoolState.sol";
 
 /// @notice Order key structure identifying a TWAMM order
 /// @dev Contains all parameters needed to uniquely identify an order
@@ -52,17 +53,6 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
         bytes32 salt;
         /// @notice Order key identifying the order
         OrderKey orderKey;
-    }
-
-    /// @notice State of a TWAMM pool
-    /// @dev Tracks the current sale rates and last execution time
-    struct TwammPoolState {
-        /// @notice Last time virtual orders were executed for this pool
-        uint32 lastVirtualOrderExecutionTime;
-        /// @notice Current sale rate for token0 (80.32 fixed point)
-        uint112 saleRateToken0;
-        /// @notice Current sale rate for token1 (80.32 fixed point)
-        uint112 saleRateToken1;
     }
 
     /// @notice State of an individual order

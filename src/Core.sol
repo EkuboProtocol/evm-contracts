@@ -43,8 +43,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
     /// @notice Mapping of pool IDs to their current state
     mapping(bytes32 poolId => PoolState) private poolState;
-    /// @notice Mapping of pool IDs to their accumulated fees per liquidity
-    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
+    /// @notice Mapping of pool IDs to their accumulated fees per liquidity. This isn't actually used.
+    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private _poolFeesPerLiquidity_placeholder;
     /// @notice Mapping of pool IDs to position IDs to position data
     mapping(bytes32 poolId => mapping(address owner => mapping(PositionId positionId => Position position))) private
         poolPositions;
@@ -164,6 +164,20 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         _accountDebt(id, token1, delta1);
     }
 
+    function readPoolFeesPerLiquidity(bytes32 poolId) internal view returns (FeesPerLiquidity memory fpl) {
+        assembly ("memory-safe") {
+            mstore(fpl, sload(add(poolId, 1)))
+            mstore(add(fpl, 0x20), sload(add(poolId, 2)))
+        }
+    }
+
+    function writePoolFeesPerLiquidity(bytes32 poolId, FeesPerLiquidity memory fpl) internal {
+        assembly ("memory-safe") {
+            sstore(add(poolId, 1), mload(fpl))
+            sstore(add(poolId, 2), mload(add(fpl, 0x20)))
+        }
+    }
+
     /// @notice Returns the pool fees per liquidity inside the given bounds
     /// @dev Internal function that calculates fees per liquidity within position bounds
     /// @param poolId Unique identifier for the pool
@@ -176,7 +190,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         view
         returns (FeesPerLiquidity memory)
     {
-        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) return poolFeesPerLiquidity[poolId];
+        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) return readPoolFeesPerLiquidity(poolId);
 
         int32 tick = poolState[poolId].tick();
         mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
@@ -186,7 +200,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if (tick < tickLower) {
             return lower.sub(upper);
         } else if (tick < tickUpper) {
-            FeesPerLiquidity memory fees = poolFeesPerLiquidity[poolId];
+            FeesPerLiquidity memory fees = readPoolFeesPerLiquidity(poolId);
 
             return fees.sub(lower).sub(upper);
         } else {
@@ -220,8 +234,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 let liquidity := shr(128, shl(128, sload(keccak256(0, 64))))
 
                 if liquidity {
-                    mstore(32, 2)
-                    let slot0 := keccak256(0, 64)
+                    let slot0 := add(poolId, 1)
 
                     if amount0 {
                         let v := div(shl(128, amount0), liquidity)
@@ -436,9 +449,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             // this loads only the input token fees per liquidity
             if (poolKey.mustLoadFees()) {
                 assembly ("memory-safe") {
-                    mstore(0, poolId)
-                    mstore(32, 2)
-                    inputTokenFeesPerLiquiditySlot := add(keccak256(0, 64), increasing)
+                    inputTokenFeesPerLiquiditySlot := add(poolId, add(increasing, 1))
                     inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
                 }
             }

@@ -13,19 +13,19 @@ function index(Counts counts) pure returns (uint32 i) {
 
 function count(Counts counts) pure returns (uint32 c) {
     assembly ("memory-safe") {
-        c := and(shr(32, counts), 0xFFFFFFFF)
+        c := shr(224, shl(224, shr(32, counts)))
     }
 }
 
 function capacity(Counts counts) pure returns (uint32 c) {
     assembly ("memory-safe") {
-        c := and(shr(64, counts), 0xFFFFFFFF)
+        c := shr(224, shl(224, shr(64, counts)))
     }
 }
 
 function lastTimestamp(Counts counts) pure returns (uint32 t) {
     assembly ("memory-safe") {
-        t := and(shr(96, counts), 0xFFFFFFFF)
+        t := shr(224, shl(224, shr(96, counts)))
     }
 }
 

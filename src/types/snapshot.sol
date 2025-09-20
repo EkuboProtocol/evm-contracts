@@ -13,7 +13,7 @@ function timestamp(Snapshot snapshot) pure returns (uint32 t) {
 
 function secondsPerLiquidityCumulative(Snapshot snapshot) pure returns (uint160 s) {
     assembly ("memory-safe") {
-        s := shr(96, shl(96, shr(32, snapshot)))
+        s := and(shr(32, snapshot), 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
     }
 }
 

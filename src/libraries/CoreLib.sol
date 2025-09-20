@@ -96,9 +96,7 @@ library CoreLib {
             mstore(add(free, 0x20), token0)
             mstore(add(free, 0x40), token1)
             mstore(add(free, 0x60), salt)
-            mstore(0, keccak256(free, 128))
-            mstore(32, 7)
-            slot := keccak256(0, 64)
+            slot := keccak256(free, 128)
         }
     }
 

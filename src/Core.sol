@@ -56,8 +56,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @notice Mapping of pool IDs to initialized tick bitmaps
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
-    /// @notice Mapping of saved balance keys to their values
-    mapping(bytes32 key => uint256) private savedBalances;
+    /// @notice Mapping of saved balance keys to their values. This isn't actually used.
+    mapping(bytes32 key => uint256) private _savedBalances_placeholder;
 
     /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
@@ -146,9 +146,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             mstore(free, locker)
             // copy the first 3 arguments in the same order
             calldatacopy(add(free, 0x20), 4, 96)
-            mstore(0, keccak256(free, 128))
-            mstore(32, 7)
-            let slot := keccak256(0, 64)
+            let slot := keccak256(free, 128)
             let balances := sload(slot)
 
             let b0 := shr(128, balances)

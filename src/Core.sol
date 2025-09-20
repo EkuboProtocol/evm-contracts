@@ -486,7 +486,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (result.sqrtRatioNext == nextTickSqrtRatio) {
                     sqrtRatio = result.sqrtRatioNext;
-                    tick = increasing ? nextTick : nextTick - 1;
+                    assembly ("memory-safe") {
+                        // no overflow danger because nextTick is always inside the valid tick bounds
+                        tick := sub(nextTick, iszero(increasing))
+                    }
 
                     if (isInitialized) {
                         int128 liquidityDelta = poolTicks[poolId][nextTick].liquidityDelta;

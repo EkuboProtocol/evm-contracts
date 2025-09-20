@@ -14,6 +14,7 @@ import {searchForNextInitializedTime, flipTime} from "../../src/math/timeBitmap.
 import {Bitmap} from "../../src/types/bitmap.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {createTimeInfo} from "../../src/types/timeInfo.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -164,9 +165,9 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
 
-        assertEq(poolTimeInfos[poolId][96].numOrders, 1);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0, 100);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1, 0);
+        assertEq(poolTimeInfos[poolId][96].numOrders(), 1);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0(), 100);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1(), 0);
 
         (uint256 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
             lastVirtualOrderExecutionTime: 0,
@@ -193,9 +194,9 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 55, isToken1: true, numOrdersChange: 1});
 
-        assertEq(poolTimeInfos[poolId][96].numOrders, 2);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0, 100);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1, 55);
+        assertEq(poolTimeInfos[poolId][96].numOrders(), 2);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0(), 100);
+        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1(), 55);
 
         (uint256 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
             lastVirtualOrderExecutionTime: 0,
@@ -220,7 +221,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     function test_updateTime_reverts_if_max_num_orders_exceeded() public {
         bytes32 poolId = bytes32(0);
 
-        poolTimeInfos[poolId][96].numOrders = type(uint32).max;
+        poolTimeInfos[poolId][96] = createTimeInfo(type(uint32).max, 0, 0);
         vm.expectRevert(ITWAMM.TimeNumOrdersOverflow.selector);
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
     }
@@ -237,19 +238,19 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     function test_updateTime_reverts_if_max_sale_rate_delta_exceeded() public {
         bytes32 poolId = bytes32(0);
 
-        poolTimeInfos[poolId][96].saleRateDeltaToken0 = type(int112).max;
+        poolTimeInfos[poolId][96] = createTimeInfo(0, type(int112).max, 0);
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 1, isToken1: false, numOrdersChange: 0});
 
-        poolTimeInfos[poolId][96].saleRateDeltaToken1 = type(int112).max;
+        poolTimeInfos[poolId][96] = createTimeInfo(0, 0, type(int112).max);
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 1, isToken1: true, numOrdersChange: 0});
 
-        poolTimeInfos[poolId][96].saleRateDeltaToken0 = type(int112).min;
+        poolTimeInfos[poolId][96] = createTimeInfo(0, type(int112).min, 0);
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -1, isToken1: false, numOrdersChange: 0});
 
-        poolTimeInfos[poolId][96].saleRateDeltaToken1 = type(int112).min;
+        poolTimeInfos[poolId][96] = createTimeInfo(0, 0, type(int112).min);
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -1, isToken1: true, numOrdersChange: 0});
     }

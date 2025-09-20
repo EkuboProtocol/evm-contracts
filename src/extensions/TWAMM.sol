@@ -7,6 +7,7 @@ import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
+import {TimeInfo, createTimeInfo} from "../types/timeInfo.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -179,26 +180,27 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     function _updateTime(bytes32 poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
     {
-        TimeInfo memory timeInfo = poolTimeInfos[poolId][time];
+        TimeInfo timeInfo = poolTimeInfos[poolId][time];
+        (uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
-        bool flip;
+        // note we assume this will never overflow, since it would require 2**32 separate orders to be placed
+        uint32 numOrdersNext;
         assembly ("memory-safe") {
-            let numOrders := mload(timeInfo)
-            // note we assume this will never overflow, since it would require 2**32 separate orders to be placed
-            let numOrdersNext := add(numOrders, numOrdersChange)
-
+            numOrdersNext := add(numOrders, numOrdersChange)
             if gt(numOrdersNext, 0xffffffff) {
                 // cast sig "TimeNumOrdersOverflow()"
                 mstore(0, shl(224, 0x6916a952))
                 revert(0, 4)
             }
+        }
 
-            flip := xor(iszero(numOrders), iszero(numOrdersNext))
+        bool flip = (numOrders == 0) != (numOrdersNext == 0);
 
-            // write the poolRewardRatesBefore[poolId][time] = (1,1) if any orders still reference the time, or write (0,0) otherwise
-            // we assume `_updateTime` is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
-            // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
-            if flip {
+        // write the poolRewardRatesBefore[poolId][time] = (1,1) if any orders still reference the time, or write (0,0) otherwise
+        // we assume `_updateTime` is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
+        // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
+        if (flip) {
+            assembly ("memory-safe") {
                 mstore(0, poolId)
                 mstore(32, poolRewardRatesBefore.slot)
                 // hash poolId, poolRewardRatesBefore.slot and store at 32
@@ -211,21 +213,16 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 sstore(slot0, iszero(numOrders))
                 sstore(add(slot0, 1), iszero(numOrders))
             }
-
-            mstore(timeInfo, numOrdersNext)
-        }
-
-        if (flip) {
             poolInitializedTimesBitmap[poolId].flipTime(time);
         }
 
         if (isToken1) {
-            timeInfo.saleRateDeltaToken1 = _addConstrainSaleRateDelta(timeInfo.saleRateDeltaToken1, saleRateDelta);
+            saleRateDeltaToken1 = _addConstrainSaleRateDelta(saleRateDeltaToken1, saleRateDelta);
         } else {
-            timeInfo.saleRateDeltaToken0 = _addConstrainSaleRateDelta(timeInfo.saleRateDeltaToken0, saleRateDelta);
+            saleRateDeltaToken0 = _addConstrainSaleRateDelta(saleRateDeltaToken0, saleRateDelta);
         }
 
-        poolTimeInfos[poolId][time] = timeInfo;
+        poolTimeInfos[poolId][time] = createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1);
     }
 
     /// @notice Returns the call points configuration for this extension
@@ -557,17 +554,18 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     if (initialized) {
                         poolRewardRatesBefore[poolId][nextTime] = rewardRates;
 
-                        TimeInfo memory timeInfo = poolTimeInfos[poolId][nextTime];
+                        TimeInfo timeInfo = poolTimeInfos[poolId][nextTime];
+                        (, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
                         state = createTwammPoolState({
                             _lastVirtualOrderExecutionTime: uint32(nextTime),
-                            _saleRateToken0: uint112(addSaleRateDelta(state.saleRateToken0(), timeInfo.saleRateDeltaToken0)),
-                            _saleRateToken1: uint112(addSaleRateDelta(state.saleRateToken1(), timeInfo.saleRateDeltaToken1))
+                            _saleRateToken0: uint112(addSaleRateDelta(state.saleRateToken0(), saleRateDeltaToken0)),
+                            _saleRateToken1: uint112(addSaleRateDelta(state.saleRateToken1(), saleRateDeltaToken1))
                         });
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
                         // this helps reduce the cost of executing virtual orders.
-                        delete poolTimeInfos[poolId][nextTime];
+                        poolTimeInfos[poolId][nextTime] = TimeInfo.wrap(0);
                         poolInitializedTimesBitmap[poolId].flipTime(nextTime);
                     } else {
                         state = createTwammPoolState({

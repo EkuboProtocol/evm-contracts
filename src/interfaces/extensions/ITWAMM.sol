@@ -31,17 +31,6 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
         OrderKey orderKey;
     }
 
-    /// @notice Information about orders at a specific time
-    /// @dev Used to track sale rate changes at specific timestamps
-    struct TimeInfo {
-        /// @notice Number of orders referencing this timestamp
-        uint32 numOrders;
-        /// @notice Change in sale rate for token0 at this time
-        int112 saleRateDeltaToken0;
-        /// @notice Change in sale rate for token1 at this time
-        int112 saleRateDeltaToken1;
-    }
-
     /// @notice Emitted when an order is updated
     /// @param owner Address of the order owner
     /// @param salt Unique salt for the order

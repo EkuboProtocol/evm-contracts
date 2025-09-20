@@ -117,9 +117,12 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             TWAMM_EXTENSION.lockAndExecuteVirtualOrders(poolKey);
 
             uint32 lastUpdateTime;
-            uint256 rewardRateSnapshot;
-            (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
-                TWAMM_EXTENSION.getOrderState(address(this), bytes32(id), orderKey.toOrderId());
+            bytes32 orderId = orderKey.toOrderId();
+
+            (lastUpdateTime, saleRate, amountSold) =
+                TWAMM_EXTENSION.orderState(address(this), bytes32(id), orderId).parse();
+
+            uint256 rewardRateSnapshot = TWAMM_EXTENSION.rewardRateSnapshot(address(this), bytes32(id), orderId);
 
             if (saleRate != 0) {
                 uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(

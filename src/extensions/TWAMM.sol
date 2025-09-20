@@ -89,17 +89,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     /// @inheritdoc ITWAMM
-    function getOrderState(address owner, bytes32 salt, bytes32 orderId)
-        external
-        view
-        returns (uint112 saleRate, uint32 lastUpdateTime, uint112 amountSold, uint256 rewardRateSnapshot)
-    {
-        OrderState state = orderState[owner][salt][orderId];
-        (lastUpdateTime, saleRate, amountSold) = state.parse();
-        rewardRateSnapshot = orderRewardRateSnapshot[owner][salt][orderId];
-    }
-
-    /// @inheritdoc ITWAMM
     function getRewardRateInside(bytes32 poolId, uint256 startTime, uint256 endTime, bool isToken1)
         public
         view

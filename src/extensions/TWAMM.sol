@@ -14,6 +14,7 @@ import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {PoolState} from "../types/poolState.sol";
+import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
@@ -75,7 +76,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
 
-    mapping(bytes32 poolId => TwammPoolState) internal poolState;
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
     mapping(bytes32 poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
 
@@ -121,8 +121,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             switch lt(timestamp(), endTime)
             case 0 {
                 mstore(0, poolId)
-                mstore(32, 4)
-                // hash poolId,4 and store at 32
+                mstore(32, 3)
+                // hash poolId, 3 and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put start time at 0 for hashing
@@ -141,10 +141,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 switch gt(timestamp(), startTime)
                 case 1 {
                     mstore(0, poolId)
-                    mstore(32, 3)
+                    mstore(32, 2)
                     let rewardRateCurrent := sload(add(keccak256(0, 64), isToken1))
 
-                    mstore(32, 4)
+                    mstore(32, 3)
                     // hash poolId,4 and store at 32
                     mstore(32, keccak256(0, 64))
                     // now put time at 0 for hashing
@@ -212,8 +212,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
             if flip {
                 mstore(0, poolId)
-                mstore(32, 4)
-                // hash poolId,4 and store at 32
+                mstore(32, 3)
+                // hash poolId, 3 and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put time at 0 for hashing
@@ -338,12 +338,28 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 } else {
                     // we know block.timestamp < params.orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
+                    TwammPoolState currentState;
+                    assembly ("memory-safe") {
+                        currentState := sload(poolId)
+                    }
+                    (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
+
                     if (isToken1) {
-                        poolState[poolId].saleRateToken1 =
-                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken1, params.saleRateDelta));
+                        currentState = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: lastTime,
+                            _saleRateToken0: rate0,
+                            _saleRateToken1: uint112(addSaleRateDelta(rate1, params.saleRateDelta))
+                        });
                     } else {
-                        poolState[poolId].saleRateToken0 =
-                            uint112(addSaleRateDelta(poolState[poolId].saleRateToken0, params.saleRateDelta));
+                        currentState = createTwammPoolState({
+                            _lastVirtualOrderExecutionTime: lastTime,
+                            _saleRateToken0: uint112(addSaleRateDelta(rate0, params.saleRateDelta)),
+                            _saleRateToken1: rate1
+                        });
+                    }
+
+                    assembly ("memory-safe") {
+                        sstore(poolId, currentState)
                     }
 
                     // only update the end time
@@ -449,18 +465,15 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
             // load the pool state
             assembly ("memory-safe") {
-                mstore(0, poolId)
-                mstore(32, 0)
-
-                let packed := sload(keccak256(0, 64))
+                let packed := sload(poolId)
                 lastVirtualOrderExecutionTime := and(packed, 0xffffffff)
 
                 saleRateToken0 := shr(144, shl(112, packed))
                 saleRateToken1 := shr(144, packed)
 
                 if iszero(packed) {
-                    // slot 0 already has the poolId in it
-                    mstore(32, 6)
+                    mstore(0, poolId)
+                    mstore(32, 5)
                     if iszero(sload(keccak256(0, 64))) {
                         // cast sig "PoolNotInitialized()"
                         mstore(0, shl(224, 0x486aa307))
@@ -576,12 +589,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 poolRewardRates[poolId] = rewardRates;
 
                 assembly ("memory-safe") {
-                    mstore(0, poolId)
-                    mstore(32, 0)
-
                     sstore(
-                        keccak256(0, 64),
-                        or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
+                        poolId, or(or(and(timestamp(), 0xffffffff), shl(32, saleRateToken0)), shl(144, saleRateToken1))
                     )
                 }
 
@@ -633,11 +642,16 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
         bytes32 poolId = key.toPoolId();
-        poolState[poolId] = TwammPoolState({
-            lastVirtualOrderExecutionTime: uint32(block.timestamp),
-            saleRateToken0: 0,
-            saleRateToken1: 0
+
+        TwammPoolState initialState = createTwammPoolState({
+            _lastVirtualOrderExecutionTime: uint32(block.timestamp),
+            _saleRateToken0: 0,
+            _saleRateToken1: 0
         });
+        assembly ("memory-safe") {
+            sstore(poolId, initialState)
+        }
+
         // we need this extra mapping since pool state can contain zero for an initialized pool
         poolInitialized[poolId] = true;
         _emitVirtualOrdersExecuted({poolId: poolId, saleRateToken0: 0, saleRateToken1: 0});

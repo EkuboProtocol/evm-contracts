@@ -59,7 +59,7 @@ contract TWAMMDataFetcher is UsesCore {
         unchecked {
             (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolKey.toPoolId()).parse();
             (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
-                TWAMM_EXTENSION.poolState(poolKey.toPoolId());
+                TWAMM_EXTENSION.poolState(poolKey.toPoolId()).parse();
 
             uint256 lastTimeReal = block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime);
 
@@ -69,7 +69,7 @@ contract TWAMMDataFetcher is UsesCore {
             bytes32[] memory timeInfoSlots = new bytes32[](allValidTimes.length);
             assembly ("memory-safe") {
                 mstore(0, poolId)
-                mstore(32, 2)
+                mstore(32, 1)
                 mstore(32, keccak256(0, 64))
                 for { let i := 0 } lt(i, mload(timeInfoSlots)) { i := add(i, 1) } {
                     let offset := mul(add(i, 1), 32)

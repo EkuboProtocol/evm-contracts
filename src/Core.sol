@@ -400,7 +400,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         bool isToken1,
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1) {
+    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
         (uint256 id, address locker) = _requireLocker();
@@ -518,12 +518,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     : (amount - amountRemaining, calculatedAmountDelta);
             }
 
-            PoolState nextState = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
+            stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
 
             assembly ("memory-safe") {
                 mstore(0, poolId)
                 mstore(32, 1)
-                sstore(keccak256(0, 64), nextState)
+                sstore(keccak256(0, 64), stateAfter)
             }
 
             if (poolKey.mustLoadFees()) {
@@ -541,9 +541,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 mstore(o, shl(96, locker))
                 mstore(add(o, 20), poolId)
                 mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
-                mstore(add(o, 84), shl(128, liquidity))
-                mstore(add(o, 100), shl(160, sqrtRatio))
-                mstore(add(o, 112), shl(224, tick))
+                mstore(add(o, 84), stateAfter)
                 log0(o, 116)
             }
         }

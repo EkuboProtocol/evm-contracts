@@ -8,6 +8,7 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {PoolState} from "../types/poolState.sol";
 
 /// @title Extension Interface
 /// @notice Interface for pool extensions that can hook into core operations
@@ -271,13 +272,14 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param isToken1 True if swapping token1, false if swapping token0
     /// @param sqrtRatioLimit Price limit for the swap
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return delta0 Change in token0 balance of the pool
+    /// @return delta1 Change in token1 balance of the pool
+    /// @return stateAfter The pool state after the swap
     function swap_611415377(
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1);
+    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter);
 }

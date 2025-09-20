@@ -12,6 +12,7 @@ import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
+import {PoolState} from "../types/poolState.sol";
 
 function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -208,12 +209,12 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
             }
 
-            (int128 delta0, int128 delta1) = CORE.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
-
-            int32 tickAfterSwap = CORE.poolState(poolId).tick();
+            (int128 delta0, int128 delta1, PoolState stateAfter) =
+                CORE.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
             // however many tick spacings were crossed is the fee multiplier
-            uint256 feeMultiplierX64 = (FixedPointMathLib.abs(tickAfterSwap - tickLast) << 64) / poolKey.tickSpacing();
+            uint256 feeMultiplierX64 =
+                (FixedPointMathLib.abs(stateAfter.tick() - tickLast) << 64) / poolKey.tickSpacing();
             uint64 poolFee = poolKey.fee();
             uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
@@ -258,7 +259,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 CORE.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, saveDelta0, saveDelta1);
             }
 
-            result = abi.encode(delta0, delta1);
+            result = abi.encode(delta0, delta1, stateAfter);
         }
     }
 }

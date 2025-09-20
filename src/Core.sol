@@ -247,7 +247,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
-        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = poolTicks[poolId][tick].parse();
+        bytes32 slot;
+        TickInfo ti;
+
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(32, 4)
+            mstore(32, keccak256(0, 64))
+            mstore(0, tick)
+            slot := keccak256(0, 64)
+            ti := sload(slot)
+        }
+
+        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = ti.parse();
         uint128 liquidityNetNext = addLiquidityDelta(currentLiquidityNet, liquidityDelta);
         // this is checked math
         int128 liquidityDeltaNext =
@@ -257,7 +269,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
         }
 
-        poolTicks[poolId][tick] = createTickInfo(liquidityDeltaNext, liquidityNetNext);
+        ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
+
+        assembly ("memory-safe") {
+            sstore(slot, ti)
+        }
     }
 
     /// @notice Accounts for debt in token0, handling native token payments

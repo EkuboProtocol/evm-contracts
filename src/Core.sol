@@ -243,9 +243,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
-        TickInfo tickInfo = poolTicks[poolId][tick];
-
-        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = tickInfo.parse();
+        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = poolTicks[poolId][tick].parse();
         uint128 liquidityNetNext = addLiquidityDelta(currentLiquidityNet, liquidityDelta);
         // this is checked math
         int128 liquidityDeltaNext =

@@ -6,7 +6,7 @@ import {Core} from "../src/Core.sol";
 import {console} from "forge-std/console.sol";
 
 contract PrintCoreInitCodeHashScript is Script {
-    function run() public {
+    function run() public pure {
         console.log("Core init code hash: ");
         console.logBytes32(keccak256(type(Core).creationCode));
     }

@@ -13,7 +13,7 @@ import {
     NATIVE_TOKEN_ADDRESS
 } from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
-import {Oracle, oracleCallPoints} from "../../src/extensions/Oracle.sol";
+import {oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";

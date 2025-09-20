@@ -6,7 +6,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
-import {ITWAMM, OrderKey, toOrderId} from "../interfaces/extensions/ITWAMM.sol";
+import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -15,6 +15,7 @@ import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {PoolState} from "../types/poolState.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
+import {OrderState, createOrderState} from "../types/orderState.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
@@ -40,34 +41,6 @@ function twammCallPoints() pure returns (CallPoints memory) {
     });
 }
 
-/// @notice Converts an OrderKey to its corresponding PoolKey
-/// @dev Determines the correct token ordering and constructs the pool key with TWAMM as extension
-/// @param orderKey The order key containing sell/buy tokens and fee
-/// @param twamm The TWAMM contract address to use as the extension
-/// @return poolKey The corresponding pool key for the order
-function orderKeyToPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
-    assembly ("memory-safe") {
-        poolKey := mload(0x40)
-
-        let sellToken := mload(orderKey)
-        let buyToken := mload(add(orderKey, 32))
-        let fee := mload(add(orderKey, 64))
-
-        let xoredTokens := xor(sellToken, buyToken)
-        let sellIsZero := gt(buyToken, sellToken)
-
-        let token0 := xor(sellToken, mul(xoredTokens, iszero(sellIsZero)))
-        let token1 := xor(sellToken, mul(xoredTokens, sellIsZero))
-
-        mstore(poolKey, token0)
-        mstore(add(poolKey, 32), token1)
-        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, fee)))
-
-        // move free memory pointer forward 96 bytes
-        mstore(0x40, add(poolKey, 96))
-    }
-}
-
 /// @title Ekubo TWAMM (Time-Weighted Average Market Maker)
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Extension for Ekubo Protocol that enables creation of DCA (Dollar Cost Averaging) orders that are executed over time
@@ -85,6 +58,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
     // Current state of each individual order
     mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) internal orderState;
+
+    // Reward rate snapshot for each individual order
+    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => uint256))) internal
+        orderRewardRateSnapshot;
 
     // Auxiliary mapping that just indicates whether a pool is indeed initialized
     // This is only checked in the case that lastVirtualOrderExecutionTime is zero
@@ -111,6 +88,17 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     /// @inheritdoc ITWAMM
+    function getOrderState(address owner, bytes32 salt, bytes32 orderId)
+        external
+        view
+        returns (uint112 saleRate, uint32 lastUpdateTime, uint112 amountSold, uint256 rewardRateSnapshot)
+    {
+        OrderState state = orderState[owner][salt][orderId];
+        (lastUpdateTime, saleRate, amountSold) = state.parse();
+        rewardRateSnapshot = orderRewardRateSnapshot[owner][salt][orderId];
+    }
+
+    /// @inheritdoc ITWAMM
     function getRewardRateInside(bytes32 poolId, uint256 startTime, uint256 endTime, bool isToken1)
         public
         view
@@ -121,8 +109,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             switch lt(timestamp(), endTime)
             case 0 {
                 mstore(0, poolId)
-                mstore(32, 3)
-                // hash poolId, 3 and store at 32
+                mstore(32, poolRewardRatesBefore.slot)
+                // hash poolId, poolRewardRatesBefore.slot and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put start time at 0 for hashing
@@ -141,11 +129,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 switch gt(timestamp(), startTime)
                 case 1 {
                     mstore(0, poolId)
-                    mstore(32, 2)
+                    mstore(32, poolRewardRates.slot)
                     let rewardRateCurrent := sload(add(keccak256(0, 64), isToken1))
 
-                    mstore(32, 3)
-                    // hash poolId,4 and store at 32
+                    mstore(32, poolRewardRatesBefore.slot)
+                    // hash poolId, poolRewardRatesBefore.slot and store at 32
                     mstore(32, keccak256(0, 64))
                     // now put time at 0 for hashing
                     mstore(0, startTime)
@@ -212,8 +200,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
             if flip {
                 mstore(0, poolId)
-                mstore(32, 3)
-                // hash poolId, 3 and store at 32
+                mstore(32, poolRewardRatesBefore.slot)
+                // hash poolId, poolRewardRatesBefore.slot and store at 32
                 mstore(32, keccak256(0, 64))
 
                 // now put time at 0 for hashing
@@ -270,11 +258,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     revert InvalidTimestamps();
                 }
 
-                PoolKey memory poolKey = orderKeyToPoolKey(params.orderKey, address(this));
+                PoolKey memory poolKey = params.orderKey.toPoolKey(address(this));
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                OrderState storage order = orderState[originalLocker][params.salt][toOrderId(params.orderKey)];
+                bytes32 orderId = params.orderKey.toOrderId();
+                OrderState order = orderState[originalLocker][params.salt][orderId];
+                uint256 rewardRateSnapshot = orderRewardRateSnapshot[originalLocker][params.salt][orderId];
 
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
@@ -283,10 +273,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     params.orderKey.sellToken < params.orderKey.buyToken
                 );
 
-                (uint256 saleRate, uint32 lastUpdateTime, uint256 amountSold) =
-                    (order.saleRate, order.lastUpdateTime, order.amountSold);
+                (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
 
-                uint256 purchasedAmount = computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, saleRate);
+                uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
 
                 uint256 saleRateNext = addSaleRateDelta(saleRate, params.saleRateDelta);
 
@@ -311,10 +300,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
                 }
 
-                (order.saleRate, order.lastUpdateTime, order.amountSold) = (
-                    uint112(saleRateNext),
-                    uint32(block.timestamp),
-                    uint112(
+                orderState[originalLocker][params.salt][orderId] = createOrderState({
+                    _lastUpdateTime: uint32(block.timestamp),
+                    _saleRate: uint112(saleRateNext),
+                    _amountSold: uint112(
                         amountSold
                             + computeAmountFromSaleRate({
                                 saleRate: saleRate,
@@ -325,8 +314,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                 roundUp: false
                             })
                     )
-                );
-                order.rewardRateSnapshot = rewardRateSnapshotAdjusted;
+                });
+                orderRewardRateSnapshot[originalLocker][params.salt][orderId] = rewardRateSnapshotAdjusted;
 
                 bool isToken1 = params.orderKey.sellToken > params.orderKey.buyToken;
 
@@ -414,11 +403,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 (, ITWAMM.CollectProceedsParams memory params) =
                     abi.decode(data, (uint256, ITWAMM.CollectProceedsParams));
 
-                PoolKey memory poolKey = orderKeyToPoolKey(params.orderKey, address(this));
+                PoolKey memory poolKey = params.orderKey.toPoolKey(address(this));
                 bytes32 poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                OrderState storage order = orderState[originalLocker][params.salt][toOrderId(params.orderKey)];
+                bytes32 orderId = params.orderKey.toOrderId();
+                OrderState order = orderState[originalLocker][params.salt][orderId];
+                uint256 rewardRateSnapshot = orderRewardRateSnapshot[originalLocker][params.salt][orderId];
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
                     params.orderKey.startTime,
@@ -426,9 +417,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     params.orderKey.sellToken < params.orderKey.buyToken
                 );
 
-                uint256 purchasedAmount =
-                    computeRewardAmount(rewardRateInside - order.rewardRateSnapshot, order.saleRate);
-                order.rewardRateSnapshot = rewardRateInside;
+                uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, order.saleRate());
+                orderRewardRateSnapshot[originalLocker][params.salt][orderId] = rewardRateInside;
 
                 if (purchasedAmount != 0) {
                     if (params.orderKey.sellToken > params.orderKey.buyToken) {
@@ -467,7 +457,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 if iszero(state) {
                     mstore(0, poolId)
-                    mstore(32, 5)
+                    mstore(32, poolInitialized.slot)
                     if iszero(sload(keccak256(0, 64))) {
                         // cast sig "PoolNotInitialized()"
                         mstore(0, shl(224, 0x486aa307))

@@ -5,7 +5,6 @@ import {PoolKey} from "../../types/poolKey.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 import {Snapshot} from "../../types/snapshot.sol";
-import {Counts} from "../../types/counts.sol";
 import {Observation} from "../../types/observation.sol";
 
 /// @title Oracle Interface

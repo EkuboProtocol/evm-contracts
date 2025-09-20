@@ -55,7 +55,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 3)
+            mstore(32, 2)
             let b := keccak256(0, 64)
             mstore(0, owner)
             mstore(32, b)
@@ -89,9 +89,7 @@ library CoreLib {
             mstore(add(free, 0x20), token0)
             mstore(add(free, 0x40), token1)
             mstore(add(free, 0x60), salt)
-            mstore(0, keccak256(free, 128))
-            mstore(32, 7)
-            slot := keccak256(0, 64)
+            slot := keccak256(free, 128)
         }
     }
 
@@ -132,7 +130,7 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 4)
+            mstore(32, 3)
             let b := keccak256(0, 64)
             mstore(0, tick)
             mstore(32, b)

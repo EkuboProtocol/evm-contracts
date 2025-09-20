@@ -50,9 +50,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         poolPositions;
     /// @notice Mapping of pool IDs to tick information. This isn't actually used.
     mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private _poolTicks_placeholder;
-    /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick
+    /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick. This isn't actually used.
     mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
-        poolTickFeesPerLiquidityOutside;
+        _poolTickFeesPerLiquidityOutside_placeholder;
     /// @notice Mapping of pool IDs to initialized tick bitmaps
     mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
@@ -162,20 +162,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         _accountDebt(id, token1, delta1);
     }
 
-    function readPoolFeesPerLiquidity(bytes32 poolId) internal view returns (FeesPerLiquidity memory fpl) {
-        assembly ("memory-safe") {
-            mstore(fpl, sload(add(poolId, 1)))
-            mstore(add(fpl, 0x20), sload(add(poolId, 2)))
-        }
-    }
-
-    function writePoolFeesPerLiquidity(bytes32 poolId, FeesPerLiquidity memory fpl) internal {
-        assembly ("memory-safe") {
-            sstore(add(poolId, 1), mload(fpl))
-            sstore(add(poolId, 2), mload(add(fpl, 0x20)))
-        }
-    }
-
     /// @notice Returns the pool fees per liquidity inside the given bounds
     /// @dev Internal function that calculates fees per liquidity within position bounds
     /// @param poolId Unique identifier for the pool
@@ -188,17 +174,40 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         view
         returns (FeesPerLiquidity memory)
     {
-        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) return readPoolFeesPerLiquidity(poolId);
+        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+            FeesPerLiquidity memory fpl;
+            assembly ("memory-safe") {
+                let firstSlot := add(poolId, 1)
+                mstore(fpl, sload(firstSlot))
+                mstore(add(fpl, 0x20), sload(add(firstSlot, 1)))
+            }
+            return fpl;
+        }
 
         int32 tick = poolState[poolId].tick();
-        mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
-        FeesPerLiquidity memory lower = poolIdEntry[tickLower];
-        FeesPerLiquidity memory upper = poolIdEntry[tickUpper];
+
+        FeesPerLiquidity memory lower;
+        FeesPerLiquidity memory upper;
+
+        assembly ("memory-safe") {
+            let fplOutsideFirstSlot := add(poolId, 0xffffffffff)
+            let fplOutsideSecondSlot := add(fplOutsideFirstSlot, 1)
+
+            mstore(lower, sload(add(fplOutsideFirstSlot, tickLower)))
+            mstore(add(lower, 0x20), sload(add(fplOutsideSecondSlot, tickLower)))
+
+            mstore(upper, sload(add(fplOutsideFirstSlot, tickUpper)))
+            mstore(add(upper, 0x20), sload(add(fplOutsideSecondSlot, tickUpper)))
+        }
 
         if (tick < tickLower) {
             return lower.sub(upper);
         } else if (tick < tickUpper) {
-            FeesPerLiquidity memory fees = readPoolFeesPerLiquidity(poolId);
+            FeesPerLiquidity memory fees;
+            assembly ("memory-safe") {
+                mstore(fees, sload(add(poolId, 1)))
+                mstore(add(fees, 0x20), sload(add(poolId, 2)))
+            }
 
             return fees.sub(lower).sub(upper);
         } else {
@@ -503,7 +512,15 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
                             : subLiquidityDelta(liquidity, liquidityDelta);
-                        FeesPerLiquidity memory tickFpl = poolTickFeesPerLiquidityOutside[poolId][nextTick];
+
+                        FeesPerLiquidity memory tickFpl;
+                        bytes32 tickFplSlot;
+                        assembly ("memory-safe") {
+                            tickFplSlot := add(poolId, add(nextTick, 0xffffffffff))
+
+                            mstore(tickFpl, sload(tickFplSlot))
+                            mstore(add(tickFpl, 0x20), sload(add(tickFplSlot, 1)))
+                        }
 
                         FeesPerLiquidity memory totalFpl;
 
@@ -516,7 +533,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             mstore(add(totalFpl, mul(32, iszero(increasing))), outputTokenFeesPerLiquidity)
                         }
 
-                        poolTickFeesPerLiquidityOutside[poolId][nextTick] = totalFpl.sub(tickFpl);
+                        FeesPerLiquidity memory newFpl = totalFpl.sub(tickFpl);
+                        assembly ("memory-safe") {
+                            sstore(tickFplSlot, mload(newFpl))
+                            sstore(add(tickFplSlot, 1), mload(add(newFpl, 0x20)))
+                        }
                     }
                 } else if (sqrtRatio != result.sqrtRatioNext) {
                     sqrtRatio = result.sqrtRatioNext;

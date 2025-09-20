@@ -119,7 +119,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             uint32 lastUpdateTime;
             uint256 rewardRateSnapshot;
             (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
-                TWAMM_EXTENSION.orderState(address(this), bytes32(id), toOrderId(orderKey));
+                TWAMM_EXTENSION.getOrderState(address(this), bytes32(id), toOrderId(orderKey));
 
             if (saleRate != 0) {
                 uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(

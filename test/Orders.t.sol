@@ -12,6 +12,7 @@ import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
+import {TwammPoolState} from "../src/types/twammPoolState.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;
@@ -436,6 +437,23 @@ contract OrdersTest is BaseOrdersTest {
 
         vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
+    }
+
+    function test_createOrder_uint32_bounds_does_not_revert(uint256 time) public {
+        // we make time a multiple of 2**32
+        // the pool state should be exactly 0
+        time = (time >> 32) << 32;
+        vm.warp(time);
+
+        OrderKey memory key =
+            OrderKey({sellToken: address(token0), buyToken: address(token1), fee: 0, startTime: 0, endTime: time + 16});
+        positions.maybeInitializePool(key.toPoolKey(address(twamm)), 0);
+
+        // pool state is legitimately 0 because it was initialized on a time that is a multiple of 2**32
+        assertEq(TwammPoolState.unwrap(twamm.poolState(key.toPoolKey(address(twamm)).toPoolId())), bytes32(0));
+
+        token0.approve(address(orders), type(uint256).max);
+        orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
     }
 
     function test_collectProceeds_non_existent_pool(uint256 time) public {

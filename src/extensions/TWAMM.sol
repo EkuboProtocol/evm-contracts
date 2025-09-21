@@ -64,10 +64,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => uint256))) internal
         orderRewardRateSnapshot;
 
-    // Auxiliary mapping that just indicates whether a pool is indeed initialized
-    // This is only checked in the case that lastVirtualOrderExecutionTime is zero
-    mapping(bytes32 poolId => bool) poolInitialized;
-
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
     /// @notice Emits an event for virtual order execution
@@ -442,9 +438,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 state := sload(poolId)
 
                 if iszero(state) {
-                    mstore(0, poolId)
-                    mstore(32, poolInitialized.slot)
-                    if iszero(sload(keccak256(0, 64))) {
+                    // we only conditionally load this if state is coincidentally zero,
+                    // in order to not lock the pool if state is 0 but the pool _is_ initialized
+                    // this can only happen iff a pool has zero sale rates **and** an execution of virtual orders
+                    // happens on the uint32 boundary
+                    if iszero(sload(add(poolId, 1))) {
                         // cast sig "PoolNotInitialized()"
                         mstore(0, shl(224, 0x486aa307))
                         revert(0, 4)
@@ -633,10 +631,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         });
         assembly ("memory-safe") {
             sstore(poolId, initialState)
+            // Auxiliary mapping that just indicates whether a pool is indeed initialized
+            // This is only checked in the case that lastVirtualOrderExecutionTime and both sale rates in the pool state are zero
+            sstore(add(poolId, 1), 1)
         }
 
-        // we need this extra mapping since pool state can contain zero for an initialized pool
-        poolInitialized[poolId] = true;
         _emitVirtualOrdersExecuted({poolId: poolId, saleRateToken0: 0, saleRateToken1: 0});
     }
 

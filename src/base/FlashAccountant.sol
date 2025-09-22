@@ -91,7 +91,8 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     /// @notice Updates the debt tracking for a specific locker and pair of tokens in a single operation
-    /// @dev Optimized version that updates both tokens' debts and the non-zero debt count in a single tload/tstore.
+    /// @dev Optimized version that updates both tokens' debts and performs a single tload/tstore on the non-zero debt count.
+    ///      Individual token debt slots are still updated separately, but the non-zero debt count is only loaded/stored once.
     ///      Assumes token0 < token1 (tokens are sorted). We assume debtChange values cannot exceed 128 bits.
     ///      This must be enforced at the places it is called for this contract's safety.
     ///      Negative values erase debt, positive values add debt.

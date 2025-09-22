@@ -11,6 +11,7 @@ import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
 import {BuybacksState, createBuybacksState} from "./types/buybacksState.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 
 /// @title Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>
@@ -49,12 +50,20 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     }
 
     /// @notice Withdraws leftover tokens from the contract (only callable by owner)
-    /// @dev Used to recover tokens that may be stuck in the contract or to withdraw excess funds
+    /// @dev Used to recover tokens that may be stuck in the contract
     /// @param token The address of the token to withdraw
     /// @param amount The amount of tokens to withdraw
     function take(address token, uint256 amount) external onlyOwner {
         // Transfer to msg.sender since only the owner can call this function
         SafeTransferLib.safeTransfer(token, msg.sender, amount);
+    }
+
+    /// @notice Withdraws native tokens held by this contract
+    /// @dev Used to recover native tokens that may be stuck in the contract
+    /// @param amount The amount of native tokens to withdraw
+    function takeNative(uint256 amount) external onlyOwner {
+        // Transfer to msg.sender since only the owner can call this function
+        SafeTransferLib.safeTransferETH(msg.sender, amount);
     }
 
     /// @notice Collects the proceeds from a completed buyback order
@@ -76,7 +85,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     /// @notice Creates a new buyback order or extends an existing one with available revenue
     /// @dev Can be called by anyone to trigger the creation of buyback orders using collected revenue
     /// This function will either extend the current order (if conditions are met) or create a new order
-    /// @param token The revenue token to use for creating the buyback order
+    /// @param token The revenue token to use for creating the buyback order, or NATIVE_TOKEN_ADDRESS
     /// @return endTime The end time of the order that was created or extended
     /// @return saleRate The sale rate of the order (amount of token sold per second)
     function roll(address token) public returns (uint256 endTime, uint112 saleRate) {
@@ -85,51 +94,49 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
             assembly ("memory-safe") {
                 state := sload(token)
             }
+
+            if (!state.isConfigured()) {
+                revert TokenNotConfigured(token);
+            }
+
             // minOrderDuration == 0 indicates the token is not configured
-            if (state.minOrderDuration() != 0) {
-                bool isEth = token == address(0);
-                uint256 amountToSpend = isEth ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
+            bool isEth = token == NATIVE_TOKEN_ADDRESS;
+            uint256 amountToSpend = isEth ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
-                uint32 timeRemaining = state.lastEndTime() - uint32(block.timestamp);
-                // if the fee changed, or the amount of time exceeds the min order duration
-                // note the time remaining can underflow if the last order has ended. in this case time remaining will be greater than min order duration,
-                // but also greater than last order duration, so it will not be re-used.
-                if (
-                    state.fee() == state.lastFee() && timeRemaining >= state.minOrderDuration()
-                        && timeRemaining <= state.lastOrderDuration()
-                ) {
-                    // handles overflow
-                    endTime = block.timestamp + uint256(timeRemaining);
-                } else {
-                    endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration()) - 1);
+            uint32 timeRemaining = state.lastEndTime() - uint32(block.timestamp);
+            // if the fee changed, or the amount of time exceeds the min order duration
+            // note the time remaining can underflow if the last order has ended. in this case time remaining will be greater than min order duration,
+            // but also greater than last order duration, so it will not be re-used.
+            if (
+                state.fee() == state.lastFee() && timeRemaining >= state.minOrderDuration()
+                    && timeRemaining <= state.lastOrderDuration()
+            ) {
+                // handles overflow
+                endTime = block.timestamp + uint256(timeRemaining);
+            } else {
+                endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration()) - 1);
 
-                    state = createBuybacksState({
-                        _targetOrderDuration: state.targetOrderDuration(),
-                        _minOrderDuration: state.minOrderDuration(),
-                        _fee: state.fee(),
-                        _lastEndTime: uint32(endTime),
-                        _lastOrderDuration: uint32(endTime - block.timestamp),
-                        _lastFee: state.fee()
-                    });
-                    assembly ("memory-safe") {
-                        sstore(token, state)
-                    }
+                state = createBuybacksState({
+                    _targetOrderDuration: state.targetOrderDuration(),
+                    _minOrderDuration: state.minOrderDuration(),
+                    _fee: state.fee(),
+                    _lastEndTime: uint32(endTime),
+                    _lastOrderDuration: uint32(endTime - block.timestamp),
+                    _lastFee: state.fee()
+                });
+
+                assembly ("memory-safe") {
+                    sstore(token, state)
                 }
+            }
 
-                if (amountToSpend != 0) {
-                    saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
-                        NFT_ID,
-                        OrderKey({
-                            sellToken: token,
-                            buyToken: BUY_TOKEN,
-                            fee: state.fee(),
-                            startTime: 0,
-                            endTime: endTime
-                        }),
-                        uint128(amountToSpend),
-                        type(uint112).max
-                    );
-                }
+            if (amountToSpend != 0) {
+                saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
+                    NFT_ID,
+                    OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: state.fee(), startTime: 0, endTime: endTime}),
+                    uint128(amountToSpend),
+                    type(uint112).max
+                );
             }
         }
     }
@@ -145,17 +152,14 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
         onlyOwner
     {
         if (minOrderDuration > targetOrderDuration) revert MinOrderDurationGreaterThanTargetOrderDuration();
-        if (minOrderDuration == 0) revert MinOrderDurationMustBeGreaterThanZero();
+        if (minOrderDuration == 0 && targetOrderDuration != 0) {
+            revert MinOrderDurationMustBeGreaterThanZero();
+        }
 
-        // First run roll so that tokens accrued up until now are treated according to the old rules
-        roll(token);
-
-        // Then apply the configuration change
         BuybacksState state;
         assembly ("memory-safe") {
             state := sload(token)
         }
-
         state = createBuybacksState({
             _targetOrderDuration: targetOrderDuration,
             _minOrderDuration: minOrderDuration,

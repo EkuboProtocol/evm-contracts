@@ -10,12 +10,15 @@ import {IExposedStorage} from "./IExposedStorage.sol";
 /// @dev Defines the interface for managing buyback orders for protocol revenue
 interface IRevenueBuybacks is IExposedStorage {
     /// @notice Thrown when minimum order duration exceeds target order duration
-    /// @dev This would prevent orders from being created since the condition would never be met
+    /// @dev This would prevent order creation since the condition order duration >= min order duration would not always be met
     error MinOrderDurationGreaterThanTargetOrderDuration();
 
     /// @notice Thrown when minimum order duration is set to zero
     /// @dev Orders cannot have zero duration, so this prevents invalid configurations
     error MinOrderDurationMustBeGreaterThanZero();
+
+    /// @notice Thrown when roll is called and a token is not configured
+    error TokenNotConfigured(address token);
 
     /// @notice Emitted when a token's buyback configuration is updated
     /// @param token The token being configured for buybacks

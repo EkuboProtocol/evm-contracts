@@ -10,6 +10,7 @@ using {
     lastEndTime,
     lastOrderDuration,
     lastFee,
+    isConfigured,
     parse
 } for BuybacksState global;
 
@@ -47,6 +48,10 @@ function lastFee(BuybacksState state) pure returns (uint64 f) {
     assembly ("memory-safe") {
         f := shr(192, state)
     }
+}
+
+function isConfigured(BuybacksState state) pure returns (bool) {
+    return minOrderDuration(state) != 0;
 }
 
 function parse(BuybacksState state)

@@ -3,17 +3,17 @@ pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
+import {IRevenueBuybacks} from "../src/interfaces/IRevenueBuybacks.sol";
 import {BuybacksState} from "../src/types/buybacksState.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
 import {RevenueBuybacksLib} from "../src/libraries/RevenueBuybacksLib.sol";
 
 contract RevenueBuybacksTest is BaseOrdersTest {
     using RevenueBuybacksLib for *;
 
-    RevenueBuybacks rb;
+    IRevenueBuybacks rb;
     TestToken buybacksToken;
 
     function setUp() public override {
@@ -86,6 +86,44 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(state.lastEndTime(), 0);
         assertEq(state.lastOrderDuration(), 0);
         assertEq(state.lastFee(), 0);
+    }
+
+    function test_configure_invalid() public {
+        vm.expectRevert(IRevenueBuybacks.MinOrderDurationGreaterThanTargetOrderDuration.selector);
+        rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 3601, fee: 0});
+
+        vm.expectRevert(IRevenueBuybacks.MinOrderDurationMustBeGreaterThanZero.selector);
+        rb.configure({token: address(token0), targetOrderDuration: 10, minOrderDuration: 0, fee: 0});
+    }
+
+    function test_deconfigure() public {
+        rb.configure({
+            token: address(token0),
+            targetOrderDuration: 3600,
+            minOrderDuration: 1800,
+            fee: uint64((uint256(1) << 64) / 100)
+        });
+
+        rb.configure({token: address(token0), targetOrderDuration: 0, minOrderDuration: 0, fee: 0});
+
+        BuybacksState state = rb.state(address(token0));
+        assertEq(state.targetOrderDuration(), 0);
+        assertEq(state.minOrderDuration(), 0);
+        assertEq(state.fee(), 0);
+    }
+
+    function test_roll_token_not_configured() public {
+        rb.configure({
+            token: address(token0),
+            targetOrderDuration: 3600,
+            minOrderDuration: 1800,
+            fee: uint64((uint256(1) << 64) / 100)
+        });
+
+        rb.configure({token: address(token0), targetOrderDuration: 0, minOrderDuration: 0, fee: 0});
+
+        vm.expectRevert(abi.encodeWithSelector(IRevenueBuybacks.TokenNotConfigured.selector, token0));
+        rb.roll(address(token0));
     }
 
     function test_roll_token() public {

@@ -141,7 +141,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
     }
 
-    function test_withdraw_and_roll_with_both_tokens_configured() public {
+    function test_withdraw_and_roll_with_both_tokens_configured(uint80 donate0, uint80 donate1) public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
 
         // Configure both tokens for buybacks
@@ -178,19 +178,19 @@ contract PositionsOwnerTest is BaseOrdersTest {
         assertEq(fees1, 0);
 
         // Donate protocol fees
-        cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e18);
+        cheatDonateProtocolFees(address(token0), address(token1), donate0, donate1);
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
-        assertEq(fees0, 1e18);
-        assertEq(fees1, 1e18);
+        assertEq(fees0, donate0);
+        assertEq(fees1, donate1);
 
         // Withdraw and roll
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
         // it leaves 1 in there for gas efficiency
-        assertEq(fees0, 1);
-        assertEq(fees1, 1);
+        assertEq(fees0, donate0 == 0 ? 0 : 1);
+        assertEq(fees1, donate1 == 0 ? 0 : 1);
 
         // Both tokens should have been used for orders
         assertEq(token0.balanceOf(address(rb)), 0);

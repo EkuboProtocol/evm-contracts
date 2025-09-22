@@ -4,7 +4,6 @@ pragma solidity =0.8.28;
 import {IIncentives, Claim} from "../interfaces/IIncentives.sol";
 import {IncentivesLib} from "../libraries/IncentivesLib.sol";
 import {DropKey} from "../types/dropKey.sol";
-import {DropState} from "../types/dropState.sol";
 import {Bitmap} from "../types/bitmap.sol";
 
 /// @title Incentives Data Fetcher

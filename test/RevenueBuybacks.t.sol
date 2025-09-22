@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
+import {BuybacksState} from "../src/types/buybacksState.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -64,32 +65,24 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_configure() public {
-        (
-            uint32 targetOrderDuration,
-            uint32 minOrderDuration,
-            uint64 fee,
-            uint32 lastEndTime,
-            uint32 lastOrderDuration,
-            uint64 lastFee
-        ) = rb.states(address(token0));
-        assertEq(targetOrderDuration, 0);
-        assertEq(minOrderDuration, 0);
-        assertEq(fee, 0);
-        assertEq(lastEndTime, 0);
-        assertEq(lastOrderDuration, 0);
-        assertEq(lastFee, 0);
+        BuybacksState state = rb.states(address(token0));
+        assertEq(state.targetOrderDuration(), 0);
+        assertEq(state.minOrderDuration(), 0);
+        assertEq(state.fee(), 0);
+        assertEq(state.lastEndTime(), 0);
+        assertEq(state.lastOrderDuration(), 0);
+        assertEq(state.lastFee(), 0);
 
         uint64 nextFee = uint64((uint256(1) << 64) / 100);
         rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: nextFee});
 
-        (targetOrderDuration, minOrderDuration, fee, lastEndTime, lastOrderDuration, lastFee) =
-            rb.states(address(token0));
-        assertEq(targetOrderDuration, 3600);
-        assertEq(minOrderDuration, 1800);
-        assertEq(fee, nextFee);
-        assertEq(lastEndTime, 0);
-        assertEq(lastOrderDuration, 0);
-        assertEq(lastFee, 0);
+        state = rb.states(address(token0));
+        assertEq(state.targetOrderDuration(), 3600);
+        assertEq(state.minOrderDuration(), 1800);
+        assertEq(state.fee(), nextFee);
+        assertEq(state.lastEndTime(), 0);
+        assertEq(state.lastOrderDuration(), 0);
+        assertEq(state.lastFee(), 0);
     }
 
     function test_roll_token() public {

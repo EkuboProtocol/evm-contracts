@@ -18,6 +18,7 @@ import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {computeFee} from "./math/fee.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 
 /// @title Ekubo Protocol Positions
 /// @author Moody Salem <moody@ekubo.org>
@@ -227,8 +228,14 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
             uint128 amount0 = uint128(delta0);
             uint128 amount1 = uint128(delta1);
-            pay(caller, poolKey.token0, amount0);
-            pay(caller, poolKey.token1, amount1);
+
+            // Use multi-token payment for ERC20-only pools, fall back to individual payments for native token pools
+            if (poolKey.token0 != NATIVE_TOKEN_ADDRESS && poolKey.token1 != NATIVE_TOKEN_ADDRESS) {
+                ACCOUNTANT.payTwoFrom(caller, poolKey.token0, poolKey.token1, amount0, amount1);
+            } else {
+                pay(caller, poolKey.token0, amount0);
+                pay(caller, poolKey.token1, amount1);
+            }
 
             result = abi.encode(amount0, amount1);
         } else if (callType == 0xff) {

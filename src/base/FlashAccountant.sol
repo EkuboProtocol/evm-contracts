@@ -213,6 +213,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
         assembly ("memory-safe") {
             let paymentAmounts := mload(0x40)
+            let nzdCountChange := 0
 
             for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
                 let token := shr(96, shl(96, calldataload(i)))
@@ -257,13 +258,17 @@ abstract contract FlashAccountant is IFlashAccountant {
 
                     let nextZero := iszero(next)
                     if xor(iszero(current), nextZero) {
-                        let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
-
-                        tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
+                        nzdCountChange := add(sub(nzdCountChange, nextZero), iszero(nextZero))
                     }
 
                     tstore(deltaSlot, next)
                 }
+            }
+
+            // Update nzdCountSlot only once if there were any changes
+            if iszero(iszero(nzdCountChange)) {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
             }
 
             return(paymentAmounts, mul(16, div(calldatasize(), 32)))
@@ -274,6 +279,8 @@ abstract contract FlashAccountant is IFlashAccountant {
     function withdraw() external {
         unchecked {
             (uint256 id,) = _requireLocker();
+
+            int256 nzdCountChange = 0;
 
             // Process each withdrawal entry
             for (uint256 i = 4; i < msg.data.length; i += 56) {
@@ -288,8 +295,19 @@ abstract contract FlashAccountant is IFlashAccountant {
                 }
 
                 if (amount != 0) {
-                    // Update debt using existing function for consistency
-                    _accountDebt(id, token, int256(uint256(amount)));
+                    // Update debt tracking without updating nzdCountSlot yet
+                    assembly ("memory-safe") {
+                        let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
+                        let current := tload(deltaSlot)
+                        let next := add(current, amount)
+
+                        let nextZero := iszero(next)
+                        if xor(iszero(current), nextZero) {
+                            nzdCountChange := add(sub(nzdCountChange, nextZero), iszero(nextZero))
+                        }
+
+                        tstore(deltaSlot, next)
+                    }
 
                     // Perform the withdrawal
                     if (token == NATIVE_TOKEN_ADDRESS) {
@@ -297,6 +315,14 @@ abstract contract FlashAccountant is IFlashAccountant {
                     } else {
                         SafeTransferLib.safeTransfer(token, recipient, amount);
                     }
+                }
+            }
+
+            // Update nzdCountSlot only once if there were any changes
+            if (nzdCountChange != 0) {
+                assembly ("memory-safe") {
+                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                    tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
                 }
             }
         }

@@ -423,12 +423,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         }
     }
 
-    // Used to avoid stack too deep errors
-    struct Delta {
-        int256 delta0;
-        int256 delta1;
-    }
-
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, bytes32 poolId) internal {
         unchecked {
             TwammPoolState state;
@@ -484,7 +478,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         roundUp: false
                     });
 
-                    Delta memory rewardDelta;
+                    int256 rewardDelta0;
+                    int256 rewardDelta1;
                     // if both sale rates are non-zero but amounts are zero, we will end up doing the math for no reason since we swap 0
                     if (amount0 != 0 && amount1 != 0) {
                         if (!corePoolState.isInitialized()) {
@@ -499,43 +494,44 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             fee: poolKey.fee()
                         });
 
-                        Delta memory swapDelta;
+                        int256 swapDelta0;
+                        int256 swapDelta1;
                         if (sqrtRatioNext > corePoolState.sqrtRatio()) {
                             // todo: we could update corePoolState here and avoid calling into core to get it again
                             // however it causes stack too deep and it's not a huge optimization because in cases where two tokens are sold
-                            (swapDelta.delta0, swapDelta.delta1, corePoolState) =
+                            (swapDelta0, swapDelta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
                         } else if (sqrtRatioNext < corePoolState.sqrtRatio()) {
-                            (swapDelta.delta0, swapDelta.delta1, corePoolState) =
+                            (swapDelta0, swapDelta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
-                        saveDelta0 -= swapDelta.delta0;
-                        saveDelta1 -= swapDelta.delta1;
+                        saveDelta0 -= swapDelta0;
+                        saveDelta1 -= swapDelta1;
 
                         // this cannot overflow or underflow because swapDelta0 is constrained to int128,
                         // and amounts computed from uint112 sale rates cannot exceed uint112.max
-                        rewardDelta.delta0 = swapDelta.delta0 - int256(uint256(amount0));
-                        rewardDelta.delta1 = swapDelta.delta1 - int256(uint256(amount1));
+                        rewardDelta0 = swapDelta0 - int256(uint256(amount0));
+                        rewardDelta1 = swapDelta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (rewardDelta.delta0, rewardDelta.delta1, corePoolState) =
+                            (rewardDelta0, rewardDelta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
-                            (rewardDelta.delta0, rewardDelta.delta1, corePoolState) =
+                            (rewardDelta0, rewardDelta1, corePoolState) =
                                 CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
-                        saveDelta0 -= rewardDelta.delta0;
-                        saveDelta1 -= rewardDelta.delta1;
+                        saveDelta0 -= rewardDelta0;
+                        saveDelta1 -= rewardDelta1;
                     }
 
-                    if (rewardDelta.delta0 < 0) {
-                        rewardRates.value0 += (uint256(-rewardDelta.delta0) << 128) / state.saleRateToken1();
+                    if (rewardDelta0 < 0) {
+                        rewardRates.value0 += (uint256(-rewardDelta0) << 128) / state.saleRateToken1();
                     }
 
-                    if (rewardDelta.delta1 < 0) {
-                        rewardRates.value1 += (uint256(-rewardDelta.delta1) << 128) / state.saleRateToken0();
+                    if (rewardDelta1 < 0) {
+                        rewardRates.value1 += (uint256(-rewardDelta1) << 128) / state.saleRateToken0();
                     }
 
                     if (initialized) {

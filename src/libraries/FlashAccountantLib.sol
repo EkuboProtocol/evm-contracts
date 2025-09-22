@@ -124,55 +124,57 @@ library FlashAccountantLib {
         uint256 amount1
     ) internal {
         assembly ("memory-safe") {
-            let free := mload(0x40)
-
             // accountant.startPayments() with both tokens
-            mstore(free, 0xf9b6a796) // startPayments selector
-            mstore(add(free, 32), token0) // first token
-            mstore(add(free, 64), token1) // second token
+            mstore(0x00, 0xf9b6a796) // startPayments selector
+            mstore(0x20, token0) // first token
+            mstore(0x40, token1) // second token
 
             // Call startPayments with both tokens (4 + 32 + 32 = 68 bytes)
-            pop(call(gas(), accountant, 0, add(free, 28), 68, 0x00, 0x00))
+            pop(call(gas(), accountant, 0, 0x00, 68, 0x00, 0x00))
 
             // Transfer token0 from caller to accountant
             if amount0 {
-                mstore(add(free, 96), 0x23b872dd000000000000000000000000) // transferFrom selector
-                mstore(add(free, 108), shl(96, from)) // from address
-                mstore(add(free, 128), shl(96, accountant)) // to address (accountant)
-                mstore(add(free, 148), amount0) // amount
-
-                let success := call(gas(), token0, 0, add(free, 108), 0x64, 0x00, 0x20)
+                let m := mload(0x40)
+                mstore(0x60, amount0)
+                mstore(0x40, accountant)
+                mstore(0x2c, shl(96, from))
+                mstore(0x0c, 0x23b872dd000000000000000000000000) // transferFrom selector
+                let success := call(gas(), token0, 0, 0x1c, 0x64, 0x00, 0x20)
                 if iszero(and(eq(mload(0x00), 1), success)) {
                     if iszero(lt(or(iszero(extcodesize(token0)), returndatasize()), success)) {
                         mstore(0x00, 0x7939f424) // TransferFromFailed()
                         revert(0x1c, 0x04)
                     }
                 }
+                mstore(0x60, 0)
+                mstore(0x40, m)
             }
 
             // Transfer token1 from caller to accountant
             if amount1 {
-                mstore(add(free, 96), 0x23b872dd000000000000000000000000) // transferFrom selector
-                mstore(add(free, 108), shl(96, from)) // from address
-                mstore(add(free, 128), shl(96, accountant)) // to address (accountant)
-                mstore(add(free, 148), amount1) // amount
-
-                let success := call(gas(), token1, 0, add(free, 108), 0x64, 0x00, 0x20)
+                let m := mload(0x40)
+                mstore(0x60, amount1)
+                mstore(0x40, accountant)
+                mstore(0x2c, shl(96, from))
+                mstore(0x0c, 0x23b872dd000000000000000000000000) // transferFrom selector
+                let success := call(gas(), token1, 0, 0x1c, 0x64, 0x00, 0x20)
                 if iszero(and(eq(mload(0x00), 1), success)) {
                     if iszero(lt(or(iszero(extcodesize(token1)), returndatasize()), success)) {
                         mstore(0x00, 0x7939f424) // TransferFromFailed()
                         revert(0x1c, 0x04)
                     }
                 }
+                mstore(0x60, 0)
+                mstore(0x40, m)
             }
 
             // accountant.completePayments() with both tokens
-            mstore(free, 0x12e103f1) // completePayments selector
-            mstore(add(free, 32), token0) // first token
-            mstore(add(free, 64), token1) // second token
+            mstore(0x00, 0x12e103f1) // completePayments selector
+            mstore(0x20, token0) // first token
+            mstore(0x40, token1) // second token
 
             // Call completePayments with both tokens (4 + 32 + 32 = 68 bytes)
-            pop(call(gas(), accountant, 0, add(free, 28), 68, 0x00, 0x00))
+            pop(call(gas(), accountant, 0, 0x00, 68, 0x00, 0x00))
         }
     }
 

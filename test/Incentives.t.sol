@@ -2,11 +2,23 @@
 pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {Incentives, DropKey, Claim, hashClaim} from "../src/Incentives.sol";
+import {Incentives} from "../src/Incentives.sol";
+import {DropKey} from "../src/types/dropKey.sol";
+import {Claim, hashClaim} from "../src/interfaces/IIncentives.sol";
 import {TestToken} from "./TestToken.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 contract IncentivesTest is Test {
+    // Events from IIncentives interface
+    event Funded(DropKey key, uint128 amountNext);
+    event Refunded(DropKey key, uint128 refundAmount);
+
+    // Errors from IIncentives interface
+    error AlreadyClaimed();
+    error InvalidProof();
+    error InsufficientFunds();
+    error DropOwnerOnly();
+
     Incentives i;
     TestToken t;
 
@@ -30,7 +42,7 @@ contract IncentivesTest is Test {
 
         if (amount > 0) {
             vm.expectEmit(address(i));
-            emit Incentives.Funded(key, amount);
+            emit Funded(key, amount);
         }
         assertEq(i.fund(key, amount), amount);
         // second funding does nothing since minimum already set
@@ -86,7 +98,8 @@ contract IncentivesTest is Test {
 
         uint256 beforeRefund = t.balanceOf(owner);
         vm.prank(owner);
-        emit Incentives.Refunded(DropKey({owner: owner, token: address(t), root: root}), (funded - amount));
+        vm.expectEmit(address(i));
+        emit Refunded(DropKey({owner: owner, token: address(t), root: root}), (funded - amount));
         i.refund(DropKey({owner: owner, token: address(t), root: root}));
         uint256 afterRefund = t.balanceOf(owner);
         if (owner != address(i)) {} else {
@@ -147,7 +160,7 @@ contract IncentivesTest is Test {
 
         bytes32[] memory proof = new bytes32[](0);
         i.claim(dropKey, c, proof);
-        vm.expectRevert(Incentives.AlreadyClaimed.selector);
+        vm.expectRevert(AlreadyClaimed.selector);
         i.claim(dropKey, c, proof);
     }
 
@@ -166,7 +179,7 @@ contract IncentivesTest is Test {
         }
 
         bytes32[] memory proof = new bytes32[](0);
-        vm.expectRevert(Incentives.InsufficientFunds.selector);
+        vm.expectRevert(InsufficientFunds.selector);
         i.claim(dropKey, c, proof);
     }
 
@@ -177,7 +190,7 @@ contract IncentivesTest is Test {
 
         bytes32[] memory proof = new bytes32[](0);
         c.index = 1;
-        vm.expectRevert(Incentives.InvalidProof.selector);
+        vm.expectRevert(InvalidProof.selector);
         i.claim(dropKey, c, proof);
     }
 
@@ -186,7 +199,7 @@ contract IncentivesTest is Test {
         bytes32 root = hashClaim(c);
         DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
 
-        vm.expectRevert(Incentives.InvalidProof.selector);
+        vm.expectRevert(InvalidProof.selector);
         // proof has a single zero element
         bytes32[] memory proof = new bytes32[](1);
         i.claim(dropKey, c, proof);

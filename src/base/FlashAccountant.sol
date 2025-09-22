@@ -71,7 +71,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @param debtChange The change in debt (negative to reduce, positive to increase)
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
-            if iszero(iszero(debtChange)) {
+            if debtChange {
                 let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                 let current := tload(deltaSlot)
 
@@ -293,7 +293,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
                 mstore(add(paymentAmounts, mul(16, div(i, 32))), shl(128, payment))
 
-                if iszero(iszero(payment)) {
+                if payment {
                     let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                     let current := tload(deltaSlot)
 

@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title FlashAccountant
 /// @notice Abstract contract that provides flash loan accounting functionality using transient storage
@@ -258,6 +257,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
         assembly ("memory-safe") {
             let paymentAmounts := mload(0x40)
+            let nzdCountChange := 0
 
             for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
                 let token := shr(96, shl(96, calldataload(i)))
@@ -300,15 +300,16 @@ abstract contract FlashAccountant is IFlashAccountant {
                     // never overflows because of the payment overflow check that bounds payment to 128 bits
                     let next := sub(current, payment)
 
-                    let nextZero := iszero(next)
-                    if xor(iszero(current), nextZero) {
-                        let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
-
-                        tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
-                    }
+                    nzdCountChange := add(nzdCountChange, sub(iszero(current), iszero(next)))
 
                     tstore(deltaSlot, next)
                 }
+            }
+
+            // Update nzdCountSlot only once if there were any changes
+            if nzdCountChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
             }
 
             return(paymentAmounts, mul(16, div(calldatasize(), 32)))
@@ -317,32 +318,58 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     /// @inheritdoc IFlashAccountant
     function withdraw() external {
-        unchecked {
-            (uint256 id,) = _requireLocker();
+        (uint256 id,) = _requireLocker();
+
+        assembly ("memory-safe") {
+            let nzdCountChange := 0
 
             // Process each withdrawal entry
-            for (uint256 i = 4; i < msg.data.length; i += 56) {
-                address token;
-                address recipient;
-                uint128 amount;
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 56) } {
+                let token := shr(96, calldataload(i))
+                let recipient := shr(96, calldataload(add(i, 20)))
+                let amount := shr(128, calldataload(add(i, 40)))
 
-                assembly ("memory-safe") {
-                    token := shr(96, calldataload(i))
-                    recipient := shr(96, calldataload(add(i, 20)))
-                    amount := shr(128, calldataload(add(i, 40)))
-                }
+                if amount {
+                    // Update debt tracking without updating nzdCountSlot yet
+                    let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
+                    let current := tload(deltaSlot)
+                    let next := add(current, amount)
 
-                if (amount != 0) {
-                    // Update debt using existing function for consistency
-                    _accountDebt(id, token, int256(uint256(amount)));
+                    nzdCountChange := add(nzdCountChange, sub(iszero(current), iszero(next)))
 
-                    // Perform the withdrawal
-                    if (token == NATIVE_TOKEN_ADDRESS) {
-                        SafeTransferLib.safeTransferETH(recipient, amount);
-                    } else {
-                        SafeTransferLib.safeTransfer(token, recipient, amount);
+                    tstore(deltaSlot, next)
+
+                    // Perform the token transfer
+                    if iszero(token) {
+                        let success := call(gas(), recipient, amount, 0, 0, 0, 0)
+                        if iszero(success) {
+                            // cast sig "ETHTransferFailed()"
+                            mstore(0x00, 0xb12d13eb)
+                            revert(0x1c, 4)
+                        }
+                    }
+
+                    if token {
+                        mstore(0x14, recipient) // Store the `to` argument.
+                        mstore(0x34, amount) // Store the `amount` argument.
+                        mstore(0x00, 0xa9059cbb000000000000000000000000) // `transfer(address,uint256)`.
+                        // Perform the transfer, reverting upon failure.
+                        let success := call(gas(), token, 0, 0x10, 0x44, 0x00, 0x20)
+                        if iszero(and(eq(mload(0x00), 1), success)) {
+                            if iszero(lt(or(iszero(extcodesize(token)), returndatasize()), success)) {
+                                mstore(0x00, 0x90b8ec18) // `TransferFailed()`.
+                                revert(0x1c, 0x04)
+                            }
+                        }
+                        mstore(0x34, 0) // Restore the part of the free memory pointer that was overwritten.
                     }
                 }
+            }
+
+            // Update nzdCountSlot only once if there were any changes
+            if nzdCountChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
             }
         }
     }

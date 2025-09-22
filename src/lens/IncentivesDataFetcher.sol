@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {IIncentives, Claim} from "../interfaces/IIncentives.sol";
+import {IncentivesLib} from "../libraries/IncentivesLib.sol";
 import {DropKey} from "../types/dropKey.sol";
 import {DropState} from "../types/dropState.sol";
 import {Bitmap} from "../types/bitmap.sol";
@@ -9,9 +10,12 @@ import {Bitmap} from "../types/bitmap.sol";
 /// @title Incentives Data Fetcher
 /// @author Ekubo Protocol
 /// @notice Provides functions to fetch data from the Incentives contract
-/// @dev Calls interface functions directly for data access
+/// @dev Uses IncentivesLib for efficient storage access
 contract IncentivesDataFetcher {
+    /// @notice Thrown when array lengths don't match
+    error ArrayLengthMismatch();
     /// @notice The Incentives contract instance
+
     IIncentives public immutable INCENTIVES;
 
     /// @notice Constructs the IncentivesDataFetcher with an Incentives instance
@@ -47,10 +51,9 @@ contract IncentivesDataFetcher {
     /// @return info Complete drop information
     function getDropInfo(DropKey memory key) external view returns (DropInfo memory info) {
         info.key = key;
-        info.remaining = INCENTIVES.getRemaining(key);
-        // We can calculate funded and claimed from the remaining and by calling the contract
-        // For now, we'll leave funded and claimed as 0 since we don't have direct getters
-        // The user can get remaining amount which is the most important
+        info.funded = IncentivesLib.getFunded(INCENTIVES, key);
+        info.claimed = IncentivesLib.getClaimed(INCENTIVES, key);
+        info.remaining = IncentivesLib.getRemaining(INCENTIVES, key);
     }
 
     /// @notice Gets information about multiple drops
@@ -60,10 +63,9 @@ contract IncentivesDataFetcher {
         infos = new DropInfo[](keys.length);
         for (uint256 i = 0; i < keys.length; i++) {
             infos[i].key = keys[i];
-            infos[i].remaining = INCENTIVES.getRemaining(keys[i]);
-            // We can calculate funded and claimed from the remaining and by calling the contract
-            // For now, we'll leave funded and claimed as 0 since we don't have direct getters
-            // The user can get remaining amount which is the most important
+            infos[i].funded = IncentivesLib.getFunded(INCENTIVES, keys[i]);
+            infos[i].claimed = IncentivesLib.getClaimed(INCENTIVES, keys[i]);
+            infos[i].remaining = IncentivesLib.getRemaining(INCENTIVES, keys[i]);
         }
     }
 
@@ -73,8 +75,8 @@ contract IncentivesDataFetcher {
     /// @return info Claim status information
     function getClaimInfo(DropKey memory key, Claim memory claim) external view returns (ClaimInfo memory info) {
         info.claim = claim;
-        info.isClaimed = IIncentives(address(INCENTIVES)).isClaimed(key, claim.index);
-        info.isAvailable = IIncentives(address(INCENTIVES)).isAvailable(key, claim.index, claim.amount);
+        info.isClaimed = IncentivesLib.isClaimed(INCENTIVES, key, claim.index);
+        info.isAvailable = IncentivesLib.isAvailable(INCENTIVES, key, claim.index, claim.amount);
     }
 
     /// @notice Gets claim status information for multiple claims
@@ -89,8 +91,8 @@ contract IncentivesDataFetcher {
         infos = new ClaimInfo[](claims.length);
         for (uint256 i = 0; i < claims.length; i++) {
             infos[i].claim = claims[i];
-            infos[i].isClaimed = IIncentives(address(INCENTIVES)).isClaimed(key, claims[i].index);
-            infos[i].isAvailable = IIncentives(address(INCENTIVES)).isAvailable(key, claims[i].index, claims[i].amount);
+            infos[i].isClaimed = IncentivesLib.isClaimed(INCENTIVES, key, claims[i].index);
+            infos[i].isAvailable = IncentivesLib.isAvailable(INCENTIVES, key, claims[i].index, claims[i].amount);
         }
     }
 
@@ -105,7 +107,7 @@ contract IncentivesDataFetcher {
     {
         claimed = new bool[](indices.length);
         for (uint256 i = 0; i < indices.length; i++) {
-            claimed[i] = IIncentives(address(INCENTIVES)).isClaimed(key, indices[i]);
+            claimed[i] = IncentivesLib.isClaimed(INCENTIVES, key, indices[i]);
         }
     }
 
@@ -114,10 +116,7 @@ contract IncentivesDataFetcher {
     /// @param word The word index in the bitmap
     /// @return bitmap The claimed bitmap for the specified word
     function getClaimedBitmap(DropKey memory key, uint256 word) external view returns (Bitmap bitmap) {
-        // This function would need to be added to the IIncentives interface
-        // For now, we'll return an empty bitmap
-        // Users can check individual claims using areIndicesClaimed
-        return Bitmap.wrap(0);
+        return IncentivesLib.getClaimedBitmap(INCENTIVES, key, word);
     }
 
     /// @notice Gets multiple claimed bitmaps for a drop
@@ -131,10 +130,7 @@ contract IncentivesDataFetcher {
     {
         bitmaps = new Bitmap[](words.length);
         for (uint256 i = 0; i < words.length; i++) {
-            // This function would need to be added to the IIncentives interface
-            // For now, we'll return empty bitmaps
-            // Users can check individual claims using areIndicesClaimed
-            bitmaps[i] = Bitmap.wrap(0);
+            bitmaps[i] = IncentivesLib.getClaimedBitmap(INCENTIVES, key, words[i]);
         }
     }
 
@@ -144,7 +140,7 @@ contract IncentivesDataFetcher {
     function getRemainingAmounts(DropKey[] memory keys) external view returns (uint128[] memory remaining) {
         remaining = new uint128[](keys.length);
         for (uint256 i = 0; i < keys.length; i++) {
-            remaining[i] = IIncentives(address(INCENTIVES)).getRemaining(keys[i]);
+            remaining[i] = IncentivesLib.getRemaining(INCENTIVES, keys[i]);
         }
     }
 
@@ -158,11 +154,11 @@ contract IncentivesDataFetcher {
         view
         returns (bool[] memory available)
     {
-        require(indices.length == amounts.length, "Arrays length mismatch");
+        if (indices.length != amounts.length) revert ArrayLengthMismatch();
 
         available = new bool[](indices.length);
         for (uint256 i = 0; i < indices.length; i++) {
-            available[i] = IIncentives(address(INCENTIVES)).isAvailable(key, indices[i], amounts[i]);
+            available[i] = IncentivesLib.isAvailable(INCENTIVES, key, indices[i], amounts[i]);
         }
     }
 }

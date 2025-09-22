@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 import {Bitmap} from "./types/bitmap.sol";
 import {DropKey, toDropId} from "./types/dropKey.sol";
-import {DropState, toDropState} from "./types/dropState.sol";
+import {DropState} from "./types/dropState.sol";
 import {IIncentives, Claim, hashClaim} from "./interfaces/IIncentives.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";

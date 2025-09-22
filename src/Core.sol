@@ -280,30 +280,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
     }
 
-    /// @notice Accounts for debt in token0, handling native token payments
-    /// @dev Private function that manages debt accounting with special handling for native tokens
-    /// @param id Lock ID for debt tracking
-    /// @param token0 Address of token0
-    /// @param debtChange Change in debt amount
-    function _maybeAccountDebtToken0(uint256 id, address token0, int256 debtChange) private {
-        if (msg.value == 0) {
-            _accountDebt(id, token0, debtChange);
-        } else {
-            if (msg.value > type(uint128).max) revert PaymentOverflow();
-
-            if (token0 == NATIVE_TOKEN_ADDRESS) {
-                unchecked {
-                    _accountDebt(id, NATIVE_TOKEN_ADDRESS, debtChange - int256(msg.value));
-                }
-            } else {
-                unchecked {
-                    _accountDebt(id, token0, debtChange);
-                    _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
-                }
-            }
-        }
-    }
-
     /// @notice Updates debt for a token pair, handling native token payments for token0
     /// @dev Optimized version that updates both tokens' debts in a single operation when possible.
     ///      Assumes token0 < token1 (tokens are sorted).
@@ -330,27 +306,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     // token0 is native, so we can still use pair update with adjusted debtChange0
                     _updatePairDebt(id, token0, token1, debtChange0 - int256(msg.value), debtChange1);
                 }
+            } else if (token1 == NATIVE_TOKEN_ADDRESS) {
+                unchecked {
+                    // token1 is native, so we can still use pair update with adjusted debtChange1
+                    _updatePairDebt(id, token0, token1, debtChange0, debtChange1 - int256(msg.value));
+                }
             } else {
-                // token0 is not native, need to handle native token separately
-                // Check if NATIVE_TOKEN_ADDRESS < token0 < token1 or token0 < token1 < NATIVE_TOKEN_ADDRESS
-                if (NATIVE_TOKEN_ADDRESS < token0) {
-                    // NATIVE_TOKEN_ADDRESS < token0 < token1
-                    unchecked {
-                        _updatePairDebt(id, NATIVE_TOKEN_ADDRESS, token0, -int256(msg.value), debtChange0);
-                        _accountDebt(id, token1, debtChange1);
-                    }
-                } else if (NATIVE_TOKEN_ADDRESS < token1) {
-                    // token0 < NATIVE_TOKEN_ADDRESS < token1
-                    unchecked {
-                        _updatePairDebt(id, token0, NATIVE_TOKEN_ADDRESS, debtChange0, -int256(msg.value));
-                        _accountDebt(id, token1, debtChange1);
-                    }
-                } else {
-                    // token0 < token1 < NATIVE_TOKEN_ADDRESS
-                    unchecked {
-                        _updatePairDebt(id, token0, token1, debtChange0, debtChange1);
-                        _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
-                    }
+                // Neither token0 nor token1 is native, need to handle native token separately
+                // Since NATIVE_TOKEN_ADDRESS is address(0), it's always < token0 < token1
+                unchecked {
+                    _updatePairDebt(id, NATIVE_TOKEN_ADDRESS, token0, -int256(msg.value), debtChange0);
+                    _accountDebt(id, token1, debtChange1);
                 }
             }
         }
@@ -456,8 +422,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         poolPositions[poolId][locker][positionId] =
             Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
 
-        _accountDebt(id, poolKey.token0, -int256(uint256(amount0)));
-        _accountDebt(id, poolKey.token1, -int256(uint256(amount1)));
+        _updatePairDebt(id, poolKey.token0, poolKey.token1, -int256(uint256(amount0)), -int256(uint256(amount1)));
 
         emit PositionFeesCollected(locker, poolId, positionId, amount0, amount1);
 

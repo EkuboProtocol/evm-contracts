@@ -123,7 +123,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                     if xor(currentZero0, nextZero0) {
                         // If transitioning from zero to non-zero: add 1
                         // If transitioning from non-zero to zero: subtract 1
-                        nzdCountDelta := add(nzdCountDelta, sub(iszero(nextZero0), nextZero0))
+                        nzdCountDelta := sub(iszero(nextZero0), nextZero0)
                     }
 
                     tstore(deltaSlot0, next0)
@@ -147,7 +147,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 }
 
                 // Update non-zero debt count only once if there were any changes
-                if iszero(iszero(nzdCountDelta)) { tstore(nzdCountSlot, add(nzdCount, nzdCountDelta)) }
+                if nzdCountDelta { tstore(nzdCountSlot, add(nzdCount, nzdCountDelta)) }
             }
         }
     }

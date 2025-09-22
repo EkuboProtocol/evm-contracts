@@ -90,6 +90,68 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
+    /// @notice Updates the debt tracking for a specific locker and pair of tokens in a single operation
+    /// @dev Optimized version that updates both tokens' debts and the non-zero debt count in a single tload/tstore.
+    ///      Assumes token0 < token1 (tokens are sorted). We assume debtChange values cannot exceed 128 bits.
+    ///      This must be enforced at the places it is called for this contract's safety.
+    ///      Negative values erase debt, positive values add debt.
+    /// @param id The locker ID to update debt for
+    /// @param token0 The first token address (must be < token1)
+    /// @param token1 The second token address (must be > token0)
+    /// @param debtChange0 The change in debt for token0 (negative to reduce, positive to increase)
+    /// @param debtChange1 The change in debt for token1 (negative to reduce, positive to increase)
+    function _updatePairDebt(uint256 id, address token0, address token1, int256 debtChange0, int256 debtChange1)
+        internal
+    {
+        assembly ("memory-safe") {
+            let hasChange0 := iszero(iszero(debtChange0))
+            let hasChange1 := iszero(iszero(debtChange1))
+
+            if or(hasChange0, hasChange1) {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                let nzdCount := tload(nzdCountSlot)
+                let nzdCountDelta := 0
+
+                // Update token0 debt if there's a change
+                if hasChange0 {
+                    let deltaSlot0 := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token0))
+                    let current0 := tload(deltaSlot0)
+                    let next0 := add(current0, debtChange0)
+
+                    let currentZero0 := iszero(current0)
+                    let nextZero0 := iszero(next0)
+                    if xor(currentZero0, nextZero0) {
+                        // If transitioning from zero to non-zero: add 1
+                        // If transitioning from non-zero to zero: subtract 1
+                        nzdCountDelta := add(nzdCountDelta, sub(iszero(nextZero0), nextZero0))
+                    }
+
+                    tstore(deltaSlot0, next0)
+                }
+
+                // Update token1 debt if there's a change
+                if hasChange1 {
+                    let deltaSlot1 := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token1))
+                    let current1 := tload(deltaSlot1)
+                    let next1 := add(current1, debtChange1)
+
+                    let currentZero1 := iszero(current1)
+                    let nextZero1 := iszero(next1)
+                    if xor(currentZero1, nextZero1) {
+                        // If transitioning from zero to non-zero: add 1
+                        // If transitioning from non-zero to zero: subtract 1
+                        nzdCountDelta := add(nzdCountDelta, sub(iszero(nextZero1), nextZero1))
+                    }
+
+                    tstore(deltaSlot1, next1)
+                }
+
+                // Update non-zero debt count only once if there were any changes
+                if iszero(iszero(nzdCountDelta)) { tstore(nzdCountSlot, add(nzdCount, nzdCountDelta)) }
+            }
+        }
+    }
+
     /// @inheritdoc IFlashAccountant
     function updateDebt(int256 delta) external {
         (uint256 id,) = _getLocker();

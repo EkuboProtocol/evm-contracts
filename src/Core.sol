@@ -157,8 +157,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             sstore(slot, add(shl(128, b0Next), b1Next))
         }
 
-        _maybeAccountDebtToken0(id, token0, delta0);
-        _accountDebt(id, token1, delta1);
+        _updatePairDebtWithNative(id, token0, token1, delta0, delta1);
     }
 
     /// @notice Returns the pool fees per liquidity inside the given bounds
@@ -237,8 +236,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         // whether the fees are actually accounted to any position, the caller owes the debt
-        _maybeAccountDebtToken0(id, poolKey.token0, int256(uint256(amount0)));
-        _accountDebt(id, poolKey.token1, int256(uint256(amount1)));
+        _updatePairDebtWithNative(
+            id, poolKey.token0, poolKey.token1, int256(uint256(amount0)), int256(uint256(amount1))
+        );
 
         emit FeesAccumulated(poolId, amount0, amount1);
     }
@@ -299,6 +299,58 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 unchecked {
                     _accountDebt(id, token0, debtChange);
                     _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+                }
+            }
+        }
+    }
+
+    /// @notice Updates debt for a token pair, handling native token payments for token0
+    /// @dev Optimized version that updates both tokens' debts in a single operation when possible.
+    ///      Assumes token0 < token1 (tokens are sorted).
+    /// @param id Lock ID for debt tracking
+    /// @param token0 Address of token0 (must be < token1)
+    /// @param token1 Address of token1 (must be > token0)
+    /// @param debtChange0 Change in debt amount for token0
+    /// @param debtChange1 Change in debt amount for token1
+    function _updatePairDebtWithNative(
+        uint256 id,
+        address token0,
+        address token1,
+        int256 debtChange0,
+        int256 debtChange1
+    ) private {
+        if (msg.value == 0) {
+            // No native token payment, use optimized pair update
+            _updatePairDebt(id, token0, token1, debtChange0, debtChange1);
+        } else {
+            if (msg.value > type(uint128).max) revert PaymentOverflow();
+
+            if (token0 == NATIVE_TOKEN_ADDRESS) {
+                unchecked {
+                    // token0 is native, so we can still use pair update with adjusted debtChange0
+                    _updatePairDebt(id, token0, token1, debtChange0 - int256(msg.value), debtChange1);
+                }
+            } else {
+                // token0 is not native, need to handle native token separately
+                // Check if NATIVE_TOKEN_ADDRESS < token0 < token1 or token0 < token1 < NATIVE_TOKEN_ADDRESS
+                if (NATIVE_TOKEN_ADDRESS < token0) {
+                    // NATIVE_TOKEN_ADDRESS < token0 < token1
+                    unchecked {
+                        _updatePairDebt(id, NATIVE_TOKEN_ADDRESS, token0, -int256(msg.value), debtChange0);
+                        _accountDebt(id, token1, debtChange1);
+                    }
+                } else if (NATIVE_TOKEN_ADDRESS < token1) {
+                    // token0 < NATIVE_TOKEN_ADDRESS < token1
+                    unchecked {
+                        _updatePairDebt(id, token0, NATIVE_TOKEN_ADDRESS, debtChange0, -int256(msg.value));
+                        _accountDebt(id, token1, debtChange1);
+                    }
+                } else {
+                    // token0 < token1 < NATIVE_TOKEN_ADDRESS
+                    unchecked {
+                        _updatePairDebt(id, token0, token1, debtChange0, debtChange1);
+                        _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+                    }
                 }
             }
         }
@@ -373,8 +425,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 );
             }
 
-            _maybeAccountDebtToken0(id, poolKey.token0, delta0);
-            _accountDebt(id, poolKey.token1, delta1);
+            _updatePairDebtWithNative(id, poolKey.token0, poolKey.token1, delta0, delta1);
 
             emit PositionUpdated(locker, poolId, positionId, liquidityDelta, delta0, delta1);
         }
@@ -557,8 +608,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            _maybeAccountDebtToken0(id, poolKey.token0, delta0);
-            _accountDebt(id, poolKey.token1, delta1);
+            _updatePairDebtWithNative(id, poolKey.token0, poolKey.token1, delta0, delta1);
 
             assembly ("memory-safe") {
                 let o := mload(0x40)

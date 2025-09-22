@@ -296,9 +296,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         int256 debtChange1
     ) private {
         if (msg.value == 0) {
-            // No native token payment, use optimized pair update
+            // No native token payment included in the call, so use optimized pair update
             _updatePairDebt(id, token0, token1, debtChange0, debtChange1);
         } else {
+            // Limits the debt change to 128 bits
             if (msg.value > type(uint128).max) revert PaymentOverflow();
 
             if (token0 == NATIVE_TOKEN_ADDRESS) {

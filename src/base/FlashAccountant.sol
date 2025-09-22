@@ -78,11 +78,11 @@ abstract contract FlashAccountant is IFlashAccountant {
                 // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
                 let next := add(current, debtChange)
 
-                let nextZero := iszero(next)
-                if xor(iszero(current), nextZero) {
-                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                let countChange := sub(iszero(current), iszero(next))
 
-                    tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
+                if countChange {
+                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                    tstore(nzdCountSlot, add(tload(nzdCountSlot), countChange))
                 }
 
                 tstore(deltaSlot, next)
@@ -93,62 +93,44 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @notice Updates the debt tracking for a specific locker and pair of tokens in a single operation
     /// @dev Optimized version that updates both tokens' debts and performs a single tload/tstore on the non-zero debt count.
     ///      Individual token debt slots are still updated separately, but the non-zero debt count is only loaded/stored once.
-    ///      Assumes token0 < token1 (tokens are sorted). We assume debtChange values cannot exceed 128 bits.
-    ///      This must be enforced at the places it is called for this contract's safety.
+    ///      We assume debtChange values cannot exceed 128 bits. This must be enforced at the places it is called for this contract's safety.
     ///      Negative values erase debt, positive values add debt.
     /// @param id The locker ID to update debt for
-    /// @param token0 The first token address (must be < token1)
-    /// @param token1 The second token address (must be > token0)
-    /// @param debtChange0 The change in debt for token0 (negative to reduce, positive to increase)
-    /// @param debtChange1 The change in debt for token1 (negative to reduce, positive to increase)
-    function _updatePairDebt(uint256 id, address token0, address token1, int256 debtChange0, int256 debtChange1)
+    /// @param tokenA The first token address
+    /// @param tokenB The second token address
+    /// @param debtChangeA The change in debt for tokenA (negative to reduce, positive to increase)
+    /// @param debtChangeB The change in debt for tokenB (negative to reduce, positive to increase)
+    function _updatePairDebt(uint256 id, address tokenA, address tokenB, int256 debtChangeA, int256 debtChangeB)
         internal
     {
         assembly ("memory-safe") {
-            let hasChange0 := iszero(iszero(debtChange0))
-            let hasChange1 := iszero(iszero(debtChange1))
+            let nzdCountChange := 0
 
-            if or(hasChange0, hasChange1) {
+            // Update token0 debt if there's a change
+            if debtChangeA {
+                let deltaSlotA := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), tokenA))
+                let currentA := tload(deltaSlotA)
+                let nextA := add(currentA, debtChangeA)
+
+                nzdCountChange := sub(iszero(currentA), iszero(nextA))
+
+                tstore(deltaSlotA, nextA)
+            }
+
+            if debtChangeB {
+                let deltaSlotB := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), tokenB))
+                let currentB := tload(deltaSlotB)
+                let nextB := add(currentB, debtChangeB)
+
+                nzdCountChange := add(nzdCountChange, sub(iszero(currentB), iszero(nextB)))
+
+                tstore(deltaSlotB, nextB)
+            }
+
+            // Update non-zero debt count only if it changed
+            if nzdCountChange {
                 let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
-                let nzdCountInitial := tload(nzdCountSlot)
-                let nzdCount := nzdCountInitial
-
-                // Update token0 debt if there's a change
-                if hasChange0 {
-                    let deltaSlot0 := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token0))
-                    let current0 := tload(deltaSlot0)
-                    let next0 := add(current0, debtChange0)
-
-                    let currentZero0 := iszero(current0)
-                    let nextZero0 := iszero(next0)
-                    if xor(currentZero0, nextZero0) {
-                        // If transitioning from zero to non-zero: add 1
-                        // If transitioning from non-zero to zero: subtract 1
-                        nzdCount := add(sub(nzdCount, nextZero0), iszero(nextZero0))
-                    }
-
-                    tstore(deltaSlot0, next0)
-                }
-
-                // Update token1 debt if there's a change
-                if hasChange1 {
-                    let deltaSlot1 := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token1))
-                    let current1 := tload(deltaSlot1)
-                    let next1 := add(current1, debtChange1)
-
-                    let currentZero1 := iszero(current1)
-                    let nextZero1 := iszero(next1)
-                    if xor(currentZero1, nextZero1) {
-                        // If transitioning from zero to non-zero: add 1
-                        // If transitioning from non-zero to zero: subtract 1
-                        nzdCount := add(sub(nzdCount, nextZero1), iszero(nextZero1))
-                    }
-
-                    tstore(deltaSlot1, next1)
-                }
-
-                // Update non-zero debt count only if it changed
-                if xor(nzdCount, nzdCountInitial) { tstore(nzdCountSlot, nzdCount) }
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
             }
         }
     }

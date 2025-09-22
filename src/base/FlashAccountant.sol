@@ -3,7 +3,6 @@ pragma solidity =0.8.28;
 
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title FlashAccountant
 /// @notice Abstract contract that provides flash loan accounting functionality using transient storage
@@ -71,21 +70,66 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @param debtChange The change in debt (negative to reduce, positive to increase)
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
-            if iszero(iszero(debtChange)) {
+            if debtChange {
                 let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                 let current := tload(deltaSlot)
 
                 // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
                 let next := add(current, debtChange)
 
-                let nextZero := iszero(next)
-                if xor(iszero(current), nextZero) {
-                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                let countChange := sub(iszero(current), iszero(next))
 
-                    tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
+                if countChange {
+                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                    tstore(nzdCountSlot, add(tload(nzdCountSlot), countChange))
                 }
 
                 tstore(deltaSlot, next)
+            }
+        }
+    }
+
+    /// @notice Updates the debt tracking for a specific locker and pair of tokens in a single operation
+    /// @dev Optimized version that updates both tokens' debts and performs a single tload/tstore on the non-zero debt count.
+    ///      Individual token debt slots are still updated separately, but the non-zero debt count is only loaded/stored once.
+    ///      We assume debtChange values cannot exceed 128 bits. This must be enforced at the places it is called for this contract's safety.
+    ///      Negative values erase debt, positive values add debt.
+    /// @param id The locker ID to update debt for
+    /// @param tokenA The first token address
+    /// @param tokenB The second token address
+    /// @param debtChangeA The change in debt for tokenA (negative to reduce, positive to increase)
+    /// @param debtChangeB The change in debt for tokenB (negative to reduce, positive to increase)
+    function _updatePairDebt(uint256 id, address tokenA, address tokenB, int256 debtChangeA, int256 debtChangeB)
+        internal
+    {
+        assembly ("memory-safe") {
+            let nzdCountChange := 0
+
+            // Update token0 debt if there's a change
+            if debtChangeA {
+                let deltaSlotA := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), tokenA))
+                let currentA := tload(deltaSlotA)
+                let nextA := add(currentA, debtChangeA)
+
+                nzdCountChange := sub(iszero(currentA), iszero(nextA))
+
+                tstore(deltaSlotA, nextA)
+            }
+
+            if debtChangeB {
+                let deltaSlotB := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), tokenB))
+                let currentB := tload(deltaSlotB)
+                let nextB := add(currentB, debtChangeB)
+
+                nzdCountChange := add(nzdCountChange, sub(iszero(currentB), iszero(nextB)))
+
+                tstore(deltaSlotB, nextB)
+            }
+
+            // Update non-zero debt count only if it changed
+            if nzdCountChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
             }
         }
     }
@@ -249,16 +293,14 @@ abstract contract FlashAccountant is IFlashAccountant {
 
                 mstore(add(paymentAmounts, mul(16, div(i, 32))), shl(128, payment))
 
-                if iszero(iszero(payment)) {
+                if payment {
                     let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                     let current := tload(deltaSlot)
 
                     // never overflows because of the payment overflow check that bounds payment to 128 bits
                     let next := sub(current, payment)
 
-                    let nextZero := iszero(next)
-                    nzdCountChange :=
-                        add(nzdCountChange, mul(xor(iszero(current), nextZero), sub(iszero(nextZero), nextZero)))
+                    nzdCountChange := add(nzdCountChange, sub(iszero(current), iszero(next)))
 
                     tstore(deltaSlot, next)
                 }
@@ -287,21 +329,18 @@ abstract contract FlashAccountant is IFlashAccountant {
                 let recipient := shr(96, calldataload(add(i, 20)))
                 let amount := shr(128, calldataload(add(i, 40)))
 
-                if iszero(iszero(amount)) {
+                if amount {
                     // Update debt tracking without updating nzdCountSlot yet
                     let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                     let current := tload(deltaSlot)
                     let next := add(current, amount)
 
-                    let nextZero := iszero(next)
-                    nzdCountChange :=
-                        add(nzdCountChange, mul(xor(iszero(current), nextZero), sub(iszero(nextZero), nextZero)))
+                    nzdCountChange := add(nzdCountChange, sub(iszero(current), iszero(next)))
 
                     tstore(deltaSlot, next)
 
-                    // Perform the withdrawal
+                    // Perform the token transfer
                     if iszero(token) {
-                        // SafeTransferLib.safeTransferETH(recipient, amount)
                         let success := call(gas(), recipient, amount, 0, 0, 0, 0)
                         if iszero(success) {
                             // cast sig "ETHTransferFailed()"
@@ -309,8 +348,8 @@ abstract contract FlashAccountant is IFlashAccountant {
                             revert(0x1c, 4)
                         }
                     }
+
                     if token {
-                        // SafeTransferLib.safeTransfer(token, recipient, amount)
                         mstore(0x14, recipient) // Store the `to` argument.
                         mstore(0x34, amount) // Store the `amount` argument.
                         mstore(0x00, 0xa9059cbb000000000000000000000000) // `transfer(address,uint256)`.

@@ -8,8 +8,11 @@ import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
+import {RevenueBuybacksLib} from "../src/libraries/RevenueBuybacksLib.sol";
 
 contract RevenueBuybacksTest is BaseOrdersTest {
+    using RevenueBuybacksLib for *;
+
     RevenueBuybacks rb;
     TestToken buybacksToken;
 
@@ -65,7 +68,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_configure() public {
-        BuybacksState state = rb.states(address(token0));
+        BuybacksState state = rb.state(address(token0));
         assertEq(state.targetOrderDuration(), 0);
         assertEq(state.minOrderDuration(), 0);
         assertEq(state.fee(), 0);
@@ -76,7 +79,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         uint64 nextFee = uint64((uint256(1) << 64) / 100);
         rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: nextFee});
 
-        state = rb.states(address(token0));
+        state = rb.state(address(token0));
         assertEq(state.targetOrderDuration(), 3600);
         assertEq(state.minOrderDuration(), 1800);
         assertEq(state.fee(), nextFee);

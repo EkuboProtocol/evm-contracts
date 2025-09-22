@@ -3,11 +3,12 @@ pragma solidity =0.8.28;
 
 import {IOrders} from "./IOrders.sol";
 import {BuybacksState} from "../types/buybacksState.sol";
+import {IExposedStorage} from "./IExposedStorage.sol";
 
 /// @title Revenue Buybacks Interface
 /// @notice Interface for automated revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
 /// @dev Defines the interface for managing buyback orders for protocol revenue
-interface IRevenueBuybacks {
+interface IRevenueBuybacks is IExposedStorage {
     /// @notice Thrown when minimum order duration exceeds target order duration
     /// @dev This would prevent orders from being created since the condition would never be met
     error MinOrderDurationGreaterThanTargetOrderDuration();
@@ -18,10 +19,8 @@ interface IRevenueBuybacks {
 
     /// @notice Emitted when a token's buyback configuration is updated
     /// @param token The token being configured for buybacks
-    /// @param targetOrderDuration The target duration for new orders
-    /// @param minOrderDuration The minimum duration threshold for creating new orders
-    /// @param fee The fee tier for the buyback pool
-    event Configured(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee);
+    /// @param state The state after configuring the token
+    event Configured(address token, BuybacksState state);
 
     /// @notice The Orders contract used to create and manage TWAMM orders
     /// @dev All buyback orders are created through this contract
@@ -34,10 +33,6 @@ interface IRevenueBuybacks {
     /// @notice The token that is purchased with collected revenue
     /// @dev This is typically the protocol's governance or utility token
     function BUY_TOKEN() external view returns (address);
-
-    /// @notice Maps each revenue token to its buyback configuration and state
-    /// @dev Tracks the parameters and timing for automated buyback order creation
-    function states(address token) external view returns (BuybacksState);
 
     /// @notice Approves the Orders contract to spend unlimited amounts of a token
     /// @dev Must be called at least once for each revenue token before creating buyback orders

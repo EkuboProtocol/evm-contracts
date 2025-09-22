@@ -10,13 +10,14 @@ import {IOrders} from "./interfaces/IOrders.sol";
 import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
 import {BuybacksState, createBuybacksState} from "./types/buybacksState.sol";
 import {OrderKey} from "./types/orderKey.sol";
+import {ExposedStorage} from "./base/ExposedStorage.sol";
 
 /// @title Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Creates automated revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
 /// @dev Final contract that manages the creation and execution of buyback orders for protocol revenue
 /// This contract automatically creates TWAMM orders to buy back a specified token using collected revenue
-contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
+contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicallable {
     /// @notice The Orders contract used to create and manage TWAMM orders
     /// @dev All buyback orders are created through this contract
     IOrders public immutable ORDERS;
@@ -28,10 +29,6 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
     /// @notice The token that is purchased with collected revenue
     /// @dev This is typically the protocol's governance or utility token
     address public immutable BUY_TOKEN;
-
-    /// @notice Maps each revenue token to its buyback configuration and state
-    /// @dev Tracks the parameters and timing for automated buyback order creation
-    mapping(address token => BuybacksState state) public states;
 
     /// @notice Constructs the RevenueBuybacks contract
     /// @param owner The address that will own this contract and have administrative privileges
@@ -84,7 +81,10 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
     /// @return saleRate The sale rate of the order (amount of token sold per second)
     function roll(address token) public returns (uint256 endTime, uint112 saleRate) {
         unchecked {
-            BuybacksState state = states[token];
+            BuybacksState state;
+            assembly ("memory-safe") {
+                state := sload(token)
+            }
             // minOrderDuration == 0 indicates the token is not configured
             if (state.minOrderDuration() != 0) {
                 bool isEth = token == address(0);
@@ -103,7 +103,7 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
                 } else {
                     endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration()) - 1);
 
-                    states[token] = createBuybacksState({
+                    state = createBuybacksState({
                         _targetOrderDuration: state.targetOrderDuration(),
                         _minOrderDuration: state.minOrderDuration(),
                         _fee: state.fee(),
@@ -111,6 +111,9 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
                         _lastOrderDuration: uint32(endTime - block.timestamp),
                         _lastFee: state.fee()
                     });
+                    assembly ("memory-safe") {
+                        sstore(token, state)
+                    }
                 }
 
                 if (amountToSpend != 0) {
@@ -148,8 +151,12 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
         roll(token);
 
         // Then apply the configuration change
-        BuybacksState state = states[token];
-        states[token] = createBuybacksState({
+        BuybacksState state;
+        assembly ("memory-safe") {
+            state := sload(token)
+        }
+
+        state = createBuybacksState({
             _targetOrderDuration: targetOrderDuration,
             _minOrderDuration: minOrderDuration,
             _fee: fee,
@@ -157,6 +164,10 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
             _lastOrderDuration: state.lastOrderDuration(),
             _lastFee: state.lastFee()
         });
-        emit Configured(token, targetOrderDuration, minOrderDuration, fee);
+        assembly ("memory-safe") {
+            sstore(token, state)
+        }
+
+        emit Configured(token, state);
     }
 }

@@ -227,8 +227,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
             uint128 amount0 = uint128(delta0);
             uint128 amount1 = uint128(delta1);
-            pay(caller, poolKey.token0, amount0);
-            pay(caller, poolKey.token1, amount1);
+            FlashAccountantLib.payTwoFrom(ACCOUNTANT, caller, poolKey.token0, poolKey.token1, amount0, amount1);
 
             result = abi.encode(amount0, amount1);
         } else if (callType == 0xff) {

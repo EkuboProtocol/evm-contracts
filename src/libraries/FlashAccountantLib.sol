@@ -107,6 +107,75 @@ library FlashAccountantLib {
         }
     }
 
+    /// @notice Pays two tokens from a specific address to the flash accountant in a single operation
+    /// @dev Uses assembly for gas optimization and handles both tokens in a single startPayments/completePayments cycle
+    /// @param accountant The flash accountant contract to pay
+    /// @param from The address to transfer tokens from
+    /// @param token0 The first token address to pay
+    /// @param token1 The second token address to pay
+    /// @param amount0 The amount of token0 to pay
+    /// @param amount1 The amount of token1 to pay
+    function payTwoFrom(
+        IFlashAccountant accountant,
+        address from,
+        address token0,
+        address token1,
+        uint256 amount0,
+        uint256 amount1
+    ) internal {
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+
+            // accountant.startPayments() with both tokens
+            mstore(free, 0xf9b6a796) // startPayments selector
+            mstore(add(free, 32), token0) // first token
+            mstore(add(free, 64), token1) // second token
+
+            // Call startPayments with both tokens (4 + 32 + 32 = 68 bytes)
+            pop(call(gas(), accountant, 0, add(free, 28), 68, 0x00, 0x00))
+
+            // Transfer token0 from caller to accountant
+            if amount0 {
+                mstore(add(free, 96), 0x23b872dd000000000000000000000000) // transferFrom selector
+                mstore(add(free, 108), shl(96, from)) // from address
+                mstore(add(free, 128), shl(96, accountant)) // to address (accountant)
+                mstore(add(free, 148), amount0) // amount
+
+                let success := call(gas(), token0, 0, add(free, 108), 0x64, 0x00, 0x20)
+                if iszero(and(eq(mload(0x00), 1), success)) {
+                    if iszero(lt(or(iszero(extcodesize(token0)), returndatasize()), success)) {
+                        mstore(0x00, 0x7939f424) // TransferFromFailed()
+                        revert(0x1c, 0x04)
+                    }
+                }
+            }
+
+            // Transfer token1 from caller to accountant
+            if amount1 {
+                mstore(add(free, 96), 0x23b872dd000000000000000000000000) // transferFrom selector
+                mstore(add(free, 108), shl(96, from)) // from address
+                mstore(add(free, 128), shl(96, accountant)) // to address (accountant)
+                mstore(add(free, 148), amount1) // amount
+
+                let success := call(gas(), token1, 0, add(free, 108), 0x64, 0x00, 0x20)
+                if iszero(and(eq(mload(0x00), 1), success)) {
+                    if iszero(lt(or(iszero(extcodesize(token1)), returndatasize()), success)) {
+                        mstore(0x00, 0x7939f424) // TransferFromFailed()
+                        revert(0x1c, 0x04)
+                    }
+                }
+            }
+
+            // accountant.completePayments() with both tokens
+            mstore(free, 0x12e103f1) // completePayments selector
+            mstore(add(free, 32), token0) // first token
+            mstore(add(free, 64), token1) // second token
+
+            // Call completePayments with both tokens (4 + 32 + 32 = 68 bytes)
+            pop(call(gas(), accountant, 0, add(free, 28), 68, 0x00, 0x00))
+        }
+    }
+
     /// @notice Withdraws two tokens using assembly to call withdraw with packed calldata
     /// @dev Uses assembly and packed calldata for gas efficiency, optimized for positions contract
     /// @param accountant The flash accountant contract instance

@@ -304,14 +304,15 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             if (token0 == NATIVE_TOKEN_ADDRESS) {
                 unchecked {
                     // token0 is native, so we can still use pair update with adjusted debtChange0
+                    // Subtraction is safe because debtChange0 and msg.value are both bounded by int128/uint128
                     _updatePairDebt(id, token0, token1, debtChange0 - int256(msg.value), debtChange1);
                 }
             } else {
                 // token0 is not native, and since token0 < token1, token1 cannot be native either
-                // Since NATIVE_TOKEN_ADDRESS is address(0), it's always < token0 < token1
+                // Update the token0, token1 debt and then update native token debt separately
                 unchecked {
-                    _updatePairDebt(id, NATIVE_TOKEN_ADDRESS, token0, -int256(msg.value), debtChange0);
-                    _accountDebt(id, token1, debtChange1);
+                    _updatePairDebt(id, token0, token1, debtChange0, debtChange1);
+                    _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
                 }
             }
         }

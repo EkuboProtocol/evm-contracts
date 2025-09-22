@@ -2,17 +2,14 @@
 pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {EkuboRevenueBuybacks} from "../src/RevenueBuybacks.sol";
-import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
 
 contract RevenueBuybacksTest is BaseOrdersTest {
-    using CoreLib for *;
-
-    EkuboRevenueBuybacks rb;
+    RevenueBuybacks rb;
     TestToken buybacksToken;
 
     function setUp() public override {
@@ -29,39 +26,10 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
 
         // it always buys back the buybacksToken
-        rb = new EkuboRevenueBuybacks(positions, address(this), orders, address(buybacksToken));
-
-        vm.prank(positions.owner());
-        positions.transferOwnership(address(rb));
+        rb = new RevenueBuybacks(address(this), orders, address(buybacksToken));
     }
 
-    // increases the saved balance of the core contract
-    function donateViaCore(address token0, address token1, uint128 amount0, uint128 amount1) internal {
-        (uint128 amount0Old, uint128 amount1Old) = positions.getProtocolFees(token0, token1);
-
-        vm.store(
-            address(core),
-            CoreLib.savedBalancesSlot(address(positions), token0, token1, bytes32(0)),
-            bytes32(((uint256(amount0Old + amount0) << 128)) | uint256(amount1Old + amount1))
-        );
-
-        if (token0 == address(0)) {
-            vm.deal(address(core), amount0);
-        } else {
-            TestToken(token0).transfer(address(core), amount0);
-        }
-        TestToken(token1).transfer(address(core), amount1);
-    }
-
-    function test_donateViaCore(bool useEth, uint128 amount0, uint128 amount1) public {
-        address token0 = useEth ? address(0) : address(token0);
-        donateViaCore(token0, address(token1), amount0, amount1);
-
-        (uint128 amount0Next, uint128 amount1Next) = positions.getProtocolFees(token0, address(token1));
-        assertEq(amount0Next, amount0);
-        assertEq(amount1Next, amount1);
-    }
-
+    // transfers tokens directly to the buybacks contract for testing
     function donate(address token, uint128 amount) internal {
         if (token == address(0)) {
             vm.deal(address(rb), amount);
@@ -73,18 +41,6 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     function test_setUp_token_order() public view {
         assertGt(uint160(address(token1)), uint160(address(token0)));
         assertGt(uint160(address(buybacksToken)), uint160(address(token1)));
-    }
-
-    function test_reclaim_transfers_ownership() public {
-        assertEq(positions.owner(), address(rb));
-        rb.reclaim();
-        assertEq(positions.owner(), address(this));
-    }
-
-    function test_reclaim_fails_if_not_owner() public {
-        vm.prank(address(uint160(0xdeadbeef)));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        rb.reclaim();
     }
 
     function test_approve_max() public {

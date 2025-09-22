@@ -7,35 +7,15 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {nextValidTime} from "./math/time.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
-import {IPositions} from "./interfaces/IPositions.sol";
+import {IRevenueBuybacks, BuybacksState} from "./interfaces/IRevenueBuybacks.sol";
 import {OrderKey} from "./types/orderKey.sol";
-
-/// @notice Configuration and state for revenue buyback orders for a specific token
-/// @dev Tracks the parameters and timing for automated buyback order creation
-struct BuybacksState {
-    /// @notice Target duration for new orders (in seconds)
-    /// @dev New orders will be placed for the minimum duration that is larger than this target
-    uint32 targetOrderDuration;
-    /// @notice Minimum duration threshold for order creation (in seconds)
-    /// @dev New orders will be created only if the last order duration is less than this threshold
-    uint32 minOrderDuration;
-    /// @notice Fee tier of the pool on which orders are placed
-    /// @dev Expressed as a fraction where higher values represent higher fees
-    uint64 fee;
-    /// @notice End time of the last order that was created (timestamp)
-    uint32 lastEndTime;
-    /// @notice Duration of the last order that was created (in seconds)
-    uint32 lastOrderDuration;
-    /// @notice Fee tier of the last order that was created
-    uint64 lastFee;
-}
 
 /// @title Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Creates automated revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
-/// @dev Abstract contract that manages the creation and execution of buyback orders for protocol revenue
+/// @dev Final contract that manages the creation and execution of buyback orders for protocol revenue
 /// This contract automatically creates TWAMM orders to buy back a specified token using collected revenue
-abstract contract RevenueBuybacks is Ownable, Multicallable {
+contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
     /// @notice The Orders contract used to create and manage TWAMM orders
     /// @dev All buyback orders are created through this contract
     IOrders public immutable ORDERS;
@@ -47,21 +27,6 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
     /// @notice The token that is purchased with collected revenue
     /// @dev This is typically the protocol's governance or utility token
     address public immutable BUY_TOKEN;
-
-    /// @notice Thrown when minimum order duration exceeds target order duration
-    /// @dev This would prevent orders from being created since the condition would never be met
-    error MinOrderDurationGreaterThanTargetOrderDuration();
-
-    /// @notice Thrown when minimum order duration is set to zero
-    /// @dev Orders cannot have zero duration, so this prevents invalid configurations
-    error MinOrderDurationMustBeGreaterThanZero();
-
-    /// @notice Emitted when a token's buyback configuration is updated
-    /// @param token The token being configured for buybacks
-    /// @param targetOrderDuration The target duration for new orders
-    /// @param minOrderDuration The minimum duration threshold for creating new orders
-    /// @param fee The fee tier for the buyback pool
-    event Configured(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee);
 
     /// @notice Maps each revenue token to its buyback configuration and state
     /// @dev Tracks the parameters and timing for automated buyback order creation
@@ -154,14 +119,6 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
         }
     }
 
-    /// @notice Checks if a token has been configured for buybacks
-    /// @dev A token is considered configured if its minOrderDuration is non-zero
-    /// @param token The token to check configuration for
-    /// @return True if the token is configured for buybacks, false otherwise
-    function isConfigured(address token) internal view returns (bool) {
-        return states[token].minOrderDuration != 0;
-    }
-
     /// @notice Configures buyback parameters for a revenue token (only callable by owner)
     /// @dev Sets the timing and fee parameters for automated buyback order creation
     /// @param token The revenue token to configure
@@ -182,50 +139,5 @@ abstract contract RevenueBuybacks is Ownable, Multicallable {
         BuybacksState storage state = states[token];
         (state.targetOrderDuration, state.minOrderDuration, state.fee) = (targetOrderDuration, minOrderDuration, fee);
         emit Configured(token, targetOrderDuration, minOrderDuration, fee);
-    }
-}
-
-/// @title Ekubo Revenue Buybacks
-/// @notice Concrete implementation of RevenueBuybacks for the Ekubo Protocol
-/// @dev Integrates with the Positions contract to collect protocol fees and create buyback orders
-contract EkuboRevenueBuybacks is RevenueBuybacks {
-    /// @notice Thrown when attempting to withdraw tokens that are not configured for buybacks
-    /// @dev At least one of the tokens in a pair must be configured to allow withdrawal
-    error RevenueTokenNotConfigured();
-
-    /// @notice The Positions contract used to collect protocol fees
-    /// @dev Protocol fees are collected from this contract and used to fund buyback orders
-    IPositions public immutable POSITIONS;
-
-    /// @notice Constructs the EkuboRevenueBuybacks contract
-    /// @param _positions The Positions contract instance for collecting protocol fees
-    /// @param owner The address that will own this contract
-    /// @param orders The Orders contract instance for creating TWAMM orders
-    /// @param buyToken The token that will be purchased with collected revenue
-    constructor(IPositions _positions, address owner, IOrders orders, address buyToken)
-        RevenueBuybacks(owner, orders, buyToken)
-    {
-        POSITIONS = _positions;
-    }
-
-    /// @notice Reclaims ownership of the Positions contract
-    /// @dev Transfers ownership of the Positions contract to the caller (must be owner)
-    /// This is used when the Positions contract should be owned by this buybacks contract
-    function reclaim() external onlyOwner {
-        Ownable(address(POSITIONS)).transferOwnership(msg.sender);
-    }
-
-    /// @notice Withdraws available protocol fees from the Positions contract
-    /// @dev Must be called before roll() to collect revenue tokens that can be used for buybacks
-    /// At least one of the tokens must be configured for buybacks
-    /// @param token0 The first token of the pair to withdraw fees for
-    /// @param token1 The second token of the pair to withdraw fees for
-    function withdrawAvailableTokens(address token0, address token1) external {
-        if (!isConfigured(token0) && !isConfigured(token1)) revert RevenueTokenNotConfigured();
-
-        (uint128 amount0, uint128 amount1) = POSITIONS.getProtocolFees(token0, token1);
-        if (amount0 != 0 || amount1 != 0) {
-            POSITIONS.withdrawProtocolFees(token0, token1, amount0, amount1, address(this));
-        }
     }
 }

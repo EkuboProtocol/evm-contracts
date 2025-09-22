@@ -7,7 +7,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {nextValidTime} from "./math/time.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
-import {IRevenueBuybacks, BuybacksState} from "./interfaces/IRevenueBuybacks.sol";
+import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
+import {BuybacksState, createBuybacksState} from "./types/buybacksState.sol";
 import {OrderKey} from "./types/orderKey.sol";
 
 /// @title Revenue Buybacks
@@ -83,34 +84,45 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
     /// @return saleRate The sale rate of the order (amount of token sold per second)
     function roll(address token) public returns (uint256 endTime, uint112 saleRate) {
         unchecked {
-            BuybacksState memory state = states[token];
+            BuybacksState state = states[token];
             // minOrderDuration == 0 indicates the token is not configured
-            if (state.minOrderDuration != 0) {
+            if (state.minOrderDuration() != 0) {
                 bool isEth = token == address(0);
                 uint256 amountToSpend = isEth ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
-                uint32 timeRemaining = state.lastEndTime - uint32(block.timestamp);
+                uint32 timeRemaining = state.lastEndTime() - uint32(block.timestamp);
                 // if the fee changed, or the amount of time exceeds the min order duration
                 // note the time remaining can underflow if the last order has ended. in this case time remaining will be greater than min order duration,
                 // but also greater than last order duration, so it will not be re-used.
                 if (
-                    state.fee == state.lastFee && timeRemaining >= state.minOrderDuration
-                        && timeRemaining <= state.lastOrderDuration
+                    state.fee() == state.lastFee() && timeRemaining >= state.minOrderDuration()
+                        && timeRemaining <= state.lastOrderDuration()
                 ) {
                     // handles overflow
                     endTime = block.timestamp + uint256(timeRemaining);
                 } else {
-                    endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration) - 1);
+                    endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration()) - 1);
 
-                    states[token].lastEndTime = uint32(endTime);
-                    states[token].lastOrderDuration = uint32(endTime - block.timestamp);
-                    states[token].lastFee = state.fee;
+                    states[token] = createBuybacksState({
+                        _targetOrderDuration: state.targetOrderDuration(),
+                        _minOrderDuration: state.minOrderDuration(),
+                        _fee: state.fee(),
+                        _lastEndTime: uint32(endTime),
+                        _lastOrderDuration: uint32(endTime - block.timestamp),
+                        _lastFee: state.fee()
+                    });
                 }
 
                 if (amountToSpend != 0) {
                     saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
                         NFT_ID,
-                        OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: state.fee, startTime: 0, endTime: endTime}),
+                        OrderKey({
+                            sellToken: token,
+                            buyToken: BUY_TOKEN,
+                            fee: state.fee(),
+                            startTime: 0,
+                            endTime: endTime
+                        }),
                         uint128(amountToSpend),
                         type(uint112).max
                     );
@@ -136,8 +148,15 @@ contract RevenueBuybacks is IRevenueBuybacks, Ownable, Multicallable {
         roll(token);
 
         // Then apply the configuration change
-        BuybacksState storage state = states[token];
-        (state.targetOrderDuration, state.minOrderDuration, state.fee) = (targetOrderDuration, minOrderDuration, fee);
+        BuybacksState state = states[token];
+        states[token] = createBuybacksState({
+            _targetOrderDuration: targetOrderDuration,
+            _minOrderDuration: minOrderDuration,
+            _fee: fee,
+            _lastEndTime: state.lastEndTime(),
+            _lastOrderDuration: state.lastOrderDuration(),
+            _lastFee: state.lastFee()
+        });
         emit Configured(token, targetOrderDuration, minOrderDuration, fee);
     }
 }

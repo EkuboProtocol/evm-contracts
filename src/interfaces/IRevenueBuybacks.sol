@@ -2,26 +2,7 @@
 pragma solidity =0.8.28;
 
 import {IOrders} from "./IOrders.sol";
-
-/// @notice Configuration and state for revenue buyback orders for a specific token
-/// @dev Tracks the parameters and timing for automated buyback order creation
-struct BuybacksState {
-    /// @notice Target duration for new orders (in seconds)
-    /// @dev New orders will be placed for the minimum duration that is larger than this target
-    uint32 targetOrderDuration;
-    /// @notice Minimum duration threshold for order creation (in seconds)
-    /// @dev New orders will be created only if the last order duration is less than this threshold
-    uint32 minOrderDuration;
-    /// @notice Fee tier of the pool on which orders are placed
-    /// @dev Expressed as a fraction where higher values represent higher fees
-    uint64 fee;
-    /// @notice End time of the last order that was created (timestamp)
-    uint32 lastEndTime;
-    /// @notice Duration of the last order that was created (in seconds)
-    uint32 lastOrderDuration;
-    /// @notice Fee tier of the last order that was created
-    uint64 lastFee;
-}
+import {BuybacksState} from "../types/buybacksState.sol";
 
 /// @title Revenue Buybacks Interface
 /// @notice Interface for automated revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
@@ -56,17 +37,7 @@ interface IRevenueBuybacks {
 
     /// @notice Maps each revenue token to its buyback configuration and state
     /// @dev Tracks the parameters and timing for automated buyback order creation
-    function states(address token)
-        external
-        view
-        returns (
-            uint32 targetOrderDuration,
-            uint32 minOrderDuration,
-            uint64 fee,
-            uint32 lastEndTime,
-            uint32 lastOrderDuration,
-            uint64 lastFee
-        );
+    function states(address token) external view returns (BuybacksState);
 
     /// @notice Approves the Orders contract to spend unlimited amounts of a token
     /// @dev Must be called at least once for each revenue token before creating buyback orders

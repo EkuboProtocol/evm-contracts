@@ -6,6 +6,7 @@ import {Multicallable} from "solady/utils/Multicallable.sol";
 
 import {IPositions} from "./interfaces/IPositions.sol";
 import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
+import {BuybacksState} from "./types/buybacksState.sol";
 
 /// @title Positions Owner
 /// @author Moody Salem <moody@ekubo.org>
@@ -48,8 +49,8 @@ contract PositionsOwner is Ownable, Multicallable {
     /// @param token1 The second token of the pair to withdraw fees for
     function withdrawAndRoll(address token0, address token1) external {
         // Check if at least one token is configured for buybacks
-        (, uint32 minOrderDuration0,,,,) = BUYBACKS.states(token0);
-        (, uint32 minOrderDuration1,,,,) = BUYBACKS.states(token1);
+        uint32 minOrderDuration0 = BUYBACKS.states(token0).minOrderDuration();
+        uint32 minOrderDuration1 = BUYBACKS.states(token1).minOrderDuration();
         if (minOrderDuration0 == 0 && minOrderDuration1 == 0) {
             revert RevenueTokenNotConfigured();
         }
@@ -79,8 +80,8 @@ contract PositionsOwner is Ownable, Multicallable {
     /// @param token1 The second token of the pair to withdraw fees for
     function withdrawToContract(address token0, address token1) external {
         // Check if at least one token is configured for buybacks
-        (, uint32 minOrderDuration0,,,,) = BUYBACKS.states(token0);
-        (, uint32 minOrderDuration1,,,,) = BUYBACKS.states(token1);
+        uint32 minOrderDuration0 = BUYBACKS.states(token0).minOrderDuration();
+        uint32 minOrderDuration1 = BUYBACKS.states(token1).minOrderDuration();
         if (minOrderDuration0 == 0 && minOrderDuration1 == 0) {
             revert RevenueTokenNotConfigured();
         }
@@ -100,8 +101,8 @@ contract PositionsOwner is Ownable, Multicallable {
     /// @param token1 The second token to roll (if configured)
     function rollTokens(address token0, address token1) external {
         // Call roll for both tokens (roll will handle tokens that aren't configured)
-        (, uint32 minOrderDuration0,,,,) = BUYBACKS.states(token0);
-        (, uint32 minOrderDuration1,,,,) = BUYBACKS.states(token1);
+        uint32 minOrderDuration0 = BUYBACKS.states(token0).minOrderDuration();
+        uint32 minOrderDuration1 = BUYBACKS.states(token1).minOrderDuration();
         if (minOrderDuration0 != 0) {
             BUYBACKS.roll(token0);
         }

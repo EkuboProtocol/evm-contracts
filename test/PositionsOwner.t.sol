@@ -173,11 +173,24 @@ contract PositionsOwnerTest is BaseOrdersTest {
         positions.mintAndDeposit(poolKey0, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
         positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
+        (uint128 fees0, uint128 fees1) = positions.getProtocolFees(address(token0), address(token1));
+        assertEq(fees0, 0);
+        assertEq(fees1, 0);
+
         // Donate protocol fees
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e18);
 
+        (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
+        assertEq(fees0, 1e18);
+        assertEq(fees1, 1e18);
+
         // Withdraw and roll
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
+
+        (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
+        // it leaves 1 in there for gas efficiency
+        assertEq(fees0, 1);
+        assertEq(fees1, 1);
 
         // Both tokens should have been used for orders
         assertEq(token0.balanceOf(address(rb)), 0);

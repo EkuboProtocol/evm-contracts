@@ -17,4 +17,21 @@ library RevenueBuybacksLib {
     function state(IRevenueBuybacks rb, address token) internal view returns (BuybacksState s) {
         s = BuybacksState.wrap(rb.sload(bytes32(uint256(uint160(token)))));
     }
+
+    /// @notice Gets the counts and metadata for snapshots of a token
+    /// @param rb The revenue buybacks contract
+    /// @param tokenA The first of two addresses to lookup
+    /// @param tokenB The second of two addresses to lookup
+    /// @return sA The state of the buybacks for tokenA
+    /// @return sB The state of the buybacks for tokenB
+    function state(IRevenueBuybacks rb, address tokenA, address tokenB)
+        internal
+        view
+        returns (BuybacksState sA, BuybacksState sB)
+    {
+        (bytes32 stateARaw, bytes32 stateBRaw) =
+            rb.sload(bytes32(uint256(uint160(tokenA))), bytes32(uint256(uint160(tokenB))));
+        sA = BuybacksState.wrap(stateARaw);
+        sB = BuybacksState.wrap(stateBRaw);
+    }
 }

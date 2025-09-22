@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 
@@ -50,9 +51,8 @@ contract PositionsOwner is Ownable, Multicallable {
     /// @param token1 The second token of the pair to withdraw fees for
     function withdrawAndRoll(address token0, address token1) external {
         // Check if at least one token is configured for buybacks
-        uint32 minOrderDuration0 = BUYBACKS.state(token0).minOrderDuration();
-        uint32 minOrderDuration1 = BUYBACKS.state(token1).minOrderDuration();
-        if (minOrderDuration0 == 0 || minOrderDuration1 == 0) {
+        (BuybacksState s0, BuybacksState s1) = BUYBACKS.state(token0, token1);
+        if (s0.minOrderDuration() == 0 || s1.minOrderDuration() == 0) {
             revert RevenueTokenNotConfigured();
         }
 
@@ -60,8 +60,14 @@ contract PositionsOwner is Ownable, Multicallable {
         (uint128 amount0, uint128 amount1) = POSITIONS.getProtocolFees(token0, token1);
 
         // Withdraw fees to the buybacks contract if there are any
-        if (amount0 != 0 || amount1 != 0) {
-            POSITIONS.withdrawProtocolFees(token0, token1, amount0, amount1, address(BUYBACKS));
+        if (amount0 > 1 || amount1 > 1) {
+            POSITIONS.withdrawProtocolFees(
+                token0,
+                token1,
+                uint128(FixedPointMathLib.zeroFloorSub(amount0, 1)),
+                uint128(FixedPointMathLib.zeroFloorSub(amount1, 1)),
+                address(BUYBACKS)
+            );
         }
 
         // Call roll for both tokens

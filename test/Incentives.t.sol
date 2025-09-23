@@ -3,27 +3,20 @@ pragma solidity =0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Incentives} from "../src/Incentives.sol";
+import {IncentivesDataFetcher} from "../src/lens/IncentivesDataFetcher.sol";
 import {DropKey} from "../src/types/dropKey.sol";
-import {Claim, hashClaim} from "../src/interfaces/IIncentives.sol";
+import {Claim, hashClaim, IIncentives} from "../src/interfaces/IIncentives.sol";
 import {TestToken} from "./TestToken.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 contract IncentivesTest is Test {
-    // Events from IIncentives interface
-    event Funded(DropKey key, uint128 amountNext);
-    event Refunded(DropKey key, uint128 refundAmount);
-
-    // Errors from IIncentives interface
-    error AlreadyClaimed();
-    error InvalidProof();
-    error InsufficientFunds();
-    error DropOwnerOnly();
-
     Incentives i;
+    IncentivesDataFetcher fetcher;
     TestToken t;
 
     function setUp() public {
         i = new Incentives();
+        fetcher = new IncentivesDataFetcher(IIncentives(address(i)));
         t = new TestToken(address(this));
     }
 
@@ -42,7 +35,7 @@ contract IncentivesTest is Test {
 
         if (amount > 0) {
             vm.expectEmit(address(i));
-            emit Funded(key, amount);
+            emit IIncentives.Funded(key, amount);
         }
         assertEq(i.fund(key, amount), amount);
         // second funding does nothing since minimum already set
@@ -50,7 +43,7 @@ contract IncentivesTest is Test {
 
         assertEq(t.balanceOf(address(this)), type(uint256).max - amount);
         assertEq(t.balanceOf(address(i)), amount);
-        assertEq(i.getRemaining(key), amount);
+        assertEq(fetcher.getRemaining(key), amount);
     }
 
     function test_claim(uint256 index, address account, uint128 amount) public {
@@ -59,24 +52,24 @@ contract IncentivesTest is Test {
 
         DropKey memory key = DropKey({owner: address(this), token: address(t), root: root});
         if (amount == 0) {
-            assertTrue(i.isAvailable(key, index, amount));
+            assertTrue(fetcher.isAvailable(key, index, amount));
         } else {
-            assertFalse(i.isAvailable(key, index, amount));
+            assertFalse(fetcher.isAvailable(key, index, amount));
         }
 
-        assertFalse(i.isClaimed(key, index));
+        assertFalse(fetcher.isClaimed(key, index));
 
         i.fund(key, amount);
 
-        assertTrue(i.isAvailable(key, index, amount));
-        assertFalse(i.isClaimed(key, index));
+        assertTrue(fetcher.isAvailable(key, index, amount));
+        assertFalse(fetcher.isClaimed(key, index));
 
         bytes32[] memory proof = new bytes32[](0);
         uint256 beforeClaim = t.balanceOf(account);
         i.claim(key, Claim({index: index, account: account, amount: amount}), proof);
         uint256 afterClaim = t.balanceOf(account);
-        assertFalse(i.isAvailable(key, index, amount));
-        assertTrue(i.isClaimed(key, index));
+        assertFalse(fetcher.isAvailable(key, index, amount));
+        assertTrue(fetcher.isClaimed(key, index));
 
         if (account != address(i)) assertEq(afterClaim - beforeClaim, amount);
         else assertEq(afterClaim - beforeClaim, 0);
@@ -99,7 +92,7 @@ contract IncentivesTest is Test {
         uint256 beforeRefund = t.balanceOf(owner);
         vm.prank(owner);
         vm.expectEmit(address(i));
-        emit Refunded(DropKey({owner: owner, token: address(t), root: root}), (funded - amount));
+        emit IIncentives.Refunded(DropKey({owner: owner, token: address(t), root: root}), (funded - amount));
         i.refund(DropKey({owner: owner, token: address(t), root: root}));
         uint256 afterRefund = t.balanceOf(owner);
         if (owner != address(i)) {} else {
@@ -138,7 +131,7 @@ contract IncentivesTest is Test {
             Claim({index: 0, account: accountA, amount: amountA}),
             proof
         );
-        assertFalse(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), 0, amountA));
+        assertFalse(fetcher.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), 0, amountA));
 
         proof[0] = leafA;
         i.claim(
@@ -146,7 +139,7 @@ contract IncentivesTest is Test {
             Claim({index: 1, account: accountB, amount: amountB}),
             proof
         );
-        assertFalse(i.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), 1, amountB));
+        assertFalse(fetcher.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), 1, amountB));
     }
 
     function test_claim_twice_fails(uint256 index, address account, uint128 amount) public {
@@ -160,7 +153,7 @@ contract IncentivesTest is Test {
 
         bytes32[] memory proof = new bytes32[](0);
         i.claim(dropKey, c, proof);
-        vm.expectRevert(AlreadyClaimed.selector);
+        vm.expectRevert(IIncentives.AlreadyClaimed.selector);
         i.claim(dropKey, c, proof);
     }
 
@@ -179,7 +172,7 @@ contract IncentivesTest is Test {
         }
 
         bytes32[] memory proof = new bytes32[](0);
-        vm.expectRevert(InsufficientFunds.selector);
+        vm.expectRevert(IIncentives.InsufficientFunds.selector);
         i.claim(dropKey, c, proof);
     }
 
@@ -190,7 +183,7 @@ contract IncentivesTest is Test {
 
         bytes32[] memory proof = new bytes32[](0);
         c.index = 1;
-        vm.expectRevert(InvalidProof.selector);
+        vm.expectRevert(IIncentives.InvalidProof.selector);
         i.claim(dropKey, c, proof);
     }
 
@@ -199,7 +192,7 @@ contract IncentivesTest is Test {
         bytes32 root = hashClaim(c);
         DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
 
-        vm.expectRevert(InvalidProof.selector);
+        vm.expectRevert(IIncentives.InvalidProof.selector);
         // proof has a single zero element
         bytes32[] memory proof = new bytes32[](1);
         i.claim(dropKey, c, proof);

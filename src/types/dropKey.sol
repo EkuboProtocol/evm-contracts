@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-using {toDropId} for DropKey global;
-
 /// @notice A drop is specified by an owner, token and a root
 /// @dev The owner can reclaim the drop token at any time
 ///      The root is the root of a merkle trie that contains all the incentives to be distributed
@@ -14,6 +12,8 @@ struct DropKey {
     /// @notice Merkle root of the incentive distribution tree
     bytes32 root;
 }
+
+using {toDropId} for DropKey global;
 
 /// @notice Returns the identifier of the drop
 /// @param key The drop key to hash

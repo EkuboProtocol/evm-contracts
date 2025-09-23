@@ -14,6 +14,8 @@ struct Claim {
     uint128 amount;
 }
 
+using {hashClaim} for Claim global;
+
 /// @notice Hashes a claim for merkle proof verification
 /// @param c The claim to hash
 /// @return h The hash of the claim
@@ -49,24 +51,6 @@ interface IIncentives is IExposedStorage {
 
     /// @notice Only the drop owner may call this function
     error DropOwnerOnly();
-
-    /// @notice Checks if a specific index has been claimed for a drop
-    /// @param key The drop key to check
-    /// @param index The index to check
-    /// @return True if the index has been claimed
-    function isClaimed(DropKey memory key, uint256 index) external view returns (bool);
-
-    /// @notice Checks if a claim is available (not claimed and sufficient funds)
-    /// @param key The drop key to check
-    /// @param index The index to check
-    /// @param amount The amount to check availability for
-    /// @return True if the claim is available
-    function isAvailable(DropKey memory key, uint256 index, uint128 amount) external view returns (bool);
-
-    /// @notice Gets the remaining amount available for claims in a drop
-    /// @param key The drop key to check
-    /// @return The remaining amount available
-    function getRemaining(DropKey memory key) external view returns (uint128);
 
     /// @notice Funds a drop to a minimum amount
     /// @param key The drop key to fund

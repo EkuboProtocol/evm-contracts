@@ -49,16 +49,8 @@ function setClaimed(DropState state, uint128 amount) pure returns (DropState new
 /// @param state The drop state
 /// @return remaining The remaining amount available for claims
 function getRemaining(DropState state) pure returns (uint128 remaining) {
-    uint128 fundedAmount = state.funded();
-    uint128 claimedAmount = state.claimed();
-
-    if (fundedAmount >= claimedAmount) {
-        unchecked {
-            remaining = fundedAmount - claimedAmount;
-        }
-    } else {
-        // This should never happen in normal operation, but handle gracefully
-        remaining = 0;
+    unchecked {
+        remaining = state.funded() - state.claimed();
     }
 }
 

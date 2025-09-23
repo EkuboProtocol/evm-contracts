@@ -23,6 +23,30 @@ contract IncentivesDataFetcher {
         INCENTIVES = _incentives;
     }
 
+    /// @notice Checks if a specific index has been claimed for a drop
+    /// @param key The drop key to check
+    /// @param index The index to check
+    /// @return True if the index has been claimed
+    function isClaimed(DropKey memory key, uint256 index) external view returns (bool) {
+        return IncentivesLib.isClaimed(INCENTIVES, key, index);
+    }
+
+    /// @notice Checks if a claim is available (not claimed and sufficient funds)
+    /// @param key The drop key to check
+    /// @param index The index to check
+    /// @param amount The amount to check availability for
+    /// @return True if the claim is available
+    function isAvailable(DropKey memory key, uint256 index, uint128 amount) external view returns (bool) {
+        return IncentivesLib.isAvailable(INCENTIVES, key, index, amount);
+    }
+
+    /// @notice Gets the remaining amount available for claims in a drop
+    /// @param key The drop key to check
+    /// @return The remaining amount available
+    function getRemaining(DropKey memory key) external view returns (uint128) {
+        return IncentivesLib.getRemaining(INCENTIVES, key);
+    }
+
     /// @notice Represents the complete state of a drop
     struct DropInfo {
         /// @notice The drop key

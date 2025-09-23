@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {IIncentives, Claim} from "../interfaces/IIncentives.sol";
+import {IIncentives, ClaimKey} from "../interfaces/IIncentives.sol";
 import {IncentivesLib} from "../libraries/IncentivesLib.sol";
 import {DropKey} from "../types/dropKey.sol";
 import {Bitmap} from "../types/bitmap.sol";
@@ -64,7 +64,7 @@ contract IncentivesDataFetcher {
     /// @notice Represents claim status information
     struct ClaimInfo {
         /// @notice The claim details
-        Claim claim;
+        ClaimKey claim;
         /// @notice Whether the claim has been made
         bool isClaimed;
         /// @notice Whether the claim is available (not claimed and sufficient funds)
@@ -97,8 +97,8 @@ contract IncentivesDataFetcher {
     /// @notice Gets claim status information for a specific claim
     /// @param key The drop key
     /// @param claim The claim to check
-    /// @return info Claim status information
-    function getClaimInfo(DropKey memory key, Claim memory claim) external view returns (ClaimInfo memory info) {
+    /// @return info ClaimKey status information
+    function getClaimInfo(DropKey memory key, ClaimKey memory claim) external view returns (ClaimInfo memory info) {
         info.claim = claim;
         info.isClaimed = INCENTIVES.isClaimed(key, claim.index);
         info.isAvailable = INCENTIVES.isAvailable(key, claim.index, claim.amount);
@@ -108,7 +108,7 @@ contract IncentivesDataFetcher {
     /// @param key The drop key
     /// @param claims Array of claims to check
     /// @return infos Array of claim status information
-    function getClaimInfos(DropKey memory key, Claim[] memory claims)
+    function getClaimInfos(DropKey memory key, ClaimKey[] memory claims)
         external
         view
         returns (ClaimInfo[] memory infos)

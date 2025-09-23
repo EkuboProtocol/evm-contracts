@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Incentives} from "../src/Incentives.sol";
 import {IncentivesDataFetcher} from "../src/lens/IncentivesDataFetcher.sol";
 import {DropKey} from "../src/types/dropKey.sol";
-import {Claim, hashClaim, IIncentives} from "../src/interfaces/IIncentives.sol";
+import {ClaimKey, IIncentives} from "../src/interfaces/IIncentives.sol";
 import {TestToken} from "./TestToken.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
@@ -20,10 +20,10 @@ contract IncentivesTest is Test {
         t = new TestToken(address(this));
     }
 
-    function test_hashClaim() public {
-        vm.snapshotValue("zero claim", uint256(hashClaim(Claim({index: 0, account: address(0), amount: 0}))));
-        vm.snapshotValue("1,2,3 claim", uint256(hashClaim(Claim({index: 1, account: address(2), amount: 3}))));
-        vm.snapshotValue("3,1,2 claim", uint256(hashClaim(Claim({index: 3, account: address(1), amount: 2}))));
+    function test_toClaimId() public {
+        vm.snapshotValue("zero claim", uint256(ClaimKey({index: 0, account: address(0), amount: 0}).toClaimId()));
+        vm.snapshotValue("1,2,3 claim", uint256(ClaimKey({index: 1, account: address(2), amount: 3}).toClaimId()));
+        vm.snapshotValue("3,1,2 claim", uint256(ClaimKey({index: 3, account: address(1), amount: 2}).toClaimId()));
     }
 
     function test_fund(address owner, bytes32 root, uint128 amount) public {
@@ -48,7 +48,7 @@ contract IncentivesTest is Test {
 
     function test_claim(uint256 index, address account, uint128 amount) public {
         t.approve(address(i), type(uint256).max);
-        bytes32 root = hashClaim(Claim({index: index, account: account, amount: amount}));
+        bytes32 root = ClaimKey({index: index, account: account, amount: amount}).toClaimId();
 
         DropKey memory key = DropKey({owner: address(this), token: address(t), root: root});
         if (amount == 0) {
@@ -66,7 +66,7 @@ contract IncentivesTest is Test {
 
         bytes32[] memory proof = new bytes32[](0);
         uint256 beforeClaim = t.balanceOf(account);
-        i.claim(key, Claim({index: index, account: account, amount: amount}), proof);
+        i.claim(key, ClaimKey({index: index, account: account, amount: amount}), proof);
         uint256 afterClaim = t.balanceOf(account);
         assertFalse(fetcher.isAvailable(key, index, amount));
         assertTrue(fetcher.isClaimed(key, index));
@@ -78,14 +78,14 @@ contract IncentivesTest is Test {
     function test_refund(uint128 funded, address owner, uint256 index, address account, uint128 amount) public {
         t.approve(address(i), type(uint256).max);
         amount = uint128(bound(amount, 0, funded));
-        bytes32 root = hashClaim(Claim({index: index, account: account, amount: amount}));
+        bytes32 root = ClaimKey({index: index, account: account, amount: amount}).toClaimId();
 
         i.fund(DropKey({owner: owner, token: address(t), root: root}), funded);
 
         bytes32[] memory proof = new bytes32[](0);
         i.claim(
             DropKey({owner: owner, token: address(t), root: root}),
-            Claim({index: index, account: account, amount: amount}),
+            ClaimKey({index: index, account: account, amount: amount}),
             proof
         );
 
@@ -102,12 +102,12 @@ contract IncentivesTest is Test {
 
     function test_claim_gas() public {
         t.approve(address(i), type(uint256).max);
-        bytes32 root = hashClaim(Claim({index: 0, account: address(this), amount: 100}));
+        bytes32 root = ClaimKey({index: 0, account: address(this), amount: 100}).toClaimId();
         i.fund(DropKey({owner: address(this), token: address(t), root: root}), 100);
         bytes32[] memory proof = new bytes32[](0);
         i.claim(
             DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: 0, account: address(this), amount: 100}),
+            ClaimKey({index: 0, account: address(this), amount: 100}),
             proof
         );
         vm.snapshotGasLastCall("#claim");
@@ -118,8 +118,8 @@ contract IncentivesTest is Test {
 
         amountB = uint128(bound(amountB, 0, type(uint128).max - amountA));
 
-        bytes32 leafA = hashClaim(Claim({index: 0, account: accountA, amount: amountA}));
-        bytes32 leafB = hashClaim(Claim({index: 1, account: accountB, amount: amountB}));
+        bytes32 leafA = ClaimKey({index: 0, account: accountA, amount: amountA}).toClaimId();
+        bytes32 leafB = ClaimKey({index: 1, account: accountB, amount: amountB}).toClaimId();
         (bytes32 leaf0, bytes32 leaf1) = uint256(leafA) < uint256(leafB) ? (leafA, leafB) : (leafB, leafA);
         bytes32 root = EfficientHashLib.hash(leaf0, leaf1);
         i.fund(DropKey({owner: address(this), token: address(t), root: root}), amountA + amountB);
@@ -128,7 +128,7 @@ contract IncentivesTest is Test {
         proof[0] = leafB;
         i.claim(
             DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: 0, account: accountA, amount: amountA}),
+            ClaimKey({index: 0, account: accountA, amount: amountA}),
             proof
         );
         assertFalse(fetcher.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), 0, amountA));
@@ -136,7 +136,7 @@ contract IncentivesTest is Test {
         proof[0] = leafA;
         i.claim(
             DropKey({owner: address(this), token: address(t), root: root}),
-            Claim({index: 1, account: accountB, amount: amountB}),
+            ClaimKey({index: 1, account: accountB, amount: amountB}),
             proof
         );
         assertFalse(fetcher.isAvailable(DropKey({owner: address(this), token: address(t), root: root}), 1, amountB));
@@ -145,8 +145,8 @@ contract IncentivesTest is Test {
     function test_claim_twice_fails(uint256 index, address account, uint128 amount) public {
         t.approve(address(i), amount);
 
-        Claim memory c = Claim({index: index, account: account, amount: amount});
-        bytes32 root = hashClaim(c);
+        ClaimKey memory c = ClaimKey({index: index, account: account, amount: amount});
+        bytes32 root = c.toClaimId();
 
         DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
         i.fund(dropKey, amount);
@@ -161,8 +161,8 @@ contract IncentivesTest is Test {
         amount = uint128(bound(amount, 1, type(uint128).max));
         funded = uint128(bound(funded, 0, amount - 1));
 
-        Claim memory c = Claim({index: 0, account: address(this), amount: amount});
-        bytes32 root = hashClaim(c);
+        ClaimKey memory c = ClaimKey({index: 0, account: address(this), amount: amount});
+        bytes32 root = c.toClaimId();
         DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
 
         // fund the drop first if necessary
@@ -177,8 +177,8 @@ contract IncentivesTest is Test {
     }
 
     function test_claim_invalid_claim_fails() public {
-        Claim memory c = Claim({index: 0, account: address(this), amount: 100});
-        bytes32 root = hashClaim(c);
+        ClaimKey memory c = ClaimKey({index: 0, account: address(this), amount: 100});
+        bytes32 root = c.toClaimId();
         DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
 
         bytes32[] memory proof = new bytes32[](0);
@@ -188,8 +188,8 @@ contract IncentivesTest is Test {
     }
 
     function test_claim_invalid_proof_fails() public {
-        Claim memory c = Claim({index: 0, account: address(this), amount: 100});
-        bytes32 root = hashClaim(c);
+        ClaimKey memory c = ClaimKey({index: 0, account: address(this), amount: 100});
+        bytes32 root = c.toClaimId();
         DropKey memory dropKey = DropKey({owner: address(this), token: address(t), root: root});
 
         vm.expectRevert(IIncentives.InvalidProof.selector);

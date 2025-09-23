@@ -18,7 +18,7 @@ library IncentivesLib {
     /// @param index The index to convert
     /// @return word The word position in the bitmap
     /// @return bit The bit position within the word
-    function indexToWordBit(uint256 index) internal pure returns (uint256 word, uint8 bit) {
+    function claimIndexToStorageIndex(uint256 index) internal pure returns (uint256 word, uint8 bit) {
         (word, bit) = (index >> 8, uint8(index % 256));
     }
 
@@ -58,7 +58,7 @@ library IncentivesLib {
     /// @param index The index to check
     /// @return True if the index has been claimed
     function isClaimed(IIncentives incentives, DropKey memory key, uint256 index) internal view returns (bool) {
-        (uint256 word, uint8 bit) = indexToWordBit(index);
+        (uint256 word, uint8 bit) = claimIndexToStorageIndex(index);
         Bitmap bitmap = getClaimedBitmap(incentives, key, word);
         return bitmap.isSet(bit);
     }

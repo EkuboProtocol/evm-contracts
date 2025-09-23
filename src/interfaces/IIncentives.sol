@@ -2,29 +2,8 @@
 pragma solidity =0.8.28;
 
 import {DropKey} from "../types/dropKey.sol";
+import {ClaimKey} from "../types/claimKey.sol";
 import {IExposedStorage} from "./IExposedStorage.sol";
-
-/// @notice A claim is an individual leaf in the merkle trie
-struct Claim {
-    /// @notice Index of the claim in the merkle tree
-    uint256 index;
-    /// @notice Account that can claim the incentive
-    address account;
-    /// @notice Amount of tokens to be claimed
-    uint128 amount;
-}
-
-using {hashClaim} for Claim global;
-
-/// @notice Hashes a claim for merkle proof verification
-/// @param c The claim to hash
-/// @return h The hash of the claim
-function hashClaim(Claim memory c) pure returns (bytes32 h) {
-    assembly ("memory-safe") {
-        // assumes that account has no dirty upper bits
-        h := keccak256(c, 96)
-    }
-}
 
 /// @title Incentives Interface
 /// @notice Interface for the Incentives contract that manages airdrops
@@ -67,5 +46,5 @@ interface IIncentives is IExposedStorage {
     /// @param key The drop key to claim from
     /// @param c The claim details
     /// @param proof The merkle proof for the claim
-    function claim(DropKey memory key, Claim memory c, bytes32[] calldata proof) external;
+    function claim(DropKey memory key, ClaimKey memory c, bytes32[] calldata proof) external;
 }

@@ -145,7 +145,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
 
             let free := mload(0x40)
-            mstore(free, locker)
+            mstore(free, lockerAddr)
             // copy the first 3 arguments in the same order
             calldatacopy(add(free, 0x20), 4, 96)
             let slot := keccak256(free, 128)
@@ -587,7 +587,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             assembly ("memory-safe") {
                 let o := mload(0x40)
-                mstore(o, shl(96, locker))
+                mstore(o, shl(96, lockerAddr))
                 mstore(add(o, 20), poolId)
                 mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
                 mstore(add(o, 84), stateAfter)

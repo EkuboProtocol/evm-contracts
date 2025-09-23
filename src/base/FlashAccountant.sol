@@ -197,7 +197,7 @@ abstract contract FlashAccountant is IFlashAccountant {
             // Prepare call to forwarded(uint256,address) -> selector 0x64919dea
             mstore(free, shl(224, 0x64919dea))
             mstore(add(free, 4), id)
-            mstore(add(free, 36), locker)
+            mstore(add(free, 36), lockerAddr)
 
             calldatacopy(add(free, 68), 36, sub(calldatasize(), 36))
 

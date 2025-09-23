@@ -32,12 +32,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @notice Mapping of extension addresses to their registration status
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
 
-    /// @notice Mapping of pool IDs to their accumulated fees per liquidity. This isn't actually used.
-    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private _poolFeesPerLiquidity_placeholder;
-    /// @notice Mapping of pool IDs to position IDs to position data
-    mapping(bytes32 poolId => mapping(address owner => mapping(PositionId positionId => Position position))) private
-        poolPositions;
-
     /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
         CallPoints memory computed = addressToCallPoints(msg.sender);
@@ -341,7 +335,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
-            Position storage position = poolPositions[poolId][locker][positionId];
+            Position storage position;
+            assembly ("memory-safe") {
+                mstore(0, poolId)
+                mstore(32, positionId)
+
+                position.slot := add(keccak256(0, 64), locker)
+            }
 
             FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
                 poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
@@ -407,7 +407,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         bytes32 poolId = poolKey.toPoolId();
 
-        Position memory position = poolPositions[poolId][locker][positionId];
+        Position storage position;
+        assembly ("memory-safe") {
+            mstore(0, poolId)
+            mstore(32, positionId)
+
+            position.slot := add(keccak256(0, 64), locker)
+        }
 
         FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
             poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
@@ -415,8 +421,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 
-        poolPositions[poolId][locker][positionId] =
-            Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
+        position.feesPerLiquidityInsideLast = feesPerLiquidityInside;
 
         _accountDebt(id, poolKey.token0, -int256(uint256(amount0)));
         _accountDebt(id, poolKey.token1, -int256(uint256(amount1)));

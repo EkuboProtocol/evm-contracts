@@ -55,14 +55,8 @@ library CoreLib {
         bytes32 key;
         assembly ("memory-safe") {
             mstore(0, poolId)
-            mstore(32, 2)
-            let b := keccak256(0, 64)
-            mstore(0, owner)
-            mstore(32, b)
-            b := keccak256(0, 64)
-            mstore(0, positionId)
-            mstore(32, b)
-            key := keccak256(0, 64)
+            mstore(32, positionId)
+            key := add(keccak256(0, 64), owner)
         }
 
         (bytes32 v0, bytes32 v1, bytes32 v2) = core.sload(key, bytes32(uint256(key) + 1), bytes32(uint256(key) + 2));

@@ -2,7 +2,6 @@
 pragma solidity =0.8.28;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
-import {Locker} from "./types/locker.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
@@ -126,8 +125,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     ) public payable {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
-        Locker locker = _requireLocker();
-        (uint256 id, address lockerAddr) = locker.parse();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         assembly ("memory-safe") {
             function addDelta(u, i) -> result {
@@ -207,8 +205,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
     /// @inheritdoc ICore
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
-        Locker locker = _requireLocker();
-        (uint256 id, address lockerAddr) = locker.parse();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
         require(lockerAddr == poolKey.extension());
 
         bytes32 poolId = poolKey.toPoolId();
@@ -328,19 +325,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         payable
         returns (int128 delta0, int128 delta1)
     {
-        Locker locker = _requireLocker();
-        (uint256 id, address lockerAddr) = locker.parse();
+        positionId.validateBounds(poolKey.tickSpacing());
+
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeUpdatePosition(lockerAddr, poolKey, positionId, liquidityDelta);
 
-        positionId.validateBounds(poolKey.tickSpacing());
+        bytes32 poolId = poolKey.toPoolId();
+        PoolState state = readPoolState(poolId);
+        if (!state.isInitialized()) revert PoolNotInitialized();
 
         if (liquidityDelta != 0) {
-            bytes32 poolId = poolKey.toPoolId();
-            PoolState state = readPoolState(poolId);
-            if (!state.isInitialized()) revert PoolNotInitialized();
-
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
                 (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
 
@@ -372,33 +368,29 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 _updateTick(poolId, positionId.tickUpper(), poolKey.tickSpacing(), liquidityDelta, true);
 
                 if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
-                    writePoolState(
-                        poolId,
-                        createPoolState({
-                            _sqrtRatio: state.sqrtRatio(),
-                            _tick: state.tick(),
-                            _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
-                        })
-                    );
-                }
-            } else {
-                writePoolState(
-                    poolId,
-                    createPoolState({
+                    state = createPoolState({
                         _sqrtRatio: state.sqrtRatio(),
                         _tick: state.tick(),
                         _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
-                    })
-                );
+                    });
+                    writePoolState(poolId, state);
+                }
+            } else {
+                state = createPoolState({
+                    _sqrtRatio: state.sqrtRatio(),
+                    _tick: state.tick(),
+                    _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                });
+                writePoolState(poolId, state);
             }
 
             _updatePairDebtWithNative(id, poolKey.token0, poolKey.token1, delta0, delta1);
 
-            emit PositionUpdated(lockerAddr, poolId, positionId, liquidityDelta, delta0, delta1);
+            emit PositionUpdated(lockerAddr, poolId, positionId, liquidityDelta, delta0, delta1, state);
         }
 
         IExtension(extension).maybeCallAfterUpdatePosition(
-            lockerAddr, poolKey, positionId, liquidityDelta, delta0, delta1
+            lockerAddr, poolKey, positionId, liquidityDelta, delta0, delta1, state
         );
     }
 
@@ -407,8 +399,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         external
         returns (uint128 amount0, uint128 amount1)
     {
-        Locker locker = _requireLocker();
-        (uint256 id, address lockerAddr) = locker.parse();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeCollectFees(lockerAddr, poolKey, positionId);
@@ -443,8 +434,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
-        Locker locker = _requireLocker();
-        (uint256 id, address lockerAddr) = locker.parse();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeSwap(lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
@@ -591,7 +581,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         IExtension(extension).maybeCallAfterSwap(
-            lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1
+            lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
         );
     }
 }

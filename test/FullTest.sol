@@ -12,6 +12,7 @@ import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {PoolState} from "../src/types/poolState.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
@@ -46,7 +47,13 @@ contract MockExtension is IExtension, BaseLocker {
     }
 
     event AfterUpdatePositionCalled(
-        address locker, PoolKey poolKey, PositionId positionId, int128 liquidityDelta, int128 delta0, int128 delta1
+        address locker,
+        PoolKey poolKey,
+        PositionId positionId,
+        int128 liquidityDelta,
+        int128 delta0,
+        int128 delta1,
+        PoolState stateAfter
     );
 
     function afterUpdatePosition(
@@ -55,9 +62,10 @@ contract MockExtension is IExtension, BaseLocker {
         PositionId positionId,
         int128 liquidityDelta,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) external {
-        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, delta0, delta1);
+        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter);
     }
 
     event BeforeSwapCalled(
@@ -83,7 +91,8 @@ contract MockExtension is IExtension, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     );
 
     function afterSwap(
@@ -94,9 +103,10 @@ contract MockExtension is IExtension, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) external {
-        emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1);
+        emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter);
     }
 
     event BeforeCollectFeesCalled(address locker, PoolKey poolKey, PositionId positionId);

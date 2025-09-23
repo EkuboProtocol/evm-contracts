@@ -44,8 +44,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertTrue(core.isExtensionRegistered(address(mevCapture)));
     }
 
-    function getPoolState(bytes32 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
-        bytes32 v = mevCapture.sload(poolId);
+    function getPoolState(PoolId poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
+        bytes32 v = mevCapture.sload(PoolId.unwrap(poolId));
         assembly ("memory-safe") {
             lastUpdateTime := shr(224, v)
             tickLast := signextend(31, shr(192, v))
@@ -62,7 +62,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         PoolKey memory poolKey = createMEVCapturePool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(PoolId.unwrap(poolKey.toPoolId()));
+        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
 
@@ -70,7 +70,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             vm.warp(time + uint256(warp));
         }
         mevCapture.accumulatePoolFees(poolKey);
-        (lastUpdateTime, tickLast) = getPoolState(PoolId.unwrap(poolKey.toPoolId()));
+        (lastUpdateTime, tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
     }
@@ -79,7 +79,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
         mevCapture.accumulatePoolFees(poolKey);
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(PoolId.unwrap(poolKey.toPoolId()));
+        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, 0);
     }

@@ -49,7 +49,8 @@ interface IExtension {
         PositionId positionId,
         int128 liquidityDelta,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) external;
 
     /// @notice Called before a swap is executed
@@ -85,7 +86,8 @@ interface IExtension {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) external;
 
     /// @notice Called before fees are collected from a position
@@ -132,7 +134,13 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param delta0 Change in token0 balance
     /// @param delta1 Change in token1 balance
     event PositionUpdated(
-        address locker, PoolId poolId, PositionId positionId, int128 liquidityDelta, int128 delta0, int128 delta1
+        address locker,
+        PoolId poolId,
+        PositionId positionId,
+        int128 liquidityDelta,
+        int128 delta0,
+        int128 delta1,
+        PoolState stateAfter
     );
 
     /// @notice Emitted when fees are collected from a position

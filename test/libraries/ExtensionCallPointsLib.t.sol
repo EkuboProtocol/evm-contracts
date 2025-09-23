@@ -8,6 +8,7 @@ import {IExtension} from "../../src/interfaces/ICore.sol";
 import {PoolKey, Config, toConfig} from "../../src/types/poolKey.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {PoolState, createPoolState} from "../../src/types/poolState.sol";
 
 contract ExtensionCallPointsLibTest is Test {
     using ExtensionCallPointsLib for *;
@@ -71,10 +72,11 @@ contract ExtensionCallPointsLibTest is Test {
         int128 liquidityDelta = 1000;
         int128 delta0 = 500;
         int128 delta1 = -300;
+        PoolState stateAfter = createPoolState(SqrtRatio.wrap(100), 0, 2000);
 
         // Test when extension should be called
         IExtension(address(extension)).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta, delta0, delta1
+            locker, poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter
         );
 
         assertEq(extension.afterUpdatePositionCalls(), 1);
@@ -86,11 +88,12 @@ contract ExtensionCallPointsLibTest is Test {
         assertEq(extension.lastLiquidityDelta(), liquidityDelta);
         assertEq(extension.lastDelta0(), delta0);
         assertEq(extension.lastDelta1(), delta1);
+        assertEq(PoolState.unwrap(extension.lastStateAfter()), PoolState.unwrap(stateAfter));
 
         // Test when extension should not be called (locker == extension)
         extension.reset();
         IExtension(address(extension)).maybeCallAfterUpdatePosition(
-            address(extension), poolKey, positionId, liquidityDelta, delta0, delta1
+            address(extension), poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter
         );
         assertEq(extension.afterUpdatePositionCalls(), 0);
     }
@@ -169,13 +172,16 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey =
             PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
+        PoolState stateAfter = createPoolState(SqrtRatio.wrap(100), 1, 1);
 
         // Test that reverts bubble up for all maybeCall methods
         vm.expectRevert("MockExtension: revert");
         IExtension(address(extension)).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, 1000);
 
         vm.expectRevert("MockExtension: revert");
-        IExtension(address(extension)).maybeCallAfterUpdatePosition(locker, poolKey, positionId, 1000, 500, -300);
+        IExtension(address(extension)).maybeCallAfterUpdatePosition(
+            locker, poolKey, positionId, 1000, 500, -300, stateAfter
+        );
 
         vm.expectRevert("MockExtension: revert");
         IExtension(address(extension)).maybeCallBeforeCollectFees(locker, poolKey, positionId);
@@ -199,6 +205,7 @@ contract MockExtension is IExtension {
     int128 public lastDelta1;
     uint128 public lastAmount0;
     uint128 public lastAmount1;
+    PoolState public lastStateAfter;
 
     bool public shouldRevert;
 
@@ -250,7 +257,8 @@ contract MockExtension is IExtension {
         PositionId positionId,
         int128 liquidityDelta,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) external {
         if (shouldRevert) revert("MockExtension: revert");
         afterUpdatePositionCalls++;
@@ -260,13 +268,17 @@ contract MockExtension is IExtension {
         lastLiquidityDelta = liquidityDelta;
         lastDelta0 = delta0;
         lastDelta1 = delta1;
+        lastStateAfter = stateAfter;
     }
 
     function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure {
         revert("Not implemented");
     }
 
-    function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128) external pure {
+    function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
+        external
+        pure
+    {
         revert("Not implemented");
     }
 

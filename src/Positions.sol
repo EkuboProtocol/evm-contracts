@@ -312,7 +312,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
                 amount1 += uint128(-delta1) - withdrawalFee1;
             }
 
-            CORE.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
+            ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
 
             result = abi.encode(amount0, amount1);
         } else {

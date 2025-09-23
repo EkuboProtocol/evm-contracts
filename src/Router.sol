@@ -10,6 +10,8 @@ import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {SqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolState} from "./types/poolState.sol";
 
 /// @notice Represents a single hop in a multi-hop swap route
@@ -72,6 +74,8 @@ function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 a
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol
 /// @dev Provides high-level swap functionality including single-hop, multi-hop, and batch swaps
 contract Router is UsesCore, PayableMulticallable, BaseLocker {
+    using FlashAccountantLib for *;
+
     /// @notice Thrown when a swap doesn't consume the full input amount
     error PartialSwapsDisallowed();
 
@@ -144,14 +148,32 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 }
 
                 if (increasing) {
-                    withdraw(poolKey.token0, uint128(-delta0), recipient);
-                    pay(swapper, poolKey.token1, uint128(delta1));
+                    if (uint128(-delta0) > 0) {
+                        ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-delta0));
+                    }
+                    if (uint128(delta1) != 0) {
+                        if (poolKey.token1 == NATIVE_TOKEN_ADDRESS) {
+                            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(delta1));
+                        } else {
+                            ACCOUNTANT.payFrom(swapper, poolKey.token1, uint128(delta1));
+                        }
+                    }
                 } else {
-                    withdraw(poolKey.token1, uint128(-delta1), recipient);
+                    if (uint128(-delta1) > 0) {
+                        ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-delta1));
+                    }
                     if (uint128(delta0) <= value) {
-                        withdraw(poolKey.token0, uint128(value) - uint128(delta0), swapper);
+                        if (uint128(value) - uint128(delta0) > 0) {
+                            ACCOUNTANT.withdraw(poolKey.token0, swapper, uint128(value) - uint128(delta0));
+                        }
                     } else {
-                        pay(swapper, poolKey.token0, uint128(delta0));
+                        if (uint128(delta0) != 0) {
+                            if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
+                                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(delta0));
+                            } else {
+                                ACCOUNTANT.payFrom(swapper, poolKey.token0, uint128(delta0));
+                            }
+                        }
                     }
                 }
 
@@ -228,15 +250,31 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 }
 
                 if (totalSpecified < 0) {
-                    withdraw(specifiedToken, uint128(uint256(-totalSpecified)), swapper);
+                    if (uint128(uint256(-totalSpecified)) > 0) {
+                        ACCOUNTANT.withdraw(specifiedToken, swapper, uint128(uint256(-totalSpecified)));
+                    }
                 } else {
-                    pay(swapper, specifiedToken, uint128(uint256(totalSpecified)));
+                    if (uint128(uint256(totalSpecified)) != 0) {
+                        if (specifiedToken == NATIVE_TOKEN_ADDRESS) {
+                            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(totalSpecified)));
+                        } else {
+                            ACCOUNTANT.payFrom(swapper, specifiedToken, uint128(uint256(totalSpecified)));
+                        }
+                    }
                 }
 
                 if (totalCalculated > 0) {
-                    withdraw(calculatedToken, uint128(uint256(totalCalculated)), swapper);
+                    if (uint128(uint256(totalCalculated)) > 0) {
+                        ACCOUNTANT.withdraw(calculatedToken, swapper, uint128(uint256(totalCalculated)));
+                    }
                 } else {
-                    pay(swapper, calculatedToken, uint128(uint256(-totalCalculated)));
+                    if (uint128(uint256(-totalCalculated)) != 0) {
+                        if (calculatedToken == NATIVE_TOKEN_ADDRESS) {
+                            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(-totalCalculated)));
+                        } else {
+                            ACCOUNTANT.payFrom(swapper, calculatedToken, uint128(uint256(-totalCalculated)));
+                        }
+                    }
                 }
             }
 

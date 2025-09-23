@@ -13,8 +13,12 @@ import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 
 contract MockExtension is IExtension, BaseLocker {
+    using FlashAccountantLib for *;
+
     constructor(ICore core) BaseLocker(core) {}
 
     function register(ICore core, CallPoints calldata expectedCallPoints) external {
@@ -124,8 +128,20 @@ contract MockExtension is IExtension, BaseLocker {
             abi.decode(data, (address, PoolKey, uint128, uint128));
 
         ICore(payable(ACCOUNTANT)).accumulateAsFees(poolKey, amount0, amount1);
-        pay(sender, poolKey.token0, amount0);
-        pay(sender, poolKey.token1, amount1);
+        if (amount0 != 0) {
+            if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
+                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
+            } else {
+                ACCOUNTANT.payFrom(sender, poolKey.token0, amount0);
+            }
+        }
+        if (amount1 != 0) {
+            if (poolKey.token1 == NATIVE_TOKEN_ADDRESS) {
+                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount1);
+            } else {
+                ACCOUNTANT.payFrom(sender, poolKey.token1, amount1);
+            }
+        }
     }
 }
 

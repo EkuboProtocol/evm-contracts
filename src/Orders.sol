@@ -13,6 +13,9 @@ import {OrderKey} from "./types/orderKey.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 
 /// @title Ekubo Protocol Orders
 /// @author Moody Salem <moody@ekubo.org>
@@ -20,6 +23,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @dev Manages long-term orders that execute over time through the TWAMM extension
 contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using TWAMMLib for *;
+    using FlashAccountantLib for *;
 
     /// @notice The TWAMM extension contract that handles order execution
     ITWAMM public immutable TWAMM_EXTENSION;
@@ -190,9 +194,17 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             );
 
             if (saleRateDelta > 0) {
-                pay(recipientOrPayer, orderKey.sellToken, uint256(amount));
+                if (uint256(amount) != 0) {
+                    if (orderKey.sellToken == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(amount));
+                    } else {
+                        ACCOUNTANT.payFrom(recipientOrPayer, orderKey.sellToken, uint256(amount));
+                    }
+                }
             } else {
-                withdraw(orderKey.sellToken, uint128(uint256(-amount)), recipientOrPayer);
+                if (uint128(uint256(-amount)) > 0) {
+                    ACCOUNTANT.withdraw(orderKey.sellToken, recipientOrPayer, uint128(uint256(-amount)));
+                }
             }
 
             result = abi.encode(amount);
@@ -208,7 +220,9 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
                 (uint128)
             );
 
-            withdraw(orderKey.buyToken, proceeds, recipient);
+            if (proceeds > 0) {
+                ACCOUNTANT.withdraw(orderKey.buyToken, recipient, proceeds);
+            }
 
             result = abi.encode(proceeds);
         } else {

@@ -16,6 +16,7 @@ import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {computeFee} from "./math/fee.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
@@ -214,8 +215,12 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
             CORE.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
 
-            withdraw(token0, amount0, recipient);
-            withdraw(token1, amount1, recipient);
+            if (amount0 > 0) {
+                ACCOUNTANT.withdraw(token0, recipient, amount0);
+            }
+            if (amount1 > 0) {
+                ACCOUNTANT.withdraw(token1, recipient, amount1);
+            }
         } else if (callType == 0xdd) {
             (, address caller, uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
             = abi.decode(data, (bytes1, address, uint256, PoolKey, int32, int32, uint128));
@@ -233,8 +238,20 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             if (poolKey.token0 != NATIVE_TOKEN_ADDRESS && poolKey.token1 != NATIVE_TOKEN_ADDRESS) {
                 ACCOUNTANT.payTwoFrom(caller, poolKey.token0, poolKey.token1, amount0, amount1);
             } else {
-                pay(caller, poolKey.token0, amount0);
-                pay(caller, poolKey.token1, amount1);
+                if (amount0 != 0) {
+                    if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
+                    } else {
+                        ACCOUNTANT.payFrom(caller, poolKey.token0, amount0);
+                    }
+                }
+                if (amount1 != 0) {
+                    if (poolKey.token1 == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount1);
+                    } else {
+                        ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
+                    }
+                }
             }
 
             result = abi.encode(amount0, amount1);

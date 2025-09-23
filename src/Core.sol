@@ -125,7 +125,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     ) public payable {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
-        (uint256 id, address locker) = _requireLocker();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         assembly ("memory-safe") {
             function addDelta(u, i) -> result {
@@ -142,7 +142,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
 
             let free := mload(0x40)
-            mstore(free, locker)
+            mstore(free, lockerAddr)
             // copy the first 3 arguments in the same order
             calldatacopy(add(free, 0x20), 4, 96)
             let slot := keccak256(free, 128)
@@ -205,8 +205,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
     /// @inheritdoc ICore
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
-        (uint256 id, address locker) = _requireLocker();
-        require(locker == poolKey.extension());
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
+        require(lockerAddr == poolKey.extension());
 
         bytes32 poolId = poolKey.toPoolId();
 
@@ -327,10 +327,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     {
         positionId.validateBounds(poolKey.tickSpacing());
 
-        (uint256 id, address locker) = _requireLocker();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         address extension = poolKey.extension();
-        IExtension(extension).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
+        IExtension(extension).maybeCallBeforeUpdatePosition(lockerAddr, poolKey, positionId, liquidityDelta);
 
         bytes32 poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
@@ -343,7 +343,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
-            Position storage position = poolPositions[poolId][locker][positionId];
+            Position storage position = poolPositions[poolId][lockerAddr][positionId];
 
             FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
                 poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
@@ -386,11 +386,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             _updatePairDebtWithNative(id, poolKey.token0, poolKey.token1, delta0, delta1);
 
-            emit PositionUpdated(locker, poolId, positionId, liquidityDelta, delta0, delta1, state);
+            emit PositionUpdated(lockerAddr, poolId, positionId, liquidityDelta, delta0, delta1, state);
         }
 
         IExtension(extension).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
+            lockerAddr, poolKey, positionId, liquidityDelta, delta0, delta1, state
         );
     }
 
@@ -399,14 +399,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         external
         returns (uint128 amount0, uint128 amount1)
     {
-        (uint256 id, address locker) = _requireLocker();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         address extension = poolKey.extension();
-        IExtension(extension).maybeCallBeforeCollectFees(locker, poolKey, positionId);
+        IExtension(extension).maybeCallBeforeCollectFees(lockerAddr, poolKey, positionId);
 
         bytes32 poolId = poolKey.toPoolId();
 
-        Position memory position = poolPositions[poolId][locker][positionId];
+        Position memory position = poolPositions[poolId][lockerAddr][positionId];
 
         FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
             poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
@@ -414,14 +414,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 
-        poolPositions[poolId][locker][positionId] =
+        poolPositions[poolId][lockerAddr][positionId] =
             Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
 
         _updatePairDebt(id, poolKey.token0, poolKey.token1, -int256(uint256(amount0)), -int256(uint256(amount1)));
 
-        emit PositionFeesCollected(locker, poolId, positionId, amount0, amount1);
+        emit PositionFeesCollected(lockerAddr, poolId, positionId, amount0, amount1);
 
-        IExtension(extension).maybeCallAfterCollectFees(locker, poolKey, positionId, amount0, amount1);
+        IExtension(extension).maybeCallAfterCollectFees(lockerAddr, poolKey, positionId, amount0, amount1);
     }
 
     /// @inheritdoc ICore
@@ -434,10 +434,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
-        (uint256 id, address locker) = _requireLocker();
+        (uint256 id, address lockerAddr) = _requireLocker().parse();
 
         address extension = poolKey.extension();
-        IExtension(extension).maybeCallBeforeSwap(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        IExtension(extension).maybeCallBeforeSwap(lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
         bytes32 poolId = poolKey.toPoolId();
 
@@ -572,7 +572,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             assembly ("memory-safe") {
                 let o := mload(0x40)
-                mstore(o, shl(96, locker))
+                mstore(o, shl(96, lockerAddr))
                 mstore(add(o, 20), poolId)
                 mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
                 mstore(add(o, 84), stateAfter)
@@ -581,7 +581,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         IExtension(extension).maybeCallAfterSwap(
-            locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
+            lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
         );
     }
 }

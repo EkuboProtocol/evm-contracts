@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
@@ -20,7 +19,6 @@ import {TestToken} from "./TestToken.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {BaseLocker} from "../src/base/BaseLocker.sol";
 
 function maxBounds(uint32 tickSpacing) pure returns (int32 tickLower, int32 tickUpper) {
     if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {

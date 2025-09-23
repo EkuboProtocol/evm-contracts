@@ -4,7 +4,6 @@ pragma solidity =0.8.28;
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {TWAMM, orderKeyToPoolKey} from "../src/extensions/TWAMM.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
 import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
@@ -97,10 +96,10 @@ contract Handler is StdUtils, StdAssertions {
     function advanceTime(uint32 by) public {
         totalAdvanced += by;
         if (totalAdvanced > type(uint32).max) {
-            TWAMM twamm = orders.TWAMM_EXTENSION();
+            ITWAMM twamm = orders.TWAMM_EXTENSION();
             // first do the execute on all pools, because we assume all pools are executed at least this often
             for (uint256 i = 0; i < activeOrders.length; i++) {
-                twamm.lockAndExecuteVirtualOrders(orderKeyToPoolKey(activeOrders[i].orderKey, address(twamm)));
+                twamm.lockAndExecuteVirtualOrders(activeOrders[i].orderKey.toPoolKey(address(twamm)));
             }
             totalAdvanced = by;
         }

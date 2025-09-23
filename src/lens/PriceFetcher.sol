@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {Oracle} from "../extensions/Oracle.sol";
+import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {OracleLib} from "../libraries/OracleLib.sol";
 import {amount1Delta} from "../math/delta.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {MIN_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {Observation} from "../types/observation.sol";
 
 /// @notice Thrown when the number of intervals is invalid (0 or max uint32)
 error InvalidNumIntervals();
@@ -54,11 +55,11 @@ contract PriceFetcher {
     error VolatilityRequiresMoreIntervals();
 
     /// @notice The Oracle extension contract used for historical data
-    Oracle public immutable ORACLE;
+    IOracle public immutable ORACLE;
 
     /// @notice Constructs the PriceFetcher with an Oracle instance
     /// @param _oracle The Oracle extension to use for historical data
-    constructor(Oracle _oracle) {
+    constructor(IOracle _oracle) {
         ORACLE = _oracle;
     }
 
@@ -141,20 +142,20 @@ contract PriceFetcher {
                 uint256[] memory timestamps = getTimestampsForPeriod(endTime, numIntervals, period);
                 averages = new PeriodAverage[](numIntervals);
 
-                Oracle.Observation[] memory observations =
+                Observation[] memory observations =
                     ORACLE.getExtrapolatedSnapshotsForSortedTimestamps(otherToken, timestamps);
 
                 // for each but the last observation, populate the period
                 for (uint256 i = 0; i < numIntervals; i++) {
-                    Oracle.Observation memory start = observations[i];
-                    Oracle.Observation memory end = observations[i + 1];
+                    Observation start = observations[i];
+                    Observation end = observations[i + 1];
 
                     averages[i] = PeriodAverage(
                         uint128(
                             (uint160(period) << 128)
-                                / (end.secondsPerLiquidityCumulative - start.secondsPerLiquidityCumulative)
+                                / (end.secondsPerLiquidityCumulative() - start.secondsPerLiquidityCumulative())
                         ),
-                        tickSign * int32((end.tickCumulative - start.tickCumulative) / int64(uint64(period)))
+                        tickSign * int32((end.tickCumulative() - start.tickCumulative()) / int64(uint64(period)))
                     );
                 }
             } else {

@@ -12,7 +12,6 @@ import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {byteToCallPoints} from "../src/types/callPoints.sol";
 
 contract PositionsTest is FullTest {
     using CoreLib for *;

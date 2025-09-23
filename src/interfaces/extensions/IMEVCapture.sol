@@ -9,7 +9,7 @@ import {IExposedStorage} from "../IExposedStorage.sol";
 /// @title MEV Capture Interface
 /// @notice Interface for the Ekubo MEV Capture Extension
 /// @dev Extension that charges additional fees based on the relative size of the priority fee and tick movement during swaps
-interface IMEVCapture is ILocker, IForwardee, IExtension {
+interface IMEVCapture is IExposedStorage, ILocker, IForwardee, IExtension {
     /// @notice Thrown when trying to use MEV capture on a full-range-only pool
     /// @dev MEV capture only works with concentrated liquidity pools that have discrete tick spacing
     error ConcentratedLiquidityPoolsOnly();

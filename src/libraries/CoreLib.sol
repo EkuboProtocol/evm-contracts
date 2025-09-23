@@ -5,8 +5,6 @@ import {ICore} from "../interfaces/ICore.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
-import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
 

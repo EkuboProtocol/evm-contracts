@@ -92,9 +92,9 @@ contract TWAMMDataFetcher is UsesCore {
                 int112 saleRateDeltaToken1;
                 assembly ("memory-safe") {
                     let value := mload(add(result, mul(add(i, 1), 32)))
-                    numOrders := and(value, 0xffffffff)
-                    saleRateDeltaToken0 := and(shr(32, value), 0xffffffffffffffffffffffffffff)
-                    saleRateDeltaToken1 := shr(144, value)
+                    numOrders := shr(224, value)
+                    saleRateDeltaToken0 := signextend(13, shr(112, value))
+                    saleRateDeltaToken1 := signextend(13, value)
                 }
 
                 if (numOrders != 0) {

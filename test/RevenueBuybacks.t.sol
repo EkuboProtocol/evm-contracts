@@ -2,17 +2,18 @@
 pragma solidity =0.8.28;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {EkuboRevenueBuybacks} from "../src/RevenueBuybacks.sol";
-import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
+import {IRevenueBuybacks} from "../src/interfaces/IRevenueBuybacks.sol";
+import {BuybacksState} from "../src/types/buybacksState.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
+import {RevenueBuybacksLib} from "../src/libraries/RevenueBuybacksLib.sol";
 
 contract RevenueBuybacksTest is BaseOrdersTest {
-    using CoreLib for *;
+    using RevenueBuybacksLib for *;
 
-    EkuboRevenueBuybacks rb;
+    IRevenueBuybacks rb;
     TestToken buybacksToken;
 
     function setUp() public override {
@@ -29,39 +30,10 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
 
         // it always buys back the buybacksToken
-        rb = new EkuboRevenueBuybacks(positions, address(this), orders, address(buybacksToken));
-
-        vm.prank(positions.owner());
-        positions.transferOwnership(address(rb));
+        rb = new RevenueBuybacks(address(this), orders, address(buybacksToken));
     }
 
-    // increases the saved balance of the core contract
-    function donateViaCore(address token0, address token1, uint128 amount0, uint128 amount1) internal {
-        (uint128 amount0Old, uint128 amount1Old) = positions.getProtocolFees(token0, token1);
-
-        vm.store(
-            address(core),
-            CoreLib.savedBalancesSlot(address(positions), token0, token1, bytes32(0)),
-            bytes32(((uint256(amount0Old + amount0) << 128)) | uint256(amount1Old + amount1))
-        );
-
-        if (token0 == address(0)) {
-            vm.deal(address(core), amount0);
-        } else {
-            TestToken(token0).transfer(address(core), amount0);
-        }
-        TestToken(token1).transfer(address(core), amount1);
-    }
-
-    function test_donateViaCore(bool useEth, uint128 amount0, uint128 amount1) public {
-        address token0 = useEth ? address(0) : address(token0);
-        donateViaCore(token0, address(token1), amount0, amount1);
-
-        (uint128 amount0Next, uint128 amount1Next) = positions.getProtocolFees(token0, address(token1));
-        assertEq(amount0Next, amount0);
-        assertEq(amount1Next, amount1);
-    }
-
+    // transfers tokens directly to the buybacks contract for testing
     function donate(address token, uint128 amount) internal {
         if (token == address(0)) {
             vm.deal(address(rb), amount);
@@ -73,18 +45,6 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     function test_setUp_token_order() public view {
         assertGt(uint160(address(token1)), uint160(address(token0)));
         assertGt(uint160(address(buybacksToken)), uint160(address(token1)));
-    }
-
-    function test_reclaim_transfers_ownership() public {
-        assertEq(positions.owner(), address(rb));
-        rb.reclaim();
-        assertEq(positions.owner(), address(this));
-    }
-
-    function test_reclaim_fails_if_not_owner() public {
-        vm.prank(address(uint160(0xdeadbeef)));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        rb.reclaim();
     }
 
     function test_approve_max() public {
@@ -108,32 +68,62 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_configure() public {
-        (
-            uint32 targetOrderDuration,
-            uint32 minOrderDuration,
-            uint64 fee,
-            uint32 lastEndTime,
-            uint32 lastOrderDuration,
-            uint64 lastFee
-        ) = rb.states(address(token0));
-        assertEq(targetOrderDuration, 0);
-        assertEq(minOrderDuration, 0);
-        assertEq(fee, 0);
-        assertEq(lastEndTime, 0);
-        assertEq(lastOrderDuration, 0);
-        assertEq(lastFee, 0);
+        BuybacksState state = rb.state(address(token0));
+        assertEq(state.targetOrderDuration(), 0);
+        assertEq(state.minOrderDuration(), 0);
+        assertEq(state.fee(), 0);
+        assertEq(state.lastEndTime(), 0);
+        assertEq(state.lastOrderDuration(), 0);
+        assertEq(state.lastFee(), 0);
 
         uint64 nextFee = uint64((uint256(1) << 64) / 100);
         rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: nextFee});
 
-        (targetOrderDuration, minOrderDuration, fee, lastEndTime, lastOrderDuration, lastFee) =
-            rb.states(address(token0));
-        assertEq(targetOrderDuration, 3600);
-        assertEq(minOrderDuration, 1800);
-        assertEq(fee, nextFee);
-        assertEq(lastEndTime, 0);
-        assertEq(lastOrderDuration, 0);
-        assertEq(lastFee, 0);
+        state = rb.state(address(token0));
+        assertEq(state.targetOrderDuration(), 3600);
+        assertEq(state.minOrderDuration(), 1800);
+        assertEq(state.fee(), nextFee);
+        assertEq(state.lastEndTime(), 0);
+        assertEq(state.lastOrderDuration(), 0);
+        assertEq(state.lastFee(), 0);
+    }
+
+    function test_configure_invalid() public {
+        vm.expectRevert(IRevenueBuybacks.MinOrderDurationGreaterThanTargetOrderDuration.selector);
+        rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 3601, fee: 0});
+
+        vm.expectRevert(IRevenueBuybacks.MinOrderDurationMustBeGreaterThanZero.selector);
+        rb.configure({token: address(token0), targetOrderDuration: 10, minOrderDuration: 0, fee: 0});
+    }
+
+    function test_deconfigure() public {
+        rb.configure({
+            token: address(token0),
+            targetOrderDuration: 3600,
+            minOrderDuration: 1800,
+            fee: uint64((uint256(1) << 64) / 100)
+        });
+
+        rb.configure({token: address(token0), targetOrderDuration: 0, minOrderDuration: 0, fee: 0});
+
+        BuybacksState state = rb.state(address(token0));
+        assertEq(state.targetOrderDuration(), 0);
+        assertEq(state.minOrderDuration(), 0);
+        assertEq(state.fee(), 0);
+    }
+
+    function test_roll_token_not_configured() public {
+        rb.configure({
+            token: address(token0),
+            targetOrderDuration: 3600,
+            minOrderDuration: 1800,
+            fee: uint64((uint256(1) << 64) / 100)
+        });
+
+        rb.configure({token: address(token0), targetOrderDuration: 0, minOrderDuration: 0, fee: 0});
+
+        vm.expectRevert(abi.encodeWithSelector(IRevenueBuybacks.TokenNotConfigured.selector, token0));
+        rb.roll(address(token0));
     }
 
     function test_roll_token() public {

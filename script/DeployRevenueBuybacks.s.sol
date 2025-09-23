@@ -4,7 +4,8 @@ pragma solidity =0.8.28;
 import {Script} from "forge-std/Script.sol";
 import {IPositions} from "../src/interfaces/IPositions.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
-import {EkuboRevenueBuybacks} from "../src/RevenueBuybacks.sol";
+import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
+import {PositionsOwner} from "../src/PositionsOwner.sol";
 
 contract DeployRevenueBuybacks is Script {
     error UnrecognizedChainId();
@@ -22,7 +23,12 @@ contract DeployRevenueBuybacks is Script {
 
         vm.startBroadcast();
 
-        new EkuboRevenueBuybacks{salt: salt}(positions, owner, orders, buyToken);
+        // Deploy the revenue buybacks contract
+        RevenueBuybacks revenueBuybacks = new RevenueBuybacks{salt: salt}(owner, orders, buyToken);
+
+        // Deploy the positions owner contract with the buybacks contract address
+        PositionsOwner positionsOwner =
+            new PositionsOwner{salt: keccak256(abi.encode(salt, "PositionsOwner"))}(owner, positions, revenueBuybacks);
 
         vm.stopBroadcast();
     }

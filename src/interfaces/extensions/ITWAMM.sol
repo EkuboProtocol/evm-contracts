@@ -5,30 +5,7 @@ import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolKey} from "../../types/poolKey.sol";
-
-/// @notice Order key structure identifying a TWAMM order
-/// @dev Contains all parameters needed to uniquely identify an order
-struct OrderKey {
-    /// @notice Token being sold
-    address sellToken;
-    /// @notice Token being bought
-    address buyToken;
-    /// @notice Fee tier for the order
-    uint64 fee;
-    /// @notice Start time for the order execution
-    uint256 startTime;
-    /// @notice End time for the order execution
-    uint256 endTime;
-}
-
-/// @notice Computes the order ID from an order key
-/// @param orderKey The order key
-/// @return id The computed order ID
-function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
-    assembly ("memory-safe") {
-        id := keccak256(orderKey, 160)
-    }
-}
+import {OrderKey} from "../../types/orderKey.sol";
 
 /// @title TWAMM Interface
 /// @notice Interface for the Ekubo TWAMM Extension
@@ -52,30 +29,6 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
         bytes32 salt;
         /// @notice Order key identifying the order
         OrderKey orderKey;
-    }
-
-    /// @notice State of an individual order
-    /// @dev Tracks the current state and accumulated values for an order
-    struct OrderState {
-        /// @notice Current sale rate of the order
-        uint112 saleRate;
-        /// @notice Last time the order was updated
-        uint32 lastUpdateTime;
-        /// @notice Total amount sold by the order so far
-        uint112 amountSold;
-        /// @notice Reward rate snapshot at the last update
-        uint256 rewardRateSnapshot;
-    }
-
-    /// @notice Information about orders at a specific time
-    /// @dev Used to track sale rate changes at specific timestamps
-    struct TimeInfo {
-        /// @notice Number of orders referencing this timestamp
-        uint32 numOrders;
-        /// @notice Change in sale rate for token0 at this time
-        int112 saleRateDeltaToken0;
-        /// @notice Change in sale rate for token1 at this time
-        int112 saleRateDeltaToken1;
     }
 
     /// @notice Emitted when an order is updated

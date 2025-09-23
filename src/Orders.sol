@@ -8,8 +8,8 @@ import {IOrders} from "./interfaces/IOrders.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
-import {TWAMM, orderKeyToPoolKey} from "./extensions/TWAMM.sol";
-import {ITWAMM, OrderKey, toOrderId} from "./interfaces/extensions/ITWAMM.sol";
+import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
+import {OrderKey} from "./types/orderKey.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -22,13 +22,13 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     using TWAMMLib for *;
 
     /// @notice The TWAMM extension contract that handles order execution
-    TWAMM public immutable TWAMM_EXTENSION;
+    ITWAMM public immutable TWAMM_EXTENSION;
 
     /// @notice Constructs the Orders contract
     /// @param core The core contract instance
     /// @param _twamm The TWAMM extension contract
     /// @param owner The owner of the contract (for access control)
-    constructor(ICore core, TWAMM _twamm, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {
+    constructor(ICore core, ITWAMM _twamm, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {
         TWAMM_EXTENSION = _twamm;
     }
 
@@ -113,13 +113,16 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
         unchecked {
-            PoolKey memory poolKey = orderKeyToPoolKey(orderKey, address(TWAMM_EXTENSION));
+            PoolKey memory poolKey = orderKey.toPoolKey(address(TWAMM_EXTENSION));
             TWAMM_EXTENSION.lockAndExecuteVirtualOrders(poolKey);
 
             uint32 lastUpdateTime;
-            uint256 rewardRateSnapshot;
-            (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
-                TWAMM_EXTENSION.orderState(address(this), bytes32(id), toOrderId(orderKey));
+            bytes32 orderId = orderKey.toOrderId();
+
+            (lastUpdateTime, saleRate, amountSold) =
+                TWAMM_EXTENSION.orderState(address(this), bytes32(id), orderId).parse();
+
+            uint256 rewardRateSnapshot = TWAMM_EXTENSION.rewardRateSnapshot(address(this), bytes32(id), orderId);
 
             if (saleRate != 0) {
                 uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(

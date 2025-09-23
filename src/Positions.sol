@@ -35,7 +35,7 @@ contract Positions is BasePositions {
     /// @param amount1 The amount of token1 fees collected before protocol fee deduction
     /// @return protocolFee0 The amount of token0 protocol fees to collect
     /// @return protocolFee1 The amount of token1 protocol fees to collect
-    function _collectSwapProtocolFees(PoolKey memory, uint128 amount0, uint128 amount1)
+    function _computeSwapProtocolFees(PoolKey memory, uint128 amount0, uint128 amount1)
         internal
         view
         override
@@ -54,7 +54,7 @@ contract Positions is BasePositions {
     /// @param amount1 The amount of token1 being withdrawn before protocol fee deduction
     /// @return protocolFee0 The amount of token0 protocol fees to collect
     /// @return protocolFee1 The amount of token1 protocol fees to collect
-    function _collectWithdrawalProtocolFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1)
+    function _computeWithdrawalProtocolFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1)
         internal
         view
         override

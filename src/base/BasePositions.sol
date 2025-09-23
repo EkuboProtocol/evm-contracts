@@ -192,7 +192,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
     /// @param amount1 The amount of token1 fees collected before protocol fee deduction
     /// @return protocolFee0 The amount of token0 protocol fees to collect
     /// @return protocolFee1 The amount of token1 protocol fees to collect
-    function _collectSwapProtocolFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1)
+    function _computeSwapProtocolFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1)
         internal
         view
         virtual
@@ -205,7 +205,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
     /// @param amount1 The amount of token1 being withdrawn before protocol fee deduction
     /// @return protocolFee0 The amount of token0 protocol fees to collect
     /// @return protocolFee1 The amount of token1 protocol fees to collect
-    function _collectWithdrawalProtocolFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1)
+    function _computeWithdrawalProtocolFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1)
         internal
         view
         virtual
@@ -272,7 +272,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
 
                 // Collect swap protocol fees
                 (uint128 swapProtocolFee0, uint128 swapProtocolFee1) =
-                    _collectSwapProtocolFees(poolKey, amount0, amount1);
+                    _computeSwapProtocolFees(poolKey, amount0, amount1);
 
                 if (swapProtocolFee0 != 0 || swapProtocolFee1 != 0) {
                     CORE.updateSavedBalances(
@@ -296,7 +296,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
 
                 // Collect withdrawal protocol fees
                 (uint128 withdrawalFee0, uint128 withdrawalFee1) =
-                    _collectWithdrawalProtocolFees(poolKey, withdrawnAmount0, withdrawnAmount1);
+                    _computeWithdrawalProtocolFees(poolKey, withdrawnAmount0, withdrawnAmount1);
 
                 if (withdrawalFee0 != 0 || withdrawalFee1 != 0) {
                     // we know cast won't overflow because delta0 and delta1 were originally int128

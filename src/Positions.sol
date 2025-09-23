@@ -215,12 +215,7 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
 
             CORE.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
 
-            if (amount0 > 0) {
-                ACCOUNTANT.withdraw(token0, recipient, amount0);
-            }
-            if (amount1 > 0) {
-                ACCOUNTANT.withdraw(token1, recipient, amount1);
-            }
+            ACCOUNTANT.withdrawTwo(token0, token1, recipient, amount0, amount1);
         } else if (callType == 0xdd) {
             (, address caller, uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
             = abi.decode(data, (bytes1, address, uint256, PoolKey, int32, int32, uint128));
@@ -235,22 +230,14 @@ contract Positions is IPositions, UsesCore, PayableMulticallable, BaseLocker, Ba
             uint128 amount1 = uint128(delta1);
 
             // Use multi-token payment for ERC20-only pools, fall back to individual payments for native token pools
-            if (poolKey.token0 != NATIVE_TOKEN_ADDRESS && poolKey.token1 != NATIVE_TOKEN_ADDRESS) {
+            if (poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
                 ACCOUNTANT.payTwoFrom(caller, poolKey.token0, poolKey.token1, amount0, amount1);
             } else {
                 if (amount0 != 0) {
-                    if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
-                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
-                    } else {
-                        ACCOUNTANT.payFrom(caller, poolKey.token0, amount0);
-                    }
+                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
                 }
                 if (amount1 != 0) {
-                    if (poolKey.token1 == NATIVE_TOKEN_ADDRESS) {
-                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount1);
-                    } else {
-                        ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
-                    }
+                    ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
                 }
             }
 

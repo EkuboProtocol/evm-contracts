@@ -152,11 +152,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                         ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-delta0));
                     }
                     if (uint128(delta1) != 0) {
-                        if (poolKey.token1 == NATIVE_TOKEN_ADDRESS) {
-                            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(delta1));
-                        } else {
-                            ACCOUNTANT.payFrom(swapper, poolKey.token1, uint128(delta1));
-                        }
+                        ACCOUNTANT.payFrom(swapper, poolKey.token1, uint128(delta1));
                     }
                 } else {
                     if (uint128(-delta1) > 0) {

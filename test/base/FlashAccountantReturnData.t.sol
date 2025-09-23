@@ -6,6 +6,8 @@ import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {IFlashAccountant} from "../../src/interfaces/IFlashAccountant.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {TestToken} from "../TestToken.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 
 /// @title FlashAccountantReturnDataTest
 /// @notice Tests for verifying the return data formats of startPayments and completePayments
@@ -256,6 +258,8 @@ contract FlashAccountantReturnDataTest is FullTest {
 /// @title TestLocker
 /// @notice A test contract that extends BaseLocker to test FlashAccountant return data
 contract TestLocker is BaseLocker {
+    using FlashAccountantLib for *;
+
     constructor(IFlashAccountant accountant) BaseLocker(accountant) {}
 
     /// @notice Test startPayments and return the raw bytes
@@ -333,7 +337,7 @@ contract TestLocker is BaseLocker {
                     paymentAmount := shr(128, mload(add(completeData, add(0x20, mul(i, 16)))))
                 }
                 if (paymentAmount > 0) {
-                    withdraw(tokens[i], paymentAmount, address(this));
+                    ACCOUNTANT.withdraw(tokens[i], address(this), paymentAmount);
                 }
             }
 
@@ -374,7 +378,7 @@ contract TestLocker is BaseLocker {
                     paymentAmount := shr(128, mload(add(completeData, add(0x20, mul(i, 16)))))
                 }
                 if (paymentAmount > 0) {
-                    withdraw(tokens[i], paymentAmount, address(this));
+                    ACCOUNTANT.withdraw(tokens[i], address(this), paymentAmount);
                 }
             }
 

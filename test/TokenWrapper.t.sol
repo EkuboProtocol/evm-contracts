@@ -9,8 +9,13 @@ import {toDate, toQuarter} from "../src/libraries/TimeDescriptor.sol";
 import {TestToken} from "./TestToken.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
+import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 
 contract TokenWrapperPeriphery is BaseLocker {
+    using FlashAccountantLib for *;
+
     constructor(ICore core) BaseLocker(core) {}
 
     function wrap(TokenWrapper wrapper, uint128 amount) external {
@@ -37,16 +42,32 @@ contract TokenWrapperPeriphery is BaseLocker {
             // this creates the deltas
             forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            withdraw(address(wrapper), uint128(uint256(amount)), recipient);
+            if (uint128(uint256(amount)) > 0) {
+                ACCOUNTANT.withdraw(address(wrapper), recipient, uint128(uint256(amount)));
+            }
             // and pay the wrapped token from the payer
-            pay(payer, address(wrapper.UNDERLYING_TOKEN()), uint256(amount));
+            if (uint256(amount) != 0) {
+                if (address(wrapper.UNDERLYING_TOKEN()) == NATIVE_TOKEN_ADDRESS) {
+                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(amount));
+                } else {
+                    ACCOUNTANT.payFrom(payer, address(wrapper.UNDERLYING_TOKEN()), uint256(amount));
+                }
+            }
         } else {
             // this creates the deltas
             forward(address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
-            withdraw(address(wrapper.UNDERLYING_TOKEN()), uint128(uint256(-amount)), recipient);
+            if (uint128(uint256(-amount)) > 0) {
+                ACCOUNTANT.withdraw(address(wrapper.UNDERLYING_TOKEN()), recipient, uint128(uint256(-amount)));
+            }
             // and pay the wrapped token from the payer
-            pay(payer, address(wrapper), uint256(-amount));
+            if (uint256(-amount) != 0) {
+                if (address(wrapper) == NATIVE_TOKEN_ADDRESS) {
+                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(-amount));
+                } else {
+                    ACCOUNTANT.payFrom(payer, address(wrapper), uint256(-amount));
+                }
+            }
         }
     }
 }

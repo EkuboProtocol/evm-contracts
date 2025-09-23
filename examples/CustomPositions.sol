@@ -10,7 +10,7 @@ import {computeFee} from "../src/math/fee.sol";
 /// @notice Example implementation of BasePositions with custom protocol fee collection logic
 /// @dev This demonstrates how to create alternative fee collection strategies
 contract CustomPositions is BasePositions {
-    /// @notice Fixed protocol fee rate (1% = 1844674407370955161)
+    /// @notice Fixed protocol fee rate (1% = 184467440737095516)
     uint64 public constant FIXED_PROTOCOL_FEE_X64 = 184467440737095516; // 1% as fraction of 2^64
 
     /// @notice Whether protocol fees are enabled

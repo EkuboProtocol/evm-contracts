@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @title FlashAccountant
 /// @notice Abstract contract that provides flash loan accounting functionality using transient storage
@@ -34,30 +35,25 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     /// @notice Gets the current locker information from transient storage
     /// @dev Reverts with NotLocked() if no lock is currently active
-    /// @return id The unique identifier for the current lock
-    /// @return locker The address of the current locker
-    function _getLocker() internal view returns (uint256 id, address locker) {
+    /// @return locker The current locker containing both id and address
+    function _getLocker() internal view returns (Locker locker) {
         assembly ("memory-safe") {
-            let current := tload(_CURRENT_LOCKER_SLOT)
+            locker := tload(_CURRENT_LOCKER_SLOT)
 
-            if iszero(current) {
+            if iszero(locker) {
                 // cast sig "NotLocked()"
                 mstore(0, shl(224, 0x1834e265))
                 revert(0, 4)
             }
-
-            id := sub(shr(160, current), 1)
-            locker := shr(96, shl(96, current))
         }
     }
 
     /// @notice Gets the current locker information and ensures the caller is the locker
     /// @dev Reverts with LockerOnly() if the caller is not the current locker
-    /// @return id The unique identifier for the current lock
-    /// @return locker The address of the current locker (which must be msg.sender)
-    function _requireLocker() internal view returns (uint256 id, address locker) {
-        (id, locker) = _getLocker();
-        if (locker != msg.sender) revert LockerOnly();
+    /// @return locker The current locker containing both id and address (address must be msg.sender)
+    function _requireLocker() internal view returns (Locker locker) {
+        locker = _getLocker();
+        if (locker.addr() != msg.sender) revert LockerOnly();
     }
 
     /// @notice Updates the debt tracking for a specific locker and token
@@ -136,7 +132,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     /// @inheritdoc IFlashAccountant
     function updateDebt(int256 delta) external {
-        (uint256 id,) = _getLocker();
+        uint256 id = _getLocker().id();
         if (delta > type(int128).max || delta < type(int128).min) revert UpdateDebtOverflow();
         _accountDebt(id, msg.sender, delta);
     }
@@ -187,7 +183,9 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     /// @inheritdoc IFlashAccountant
     function forward(address to) external {
-        (uint256 id, address locker) = _requireLocker();
+        Locker locker = _requireLocker();
+        uint256 id = locker.id();
+        address lockerAddr = locker.addr();
 
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state
@@ -212,7 +210,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 revert(free, returndatasize())
             }
 
-            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), locker))
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), lockerAddr))
 
             // Directly return whatever the subcall returned
             returndatacopy(free, 0, returndatasize())
@@ -253,7 +251,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     /// @inheritdoc IFlashAccountant
     function completePayments() external {
-        (uint256 id,) = _getLocker();
+        uint256 id = _getLocker().id();
 
         assembly ("memory-safe") {
             let paymentAmounts := mload(0x40)
@@ -318,7 +316,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     /// @inheritdoc IFlashAccountant
     function withdraw() external {
-        (uint256 id,) = _requireLocker();
+        uint256 id = _requireLocker().id();
 
         assembly ("memory-safe") {
             let nzdCountChange := 0
@@ -376,7 +374,7 @@ abstract contract FlashAccountant is IFlashAccountant {
 
     /// @inheritdoc IFlashAccountant
     receive() external payable {
-        (uint256 id,) = _getLocker();
+        uint256 id = _getLocker().id();
 
         // Note because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
         //      to delegatecall itself more than once in a single call

@@ -7,6 +7,7 @@ import {BaseForwardee} from "../../src/base/BaseForwardee.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {IFlashAccountant, IForwardee} from "../../src/interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "../../src/base/FlashAccountant.sol";
+import {Locker} from "../../src/types/locker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 
@@ -101,9 +102,11 @@ contract Actor is BaseLocker, BaseForwardee {
     }
 
     function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
-        (uint256 lockerId, address locker) = Accountant(payable(ACCOUNTANT)).getLocker();
+        Locker locker = Accountant(payable(ACCOUNTANT)).getLocker();
+        uint256 lockerId = locker.id();
+        address lockerAddr = locker.addr();
         assert(lockerId == id);
-        assert(locker == address(this));
+        assert(lockerAddr == address(this));
 
         (address sender, Action[] memory actions) = abi.decode(data, (address, Action[]));
 
@@ -116,9 +119,11 @@ contract Actor is BaseLocker, BaseForwardee {
         returns (bytes memory result)
     {
         // forwardee is the locker now
-        (uint256 lockerId, address locker) = Accountant(payable(ACCOUNTANT)).getLocker();
+        Locker locker = Accountant(payable(ACCOUNTANT)).getLocker();
+        uint256 lockerId = locker.id();
+        address lockerAddr = locker.addr();
         assert(lockerId == id);
-        assert(locker == address(this));
+        assert(lockerAddr == address(this));
 
         Action[] memory actions = abi.decode(data, (Action[]));
 
@@ -129,8 +134,8 @@ contract Actor is BaseLocker, BaseForwardee {
 }
 
 contract Accountant is FlashAccountant {
-    function getLocker() external view returns (uint256 id, address locker) {
-        (id, locker) = _getLocker();
+    function getLocker() external view returns (Locker locker) {
+        locker = _getLocker();
     }
 }
 

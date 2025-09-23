@@ -12,6 +12,7 @@ import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
+import {CoreStorageSlotLib} from "../libraries/CoreStorageSlotLib.sol";
 import {PoolState} from "../types/poolState.sol";
 
 function mevCaptureCallPoints() pure returns (CallPoints memory) {
@@ -152,7 +153,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
     {
-        bytes32 feesSlot = CoreLib.savedBalancesSlot(address(this), token0, token1, poolId);
+        bytes32 feesSlot = CoreStorageSlotLib.savedBalancesSlot(address(this), token0, token1, poolId);
 
         address c = address(CORE);
         assembly ("memory-safe") {

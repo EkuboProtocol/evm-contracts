@@ -9,6 +9,7 @@ import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult}
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {Bitmap} from "./types/bitmap.sol";
+import {CoreStorageSlotLib} from "./libraries/CoreStorageSlotLib.sol";
 import {ExtensionCallPointsLib} from "./libraries/ExtensionCallPointsLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -131,6 +132,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 result := sum
             }
 
+            // we can cheaply calldatacopy the arguments into memory, hence no call to CoreStorageSlotLib#savedBalancesSlot
             let free := mload(0x40)
             mstore(free, locker)
             // copy the first 3 arguments in the same order
@@ -164,10 +166,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     {
         if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
             FeesPerLiquidity memory fpl;
+            bytes32 fplFirstSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
             assembly ("memory-safe") {
-                let firstSlot := add(poolId, 1)
-                mstore(fpl, sload(firstSlot))
-                mstore(add(fpl, 0x20), sload(add(firstSlot, 1)))
+                mstore(fpl, sload(fplFirstSlot))
+                mstore(add(fpl, 0x20), sload(add(fplFirstSlot, 1)))
             }
             return fpl;
         }
@@ -177,15 +179,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         FeesPerLiquidity memory lower;
         FeesPerLiquidity memory upper;
 
+        (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
+            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
+        (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
+            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
+
         assembly ("memory-safe") {
-            let fplOutsideFirstSlot := add(poolId, 0xffffffffff)
-            let fplOutsideSecondSlot := add(fplOutsideFirstSlot, 1)
+            mstore(lower, sload(lowerFirstSlot))
+            mstore(add(lower, 0x20), sload(lowerSecondSlot))
 
-            mstore(lower, sload(add(fplOutsideFirstSlot, tickLower)))
-            mstore(add(lower, 0x20), sload(add(fplOutsideSecondSlot, tickLower)))
-
-            mstore(upper, sload(add(fplOutsideFirstSlot, tickUpper)))
-            mstore(add(upper, 0x20), sload(add(fplOutsideSecondSlot, tickUpper)))
+            mstore(upper, sload(upperFirstSlot))
+            mstore(add(upper, 0x20), sload(upperSecondSlot))
         }
 
         if (tick < tickLower) {
@@ -193,9 +197,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             return lower;
         } else if (tick < tickUpper) {
             FeesPerLiquidity memory fees;
+            bytes32 fplFirstSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
             assembly ("memory-safe") {
-                mstore(fees, sload(add(poolId, 1)))
-                mstore(add(fees, 0x20), sload(add(poolId, 2)))
+                mstore(fees, sload(fplFirstSlot))
+                mstore(add(fees, 0x20), sload(add(fplFirstSlot, 1)))
             }
 
             fees.subAssign(lower);
@@ -262,11 +267,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
-        bytes32 slot;
+        bytes32 slot = CoreStorageSlotLib.poolTicksSlot(poolId, tick);
         TickInfo ti;
-
         assembly ("memory-safe") {
-            slot := add(poolId, add(tick, 0xffffffff))
             ti := sload(slot)
         }
 
@@ -350,12 +353,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
+            bytes32 positionSlot = CoreStorageSlotLib.poolPositionsSlot(poolId, locker, positionId);
             Position storage position;
             assembly ("memory-safe") {
-                mstore(0, poolId)
-                mstore(32, positionId)
-
-                position.slot := add(keccak256(0, 64), locker)
+                position.slot := positionSlot
             }
 
             FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
@@ -548,12 +549,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             : subLiquidityDelta(liquidity, liquidityDelta);
 
                         FeesPerLiquidity memory tickFpl;
-                        bytes32 tickFplSlot;
+                        (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
+                            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
                         assembly ("memory-safe") {
-                            tickFplSlot := add(poolId, add(nextTick, 0xffffffffff))
-
-                            mstore(tickFpl, sload(tickFplSlot))
-                            mstore(add(tickFpl, 0x20), sload(add(tickFplSlot, 1)))
+                            mstore(tickFpl, sload(tickFplFirstSlot))
+                            mstore(add(tickFpl, 0x20), sload(tickFplSecondSlot))
                         }
 
                         FeesPerLiquidity memory totalFpl;
@@ -569,8 +569,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                         FeesPerLiquidity memory newFpl = totalFpl.sub(tickFpl);
                         assembly ("memory-safe") {
-                            sstore(tickFplSlot, mload(newFpl))
-                            sstore(add(tickFplSlot, 1), mload(add(newFpl, 0x20)))
+                            sstore(tickFplFirstSlot, mload(newFpl))
+                            sstore(tickFplSecondSlot, mload(add(newFpl, 0x20)))
                         }
                     }
                 } else if (sqrtRatio != result.sqrtRatioNext) {

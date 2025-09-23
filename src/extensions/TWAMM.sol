@@ -25,6 +25,7 @@ import {
     computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount, addSaleRateDelta
 } from "../math/twamm.sol";
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
+import {PoolId} from "../types/poolId.sol";
 
 /// @notice Returns the call points configuration for the TWAMM extension
 /// @dev Specifies which hooks TWAMM needs to execute virtual orders and manage DCA functionality
@@ -50,12 +51,12 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
 
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
-    mapping(bytes32 poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
+    mapping(PoolId poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
+    mapping(PoolId poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
 
     // The global reward rate and the reward rate before a given time are both used to
-    mapping(bytes32 poolId => FeesPerLiquidity) internal poolRewardRates;
-    mapping(bytes32 poolId => mapping(uint256 time => FeesPerLiquidity)) internal poolRewardRatesBefore;
+    mapping(PoolId poolId => FeesPerLiquidity) internal poolRewardRates;
+    mapping(PoolId poolId => mapping(uint256 time => FeesPerLiquidity)) internal poolRewardRatesBefore;
 
     // Current state of each individual order
     mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) internal orderState;
@@ -71,7 +72,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     /// @param poolId The unique identifier for the pool
     /// @param saleRateToken0 The sale rate for token0 orders
     /// @param saleRateToken1 The sale rate for token1 orders
-    function _emitVirtualOrdersExecuted(bytes32 poolId, uint256 saleRateToken0, uint256 saleRateToken1) internal {
+    function _emitVirtualOrdersExecuted(PoolId poolId, uint256 saleRateToken0, uint256 saleRateToken1) internal {
         assembly ("memory-safe") {
             // by writing it backwards, we overwrite only the empty bits with each subsequent write
             // 28-60, only 46-60 can be non-zero
@@ -85,7 +86,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     /// @inheritdoc ITWAMM
-    function getRewardRateInside(bytes32 poolId, uint256 startTime, uint256 endTime, bool isToken1)
+    function getRewardRateInside(PoolId poolId, uint256 startTime, uint256 endTime, bool isToken1)
         public
         view
         returns (uint256 result)
@@ -162,7 +163,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     /// @param saleRateDelta The change in sale rate for this time
     /// @param isToken1 True if updating token1 sale rate, false for token0
     /// @param numOrdersChange The change in number of orders referencing this time
-    function _updateTime(bytes32 poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
+    function _updateTime(PoolId poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
     {
         TimeInfo timeInfo = poolTimeInfos[poolId][time];
@@ -241,7 +242,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 }
 
                 PoolKey memory poolKey = params.orderKey.toPoolKey(address(this));
-                bytes32 poolId = poolKey.toPoolId();
+                PoolId poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
                 bytes32 orderId = params.orderKey.toOrderId();
@@ -386,7 +387,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     abi.decode(data, (uint256, ITWAMM.CollectProceedsParams));
 
                 PoolKey memory poolKey = params.orderKey.toPoolKey(address(this));
-                bytes32 poolId = poolKey.toPoolId();
+                PoolId poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
                 bytes32 orderId = params.orderKey.toOrderId();
@@ -423,7 +424,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         }
     }
 
-    function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, bytes32 poolId) internal {
+    function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, PoolId poolId) internal {
         unchecked {
             TwammPoolState state;
 
@@ -618,7 +619,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     {
         if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
 
-        bytes32 poolId = key.toPoolId();
+        PoolId poolId = key.toPoolId();
 
         TwammPoolState initialState = createTwammPoolState({
             _lastVirtualOrderExecutionTime: uint32(block.timestamp),

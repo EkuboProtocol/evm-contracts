@@ -27,7 +27,6 @@ import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 /// @notice Singleton contract holding all tokens and containing all possible operations in Ekubo Protocol
 /// @dev Implements the core AMM functionality including pools, positions, swaps, and fee collection
 contract Core is ICore, FlashAccountant, ExposedStorage {
-    using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
     using ExtensionCallPointsLib for *;
 
     /// @notice Mapping of extension addresses to their registration status
@@ -38,13 +37,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @notice Mapping of pool IDs to position IDs to position data
     mapping(bytes32 poolId => mapping(address owner => mapping(PositionId positionId => Position position))) private
         poolPositions;
-    /// @notice Mapping of pool IDs to tick information. This isn't actually used.
-    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private _poolTicks_placeholder;
-    /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick. This isn't actually used.
-    mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
-        _poolTickFeesPerLiquidityOutside_placeholder;
-    /// @notice Mapping of pool IDs to initialized tick bitmaps
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
     /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
@@ -94,14 +86,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(extension).maybeCallAfterInitializePool(msg.sender, poolKey, tick, sqrtRatio);
     }
 
+    function bitmapsOffset(bytes32 poolId) internal pure returns (bytes32 offset) {
+        assembly ("memory-safe") {
+            offset := add(poolId, 0xffffffffffff)
+        }
+    }
+
     /// @inheritdoc ICore
     function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) =
-            poolInitializedTickBitmaps[poolId].findPrevInitializedTick(fromTick, tickSpacing, skipAhead);
+        (tick, isInitialized) = findPrevInitializedTick(bitmapsOffset(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -110,8 +107,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) =
-            poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
+        (tick, isInitialized) = findNextInitializedTick(bitmapsOffset(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -287,7 +283,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
+            flipTick(bitmapsOffset(poolId), tick, tickSpacing);
         }
 
         ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
@@ -486,8 +482,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                     (nextTick, isInitialized) = increasing
-                        ? poolInitializedTickBitmaps[poolId].findNextInitializedTick(tick, poolKey.tickSpacing(), skipAhead)
-                        : poolInitializedTickBitmaps[poolId].findPrevInitializedTick(tick, poolKey.tickSpacing(), skipAhead);
+                        ? findNextInitializedTick(bitmapsOffset(poolId), tick, poolKey.tickSpacing(), skipAhead)
+                        : findPrevInitializedTick(bitmapsOffset(poolId), tick, poolKey.tickSpacing(), skipAhead);
 
                     nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                 } else {

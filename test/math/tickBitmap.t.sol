@@ -8,6 +8,7 @@ import {
     tickToBitmapWordAndIndex,
     bitmapWordAndIndexToTick,
     flipTick,
+    loadBitmap,
     findNextInitializedTick,
     findPrevInitializedTick
 } from "../../src/math/tickBitmap.sol";
@@ -16,7 +17,7 @@ import {Bitmap} from "../../src/types/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 
 contract TickBitmap {
-    mapping(uint256 => Bitmap) public map;
+    bytes32 public constant storageOffset = 0;
     // we use an immutable because this is a constraint that the bitmap expects
     uint32 public immutable tickSpacing;
 
@@ -29,7 +30,7 @@ contract TickBitmap {
     function isInitialized(int32 tick) public view returns (bool) {
         assert(tick % int32(tickSpacing) == 0);
         (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
-        return map[word].isSet(uint8(index));
+        return loadBitmap(storageOffset, word).isSet(uint8(index));
     }
 
     function flip(int32 tick) public {
@@ -37,7 +38,7 @@ contract TickBitmap {
         require((tick % int32(tickSpacing)) == 0, "mod");
         require(tick <= MAX_TICK, "max");
         require(tick >= MIN_TICK, "min");
-        flipTick(map, tick, tickSpacing);
+        flipTick(storageOffset, tick, tickSpacing);
     }
 
     function next(int32 fromTick) public view returns (int32, bool) {
@@ -45,7 +46,7 @@ contract TickBitmap {
     }
 
     function next(int32 fromTick, uint256 skipAhead) public view returns (int32, bool) {
-        return findNextInitializedTick(map, fromTick, tickSpacing, skipAhead);
+        return findNextInitializedTick(storageOffset, fromTick, tickSpacing, skipAhead);
     }
 
     function prev(int32 fromTick) public view returns (int32, bool) {
@@ -53,7 +54,7 @@ contract TickBitmap {
     }
 
     function prev(int32 fromTick, uint256 skipAhead) public view returns (int32, bool) {
-        return findPrevInitializedTick(map, fromTick, tickSpacing, skipAhead);
+        return findPrevInitializedTick(storageOffset, fromTick, tickSpacing, skipAhead);
     }
 }
 

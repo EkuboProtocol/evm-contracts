@@ -14,7 +14,7 @@ import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 /// @author Moody Salem
 /// @notice A singleton contract for making many airdrops
 contract Incentives is IIncentives, ExposedStorage, Multicallable {
-    function fund(DropKey memory key, uint128 minimum) external returns (uint128 fundedAmount) {
+    function fund(DropKey memory key, uint128 minimum) external override returns (uint128 fundedAmount) {
         bytes32 id = key.toDropId();
 
         // Load drop state from storage slot: drop id
@@ -38,7 +38,7 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
         }
     }
 
-    function refund(DropKey memory key) external returns (uint128 refundAmount) {
+    function refund(DropKey memory key) external override returns (uint128 refundAmount) {
         if (msg.sender != key.owner) {
             revert DropOwnerOnly();
         }
@@ -66,7 +66,7 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
         emit Refunded(key, refundAmount);
     }
 
-    function claim(DropKey memory key, Claim memory c, bytes32[] calldata proof) external virtual {
+    function claim(DropKey memory key, Claim memory c, bytes32[] calldata proof) external override {
         bytes32 id = key.toDropId();
 
         // Check that it is not claimed

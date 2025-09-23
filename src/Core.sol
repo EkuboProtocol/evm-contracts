@@ -325,18 +325,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         payable
         returns (int128 delta0, int128 delta1)
     {
+        positionId.validateBounds(poolKey.tickSpacing());
+
         (uint256 id, address locker) = _requireLocker();
 
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
 
-        positionId.validateBounds(poolKey.tickSpacing());
+        bytes32 poolId = poolKey.toPoolId();
+        PoolState state = readPoolState(poolId);
+        if (!state.isInitialized()) revert PoolNotInitialized();
 
         if (liquidityDelta != 0) {
-            bytes32 poolId = poolKey.toPoolId();
-            PoolState state = readPoolState(poolId);
-            if (!state.isInitialized()) revert PoolNotInitialized();
-
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
                 (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
 
@@ -368,32 +368,30 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 _updateTick(poolId, positionId.tickUpper(), poolKey.tickSpacing(), liquidityDelta, true);
 
                 if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
-                    writePoolState(
-                        poolId,
-                        createPoolState({
-                            _sqrtRatio: state.sqrtRatio(),
-                            _tick: state.tick(),
-                            _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
-                        })
-                    );
-                }
-            } else {
-                writePoolState(
-                    poolId,
-                    createPoolState({
+                    state = createPoolState({
                         _sqrtRatio: state.sqrtRatio(),
                         _tick: state.tick(),
                         _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
-                    })
-                );
+                    });
+                    writePoolState(poolId, state);
+                }
+            } else {
+                state = createPoolState({
+                    _sqrtRatio: state.sqrtRatio(),
+                    _tick: state.tick(),
+                    _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                });
+                writePoolState(poolId, state);
             }
 
             _updatePairDebtWithNative(id, poolKey.token0, poolKey.token1, delta0, delta1);
 
-            emit PositionUpdated(locker, poolId, positionId, liquidityDelta, delta0, delta1);
+            emit PositionUpdated(locker, poolId, positionId, liquidityDelta, delta0, delta1, state);
         }
 
-        IExtension(extension).maybeCallAfterUpdatePosition(locker, poolKey, positionId, liquidityDelta, delta0, delta1);
+        IExtension(extension).maybeCallAfterUpdatePosition(
+            locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
+        );
     }
 
     /// @inheritdoc ICore
@@ -583,7 +581,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         IExtension(extension).maybeCallAfterSwap(
-            locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1
+            locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
         );
     }
 }

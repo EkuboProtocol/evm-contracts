@@ -148,14 +148,14 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 }
 
                 if (increasing) {
-                    if (uint128(-delta0) > 0) {
+                    if (delta0 != 0) {
                         ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-delta0));
                     }
-                    if (uint128(delta1) != 0) {
+                    if (delta1 != 0) {
                         ACCOUNTANT.payFrom(swapper, poolKey.token1, uint128(delta1));
                     }
                 } else {
-                    if (uint128(-delta1) > 0) {
+                    if (delta1 != 0) {
                         ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-delta1));
                     }
                     if (uint128(delta0) <= value) {

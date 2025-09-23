@@ -1,8 +1,8 @@
 {
   "lockAndExecuteVirtualOrders max cost": "2925591",
-  "mintAndIncreaseSellAmount(first order)": "219336",
-  "mintAndIncreaseSellAmount(second order)": "90968",
-  "swap and executeVirtualOrders double sided": "117112",
-  "swap and executeVirtualOrders double sided crossed": "96447",
-  "swap and executeVirtualOrders single sided": "110338"
+  "mintAndIncreaseSellAmount(first order)": "219332",
+  "mintAndIncreaseSellAmount(second order)": "90964",
+  "swap and executeVirtualOrders double sided": "117109",
+  "swap and executeVirtualOrders double sided crossed": "96444",
+  "swap and executeVirtualOrders single sided": "110335"
 }

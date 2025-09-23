@@ -136,11 +136,7 @@ contract MockExtension is IExtension, BaseLocker {
             }
         }
         if (amount1 != 0) {
-            if (poolKey.token1 == NATIVE_TOKEN_ADDRESS) {
-                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount1);
-            } else {
-                ACCOUNTANT.payFrom(sender, poolKey.token1, amount1);
-            }
+            ACCOUNTANT.payFrom(sender, poolKey.token1, amount1);
         }
     }
 }

@@ -193,17 +193,18 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
                 (int256)
             );
 
-            if (saleRateDelta > 0) {
-                if (uint256(amount) != 0) {
+            if (amount != 0) {
+                if (saleRateDelta > 0) {
                     if (orderKey.sellToken == NATIVE_TOKEN_ADDRESS) {
                         SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(amount));
                     } else {
                         ACCOUNTANT.payFrom(recipientOrPayer, orderKey.sellToken, uint256(amount));
                     }
-                }
-            } else {
-                if (uint128(uint256(-amount)) > 0) {
-                    ACCOUNTANT.withdraw(orderKey.sellToken, recipientOrPayer, uint128(uint256(-amount)));
+                } else {
+                    unchecked {
+                        // we know amount will never exceed the uint128 type because of limitations on sale rate (fixed point 80.32) and duration (uint32)
+                        ACCOUNTANT.withdraw(orderKey.sellToken, recipientOrPayer, uint128(uint256(-amount)));
+                    }
                 }
             }
 
@@ -220,7 +221,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
                 (uint128)
             );
 
-            if (proceeds > 0) {
+            if (proceeds != 0) {
                 ACCOUNTANT.withdraw(orderKey.buyToken, recipient, proceeds);
             }
 

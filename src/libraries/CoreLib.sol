@@ -37,7 +37,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @return state The current state of the pool
     function poolState(ICore core, PoolId poolId) internal view returns (PoolState state) {
-        state = PoolState.wrap(core.sload(poolId.toBytes32()));
+        state = PoolState.wrap(core.sload(PoolId.unwrap(poolId)));
     }
 
     /// @notice Gets position data for a specific position in a pool

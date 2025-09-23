@@ -141,7 +141,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                     CORE.updateSavedBalances(
                         poolKey.token0,
                         poolKey.token1,
-                        poolId.toBytes32(),
+                        PoolId.unwrap(poolId),
                         -int256(uint256(fees0)),
                         -int256(uint256(fees1))
                     );
@@ -157,7 +157,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
     {
-        bytes32 feesSlot = CoreLib.savedBalancesSlot(address(this), token0, token1, poolId.toBytes32());
+        bytes32 feesSlot = CoreLib.savedBalancesSlot(address(this), token0, token1, PoolId.unwrap(poolId));
 
         address c = address(CORE);
         assembly ("memory-safe") {
@@ -257,7 +257,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             }
 
             if (saveDelta0 != 0 || saveDelta1 != 0) {
-                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, poolId.toBytes32(), saveDelta0, saveDelta1);
+                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
             }
 
             result = abi.encode(delta0, delta1, stateAfter);

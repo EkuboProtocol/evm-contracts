@@ -12,7 +12,7 @@ library TWAMMLib {
     using ExposedStorageLib for *;
 
     function poolState(ITWAMM twamm, PoolId poolId) internal view returns (TwammPoolState twammPoolState) {
-        twammPoolState = TwammPoolState.wrap(twamm.sload(poolId.toBytes32()));
+        twammPoolState = TwammPoolState.wrap(twamm.sload(PoolId.unwrap(poolId)));
     }
 
     function orderState(ITWAMM twamm, address owner, bytes32 salt, bytes32 orderId)

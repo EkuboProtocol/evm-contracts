@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.28;
 
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 
@@ -59,15 +58,16 @@ contract PositionsOwner is Ownable, Multicallable {
         // Get available protocol fees
         (uint128 amount0, uint128 amount1) = POSITIONS.getProtocolFees(token0, token1);
 
+        assembly ("memory-safe") {
+            // this makes sure we do not ever leave the positions contract with less than 1 wei of fees in both tokens
+            // leaving those fees saves gas for when more protocol fees are accrued
+            amount0 := sub(amount0, gt(amount0, 0))
+            amount1 := sub(amount1, gt(amount1, 0))
+        }
+
         // Withdraw fees to the buybacks contract if there are any
-        if (amount0 > 1 || amount1 > 1) {
-            POSITIONS.withdrawProtocolFees(
-                token0,
-                token1,
-                uint128(FixedPointMathLib.zeroFloorSub(amount0, 1)),
-                uint128(FixedPointMathLib.zeroFloorSub(amount1, 1)),
-                address(BUYBACKS)
-            );
+        if (amount0 != 0 || amount1 != 0) {
+            POSITIONS.withdrawProtocolFees(token0, token1, uint128(amount0), uint128(amount1), address(BUYBACKS));
         }
 
         // Call roll for both tokens

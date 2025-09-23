@@ -9,6 +9,7 @@ import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
+import {PoolId} from "../types/poolId.sol";
 
 /// @title Extension Interface
 /// @notice Interface for pool extensions that can hook into core operations
@@ -123,7 +124,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param poolKey Pool key containing token addresses and configuration
     /// @param tick Initial tick for the pool
     /// @param sqrtRatio Initial sqrt price ratio for the pool
-    event PoolInitialized(bytes32 poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
+    event PoolInitialized(PoolId poolId, PoolKey poolKey, int32 tick, SqrtRatio sqrtRatio);
 
     /// @notice Emitted when a position is updated
     /// @param locker The locker that is updating the position
@@ -134,7 +135,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param delta1 Change in token1 balance
     event PositionUpdated(
         address locker,
-        bytes32 poolId,
+        PoolId poolId,
         PositionId positionId,
         int128 liquidityDelta,
         int128 delta0,
@@ -148,16 +149,14 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param positionId Identifier of the position specifying a salt and the bounds
     /// @param amount0 Amount of token0 fees collected
     /// @param amount1 Amount of token1 fees collected
-    event PositionFeesCollected(
-        address locker, bytes32 poolId, PositionId positionId, uint128 amount0, uint128 amount1
-    );
+    event PositionFeesCollected(address locker, PoolId poolId, PositionId positionId, uint128 amount0, uint128 amount1);
 
     /// @notice Emitted when fees are accumulated to a pool
     /// @param poolId Unique identifier for the pool
     /// @param amount0 Amount of token0 fees accumulated
     /// @param amount1 Amount of token1 fees accumulated
     /// @dev Note locker is ommitted because it's always the extension of the pool associated with poolId
-    event FeesAccumulated(bytes32 poolId, uint128 amount0, uint128 amount1);
+    event FeesAccumulated(PoolId poolId, uint128 amount0, uint128 amount1);
 
     /// @notice Thrown when extension registration fails due to invalid call points
     error FailedRegisterInvalidCallPoints();
@@ -208,7 +207,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param skipAhead Number of ticks to skip for gas optimization
     /// @return tick The previous initialized tick
     /// @return isInitialized Whether the tick is initialized
-    function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function prevInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
@@ -220,7 +219,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param skipAhead Number of ticks to skip for gas optimization
     /// @return tick The next initialized tick
     /// @return isInitialized Whether the tick is initialized
-    function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function nextInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);

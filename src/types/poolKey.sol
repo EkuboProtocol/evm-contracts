@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {PoolId} from "./poolId.sol";
 
 using {toPoolId, validatePoolKey, isFullRange, mustLoadFees, tickSpacing, fee, extension} for PoolKey global;
 
@@ -96,7 +97,7 @@ function validatePoolKey(PoolKey memory key) pure {
 /// @notice Converts a pool key to a unique pool ID
 /// @param key The pool key
 /// @return result The unique pool ID (hash of the pool key)
-function toPoolId(PoolKey memory key) pure returns (bytes32 result) {
+function toPoolId(PoolKey memory key) pure returns (PoolId result) {
     assembly ("memory-safe") {
         // it's already copied into memory
         result := keccak256(key, 96)

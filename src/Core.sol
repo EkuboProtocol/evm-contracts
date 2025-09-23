@@ -21,6 +21,7 @@ import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} 
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
+import {PoolId} from "./types/poolId.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -34,17 +35,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     mapping(address extension => bool isRegistered) private isExtensionRegistered;
 
     /// @notice Mapping of pool IDs to their accumulated fees per liquidity
-    mapping(bytes32 poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
+    mapping(PoolId poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
     /// @notice Mapping of pool IDs to position IDs to position data
-    mapping(bytes32 poolId => mapping(address owner => mapping(PositionId positionId => Position position))) private
+    mapping(PoolId poolId => mapping(address owner => mapping(PositionId positionId => Position position))) private
         poolPositions;
     /// @notice Mapping of pool IDs to tick information
-    mapping(bytes32 poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
+    mapping(PoolId poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
     /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick
-    mapping(bytes32 poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
+    mapping(PoolId poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
         poolTickFeesPerLiquidityOutside;
     /// @notice Mapping of pool IDs to initialized tick bitmaps
-    mapping(bytes32 poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
+    mapping(PoolId poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
     /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
@@ -57,13 +58,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         emit ExtensionRegistered(msg.sender);
     }
 
-    function readPoolState(bytes32 poolId) internal view returns (PoolState state) {
+    function readPoolState(PoolId poolId) internal view returns (PoolState state) {
         assembly ("memory-safe") {
             state := sload(poolId)
         }
     }
 
-    function writePoolState(bytes32 poolId, PoolState state) internal {
+    function writePoolState(PoolId poolId, PoolState state) internal {
         assembly ("memory-safe") {
             sstore(poolId, state)
         }
@@ -82,7 +83,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             IExtension(extension).maybeCallBeforeInitializePool(msg.sender, poolKey, tick);
         }
 
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
         if (state.isInitialized()) revert PoolAlreadyInitialized();
 
@@ -95,7 +96,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function prevInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function prevInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
@@ -105,7 +106,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function nextInitializedTick(bytes32 poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function nextInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
@@ -167,7 +168,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param tickLower Upper tick of the price range to get the snapshot of
     /// @param tickSpacing Tick spacing for the pool
     /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
-    function _getPoolFeesPerLiquidityInside(bytes32 poolId, int32 tickLower, int32 tickUpper, uint32 tickSpacing)
+    function _getPoolFeesPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper, uint32 tickSpacing)
         internal
         view
         returns (FeesPerLiquidity memory)
@@ -208,7 +209,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (uint256 id, address lockerAddr) = _requireLocker().parse();
         require(lockerAddr == poolKey.extension());
 
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
 
         // Note we do not check pool is initialized. If the extension calls this for a pool that does not exist,
         //  the fees are simply burned since liquidity is 0.
@@ -250,7 +251,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param tickSpacing Tick spacing for the pool
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
-    function _updateTick(bytes32 poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
+    function _updateTick(PoolId poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
         bytes32 slot;
         TickInfo ti;
 
@@ -332,7 +333,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeUpdatePosition(lockerAddr, poolKey, positionId, liquidityDelta);
 
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
         if (!state.isInitialized()) revert PoolNotInitialized();
 
@@ -404,7 +405,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeCollectFees(lockerAddr, poolKey, positionId);
 
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
 
         Position memory position = poolPositions[poolId][lockerAddr][positionId];
 
@@ -439,7 +440,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeSwap(lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
 
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = readPoolState(poolId).parse();
 

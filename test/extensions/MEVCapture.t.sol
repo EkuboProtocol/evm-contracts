@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
+import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
@@ -43,8 +44,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertTrue(core.isExtensionRegistered(address(mevCapture)));
     }
 
-    function getPoolState(bytes32 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
-        bytes32 v = mevCapture.sload(poolId);
+    function getPoolState(PoolId poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
+        bytes32 v = mevCapture.sload(PoolId.unwrap(poolId));
         assembly ("memory-safe") {
             lastUpdateTime := shr(224, v)
             tickLast := signextend(31, shr(192, v))

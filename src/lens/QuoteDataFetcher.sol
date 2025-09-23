@@ -8,6 +8,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
+import {PoolId} from "../types/poolId.sol";
 
 struct TickDelta {
     int32 number;
@@ -41,7 +42,7 @@ contract QuoteDataFetcher is UsesCore {
         unchecked {
             results = new QuoteData[](poolKeys.length);
             for (uint256 i = 0; i < poolKeys.length; i++) {
-                bytes32 poolId = poolKeys[i].toPoolId();
+                PoolId poolId = poolKeys[i].toPoolId();
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
 
                 if (!sqrtRatio.isZero()) {
@@ -91,7 +92,7 @@ contract QuoteDataFetcher is UsesCore {
     }
 
     // Returns all the initialized ticks and the liquidity delta of each tick in the given range
-    function _getInitializedTicksInRange(bytes32 poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
+    function _getInitializedTicksInRange(PoolId poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
         internal
         view
         returns (TickDelta[] memory ticks)

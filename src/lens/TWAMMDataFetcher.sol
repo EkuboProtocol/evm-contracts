@@ -10,6 +10,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {MAX_NUM_VALID_TIMES, nextValidTime} from "../math/time.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
+import {PoolId} from "../types/poolId.sol";
 
 function getAllValidFutureTimes(uint256 currentTime) pure returns (uint256[] memory times) {
     unchecked {
@@ -65,7 +66,7 @@ contract TWAMMDataFetcher is UsesCore {
 
             uint256[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
 
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             bytes32[] memory timeInfoSlots = new bytes32[](allValidTimes.length);
             assembly ("memory-safe") {
                 mstore(0, poolId)

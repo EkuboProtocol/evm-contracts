@@ -158,17 +158,19 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                     if (delta1 != 0) {
                         ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-delta1));
                     }
-                    if (uint128(delta0) <= value) {
-                        if (uint128(value) - uint128(delta0) > 0) {
-                            ACCOUNTANT.withdraw(poolKey.token0, swapper, uint128(value) - uint128(delta0));
-                        }
-                    } else {
-                        if (uint128(delta0) != 0) {
-                            if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
-                                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(delta0));
-                            } else {
-                                ACCOUNTANT.payFrom(swapper, poolKey.token0, uint128(delta0));
+
+                    if (delta0 != 0) {
+                        if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
+                            int256 valueDifference = int256(value) - int256(delta0);
+
+                            // refund the overpaid ETH to the swapper
+                            if (valueDifference > 0) {
+                                ACCOUNTANT.withdraw(NATIVE_TOKEN_ADDRESS, swapper, uint128(uint256(valueDifference)));
+                            } else if (valueDifference < 0) {
+                                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(-valueDifference)));
                             }
+                        } else {
+                            ACCOUNTANT.payFrom(swapper, poolKey.token0, uint128(delta0));
                         }
                     }
                 }
@@ -246,30 +248,22 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 }
 
                 if (totalSpecified < 0) {
-                    if (uint128(uint256(-totalSpecified)) > 0) {
-                        ACCOUNTANT.withdraw(specifiedToken, swapper, uint128(uint256(-totalSpecified)));
-                    }
-                } else {
-                    if (uint128(uint256(totalSpecified)) != 0) {
-                        if (specifiedToken == NATIVE_TOKEN_ADDRESS) {
-                            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(totalSpecified)));
-                        } else {
-                            ACCOUNTANT.payFrom(swapper, specifiedToken, uint128(uint256(totalSpecified)));
-                        }
+                    ACCOUNTANT.withdraw(specifiedToken, swapper, uint128(uint256(-totalSpecified)));
+                } else if (totalSpecified > 0) {
+                    if (specifiedToken == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(totalSpecified)));
+                    } else {
+                        ACCOUNTANT.payFrom(swapper, specifiedToken, uint128(uint256(totalSpecified)));
                     }
                 }
 
                 if (totalCalculated > 0) {
-                    if (uint128(uint256(totalCalculated)) > 0) {
-                        ACCOUNTANT.withdraw(calculatedToken, swapper, uint128(uint256(totalCalculated)));
-                    }
-                } else {
-                    if (uint128(uint256(-totalCalculated)) != 0) {
-                        if (calculatedToken == NATIVE_TOKEN_ADDRESS) {
-                            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(-totalCalculated)));
-                        } else {
-                            ACCOUNTANT.payFrom(swapper, calculatedToken, uint128(uint256(-totalCalculated)));
-                        }
+                    ACCOUNTANT.withdraw(calculatedToken, swapper, uint128(uint256(totalCalculated)));
+                } else if (totalCalculated < 0) {
+                    if (calculatedToken == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(-totalCalculated)));
+                    } else {
+                        ACCOUNTANT.payFrom(swapper, calculatedToken, uint128(uint256(-totalCalculated)));
                     }
                 }
             }

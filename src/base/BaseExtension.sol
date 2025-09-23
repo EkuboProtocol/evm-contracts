@@ -6,6 +6,7 @@ import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {PoolState} from "../types/poolState.sol";
 import {UsesCore} from "./UsesCore.sol";
 
 /// @title Base Extension
@@ -50,7 +51,10 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function afterUpdatePosition(address, PoolKey memory, PositionId, int128, int128, int128) external virtual {
+    function afterUpdatePosition(address, PoolKey memory, PositionId, int128, int128, int128, PoolState)
+        external
+        virtual
+    {
         revert CallPointNotImplemented();
     }
 
@@ -60,7 +64,10 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128) external virtual {
+    function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
+        external
+        virtual
+    {
         revert CallPointNotImplemented();
     }
 

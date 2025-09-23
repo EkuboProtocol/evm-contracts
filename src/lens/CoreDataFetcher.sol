@@ -8,6 +8,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {PoolId} from "../types/poolId.sol";
 
 contract CoreDataFetcher is UsesCore {
     using CoreLib for *;
@@ -48,11 +49,7 @@ contract CoreDataFetcher is UsesCore {
         (savedBalance0, savedBalance1) = CORE.savedBalances(owner, token0, token1, salt);
     }
 
-    function poolTicks(bytes32 poolId, int32 tick)
-        external
-        view
-        returns (int128 liquidityDelta, uint128 liquidityNet)
-    {
+    function poolTicks(PoolId poolId, int32 tick) external view returns (int128 liquidityDelta, uint128 liquidityNet) {
         (liquidityDelta, liquidityNet) = CORE.poolTicks(poolId, tick);
     }
 }

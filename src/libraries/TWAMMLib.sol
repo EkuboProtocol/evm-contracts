@@ -5,13 +5,14 @@ import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {TwammPoolState} from "../types/twammPoolState.sol";
 import {OrderState} from "../types/orderState.sol";
+import {PoolId} from "../types/poolId.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library TWAMMLib {
     using ExposedStorageLib for *;
 
-    function poolState(ITWAMM twamm, bytes32 poolId) internal view returns (TwammPoolState twammPoolState) {
-        twammPoolState = TwammPoolState.wrap(twamm.sload(poolId));
+    function poolState(ITWAMM twamm, PoolId poolId) internal view returns (TwammPoolState twammPoolState) {
+        twammPoolState = TwammPoolState.wrap(twamm.sload(PoolId.unwrap(poolId)));
     }
 
     function orderState(ITWAMM twamm, address owner, bytes32 salt, bytes32 orderId)

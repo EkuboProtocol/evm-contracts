@@ -19,6 +19,7 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseNonfungibleToken} from "./BaseNonfungibleToken.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {PoolId} from "../types/poolId.sol";
 
 /// @title Base Positions Contract
 /// @author Moody Salem <moody@ekubo.org>
@@ -39,7 +40,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         view
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
     {
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
         PositionId positionId =
             createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper});

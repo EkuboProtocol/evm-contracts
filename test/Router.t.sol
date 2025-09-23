@@ -3,6 +3,7 @@ pragma solidity =0.8.28;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolId} from "../src/types/poolId.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {
     MIN_SQRT_RATIO,
@@ -477,7 +478,7 @@ contract RouterTest is FullTest {
             address locker = address(bytes20(LibBytes.load(logs[i].data, 0)));
             assertEq(locker, address(router));
             bytes32 poolId = LibBytes.load(logs[i].data, 20);
-            assertEq(poolId, poolKey.toPoolId());
+            assertEq(poolId, PoolId.unwrap(poolKey.toPoolId()));
 
             assertEq(PoolState.wrap(LibBytes.load(logs[i].data, 84)).liquidity(), liquidity);
         }

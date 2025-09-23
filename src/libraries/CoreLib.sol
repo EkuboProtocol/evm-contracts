@@ -8,6 +8,7 @@ import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
+import {PoolId} from "../types/poolId.sol";
 
 /// @title Core Library
 /// @notice Library providing common storage getters for external contracts
@@ -29,7 +30,7 @@ library CoreLib {
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
     /// @return state The current state of the pool
-    function poolState(ICore core, bytes32 poolId) internal view returns (PoolState state) {
+    function poolState(ICore core, PoolId poolId) internal view returns (PoolState state) {
         state = PoolState.wrap(core.sload(CoreStorageSlotLib.poolStateSlot(poolId)));
     }
 
@@ -39,7 +40,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @param positionId The unique identifier for the position
     /// @return position The position data including liquidity and fees
-    function poolPositions(ICore core, bytes32 poolId, address owner, PositionId positionId)
+    function poolPositions(ICore core, PoolId poolId, address owner, PositionId positionId)
         internal
         view
         returns (Position memory position)
@@ -79,7 +80,7 @@ library CoreLib {
     /// @param tick The tick to query
     /// @return liquidityDelta The liquidity change when crossing this tick
     /// @return liquidityNet The net liquidity above this tick
-    function poolTicks(ICore core, bytes32 poolId, int32 tick)
+    function poolTicks(ICore core, PoolId poolId, int32 tick)
         internal
         view
         returns (int128 liquidityDelta, uint128 liquidityNet)

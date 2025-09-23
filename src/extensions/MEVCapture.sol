@@ -14,6 +14,7 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {CoreStorageSlotLib} from "../libraries/CoreStorageSlotLib.sol";
 import {PoolState} from "../types/poolState.sol";
+import {PoolId} from "../types/poolId.sol";
 
 function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -40,7 +41,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
     /// @return lastUpdateTime The last time this pool was updated
     /// @return tickLast The tick from the last time the pool was touched
-    function getPoolState(bytes32 poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
+    function getPoolState(PoolId poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
         assembly ("memory-safe") {
             let v := sload(poolId)
             lastUpdateTime := shr(224, v)
@@ -48,7 +49,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         }
     }
 
-    function setPoolState(bytes32 poolId, uint32 lastUpdateTime, int32 tickLast) private {
+    function setPoolState(PoolId poolId, uint32 lastUpdateTime, int32 tickLast) private {
         assembly ("memory-safe") {
             sstore(poolId, or(shl(224, lastUpdateTime), shr(32, shl(224, tickLast))))
         }
@@ -126,7 +127,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             calldatacopy(poolKey, 36, 96)
         }
 
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
 
         (uint32 lastUpdateTime,) = getPoolState(poolId);
 
@@ -139,7 +140,11 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 if (fees0 != 0 || fees1 != 0) {
                     CORE.accumulateAsFees(poolKey, fees0, fees1);
                     CORE.updateSavedBalances(
-                        poolKey.token0, poolKey.token1, poolId, -int256(uint256(fees0)), -int256(uint256(fees1))
+                        poolKey.token0,
+                        poolKey.token1,
+                        PoolId.unwrap(poolId),
+                        -int256(uint256(fees0)),
+                        -int256(uint256(fees1))
                     );
                 }
 
@@ -148,12 +153,12 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         }
     }
 
-    function loadCoreState(bytes32 poolId, address token0, address token1)
+    function loadCoreState(PoolId poolId, address token0, address token1)
         private
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
     {
-        bytes32 feesSlot = CoreStorageSlotLib.savedBalancesSlot(address(this), token0, token1, poolId);
+        bytes32 feesSlot = CoreStorageSlotLib.savedBalancesSlot(address(this), token0, token1, PoolId.unwrap(poolId));
 
         address c = address(CORE);
         assembly ("memory-safe") {
@@ -183,7 +188,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
                 abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
 
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
 
             uint32 currentTime = uint32(block.timestamp);
@@ -253,7 +258,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             }
 
             if (saveDelta0 != 0 || saveDelta1 != 0) {
-                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, poolId, saveDelta0, saveDelta1);
+                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
             }
 
             result = abi.encode(delta0, delta1, stateAfter);

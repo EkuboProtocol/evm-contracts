@@ -5,6 +5,7 @@ import {IExtension} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {PoolState} from "../types/poolState.sol";
 
 /// @dev Contains methods for determining whether an extension should be called
 library ExtensionCallPointsLib {
@@ -129,14 +130,15 @@ library ExtensionCallPointsLib {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) internal {
         bool needCall = shouldCallAfterSwap(extension, locker);
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "afterSwap(address, (address,address,bytes32), int128, bool, uint96, uint256, int128, int128)"
-                mstore(freeMem, shl(224, 0xc0578abb))
+                // cast sig "afterSwap(address, (address,address,bytes32), int128, bool, uint96, uint256, int128, int128, bytes32)"
+                mstore(freeMem, shl(224, 0x109b5369))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), amount)
@@ -145,8 +147,9 @@ library ExtensionCallPointsLib {
                 mstore(add(freeMem, 228), skipAhead)
                 mstore(add(freeMem, 260), delta0)
                 mstore(add(freeMem, 292), delta1)
+                mstore(add(freeMem, 324), stateAfter)
                 // bubbles up the revert
-                if iszero(call(gas(), extension, 0, freeMem, 324, 0, 0)) {
+                if iszero(call(gas(), extension, 0, freeMem, 356, 0, 0)) {
                     returndatacopy(freeMem, 0, returndatasize())
                     revert(freeMem, returndatasize())
                 }
@@ -211,22 +214,24 @@ library ExtensionCallPointsLib {
         PositionId positionId,
         int128 liquidityDelta,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) internal {
         bool needCall = shouldCallAfterUpdatePosition(extension, locker);
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "afterUpdatePosition(address, (address,address,bytes32), bytes32, int128, int128, int128)"
-                mstore(freeMem, shl(224, 0x8f1ea21d))
+                // cast sig "afterUpdatePosition(address, (address,address,bytes32), bytes32, int128, int128, int128, bytes32)"
+                mstore(freeMem, shl(224, 0x54993d0c))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), positionId)
                 mstore(add(freeMem, 164), liquidityDelta)
                 mstore(add(freeMem, 196), delta0)
                 mstore(add(freeMem, 228), delta1)
+                mstore(add(freeMem, 260), stateAfter)
                 // bubbles up the revert
-                if iszero(call(gas(), extension, 0, freeMem, 260, 0, 0)) {
+                if iszero(call(gas(), extension, 0, freeMem, 292, 0, 0)) {
                     returndatacopy(freeMem, 0, returndatasize())
                     revert(freeMem, returndatasize())
                 }

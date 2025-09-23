@@ -15,6 +15,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Snapshot, createSnapshot} from "../types/snapshot.sol";
 import {Counts, createCounts} from "../types/counts.sol";
 import {Observation, createObservation} from "../types/observation.sol";
+import {PoolId} from "../types/poolId.sol";
 
 /// @notice Returns the call points configuration for the Oracle extension
 /// @dev Specifies which hooks the Oracle needs to capture price and liquidity data
@@ -89,7 +90,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     /// @dev Only inserts if block.timestamp > lastTimestamp to avoid duplicate snapshots
     /// @param poolId The unique identifier for the pool
     /// @param token The token address for the oracle data
-    function maybeInsertSnapshot(bytes32 poolId, address token) private {
+    function maybeInsertSnapshot(PoolId poolId, address token) private {
         unchecked {
             Counts c;
             assembly ("memory-safe") {
@@ -320,7 +321,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             if (timePassed != 0) {
                 if (logicalIndex == c.count() - 1) {
                     // Use current pool state.
-                    bytes32 poolId = getPoolKey(token).toPoolId();
+                    PoolId poolId = getPoolKey(token).toPoolId();
                     (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
 
                     tickCumulative += int64(tick) * int64(uint64(timePassed));

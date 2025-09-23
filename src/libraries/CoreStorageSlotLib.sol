@@ -6,6 +6,7 @@ import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {PoolState} from "../types/poolState.sol";
+import {PoolId} from "../types/poolId.sol";
 import {PositionId} from "../types/positionId.sol";
 
 /// @title Core Storage Slot Library
@@ -29,14 +30,14 @@ library CoreStorageSlotLib {
     /// @notice Computes the storage slot of the current state of a pool
     /// @param poolId The unique identifier for the pool
     /// @return slot The storage slot in the Core contract
-    function poolStateSlot(bytes32 poolId) internal pure returns (bytes32 slot) {
-        slot = poolId;
+    function poolStateSlot(PoolId poolId) internal pure returns (bytes32 slot) {
+        slot = PoolId.unwrap(poolId);
     }
 
     /// @notice Computes the storage slots of the current fees of a pool
     /// @param poolId The unique identifier for the pool
     /// @return firstSlot The first of two consecutive storage slots in the Core contract
-    function poolFeesPerLiquiditySlot(bytes32 poolId) internal pure returns (bytes32 firstSlot) {
+    function poolFeesPerLiquiditySlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
         assembly ("memory-safe") {
             firstSlot := add(poolId, 1)
         }
@@ -47,7 +48,7 @@ library CoreStorageSlotLib {
     /// @param tick The tick to query
     /// @return firstSlot The first storage slot in the Core contract
     /// @return secondSlot The second storage slot in the Core contract
-    function poolTickFeesPerLiquidityOutsideSlot(bytes32 poolId, int32 tick)
+    function poolTickFeesPerLiquidityOutsideSlot(PoolId poolId, int32 tick)
         internal
         pure
         returns (bytes32 firstSlot, bytes32 secondSlot)
@@ -63,7 +64,7 @@ library CoreStorageSlotLib {
     /// @param owner The position owner
     /// @param positionId The unique identifier for the position
     /// @return firstSlot The first of three consecutive storage slots in the Core contract
-    function poolPositionsSlot(bytes32 poolId, address owner, PositionId positionId)
+    function poolPositionsSlot(PoolId poolId, address owner, PositionId positionId)
         internal
         pure
         returns (bytes32 firstSlot)
@@ -100,7 +101,7 @@ library CoreStorageSlotLib {
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
     /// @return slot The storage slot in the Core contract
-    function poolTicksSlot(bytes32 poolId, int32 tick) internal pure returns (bytes32 slot) {
+    function poolTicksSlot(PoolId poolId, int32 tick) internal pure returns (bytes32 slot) {
         assembly ("memory-safe") {
             slot := add(poolId, add(tick, TICKS_OFFSET))
         }

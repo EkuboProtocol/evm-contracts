@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
@@ -487,7 +488,7 @@ contract OrdersTest is BaseOrdersTest {
             token1: address(token1),
             config: toConfig({_extension: address(twamm), _fee: 6969, _tickSpacing: 0})
         });
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
         positions.maybeInitializePool(poolKey, -18135370); // 0.000000013301874 token1/token0
 
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId).parse();

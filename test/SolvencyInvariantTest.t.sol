@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router} from "../src/Router.sol";
@@ -55,7 +56,7 @@ contract Handler is StdUtils, StdAssertions {
     ActivePosition[] activePositions;
     PoolKey[] allPoolKeys;
 
-    mapping(bytes32 poolId => Balances balances) poolBalances;
+    mapping(PoolId poolId => Balances balances) poolBalances;
 
     constructor(
         ICore _core,
@@ -122,7 +123,7 @@ contract Handler is StdUtils, StdAssertions {
                 activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
             }
 
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += int256(uint256(result0));
             poolBalances[poolId].amount1 += int256(uint256(result1));
         } catch (bytes memory err) {
@@ -144,7 +145,7 @@ contract Handler is StdUtils, StdAssertions {
     function accumulateFees(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
         try fae.accumulateFees(poolKey, amount0, amount1) {
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += int256(uint256(amount0));
             poolBalances[poolId].amount1 += int256(uint256(amount1));
         } catch (bytes memory err) {
@@ -169,7 +170,7 @@ contract Handler is StdUtils, StdAssertions {
 
         try positions.withdraw(positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees)
         returns (uint128 amount0, uint128 amount1) {
-            bytes32 poolId = p.poolKey.toPoolId();
+            PoolId poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));
             p.liquidity -= liquidity;
@@ -217,7 +218,7 @@ contract Handler is StdUtils, StdAssertions {
             isToken1: isToken1,
             amount: amount
         }) returns (int128 delta0, int128 delta1) {
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += delta0;
             poolBalances[poolId].amount1 += delta1;
         } catch (bytes memory err) {
@@ -239,7 +240,7 @@ contract Handler is StdUtils, StdAssertions {
 
     function checkAllPoolsHavePositiveBalance() public view {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
-            bytes32 poolId = allPoolKeys[i].toPoolId();
+            PoolId poolId = allPoolKeys[i].toPoolId();
             assertGe(poolBalances[poolId].amount0, 0);
             assertGe(poolBalances[poolId].amount1, 0);
         }

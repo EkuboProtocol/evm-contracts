@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
+import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
@@ -61,7 +62,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         PoolKey memory poolKey = createMEVCapturePool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
+        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(PoolId.unwrap(poolKey.toPoolId()));
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
 
@@ -69,7 +70,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             vm.warp(time + uint256(warp));
         }
         mevCapture.accumulatePoolFees(poolKey);
-        (lastUpdateTime, tickLast) = getPoolState(poolKey.toPoolId());
+        (lastUpdateTime, tickLast) = getPoolState(PoolId.unwrap(poolKey.toPoolId()));
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, tick);
     }
@@ -78,7 +79,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
         mevCapture.accumulatePoolFees(poolKey);
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
+        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(PoolId.unwrap(poolKey.toPoolId()));
         assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
         assertEq(tickLast, 0);
     }

@@ -2,6 +2,7 @@
 pragma solidity =0.8.28;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
+import {PoolId} from "../../src/types/poolId.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {ITWAMM, TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
@@ -109,7 +110,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     function testgetRewardRateInside_token0() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         vm.warp(99);
         assertEq(getRewardRateInside(poolId, 100, 200, false), 0);
@@ -130,7 +131,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     function testgetRewardRateInside_at_end_time() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(25, 30);
         poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(50, 75);
@@ -140,7 +141,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     function testgetRewardRateInside_token1() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         vm.warp(99);
         assertEq(getRewardRateInside(poolId, 100, 200, true), 0);
@@ -161,7 +162,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     function test_updateTime_flips_time() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
 
@@ -189,7 +190,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     function test_updateTime_flips_time_two_orders_one_removed() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 55, isToken1: true, numOrdersChange: 1});
@@ -219,7 +220,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
     /// forge-config: default.allow_internal_expect_revert = true
     function test_updateTime_reverts_if_max_num_orders_exceeded() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         poolTimeInfos[poolId][96] = createTimeInfo(type(uint32).max, 0, 0);
         vm.expectRevert(ITWAMM.TimeNumOrdersOverflow.selector);
@@ -228,7 +229,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
     /// forge-config: default.allow_internal_expect_revert = true
     function test_updateTime_reverts_if_subtract_orders_from_zero() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         vm.expectRevert(ITWAMM.TimeNumOrdersOverflow.selector);
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: -1});
@@ -236,7 +237,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
     /// forge-config: default.allow_internal_expect_revert = true
     function test_updateTime_reverts_if_max_sale_rate_delta_exceeded() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         poolTimeInfos[poolId][96] = createTimeInfo(0, type(int112).max, 0);
         vm.expectRevert();
@@ -256,7 +257,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     }
 
     function test_updateTime_flip_time_overflows_uint32() public {
-        bytes32 poolId = bytes32(0);
+        PoolId poolId = PoolId.wrap(bytes32(0));
 
         uint256 time = uint256(type(uint32).max) + 17;
         assert(time % 16 == 0);

@@ -184,8 +184,7 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @inheritdoc IFlashAccountant
     function forward(address to) external {
         Locker locker = _requireLocker();
-        uint256 id = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 id, address lockerAddr) = locker.parse();
 
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state

@@ -103,8 +103,7 @@ contract Actor is BaseLocker, BaseForwardee {
 
     function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
         Locker locker = Accountant(payable(ACCOUNTANT)).getLocker();
-        uint256 lockerId = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 lockerId, address lockerAddr) = locker.parse();
         assert(lockerId == id);
         assert(lockerAddr == address(this));
 
@@ -120,8 +119,7 @@ contract Actor is BaseLocker, BaseForwardee {
     {
         // forwardee is the locker now
         Locker locker = Accountant(payable(ACCOUNTANT)).getLocker();
-        uint256 lockerId = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 lockerId, address lockerAddr) = locker.parse();
         assert(lockerId == id);
         assert(lockerAddr == address(this));
 

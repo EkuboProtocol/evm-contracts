@@ -3,7 +3,7 @@ pragma solidity =0.8.28;
 
 type Locker is bytes32;
 
-using {id, addr} for Locker global;
+using {id, addr, parse} for Locker global;
 
 function id(Locker locker) pure returns (uint256 v) {
     assembly ("memory-safe") {
@@ -14,5 +14,12 @@ function id(Locker locker) pure returns (uint256 v) {
 function addr(Locker locker) pure returns (address v) {
     assembly ("memory-safe") {
         v := shr(96, shl(96, locker))
+    }
+}
+
+function parse(Locker locker) pure returns (uint256 lockerId, address lockerAddr) {
+    assembly ("memory-safe") {
+        lockerId := sub(shr(160, locker), 1)
+        lockerAddr := shr(96, shl(96, locker))
     }
 }

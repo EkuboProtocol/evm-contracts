@@ -127,8 +127,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
         Locker locker = _requireLocker();
-        uint256 id = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 id, address lockerAddr) = locker.parse();
 
         assembly ("memory-safe") {
             function addDelta(u, i) -> result {
@@ -209,8 +208,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @inheritdoc ICore
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
         Locker locker = _requireLocker();
-        uint256 id = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 id, address lockerAddr) = locker.parse();
         require(lockerAddr == poolKey.extension());
 
         bytes32 poolId = poolKey.toPoolId();
@@ -331,8 +329,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (int128 delta0, int128 delta1)
     {
         Locker locker = _requireLocker();
-        uint256 id = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 id, address lockerAddr) = locker.parse();
 
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeUpdatePosition(lockerAddr, poolKey, positionId, liquidityDelta);
@@ -411,8 +408,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (uint128 amount0, uint128 amount1)
     {
         Locker locker = _requireLocker();
-        uint256 id = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 id, address lockerAddr) = locker.parse();
 
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeCollectFees(lockerAddr, poolKey, positionId);
@@ -448,8 +444,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
         Locker locker = _requireLocker();
-        uint256 id = locker.id();
-        address lockerAddr = locker.addr();
+        (uint256 id, address lockerAddr) = locker.parse();
 
         address extension = poolKey.extension();
         IExtension(extension).maybeCallBeforeSwap(lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);

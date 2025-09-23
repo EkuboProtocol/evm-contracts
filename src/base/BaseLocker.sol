@@ -2,16 +2,11 @@
 pragma solidity =0.8.28;
 
 import {ILocker, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 
 /// @title Base Locker
 /// @notice Abstract base contract for contracts that need to interact with the flash accountant
 /// @dev Provides locking functionality and token transfer utilities
 abstract contract BaseLocker is ILocker {
-    using FlashAccountantLib for *;
-
     /// @notice Thrown when a function is called by an address other than the accountant
     error BaseLockerAccountantOnly();
 
@@ -115,21 +110,6 @@ abstract contract BaseLocker is ILocker {
         }
     }
 
-    /// @notice Pays tokens from an address to the accountant
-    /// @dev Handles both native tokens and ERC20 tokens
-    /// @param from The address to pay from
-    /// @param token The token address (or native token address for ETH)
-    /// @param amount The amount to pay
-    function pay(address from, address token, uint256 amount) internal {
-        if (amount != 0) {
-            if (token == NATIVE_TOKEN_ADDRESS) {
-                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
-            } else {
-                ACCOUNTANT.payFrom(from, token, amount);
-            }
-        }
-    }
-
     /// @notice Forwards a call to another contract through the accountant
     /// @dev Used to call other contracts while maintaining the lock context
     /// @param to The address to forward the call to
@@ -164,16 +144,6 @@ abstract contract BaseLocker is ILocker {
 
             // Update the free memory pointer to be after the end of the data, aligned to the next 32 byte word
             mstore(0x40, and(add(add(result, add(32, returndatasize())), 31), not(31)))
-        }
-    }
-
-    /// @notice Withdraws tokens from the accountant to a recipient
-    /// @param token The token address to withdraw
-    /// @param amount The amount to withdraw
-    /// @param recipient The address to receive the tokens
-    function withdraw(address token, uint128 amount, address recipient) internal {
-        if (amount > 0) {
-            ACCOUNTANT.withdraw(token, recipient, amount);
         }
     }
 

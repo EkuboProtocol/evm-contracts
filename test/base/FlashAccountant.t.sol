@@ -7,6 +7,8 @@ import {BaseForwardee} from "../../src/base/BaseForwardee.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {IFlashAccountant, IForwardee} from "../../src/interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "../../src/base/FlashAccountant.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 
 struct Action {
     uint8 kind;
@@ -42,6 +44,8 @@ function forwardActions(IForwardee forwardee, Action[] memory actions) pure retu
 }
 
 contract Actor is BaseLocker, BaseForwardee {
+    using FlashAccountantLib for *;
+
     constructor(Accountant accountant) BaseLocker(accountant) BaseForwardee(accountant) {}
 
     function doStuff(Action[] calldata actions) external returns (bytes[] memory results) {
@@ -70,10 +74,18 @@ contract Actor is BaseLocker, BaseForwardee {
                 if (sender != expected) revert SenderMismatch(sender, expected);
             } else if (a.kind == 2) {
                 (address token, uint128 amount, address recipient) = abi.decode(a.data, (address, uint128, address));
-                withdraw(token, amount, recipient);
+                if (amount > 0) {
+                    ACCOUNTANT.withdraw(token, recipient, amount);
+                }
             } else if (a.kind == 3) {
                 (address from, address token, uint256 amount) = abi.decode(a.data, (address, address, uint256));
-                pay(from, token, amount);
+                if (amount != 0) {
+                    if (token == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
+                    } else {
+                        ACCOUNTANT.payFrom(from, token, amount);
+                    }
+                }
             } else if (a.kind == 4) {
                 (Actor actor, Action[] memory nestedActions) = abi.decode(a.data, (Actor, Action[]));
                 results[i] = abi.encode(actor.doStuff(nestedActions));

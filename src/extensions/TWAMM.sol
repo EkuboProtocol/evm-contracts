@@ -189,16 +189,18 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
     /// @dev Efficiently finds the next initialized time using word-level bitmap scanning
     /// @param poolId The pool identifier
-    /// @param time The current time to search from
+    /// @param lastVirtualOrderExecutionTime The last time virtual orders were executed (basis for nextValidTime)
+    /// @param fromTime The current time to search from
     /// @param untilTime The maximum time to search until
     /// @return nextTime The next initialized time, or untilTime if none found
-    function _findNextInitializedTime(PoolId poolId, uint256 time, uint256 untilTime)
-        internal
-        view
-        returns (uint256 nextTime)
-    {
+    function _findNextInitializedTime(
+        PoolId poolId,
+        uint256 lastVirtualOrderExecutionTime,
+        uint256 fromTime,
+        uint256 untilTime
+    ) internal view returns (uint256 nextTime) {
         // Get the first valid time after the current time
-        nextTime = nextValidTime(time, time + 1);
+        nextTime = nextValidTime(lastVirtualOrderExecutionTime, fromTime + 1);
         if (nextTime == 0 || nextTime > untilTime) {
             return untilTime;
         }
@@ -224,7 +226,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             }
 
             // Move to the next valid time
-            uint256 nextCandidate = nextValidTime(time, candidate + 1);
+            uint256 nextCandidate = nextValidTime(lastVirtualOrderExecutionTime, candidate + 1);
             if (nextCandidate == 0 || nextCandidate <= candidate) {
                 // No more valid times or we've wrapped around
                 break;
@@ -506,7 +508,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 while (time != block.timestamp) {
                     // Find next initialized time using word-level bitmap scanning
-                    uint256 nextTime = _findNextInitializedTime(poolId, time, block.timestamp);
+                    uint256 nextTime =
+                        _findNextInitializedTime(poolId, realLastVirtualOrderExecutionTime, time, block.timestamp);
 
                     // it is assumed that this will never return a value greater than type(uint32).max
                     uint256 timeElapsed = nextTime - time;

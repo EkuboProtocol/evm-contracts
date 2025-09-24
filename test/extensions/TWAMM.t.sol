@@ -75,6 +75,66 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         return false;
     }
 
+    /// @notice Override getRewardRateInside to use test mappings for compatibility
+    function getRewardRateInside(PoolId poolId, uint256 startTime, uint256 endTime, bool isToken1)
+        public
+        view
+        override
+        returns (uint256 result)
+    {
+        if (block.timestamp >= endTime) {
+            FeesPerLiquidity memory rewardRateStart = poolRewardRatesBefore[poolId][startTime];
+            FeesPerLiquidity memory rewardRateEnd = poolRewardRatesBefore[poolId][endTime];
+            result = (isToken1 ? rewardRateEnd.value1 : rewardRateEnd.value0)
+                - (isToken1 ? rewardRateStart.value1 : rewardRateStart.value0);
+        } else if (block.timestamp > startTime) {
+            FeesPerLiquidity memory rewardRateCurrent = poolRewardRates[poolId];
+            FeesPerLiquidity memory rewardRateStart = poolRewardRatesBefore[poolId][startTime];
+            result = (isToken1 ? rewardRateCurrent.value1 : rewardRateCurrent.value0)
+                - (isToken1 ? rewardRateStart.value1 : rewardRateStart.value0);
+        }
+        // else: less than or equal to start time, returns 0 (default)
+    }
+
+    /// @notice Override _updateTime to sync with test mappings
+    function _updateTime(PoolId poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
+        internal
+        override
+    {
+        // Get current state from test mappings
+        TimeInfo timeInfo = poolTimeInfos[poolId][time];
+        (uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
+
+        // Check for overflow before proceeding (same check as parent)
+        uint32 numOrdersNext;
+        assembly ("memory-safe") {
+            numOrdersNext := add(numOrders, numOrdersChange)
+            if gt(numOrdersNext, 0xffffffff) {
+                // cast sig "TimeNumOrdersOverflow()"
+                mstore(0, shl(224, 0x6916a952))
+                revert(0, 4)
+            }
+        }
+
+        // Call the parent implementation
+        super._updateTime(poolId, time, saleRateDelta, isToken1, numOrdersChange);
+
+        // Now sync with test mappings
+        bool flip = (numOrders == 0) != (numOrdersNext == 0);
+
+        if (flip) {
+            poolInitializedTimesBitmap[poolId].flipTime(time);
+        }
+
+        if (isToken1) {
+            saleRateDeltaToken1 = _addConstrainSaleRateDelta(saleRateDeltaToken1, saleRateDelta);
+        } else {
+            saleRateDeltaToken0 = _addConstrainSaleRateDelta(saleRateDeltaToken0, saleRateDelta);
+        }
+
+        poolTimeInfos[poolId][time] = createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1);
+    }
+
     function test_orderKeyToPoolKey(OrderKey memory orderKey, address twamm) public pure {
         PoolKey memory pk = orderKey.toPoolKey(twamm);
         if (orderKey.sellToken > orderKey.buyToken) {

@@ -76,36 +76,27 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     function getRewardRateInside(PoolId poolId, uint256 startTime, uint256 endTime, bool isToken1)
         public
         view
+        virtual
         returns (uint256 result)
     {
-        assembly ("memory-safe") {
-            // if block.timestamp >= endTime
-            switch lt(timestamp(), endTime)
-            case 0 {
-                // For poolRewardRatesBefore[poolId][time], we need to calculate the base slot and add isToken1
-                let baseSlotStart := add(add(poolId, shl(224, 0x04)), mul(startTime, 2))
-                let baseSlotEnd := add(add(poolId, shl(224, 0x04)), mul(endTime, 2))
+        if (block.timestamp >= endTime) {
+            bytes32 baseSlotStart = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime);
+            bytes32 baseSlotEnd = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, endTime);
+            assembly ("memory-safe") {
                 let rewardRateStart := sload(add(baseSlotStart, isToken1))
                 let rewardRateEnd := sload(add(baseSlotEnd, isToken1))
                 result := sub(rewardRateEnd, rewardRateStart)
             }
-            default {
-                // else if block.timestamp > startTime
-                //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
-                switch gt(timestamp(), startTime)
-                case 1 {
-                    // For poolRewardRates[poolId], we get the base slot and add isToken1
-                    let rewardRateCurrent := sload(add(add(poolId, shl(224, 0x01)), isToken1))
-                    let baseSlotStart := add(add(poolId, shl(224, 0x04)), mul(startTime, 2))
-                    let rewardRateStart := sload(add(baseSlotStart, isToken1))
-                    result := sub(rewardRateCurrent, rewardRateStart)
-                }
-                default {
-                    // less than or equal to start time
-                    // returns 0
-                }
+        } else if (block.timestamp > startTime) {
+            bytes32 rewardRatesSlot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
+            bytes32 baseSlotStart = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime);
+            assembly ("memory-safe") {
+                let rewardRateCurrent := sload(add(rewardRatesSlot, isToken1))
+                let rewardRateStart := sload(add(baseSlotStart, isToken1))
+                result := sub(rewardRateCurrent, rewardRateStart)
             }
         }
+        // else: less than or equal to start time, returns 0 (default)
     }
 
     /// @notice Safely adds a change to a sale rate delta with overflow protection
@@ -138,6 +129,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     /// @param numOrdersChange The change in number of orders referencing this time
     function _updateTime(PoolId poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
+        virtual
     {
         TimeInfo timeInfo;
         assembly ("memory-safe") {
@@ -188,8 +180,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     /// @param time The time to flip
     function _flipTime(PoolId poolId, uint256 time) internal {
         assembly ("memory-safe") {
-            let word := shr(8, time)
-            let bit := and(time, 0xff)
+            // With 16-second granularity: word = time >> 12, bit = (time >> 4) & 0xff
+            let word := shr(12, time)
+            let bit := and(shr(4, time), 0xff)
             let slot := add(add(poolId, shl(224, 0x02)), word)
             let bitmap := sload(slot)
             sstore(slot, xor(bitmap, shl(bit, 1)))
@@ -209,26 +202,44 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         uint256 fromTime,
         uint256 untilTime
     ) internal view returns (uint256 nextTime, bool initialized) {
-        assembly ("memory-safe") {
-            // This is a simplified implementation - in practice you'd want to use the full bitmap search logic
-            // For now, we'll iterate through times (this is not gas efficient but works for the refactoring)
-            nextTime := fromTime
-            initialized := 0
+        unchecked {
+            nextTime = fromTime;
+            while (!initialized && nextTime != untilTime) {
+                // Align to 16-second boundary
+                uint256 alignedTime = (nextTime / 16) * 16;
+                if (alignedTime < nextTime) {
+                    alignedTime += 16;
+                }
 
-            for {} lt(nextTime, untilTime) { nextTime := add(nextTime, 16) } {
-                let word := shr(8, nextTime)
-                let bit := and(nextTime, 0xff)
-                let slot := add(add(poolId, shl(224, 0x02)), word)
-                let bitmap := sload(slot)
-                let isSet := and(shr(bit, bitmap), 1)
+                if (alignedTime > untilTime) {
+                    nextTime = untilTime;
+                    initialized = false;
+                    break;
+                }
 
-                if isSet {
-                    initialized := 1
-                    break
+                // Check if this time is initialized
+                assembly ("memory-safe") {
+                    let word := shr(12, alignedTime)
+                    let bit := and(shr(4, alignedTime), 0xff)
+                    let slot := add(add(poolId, shl(224, 0x02)), word)
+                    let bitmap := sload(slot)
+                    let isSet := and(shr(bit, bitmap), 1)
+
+                    if isSet {
+                        nextTime := alignedTime
+                        initialized := 1
+                    }
+                }
+
+                if (!initialized) {
+                    nextTime = alignedTime + 16;
                 }
             }
 
-            if iszero(initialized) { nextTime := untilTime }
+            if (nextTime > untilTime) {
+                nextTime = untilTime;
+                initialized = false;
+            }
         }
     }
 

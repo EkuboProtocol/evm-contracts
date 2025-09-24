@@ -6,7 +6,6 @@ import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {IFlashAccountant} from "../../src/interfaces/IFlashAccountant.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {TestToken} from "../TestToken.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 
 /// @title FlashAccountantReturnDataTest

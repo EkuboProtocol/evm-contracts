@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {Bitmap} from "./types/bitmap.sol";
-import {DropKey, toDropId} from "./types/dropKey.sol";
+import {DropKey} from "./types/dropKey.sol";
 import {ClaimKey} from "./types/claimKey.sol";
 import {DropState} from "./types/dropState.sol";
 import {IIncentives} from "./interfaces/IIncentives.sol";

@@ -23,15 +23,16 @@ library CoreStorageSlotLib {
     uint256 internal constant TICKS_OFFSET = 0xffffffff;
     uint256 internal constant FPL_OUTSIDE_OFFSET = 0xffffffffff;
     uint256 internal constant BITMAPS_OFFSET = 0xffffffffffff;
+    // cast keccak "CoreStorageSlotLib#IS_EXTENSION_REGISTERED_OFFSET"
+    uint256 internal constant IS_EXTENSION_REGISTERED_OFFSET =
+        0x6bc0bdbc7a4631d34a16a234a27bdbca2fe352d14f2662bac6bc5a10ef25dbf0;
 
     /// @notice Computes the storage slot containing information on whether an extension is registered
     /// @param extension The extension address to check
     /// @return slot The storage slot in the Core contract
     function isExtensionRegisteredSlot(address extension) internal pure returns (bytes32 slot) {
         assembly ("memory-safe") {
-            mstore(0, extension)
-            mstore(32, 0)
-            slot := keccak256(0, 64)
+            slot := add(IS_EXTENSION_REGISTERED_OFFSET, extension)
         }
     }
 

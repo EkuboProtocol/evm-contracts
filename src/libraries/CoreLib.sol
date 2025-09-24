@@ -22,7 +22,7 @@ library CoreLib {
     /// @param extension The extension address to check
     /// @return registered True if the extension is registered
     function isExtensionRegistered(ICore core, address extension) internal view returns (bool registered) {
-        registered = uint256(core.sload(CoreStorageSlotLib.isExtensionRegisteredSlot(extension))) != 0;
+        registered = core.sload(CoreStorageSlotLib.isExtensionRegisteredSlot(extension)) != bytes32(0);
     }
 
     /// @notice Gets the current state of a pool

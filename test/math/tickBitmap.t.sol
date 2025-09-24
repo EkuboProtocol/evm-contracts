@@ -13,7 +13,6 @@ import {
     findPrevInitializedTick
 } from "../../src/math/tickBitmap.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
-import {Bitmap} from "../../src/types/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 
 contract TickBitmap {

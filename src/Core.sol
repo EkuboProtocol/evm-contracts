@@ -430,11 +430,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         PoolId poolId = poolKey.toPoolId();
 
         Position storage position;
+        bytes32 positionSlot = CoreStorageSlotLib.poolPositionsSlot(poolId, lockerAddr, positionId);
         assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, positionId)
-
-            position.slot := add(keccak256(0, 64), lockerAddr)
+            position.slot := positionSlot
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
@@ -494,9 +492,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             // this loads only the input token fees per liquidity
             if (poolKey.mustLoadFees()) {
-                inputTokenFeesPerLiquiditySlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
+                bytes32 fplSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
                 assembly ("memory-safe") {
-                    inputTokenFeesPerLiquiditySlot := add(inputTokenFeesPerLiquiditySlot, increasing)
+                    inputTokenFeesPerLiquiditySlot := add(fplSlot, increasing)
                     inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
                 }
             }
@@ -551,9 +549,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                     if (isInitialized) {
                         int128 liquidityDelta;
+                        bytes32 tickSlot = CoreStorageSlotLib.poolTicksSlot(poolId, nextTick);
                         assembly ("memory-safe") {
-                            let slot := add(poolId, add(nextTick, 0xffffffff))
-                            liquidityDelta := signextend(15, sload(slot))
+                            liquidityDelta := signextend(15, sload(tickSlot))
                         }
 
                         liquidity = increasing

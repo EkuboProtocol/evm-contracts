@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {TokenDataFetcher} from "../../src/lens/TokenDataFetcher.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
-import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
 
 contract TokenDataFetcherTest is Test {

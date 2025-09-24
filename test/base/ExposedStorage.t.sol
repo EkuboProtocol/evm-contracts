@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {IExposedStorage} from "../../src/interfaces/IExposedStorage.sol";
@@ -52,7 +52,7 @@ contract ExposedStorageTest is Test {
         bytes32 value;
     }
 
-    function test_storage_write_many(SlotValues[] memory items, bool transient) public {
+    function test_storage_write_many(SlotValues[] memory items, bool useTransient) public {
         TestTarget tt = new TestTarget();
         bytes memory slotsOnly = new bytes(items.length * 32);
         for (uint256 i = 0; i < items.length; i++) {
@@ -62,7 +62,7 @@ contract ExposedStorageTest is Test {
                 tstore(slot, value)
                 mstore(add(add(slotsOnly, 32), mul(i, 32)), slot)
             }
-            if (transient) {
+            if (useTransient) {
                 tt.tstore(slot, value);
             } else {
                 tt.sstore(slot, value);
@@ -70,7 +70,7 @@ contract ExposedStorageTest is Test {
         }
 
         (bool success, bytes memory result) = address(tt).call(
-            abi.encodePacked(transient ? IExposedStorage.tload.selector : IExposedStorage.sload.selector, slotsOnly)
+            abi.encodePacked(useTransient ? IExposedStorage.tload.selector : IExposedStorage.sload.selector, slotsOnly)
         );
 
         assertTrue(success);

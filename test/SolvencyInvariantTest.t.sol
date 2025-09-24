@@ -1,12 +1,11 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
-import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
+import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
-import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
 import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
@@ -16,37 +15,19 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
+import {IPositions} from "../src/interfaces/IPositions.sol";
 import {TestToken} from "./TestToken.sol";
-import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {BaseLocker} from "../src/base/BaseLocker.sol";
 
-contract FeeAccumulatingExtension is MockExtension, BaseLocker {
-    constructor(ICore core) BaseLocker(core) {}
-
-    function accumulateFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
-        lock(abi.encode(msg.sender, poolKey, amount0, amount1));
-    }
-
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (address sender, PoolKey memory poolKey, uint128 amount0, uint128 amount1) =
-            abi.decode(data, (address, PoolKey, uint128, uint128));
-
-        ICore(payable(accountant)).accumulateAsFees(poolKey, amount0, amount1);
-        pay(sender, poolKey.token0, amount0);
-        pay(sender, poolKey.token1, amount1);
-    }
-}
-
-function maxBounds(uint32 tickSpacing) pure returns (Bounds memory) {
+function maxBounds(uint32 tickSpacing) pure returns (int32 tickLower, int32 tickUpper) {
     if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
-        return Bounds(MIN_TICK, MAX_TICK);
+        return (MIN_TICK, MAX_TICK);
     }
     int32 spacing = int32(tickSpacing);
 
-    return Bounds({lower: (MIN_TICK / spacing) * spacing, upper: (MAX_TICK / spacing) * spacing});
+    return ((MIN_TICK / spacing) * spacing, (MAX_TICK / spacing) * spacing);
 }
 
 contract Handler is StdUtils, StdAssertions {
@@ -56,7 +37,8 @@ contract Handler is StdUtils, StdAssertions {
 
     struct ActivePosition {
         PoolKey poolKey;
-        Bounds bounds;
+        int32 tickLower;
+        int32 tickUpper;
         uint128 liquidity;
     }
 
@@ -70,15 +52,15 @@ contract Handler is StdUtils, StdAssertions {
     Router immutable router;
     TestToken immutable token0;
     TestToken immutable token1;
-    FeeAccumulatingExtension immutable fae;
+    MockExtension immutable fae;
     ActivePosition[] activePositions;
     PoolKey[] allPoolKeys;
 
-    mapping(bytes32 poolId => Balances balances) poolBalances;
+    mapping(PoolId poolId => Balances balances) poolBalances;
 
     constructor(
         ICore _core,
-        FeeAccumulatingExtension _fae,
+        MockExtension _fae,
         Positions _positions,
         Router _router,
         TestToken _token0,
@@ -110,13 +92,6 @@ contract Handler is StdUtils, StdAssertions {
         if (initialized) allPoolKeys.push(poolKey);
     }
 
-    function withdrawProtocolFees(bool isToken1, uint256 amount) external {
-        address token = isToken1 ? address(token1) : address(token0);
-
-        amount = bound(amount, 0, core.protocolFeesCollected(token));
-        core.withdrawProtocolFees(address(this), token, amount);
-    }
-
     modifier ifPoolExists() {
         if (allPoolKeys.length == 0) return;
         _;
@@ -124,31 +99,31 @@ contract Handler is StdUtils, StdAssertions {
 
     error UnexpectedError(bytes data);
 
-    function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, Bounds memory bounds)
+    function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1, int32 tickLower, int32 tickUpper)
         public
         ifPoolExists
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
         if (poolKey.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
-            bounds = Bounds(MIN_TICK, MAX_TICK);
+            (tickLower, tickUpper) = (MIN_TICK, MAX_TICK);
         } else {
-            Bounds memory max = maxBounds(poolKey.tickSpacing());
-            bounds.lower = int32(bound(bounds.lower, max.lower, max.upper - int32(poolKey.tickSpacing())));
+            (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.tickSpacing());
+            tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.tickSpacing())));
             // snap to nearest valid tick
-            bounds.lower = (bounds.lower / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
-            bounds.upper = int32(bound(bounds.upper, bounds.lower + int32(poolKey.tickSpacing()), max.upper));
-            bounds.upper = (bounds.upper / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
+            tickLower = (tickLower / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
+            tickUpper = int32(bound(tickUpper, tickLower + int32(poolKey.tickSpacing()), maxTickUpper));
+            tickUpper = (tickUpper / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
         }
 
-        try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
+        try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
             uint128 liquidity, uint128 result0, uint128 result1
         ) {
             if (liquidity > 0) {
-                activePositions.push(ActivePosition(poolKey, bounds, liquidity));
+                activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
             }
 
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += int256(uint256(result0));
             poolBalances[poolId].amount1 += int256(uint256(result1));
         } catch (bytes memory err) {
@@ -159,7 +134,7 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
             ) {
                 revert UnexpectedError(err);
@@ -170,7 +145,7 @@ contract Handler is StdUtils, StdAssertions {
     function accumulateFees(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
         try fae.accumulateFees(poolKey, amount0, amount1) {
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += int256(uint256(amount0));
             poolBalances[poolId].amount1 += int256(uint256(amount1));
         } catch (bytes memory err) {
@@ -193,10 +168,9 @@ contract Handler is StdUtils, StdAssertions {
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity, address(this), collectFees) returns (
-            uint128 amount0, uint128 amount1
-        ) {
-            bytes32 poolId = p.poolKey.toPoolId();
+        try positions.withdraw(positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees)
+        returns (uint128 amount0, uint128 amount1) {
+            PoolId poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));
             p.liquidity -= liquidity;
@@ -223,7 +197,7 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        (SqrtRatio price,,) = core.poolState(poolKey.toPoolId());
+        SqrtRatio price = core.poolState(poolKey.toPoolId()).sqrtRatio();
 
         bool increasing = isPriceIncreasing(amount, isToken1);
 
@@ -244,7 +218,7 @@ contract Handler is StdUtils, StdAssertions {
             isToken1: isToken1,
             amount: amount
         }) returns (int128 delta0, int128 delta1) {
-            bytes32 poolId = poolKey.toPoolId();
+            PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += delta0;
             poolBalances[poolId].amount1 += delta1;
         } catch (bytes memory err) {
@@ -266,7 +240,7 @@ contract Handler is StdUtils, StdAssertions {
 
     function checkAllPoolsHavePositiveBalance() public view {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
-            bytes32 poolId = allPoolKeys[i].toPoolId();
+            PoolId poolId = allPoolKeys[i].toPoolId();
             assertGe(poolBalances[poolId].amount0, 0);
             assertGe(poolBalances[poolId].amount1, 0);
         }
@@ -276,7 +250,7 @@ contract Handler is StdUtils, StdAssertions {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
             PoolKey memory poolKey = allPoolKeys[i];
 
-            (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolKey.toPoolId());
+            (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolKey.toPoolId()).parse();
 
             assertGe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
             assertLe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
@@ -293,16 +267,7 @@ contract SolvencyInvariantTest is FullTest {
     function setUp() public override {
         FullTest.setUp();
 
-        address impl = address(new FeeAccumulatingExtension(core));
-        address actual = address((uint160(0xff) << 152) + 0xdeadbeef);
-        vm.etch(actual, impl.code);
-        FeeAccumulatingExtension fae = FeeAccumulatingExtension(actual);
-        fae.register(core, byteToCallPoints(0xff));
-
-        handler = new Handler(core, fae, positions, router, token0, token1);
-        vm.prank(owner);
-        core.transferOwnership(address(handler));
-        vm.stopPrank();
+        handler = new Handler(core, createAndRegisterExtension(), positions, router, token0, token1);
 
         // funding core makes it easier for pools to become insolvent randomly if there is a bug
         token0.transfer(address(core), type(uint128).max);

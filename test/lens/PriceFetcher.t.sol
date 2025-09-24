@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {BaseOracleTest} from "../extensions/Oracle.t.sol";
 import {
@@ -7,8 +7,7 @@ import {
 } from "../../src/lens/PriceFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING} from "../../src/math/constants.sol";
-import {Bounds} from "../../src/types/positionKey.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;

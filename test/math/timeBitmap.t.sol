@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
@@ -12,7 +12,7 @@ import {
     searchForNextInitializedTime,
     nextValidTime
 } from "../../src/math/timeBitmap.sol";
-import {Bitmap} from "../../src/math/bitmap.sol";
+import {Bitmap} from "../../src/types/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 

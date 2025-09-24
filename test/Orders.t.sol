@@ -1,35 +1,27 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
-import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
-import {FullTest} from "./FullTest.sol";
-import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
+import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
-import {Positions} from "../src/Positions.sol";
-import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
+import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
-import {FeeAccumulatingExtension} from "./SolvencyInvariantTest.t.sol";
-import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
-import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
+import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
+import {TwammPoolState} from "../src/types/twammPoolState.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;
-    BaseURLTokenURIGenerator internal tokenUriGenerator;
 
     function setUp() public virtual override {
         BaseTWAMMTest.setUp();
 
-        tokenUriGenerator = new BaseURLTokenURIGenerator(address(this), "orders://");
-        orders = new Orders(core, twamm, tokenUriGenerator);
+        orders = new Orders(core, twamm, owner);
     }
 }
 
@@ -47,7 +39,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -76,7 +68,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token1.approve(address(orders), type(uint256).max);
 
@@ -105,7 +97,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -144,7 +136,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -173,6 +165,125 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id1, key1, address(this)), 1000000000000002926);
     }
 
+    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_stop_future_order_partway(uint256 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            fee: fee,
+            startTime: time + 15,
+            endTime: time + 31
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        advanceTime(23);
+
+        orders.collectProceeds(id, key, address(this));
+        orders.decreaseSaleRate(id, key, saleRate, address(this));
+
+        advanceTime(4);
+
+        (uint256 saleRateAfter, uint256 amountSold, uint256 remainingSellAmount, uint256 purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(saleRateAfter, 0);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 0);
+        assertEq(amountSold, 500000000000000000);
+    }
+
+    function test_executeVirtualOrder_fails_in_max_times() public {
+        uint256 time = type(uint256).max - type(uint32).max - 15;
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            fee: fee,
+            startTime: time + 15,
+            endTime: time + 31
+        });
+
+        orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        advanceTime(23);
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+
+        advanceTime(9);
+        // nextValidTime will return 0 which causes it to skip the initialized time and try to swap too much
+        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+    }
+
+    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_future_order_ends(uint256 time) public {
+        // we use 33 because we advance time by 32 during the test
+        time = boundTime(time, 33);
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            fee: fee,
+            startTime: time + 15,
+            endTime: time + 31
+        });
+        (uint256 id,) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        advanceTime(23);
+
+        assertEq(orders.collectProceeds(id, key, address(this)), 0.322033898305084744e18);
+
+        advanceTime(8);
+
+        (uint256 saleRateAfter, uint256 amountSold, uint256 remainingSellAmount, uint256 purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(saleRateAfter, (1e18 << 32) / 16);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 0.165145588874402432e18);
+        assertEq(amountSold, 1e18);
+
+        advanceTime(1);
+
+        // does not change after advancing past the last time
+        (saleRateAfter, amountSold, remainingSellAmount, purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(saleRateAfter, (1e18 << 32) / 16);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 0.165145588874402432e18);
+        assertEq(amountSold, 1e18);
+    }
+
     function test_createOrder_sell_both_tokens_getOrderInfo(uint256 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
@@ -183,7 +294,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -248,7 +359,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e18, 1e18);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -287,7 +398,7 @@ contract OrdersTest is BaseOrdersTest {
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
 
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -325,8 +436,25 @@ contract OrdersTest is BaseOrdersTest {
             endTime: time + 15
         });
 
-        vm.expectRevert(TWAMM.PoolNotInitialized.selector);
+        vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
+    }
+
+    function test_createOrder_uint32_bounds_does_not_revert(uint256 time) public {
+        // we make time a multiple of 2**32
+        // the pool state should be exactly 0
+        time = (time >> 32) << 32;
+        vm.warp(time);
+
+        OrderKey memory key =
+            OrderKey({sellToken: address(token0), buyToken: address(token1), fee: 0, startTime: 0, endTime: time + 16});
+        positions.maybeInitializePool(key.toPoolKey(address(twamm)), 0);
+
+        // pool state is legitimately 0 because it was initialized on a time that is a multiple of 2**32
+        assertEq(TwammPoolState.unwrap(twamm.poolState(key.toPoolKey(address(twamm)).toPoolId())), bytes32(0));
+
+        token0.approve(address(orders), type(uint256).max);
+        orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
     }
 
     function test_collectProceeds_non_existent_pool(uint256 time) public {
@@ -341,7 +469,7 @@ contract OrdersTest is BaseOrdersTest {
 
         uint256 id = orders.mint();
 
-        vm.expectRevert(TWAMM.PoolNotInitialized.selector);
+        vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         orders.collectProceeds(id, key, address(this));
     }
 
@@ -360,10 +488,10 @@ contract OrdersTest is BaseOrdersTest {
             token1: address(token1),
             config: toConfig({_extension: address(twamm), _fee: 6969, _tickSpacing: 0})
         });
-        bytes32 poolId = poolKey.toPoolId();
+        PoolId poolId = poolKey.toPoolId();
         positions.maybeInitializePool(poolKey, -18135370); // 0.000000013301874 token1/token0
 
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 39246041149524737549342346187898880);
         assertEq(tick, -18135370);
@@ -383,29 +511,30 @@ contract OrdersTest is BaseOrdersTest {
             type(uint112).max
         );
 
-        (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) = twamm.poolState(poolId);
+        (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
+            twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         // 0 because the order starts in the future
         assertEq(saleRateToken0, 0);
         assertEq(saleRateToken1, 0);
 
         uint256 pID = positions.mint();
-        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
 
-        (uint128 liquidity0,,) =
-            positions.deposit(pID, poolKey, bounds, 9065869775701580912051, 16591196256327018126941976177968210, 0);
+        (uint128 liquidity0,,) = positions.deposit(
+            pID, poolKey, MIN_TICK, MAX_TICK, 9065869775701580912051, 16591196256327018126941976177968210, 0
+        );
 
         advanceTime(102_399);
 
         (uint128 liquidity1,,) =
-            positions.deposit(pID, poolKey, bounds, 229636410600502050710229286961, 502804080817310396, 0);
-        (sqrtRatio, tick, liquidity) = core.poolState(poolId);
+            positions.deposit(pID, poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396, 0);
+        (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 13485562298671080879303606629460147559991345152);
         assertEq(tick, 34990236); // ~=1570575495728187 token1/token0
         assertEq(liquidity, liquidity0 + liquidity1);
 
-        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         assertEq(saleRateToken0, 0);
         assertEq(saleRateToken1, saleRateOrder0);
@@ -423,30 +552,31 @@ contract OrdersTest is BaseOrdersTest {
             type(uint112).max
         );
 
-        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         assertEq(saleRateToken0, 0);
         assertEq(saleRateToken1, saleRateOrder0);
 
         router.swap(poolKey, false, 170141183460469231731563853878917070850, MIN_SQRT_RATIO, 145);
 
-        (sqrtRatio, tick, liquidity) = core.poolState(poolId);
+        (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 8721205675552749603540);
         assertEq(tick, -76405628); // ~=-2.2454E-31 token1/token0
         assertEq(liquidity, liquidity0 + liquidity1);
 
-        (uint128 liquidity2,,) =
-            positions.deposit(pID, poolKey, bounds, 1412971749302168760052394, 35831434466998775335139276644539, 0);
+        (uint128 liquidity2,,) = positions.deposit(
+            pID, poolKey, MIN_TICK, MAX_TICK, 1412971749302168760052394, 35831434466998775335139276644539, 0
+        );
 
-        (,, liquidity) = core.poolState(poolId);
+        liquidity = core.poolState(poolId).liquidity();
         assertEq(liquidity, liquidity0 + liquidity1 + liquidity2);
 
         advanceTime(164154);
 
         twamm.lockAndExecuteVirtualOrders(poolKey);
 
-        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId);
+        (lastVirtualOrderExecutionTime, saleRateToken0, saleRateToken1) = twamm.poolState(poolId).parse();
         assertEq(lastVirtualOrderExecutionTime, uint32(vm.getBlockTimestamp()));
         assertEq(saleRateToken0, saleRateOrder1);
         assertEq(saleRateToken1, saleRateOrder0);
@@ -459,18 +589,20 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
 
         OrderKey memory key =
             OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        coolAllContracts();
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(first order)");
 
         advanceTime(8);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders single sided");
     }
@@ -482,7 +614,7 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -492,12 +624,14 @@ contract OrdersTest is BaseOrdersTest {
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
         OrderKey memory key1 =
             OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        coolAllContracts();
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(second order)");
 
         advanceTime(8);
 
         token0.approve(address(router), type(uint256).max);
+        coolAllContracts();
         router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided");
     }
@@ -509,7 +643,7 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -535,7 +669,7 @@ contract OrdersTest is BaseOrdersTest {
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 10000, 10000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
 
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
@@ -578,6 +712,7 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(type(uint32).max);
 
+        coolAllContracts();
         twamm.lockAndExecuteVirtualOrders(poolKey);
         vm.snapshotGasLastCall("lockAndExecuteVirtualOrders max cost");
     }

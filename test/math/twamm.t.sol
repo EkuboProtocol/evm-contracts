@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {
@@ -14,7 +14,6 @@ import {
     SaleRateOverflow
 } from "../../src/math/twamm.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TwammTest is Test {
     function test_computeSaleRate_examples() public pure {
@@ -291,6 +290,20 @@ contract TwammTest is Test {
                 fee: 0
             }).toFixed(),
             107606732706330320687810575739503247360 // ~= 0.316227766
+        );
+    }
+
+    function test_computeNextSqrtRatio_example_from_production() public pure {
+        assertEq(
+            computeNextSqrtRatio({
+                sqrtRatio: toSqrtRatio(4182607738901102592 + (148436996701757 << 64), false),
+                liquidity: 4472135213867,
+                saleRateToken0: 3728260255814876407785,
+                saleRateToken1: 1597830095238095,
+                timeElapsed: 2688,
+                fee: 9223372036854775
+            }).toFixed(),
+            75660834358443397537995245133758464
         );
     }
 

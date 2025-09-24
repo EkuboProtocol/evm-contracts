@@ -1,48 +1,42 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
-import {ERC721} from "solady/tokens/ERC721.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
+import {IOrders} from "./interfaces/IOrders.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
-import {Permittable} from "./base/Permittable.sol";
-import {SlippageChecker} from "./base/SlippageChecker.sol";
-import {ITokenURIGenerator} from "./interfaces/ITokenURIGenerator.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
-import {TWAMM, orderKeyToPoolKey, OrderKey, UpdateSaleRateParams, CollectProceedsParams} from "./extensions/TWAMM.sol";
+import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
+import {OrderKey} from "./types/orderKey.sol";
 import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
-import {MintableNFT} from "./base/MintableNFT.sol";
+import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 
-/// @title Ekubo Orders
+/// @title Ekubo Protocol Orders
 /// @author Moody Salem <moody@ekubo.org>
-/// @notice Tracks TWAMM orders in Ekubo Protocol
-contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable, BaseLocker, MintableNFT {
+/// @notice Tracks TWAMM (Time-Weighted Average Market Maker) orders in Ekubo Protocol as NFTs
+/// @dev Manages long-term orders that execute over time through the TWAMM extension
+contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using TWAMMLib for *;
+    using FlashAccountantLib for *;
 
-    error OrderAlreadyEnded();
-    error MaxSaleRateExceeded();
+    /// @notice The TWAMM extension contract that handles order execution
+    ITWAMM public immutable TWAMM_EXTENSION;
 
-    TWAMM public immutable twamm;
-
-    constructor(ICore core, TWAMM _twamm, ITokenURIGenerator tokenURIGenerator)
-        MintableNFT(tokenURIGenerator)
-        BaseLocker(core)
-        UsesCore(core)
-    {
-        twamm = _twamm;
+    /// @notice Constructs the Orders contract
+    /// @param core The core contract instance
+    /// @param _twamm The TWAMM extension contract
+    /// @param owner The owner of the contract (for access control)
+    constructor(ICore core, ITWAMM _twamm, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {
+        TWAMM_EXTENSION = _twamm;
     }
 
-    function name() public pure override returns (string memory) {
-        return "Ekubo DCA Orders";
-    }
-
-    function symbol() public pure override returns (string memory) {
-        return "ekuOrd";
-    }
-
+    /// @inheritdoc IOrders
     function mintAndIncreaseSellAmount(OrderKey memory orderKey, uint112 amount, uint112 maxSaleRate)
         public
         payable
@@ -52,6 +46,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         saleRate = increaseSellAmount(id, orderKey, amount, maxSaleRate);
     }
 
+    /// @inheritdoc IOrders
     function increaseSellAmount(uint256 id, OrderKey memory orderKey, uint128 amount, uint112 maxSaleRate)
         public
         payable
@@ -75,6 +70,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         lock(abi.encode(bytes1(0xdd), msg.sender, id, orderKey, saleRate));
     }
 
+    /// @inheritdoc IOrders
     function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease, address recipient)
         public
         payable
@@ -91,6 +87,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         );
     }
 
+    /// @inheritdoc IOrders
     function decreaseSaleRate(uint256 id, OrderKey memory orderKey, uint112 saleRateDecrease)
         external
         payable
@@ -99,6 +96,7 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         refund = decreaseSaleRate(id, orderKey, saleRateDecrease, msg.sender);
     }
 
+    /// @inheritdoc IOrders
     function collectProceeds(uint256 id, OrderKey memory orderKey, address recipient)
         public
         payable
@@ -108,25 +106,30 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         proceeds = abi.decode(lock(abi.encode(bytes1(0xff), id, orderKey, recipient)), (uint128));
     }
 
+    /// @inheritdoc IOrders
     function collectProceeds(uint256 id, OrderKey memory orderKey) external payable returns (uint128 proceeds) {
         proceeds = collectProceeds(id, orderKey, msg.sender);
     }
 
+    /// @inheritdoc IOrders
     function executeVirtualOrdersAndGetCurrentOrderInfo(uint256 id, OrderKey memory orderKey)
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
         unchecked {
-            PoolKey memory poolKey = orderKeyToPoolKey(orderKey, address(twamm));
-            twamm.lockAndExecuteVirtualOrders(poolKey);
+            PoolKey memory poolKey = orderKey.toPoolKey(address(TWAMM_EXTENSION));
+            TWAMM_EXTENSION.lockAndExecuteVirtualOrders(poolKey);
 
             uint32 lastUpdateTime;
-            uint256 rewardRateSnapshot;
-            (saleRate, lastUpdateTime, amountSold, rewardRateSnapshot) =
-                twamm.orderState(address(this), bytes32(id), orderKey.toOrderId());
+            bytes32 orderId = orderKey.toOrderId();
+
+            (lastUpdateTime, saleRate, amountSold) =
+                TWAMM_EXTENSION.orderState(address(this), bytes32(id), orderId).parse();
+
+            uint256 rewardRateSnapshot = TWAMM_EXTENSION.rewardRateSnapshot(address(this), bytes32(id), orderId);
 
             if (saleRate != 0) {
-                uint256 rewardRateInside = twamm.getRewardRateInside(
+                uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(
                     poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
                 );
 
@@ -165,8 +168,10 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
         }
     }
 
-    error UnexpectedCallTypeByte(bytes1 b);
-
+    /// @notice Handles lock callback data for order operations
+    /// @dev Internal function that processes different types of order operations
+    /// @param data Encoded operation data
+    /// @return result Encoded result data
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
         if (callType == 0xdd) {
@@ -175,10 +180,10 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
             int256 amount = abi.decode(
                 forward(
-                    address(twamm),
+                    address(TWAMM_EXTENSION),
                     abi.encode(
                         uint256(0),
-                        UpdateSaleRateParams({
+                        ITWAMM.UpdateSaleRateParams({
                             salt: bytes32(id),
                             orderKey: orderKey,
                             saleRateDelta: int112(saleRateDelta)
@@ -188,10 +193,19 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
                 (int256)
             );
 
-            if (saleRateDelta > 0) {
-                pay(recipientOrPayer, orderKey.sellToken, uint256(amount));
-            } else {
-                withdraw(orderKey.sellToken, uint128(uint256(-amount)), recipientOrPayer);
+            if (amount != 0) {
+                if (saleRateDelta > 0) {
+                    if (orderKey.sellToken == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(amount));
+                    } else {
+                        ACCOUNTANT.payFrom(recipientOrPayer, orderKey.sellToken, uint256(amount));
+                    }
+                } else {
+                    unchecked {
+                        // we know amount will never exceed the uint128 type because of limitations on sale rate (fixed point 80.32) and duration (uint32)
+                        ACCOUNTANT.withdraw(orderKey.sellToken, recipientOrPayer, uint128(uint256(-amount)));
+                    }
+                }
             }
 
             result = abi.encode(amount);
@@ -201,13 +215,15 @@ contract Orders is UsesCore, PayableMulticallable, SlippageChecker, Permittable,
 
             uint128 proceeds = abi.decode(
                 forward(
-                    address(twamm),
-                    abi.encode(uint256(1), CollectProceedsParams({salt: bytes32(id), orderKey: orderKey}))
+                    address(TWAMM_EXTENSION),
+                    abi.encode(uint256(1), ITWAMM.CollectProceedsParams({salt: bytes32(id), orderKey: orderKey}))
                 ),
                 (uint128)
             );
 
-            withdraw(orderKey.buyToken, proceeds, recipient);
+            if (proceeds != 0) {
+                ACCOUNTANT.withdraw(orderKey.buyToken, recipient, proceeds);
+            }
 
             result = abi.encode(proceeds);
         } else {

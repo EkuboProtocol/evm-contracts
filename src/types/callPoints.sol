@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 struct CallPoints {
     bool beforeInitializePool;
@@ -72,52 +72,4 @@ function byteToCallPoints(uint8 b) pure returns (CallPoints memory result) {
         beforeCollectFees: (b & 4) != 0,
         afterCollectFees: (b & 2) != 0
     });
-}
-
-function shouldCallBeforeInitializePool(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(152, a), 1)
-    }
-}
-
-function shouldCallAfterInitializePool(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(159, a), 1)
-    }
-}
-
-function shouldCallBeforeSwap(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(158, a), 1)
-    }
-}
-
-function shouldCallAfterSwap(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(157, a), 1)
-    }
-}
-
-function shouldCallBeforeUpdatePosition(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(156, a), 1)
-    }
-}
-
-function shouldCallAfterUpdatePosition(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(155, a), 1)
-    }
-}
-
-function shouldCallBeforeCollectFees(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(154, a), 1)
-    }
-}
-
-function shouldCallAfterCollectFees(address a) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(153, a), 1)
-    }
 }

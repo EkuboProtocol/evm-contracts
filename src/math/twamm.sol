@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 import {computeFee} from "./fee.sol";

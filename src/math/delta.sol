@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
@@ -11,9 +11,14 @@ function sortAndConvertToFixedSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRat
     pure
     returns (uint256 sqrtRatioLower, uint256 sqrtRatioUpper)
 {
-    uint256 aFixed = sqrtRatioA.toFixed();
-    uint256 bFixed = sqrtRatioB.toFixed();
-    (sqrtRatioLower, sqrtRatioUpper) = (FixedPointMathLib.min(aFixed, bFixed), FixedPointMathLib.max(aFixed, bFixed));
+    sqrtRatioLower = sqrtRatioA.toFixed();
+    sqrtRatioUpper = sqrtRatioB.toFixed();
+    assembly ("memory-safe") {
+        let diff := mul(sub(sqrtRatioLower, sqrtRatioUpper), gt(sqrtRatioLower, sqrtRatioUpper))
+
+        sqrtRatioLower := sub(sqrtRatioLower, diff)
+        sqrtRatioUpper := add(sqrtRatioUpper, diff)
+    }
 }
 
 function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)

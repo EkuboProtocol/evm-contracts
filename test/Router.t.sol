@@ -1,10 +1,17 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
-import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../src/types/sqrtRatio.sol";
+import {PoolId} from "../src/types/poolId.sol";
+import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
+import {
+    MIN_SQRT_RATIO,
+    MAX_SQRT_RATIO,
+    MIN_SQRT_RATIO_RAW,
+    MAX_SQRT_RATIO_RAW,
+    SqrtRatio
+} from "../src/types/sqrtRatio.sol";
 import {
     FULL_RANGE_ONLY_TICK_SPACING,
     MIN_TICK,
@@ -15,22 +22,35 @@ import {
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
-import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {Router, defaultSqrtRatioLimit, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {PoolState} from "../src/types/poolState.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;
 
+    function test_defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 amount) public pure {
+        SqrtRatio result = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
+        if (SqrtRatio.unwrap(sqrtRatioLimit) == 0) {
+            if (isPriceIncreasing(amount, isToken1)) {
+                assertEq(SqrtRatio.unwrap(result), MAX_SQRT_RATIO_RAW);
+            } else {
+                assertEq(SqrtRatio.unwrap(result), MIN_SQRT_RATIO_RAW);
+            }
+        } else {
+            assertEq(SqrtRatio.unwrap(result), SqrtRatio.unwrap(sqrtRatioLimit));
+        }
+    }
+
     function test_basicSwap_token0_in(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
 
-        (int128 delta0, int128 delta1) =
+        (int128 delta0, int128 delta1,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: false, amount: 100, skipAhead: 0});
         assertEq(delta0, 100);
         assertEq(delta1, -49);
@@ -46,7 +66,7 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token0_in_with_recipient(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
         router.swap(poolKey, false, 100, SqrtRatio.wrap(0), 0, type(int256).min, address(0xdeadbeef));
@@ -55,11 +75,11 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token0_out(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 202);
 
-        (int128 delta0, int128 delta1) = router.quote({
+        (int128 delta0, int128 delta1,) = router.quote({
             poolKey: poolKey,
             sqrtRatioLimit: MAX_SQRT_RATIO,
             isToken1: false,
@@ -80,7 +100,7 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token0_out_with_recipient(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 202);
 
@@ -90,11 +110,11 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token1_in(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 100);
 
-        (int128 delta0, int128 delta1) =
+        (int128 delta0, int128 delta1,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MAX_SQRT_RATIO, isToken1: true, amount: 100, skipAhead: 0});
         assertEq(delta0, -49);
         assertEq(delta1, 100);
@@ -110,11 +130,11 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token1_out(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 202);
 
-        (int128 delta0, int128 delta1) =
+        (int128 delta0, int128 delta1,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: true, amount: -100, skipAhead: 0});
         assertEq(delta0, 202);
         assertEq(delta1, -100);
@@ -130,7 +150,7 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token0_in_slippage_check_failed(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
@@ -142,7 +162,7 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token0_out_slippage_check_failed(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
@@ -154,8 +174,8 @@ contract RouterTest is FullTest {
 
     function test_swap_delta_overflows_int128_container_token0_in() public {
         PoolKey memory poolKey = createPool({tick: MAX_TICK, fee: 0, tickSpacing: 0});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
         token0.approve(address(router), type(uint256).max);
         (int128 delta0, int128 delta1) = router.swap(
@@ -169,8 +189,8 @@ contract RouterTest is FullTest {
 
     function test_swap_delta_overflows_int128_container_token1_in() public {
         PoolKey memory poolKey = createPool({tick: MIN_TICK, fee: 0, tickSpacing: 0});
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), type(uint128).max >> 1, type(uint128).max >> 1);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
         token1.approve(address(router), type(uint256).max);
         (int128 delta0, int128 delta1) = router.swap(
@@ -185,12 +205,9 @@ contract RouterTest is FullTest {
     function test_swap_liquidity_overflow_token0() public {
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
 
-        (, uint128 liquidity0) =
-            createPosition(poolKey, Bounds(-1, 5), (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity1) =
-            createPosition(poolKey, Bounds(0, 6), (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity2) =
-            createPosition(poolKey, Bounds(1, 7), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity0) = createPosition(poolKey, -1, 5, (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity1) = createPosition(poolKey, 0, 6, (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity2) = createPosition(poolKey, 1, 7, (type(uint128).max >> 20), (type(uint128).max >> 20));
 
         assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
 
@@ -205,12 +222,9 @@ contract RouterTest is FullTest {
     function test_swap_liquidity_overflow_token1() public {
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
 
-        (, uint128 liquidity0) =
-            createPosition(poolKey, Bounds(-5, 1), (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity1) =
-            createPosition(poolKey, Bounds(-6, 0), (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity2) =
-            createPosition(poolKey, Bounds(-7, -1), (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity0) = createPosition(poolKey, -5, 1, (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity1) = createPosition(poolKey, -6, 0, (type(uint128).max >> 20), (type(uint128).max >> 20));
+        (, uint128 liquidity2) = createPosition(poolKey, -7, -1, (type(uint128).max >> 20), (type(uint128).max >> 20));
 
         assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
 
@@ -224,7 +238,7 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token1_in_slippage_check_failed(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
@@ -236,7 +250,7 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_token1_out_slippage_check_failed(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
@@ -248,7 +262,7 @@ contract RouterTest is FullTest {
 
     function test_basicSwap_exactOut(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 202);
 
@@ -263,7 +277,7 @@ contract RouterTest is FullTest {
 
     function test_multihopSwap(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
 
@@ -281,7 +295,7 @@ contract RouterTest is FullTest {
 
     function test_multihopSwap_exactOut(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
 
@@ -299,7 +313,7 @@ contract RouterTest is FullTest {
 
     function test_multiMultihopSwap(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
 
@@ -330,7 +344,7 @@ contract RouterTest is FullTest {
 
     function test_multiMultihopSwap_slippage_input(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
 
@@ -351,7 +365,7 @@ contract RouterTest is FullTest {
 
     function test_multiMultihopSwap_eth_payment() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         Swap[] memory swaps = new Swap[](2);
 
@@ -368,7 +382,7 @@ contract RouterTest is FullTest {
 
     function test_multiMultihopSwap_eth_middle_of_route() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         Swap[] memory swaps = new Swap[](2);
 
@@ -385,7 +399,7 @@ contract RouterTest is FullTest {
 
     function test_multiMultihopSwap_slippage_input_reverts_diff_tokens(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
 
@@ -404,7 +418,7 @@ contract RouterTest is FullTest {
 
     function test_multiMultihopSwap_slippage_output(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
 
@@ -439,7 +453,7 @@ contract RouterTest is FullTest {
 
     function test_coreEmitsSwapLogs() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
-        (, uint128 liquidity) = createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        (, uint128 liquidity) = createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
 
@@ -464,35 +478,47 @@ contract RouterTest is FullTest {
             address locker = address(bytes20(LibBytes.load(logs[i].data, 0)));
             assertEq(locker, address(router));
             bytes32 poolId = LibBytes.load(logs[i].data, 20);
-            assertEq(poolId, poolKey.toPoolId());
+            assertEq(poolId, PoolId.unwrap(poolKey.toPoolId()));
 
-            assertEq(uint256(LibBytes.load(logs[i].data, 84)) >> 128, liquidity);
+            assertEq(PoolState.wrap(LibBytes.load(logs[i].data, 84)).liquidity(), liquidity);
         }
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 52)))), deltas[0][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[0].data, 68)))), deltas[0][0].amount1);
-        assertEq(uint256(LibBytes.load(logs[0].data, 100)) >> 128, 170141183480276371393426350902574317577);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[0].data, 112)))), 9);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[0].data, 84)).sqrtRatio().toFixed(),
+            340284068297894840612141065344447938560
+        );
+        assertEq(PoolState.wrap(LibBytes.load(logs[0].data, 84)).tick(), 9);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 52)))), deltas[0][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[1].data, 68)))), deltas[0][1].amount1);
-        assertEq(uint256(LibBytes.load(logs[1].data, 100)) >> 128, 170140749613641222860389214663852687349);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[1].data, 112)))), -11);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[1].data, 84)).sqrtRatio().toFixed(),
+            340280631533626427978182251206462668800
+        );
+        assertEq(PoolState.wrap(LibBytes.load(logs[1].data, 84)).tick(), -11);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 52)))), deltas[1][0].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[2].data, 68)))), deltas[1][0].amount1);
-        assertEq(uint256(LibBytes.load(logs[2].data, 100)) >> 128, 170141174953541938005639404458484957183);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[2].data, 112)))), -1);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[2].data, 84)).sqrtRatio().toFixed(),
+            340282332893229288559183010384991748096
+        );
+        assertEq(PoolState.wrap(LibBytes.load(logs[2].data, 84)).tick(), -1);
 
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 52)))), deltas[1][1].amount0);
         assertEq(int128(uint128(bytes16(LibBytes.load(logs[3].data, 68)))), deltas[1][1].amount1);
-        assertEq(uint256(LibBytes.load(logs[3].data, 100)) >> 128, 170140324269317083393273361352726937579);
-        assertEq(int32(uint32(bytes4(LibBytes.load(logs[3].data, 112)))), -21);
+        assertEq(
+            PoolState.wrap(LibBytes.load(logs[3].data, 84)).sqrtRatio().toFixed(),
+            340278930156329870109718837961959669760
+        );
+        assertEq(PoolState.wrap(LibBytes.load(logs[3].data, 84)).tick(), -21);
     }
 
     function test_basicSwap_price_2x(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(693147, 1 << 63, 100, callPoints);
-        createPosition(poolKey, Bounds(693100, 693200), 1000, 1000);
+        createPosition(poolKey, 693100, 693200, 1000, 1000);
 
         token0.approve(address(router), 100);
 
@@ -508,10 +534,11 @@ contract RouterTest is FullTest {
 
     function test_swap_gas() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
 
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
@@ -522,10 +549,11 @@ contract RouterTest is FullTest {
 
     function test_swap_token_for_eth_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 100);
 
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
@@ -536,9 +564,10 @@ contract RouterTest is FullTest {
 
     function test_swap_cross_tick_eth_for_token1() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
-        createPosition(poolKey, Bounds(-200, 200), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+        createPosition(poolKey, -200, 200, 1000, 1000);
 
+        coolAllContracts();
         router.swap{value: 1500}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 1500}),
@@ -549,11 +578,12 @@ contract RouterTest is FullTest {
 
     function test_swap_cross_tick_token1_for_eth() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
-        createPosition(poolKey, Bounds(-200, 200), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+        createPosition(poolKey, -200, 200, 1000, 1000);
 
         token1.approve(address(router), 1500);
 
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 1500}),
@@ -564,8 +594,9 @@ contract RouterTest is FullTest {
 
     function test_swap_eth_for_token_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
-        createPosition(poolKey, Bounds(-100, 100), 1000, 1000);
+        createPosition(poolKey, -100, 100, 1000, 1000);
 
+        coolAllContracts();
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
@@ -576,8 +607,9 @@ contract RouterTest is FullTest {
 
     function test_swap_eth_for_token_full_range_pool_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
+        coolAllContracts();
         router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
@@ -588,9 +620,10 @@ contract RouterTest is FullTest {
 
     function test_swap_token_for_eth_full_range_pool_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
-        createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1000, 1000);
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
         token1.approve(address(router), 100);
+        coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
@@ -602,7 +635,7 @@ contract RouterTest is FullTest {
     function test_swap_full_range_to_max_price() public {
         PoolKey memory poolKey = createPool(MAX_TICK - 1, 0, FULL_RANGE_ONLY_TICK_SPACING);
 
-        (, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1, 1e36);
+        (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1, 1e36);
         assertNotEq(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
@@ -619,7 +652,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 499999875000098127000483558015);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
         assertEq(tick, MAX_TICK);
         assertEq(liquidityAfter, liquidity);
@@ -628,7 +661,7 @@ contract RouterTest is FullTest {
     function test_swap_full_range_to_min_price() public {
         PoolKey memory poolKey = createPool(MIN_TICK + 1, 0, FULL_RANGE_ONLY_TICK_SPACING);
 
-        (, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e36, 1);
+        (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1e36, 1);
         assertNotEq(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
@@ -645,7 +678,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 0);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
         // crosses the min tick, but liquidity is still not zero
         assertEq(tick, MIN_TICK - 1);
@@ -655,7 +688,7 @@ contract RouterTest is FullTest {
     function test_swap_max_spacing_to_max_price() public {
         PoolKey memory poolKey = createPool(MAX_TICK - 1, 0, MAX_TICK_SPACING);
 
-        (, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1, 1e36);
+        (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1, 1e36);
         assertNotEq(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
@@ -672,7 +705,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, 499999875000098127000483558015);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
         assertEq(tick, MAX_TICK);
         assertEq(liquidityAfter, 0);
@@ -681,7 +714,7 @@ contract RouterTest is FullTest {
     function test_swap_max_spacing_to_min_price() public {
         PoolKey memory poolKey = createPool(MIN_TICK + 1, 0, MAX_TICK_SPACING);
 
-        (, uint128 liquidity) = createPosition(poolKey, Bounds(MIN_TICK, MAX_TICK), 1e36, 1);
+        (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1e36, 1);
         assertNotEq(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
@@ -698,12 +731,10 @@ contract RouterTest is FullTest {
         assertEq(delta1, 0);
 
         // reaches max tick but does not change liquidity
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
         // crosses the min tick, but liquidity is still not zero
         assertEq(tick, MIN_TICK - 1);
         assertEq(liquidityAfter, 0);
     }
-
-    receive() external payable {}
 }

@@ -1,22 +1,27 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {ICore, IExtension, UpdatePositionParameters} from "../src/interfaces/ICore.sol";
+import {ICore, IExtension} from "../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {PositionKey, Bounds} from "../src/types/positionKey.sol";
+import {PositionId} from "../src/types/positionId.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
-import {BaseLocker} from "../src/base/BaseLocker.sol";
-import {isPriceIncreasing} from "../src/math/swap.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {PoolState} from "../src/types/poolState.sol";
+import {BaseLocker} from "../src/base/BaseLocker.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 
-contract MockExtension is IExtension {
+contract MockExtension is IExtension, BaseLocker {
+    using FlashAccountantLib for *;
+
+    constructor(ICore core) BaseLocker(core) {}
+
     function register(ICore core, CallPoints calldata expectedCallPoints) external {
         core.registerExtension(expectedCallPoints);
     }
@@ -33,26 +38,34 @@ contract MockExtension is IExtension {
         emit AfterInitializePoolCalled(caller, key, tick, sqrtRatio);
     }
 
-    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, UpdatePositionParameters params);
+    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, PositionId positionId, int128 liquidityDelta);
 
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, UpdatePositionParameters memory params)
+    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
     {
-        emit BeforeUpdatePositionCalled(locker, poolKey, params);
+        emit BeforeUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta);
     }
 
     event AfterUpdatePositionCalled(
-        address locker, PoolKey poolKey, UpdatePositionParameters params, int128 delta0, int128 delta1
+        address locker,
+        PoolKey poolKey,
+        PositionId positionId,
+        int128 liquidityDelta,
+        int128 delta0,
+        int128 delta1,
+        PoolState stateAfter
     );
 
     function afterUpdatePosition(
         address locker,
         PoolKey memory poolKey,
-        UpdatePositionParameters memory params,
+        PositionId positionId,
+        int128 liquidityDelta,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) external {
-        emit AfterUpdatePositionCalled(locker, poolKey, params, delta0, delta1);
+        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter);
     }
 
     event BeforeSwapCalled(
@@ -78,7 +91,8 @@ contract MockExtension is IExtension {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     );
 
     function afterSwap(
@@ -89,36 +103,56 @@ contract MockExtension is IExtension {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int128 delta0,
-        int128 delta1
+        int128 delta1,
+        PoolState stateAfter
     ) external {
-        emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1);
+        emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter);
     }
 
-    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, bytes32 salt, Bounds bounds);
+    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, PositionId positionId);
 
-    function beforeCollectFees(address locker, PoolKey memory poolKey, bytes32 salt, Bounds memory bounds) external {
-        emit BeforeCollectFeesCalled(locker, poolKey, salt, bounds);
+    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionId) external {
+        emit BeforeCollectFeesCalled(locker, poolKey, positionId);
     }
 
     event AfterCollectFeesCalled(
-        address locker, PoolKey poolKey, bytes32 salt, Bounds bounds, uint128 amount0, uint128 amount1
+        address locker, PoolKey poolKey, PositionId positionId, uint128 amount0, uint128 amount1
     );
 
     function afterCollectFees(
         address locker,
         PoolKey memory poolKey,
-        bytes32 salt,
-        Bounds memory bounds,
+        PositionId positionId,
         uint128 amount0,
         uint128 amount1
     ) external {
-        emit AfterCollectFeesCalled(locker, poolKey, salt, bounds, amount0, amount1);
+        emit AfterCollectFeesCalled(locker, poolKey, positionId, amount0, amount1);
+    }
+
+    function accumulateFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external {
+        lock(abi.encode(msg.sender, poolKey, amount0, amount1));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (address sender, PoolKey memory poolKey, uint128 amount0, uint128 amount1) =
+            abi.decode(data, (address, PoolKey, uint128, uint128));
+
+        ICore(payable(ACCOUNTANT)).accumulateAsFees(poolKey, amount0, amount1);
+        if (amount0 != 0) {
+            if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
+                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
+            } else {
+                ACCOUNTANT.payFrom(sender, poolKey.token0, amount0);
+            }
+        }
+        if (amount1 != 0) {
+            ACCOUNTANT.payFrom(sender, poolKey.token1, amount1);
+        }
     }
 }
 
 abstract contract FullTest is Test {
-    address immutable owner = address(0xdeadbeefdeadbeef);
-    BaseURLTokenURIGenerator tokenURIGenerator;
+    address immutable owner = makeAddr("owner");
     Core core;
     Positions positions;
     Router router;
@@ -127,22 +161,34 @@ abstract contract FullTest is Test {
     TestToken token1;
 
     function setUp() public virtual {
-        core = new Core(owner);
-        tokenURIGenerator = new BaseURLTokenURIGenerator(owner, "ekubo://positions/");
-        positions = new Positions(core, tokenURIGenerator);
+        core = new Core();
+        positions = new Positions(core, owner, 0, 1);
         router = new Router(core);
         TestToken tokenA = new TestToken(address(this));
         TestToken tokenB = new TestToken(address(this));
         (token0, token1) = address(tokenA) < address(tokenB) ? (tokenA, tokenB) : (tokenB, tokenA);
     }
 
-    function createAndRegisterExtension(CallPoints memory callPoints) internal returns (address) {
-        address impl = address(new MockExtension());
+    function coolAllContracts() internal virtual {
+        vm.cool(address(core));
+        vm.cool(address(positions));
+        vm.cool(address(router));
+        vm.cool(address(token0));
+        vm.cool(address(token1));
+        vm.cool(address(this));
+    }
+
+    function createAndRegisterExtension() internal returns (MockExtension) {
+        return createAndRegisterExtension(byteToCallPoints(0xff));
+    }
+
+    function createAndRegisterExtension(CallPoints memory callPoints) internal returns (MockExtension) {
+        address impl = address(new MockExtension(core));
         uint8 b = callPoints.toUint8();
         address actual = address((uint160(b) << 152) + 0xdeadbeef);
         vm.etch(actual, impl.code);
         MockExtension(actual).register(core, callPoints);
-        return actual;
+        return MockExtension(actual);
     }
 
     function createPool(int32 tick, uint64 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
@@ -153,8 +199,8 @@ abstract contract FullTest is Test {
         internal
         returns (PoolKey memory poolKey)
     {
-        address extension = (callPoints.isValid()) ? createAndRegisterExtension(callPoints) : address(0);
-        poolKey = createPool(tick, fee, tickSpacing, extension);
+        address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
+        poolKey = createPool(tick, fee, tickSpacing, address(extension));
     }
 
     // creates a pool of token1/ETH
@@ -177,7 +223,7 @@ abstract contract FullTest is Test {
         core.initializePool(poolKey, tick);
     }
 
-    function createPosition(PoolKey memory poolKey, Bounds memory bounds, uint128 amount0, uint128 amount1)
+    function createPosition(PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 amount0, uint128 amount1)
         internal
         returns (uint256 id, uint128 liquidity)
     {
@@ -189,6 +235,13 @@ abstract contract FullTest is Test {
         }
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
-        (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, bounds, amount0, amount1, 0);
+        (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, tickLower, tickUpper, amount0, amount1, 0);
     }
+
+    function advanceTime(uint32 by) internal returns (uint256 next) {
+        next = vm.getBlockTimestamp() + by;
+        vm.warp(next);
+    }
+
+    receive() external payable {}
 }

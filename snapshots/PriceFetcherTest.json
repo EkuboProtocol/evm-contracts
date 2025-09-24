@@ -1,6 +1,6 @@
 {
-  "getAveragesOverPeriod": "20421",
-  "getHistoricalPeriodAverages": "67621",
-  "getOracleTokenAverages(1 token)": "11784",
-  "getRealizedVolatilityOverPeriod": "68331"
+  "getAveragesOverPeriod": "15988",
+  "getHistoricalPeriodAverages": "51368",
+  "getOracleTokenAverages(1 token)": "8752",
+  "getRealizedVolatilityOverPeriod": "52079"
 }

@@ -1,17 +1,15 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
-import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
-import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {TWAMM, orderKeyToPoolKey, OrderKey} from "../src/extensions/TWAMM.sol";
-import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
+import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/swap.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SaleRateOverflow} from "../src/math/twamm.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -19,13 +17,14 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
+import {IPositions} from "../src/interfaces/IPositions.sol";
 import {Orders} from "../src/Orders.sol";
+import {IOrders} from "../src/interfaces/IOrders.sol";
 import {TestToken} from "./TestToken.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {LibBit} from "solady/utils/LibBit.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract Handler is StdUtils, StdAssertions {
@@ -36,7 +35,8 @@ contract Handler is StdUtils, StdAssertions {
 
     struct ActivePosition {
         PoolKey poolKey;
-        Bounds bounds;
+        int32 tickLower;
+        int32 tickUpper;
         uint128 liquidity;
     }
 
@@ -96,10 +96,10 @@ contract Handler is StdUtils, StdAssertions {
     function advanceTime(uint32 by) public {
         totalAdvanced += by;
         if (totalAdvanced > type(uint32).max) {
-            TWAMM twamm = orders.twamm();
+            ITWAMM twamm = orders.TWAMM_EXTENSION();
             // first do the execute on all pools, because we assume all pools are executed at least this often
             for (uint256 i = 0; i < activeOrders.length; i++) {
-                twamm.lockAndExecuteVirtualOrders(orderKeyToPoolKey(activeOrders[i].orderKey, address(twamm)));
+                twamm.lockAndExecuteVirtualOrders(activeOrders[i].orderKey.toPoolKey(address(twamm)));
             }
             totalAdvanced = by;
         }
@@ -109,18 +109,13 @@ contract Handler is StdUtils, StdAssertions {
     function createNewPool(uint64 fee, int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
-            address(token0), address(token1), toConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.twamm()))
+            address(token0),
+            address(token1),
+            toConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.TWAMM_EXTENSION()))
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);
-    }
-
-    function withdrawProtocolFees(bool isToken1, uint256 amount) external {
-        address token = isToken1 ? address(token1) : address(token0);
-
-        amount = bound(amount, 0, core.protocolFeesCollected(token));
-        core.withdrawProtocolFees(address(this), token, amount);
     }
 
     modifier ifPoolExists() {
@@ -133,13 +128,11 @@ contract Handler is StdUtils, StdAssertions {
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        Bounds memory bounds = Bounds(MIN_TICK, MAX_TICK);
-
-        try positions.deposit(positionId, poolKey, bounds, amount0, amount1, 0) returns (
+        try positions.deposit(positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0) returns (
             uint128 liquidity, uint128, uint128
         ) {
             if (liquidity > 0) {
-                activePositions.push(ActivePosition(poolKey, bounds, liquidity));
+                activePositions.push(ActivePosition(poolKey, MIN_TICK, MAX_TICK, liquidity));
             }
         } catch (bytes memory err) {
             bytes4 sig;
@@ -149,7 +142,7 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != Positions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
                     && sig != SafeTransferLib.TransferFromFailed.selector
@@ -165,9 +158,8 @@ contract Handler is StdUtils, StdAssertions {
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(positionId, p.poolKey, p.bounds, liquidity, address(this), collectFees) returns (
-            uint128, uint128
-        ) {
+        try positions.withdraw(positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees)
+        returns (uint128, uint128) {
             p.liquidity -= liquidity;
         } catch (bytes memory err) {
             bytes4 sig;
@@ -271,7 +263,7 @@ contract Handler is StdUtils, StdAssertions {
                 sig := mload(add(err, 32))
             }
             // 0xc902643d == SaleRateDeltaOverflow()
-            if (sig != SaleRateOverflow.selector && sig != TWAMM.MaxSaleRateDeltaPerTime.selector && sig != 0xc902643d)
+            if (sig != SaleRateOverflow.selector && sig != ITWAMM.MaxSaleRateDeltaPerTime.selector && sig != 0xc902643d)
             {
                 revert UnexpectedError(err);
             }
@@ -290,7 +282,8 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            if (sig != Orders.OrderAlreadyEnded.selector && sig != TWAMM.MustCollectProceedsBeforeCanceling.selector) {
+            if (sig != IOrders.OrderAlreadyEnded.selector && sig != ITWAMM.MustCollectProceedsBeforeCanceling.selector)
+            {
                 revert UnexpectedError(err);
             }
         }
@@ -314,7 +307,7 @@ contract Handler is StdUtils, StdAssertions {
         for (uint256 i = 0; i < allPoolKeys.length; i++) {
             PoolKey memory poolKey = allPoolKeys[i];
 
-            (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolKey.toPoolId());
+            (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolKey.toPoolId()).parse();
 
             assertGe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
             assertLe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
@@ -332,9 +325,6 @@ contract TWAMMInvariantTest is BaseOrdersTest {
         BaseOrdersTest.setUp();
 
         handler = new Handler(core, orders, positions, router, token0, token1, vm);
-        vm.prank(owner);
-        core.transferOwnership(address(handler));
-        vm.stopPrank();
 
         // funding core makes it easier for pools to become insolvent randomly if there is a bug
         token0.transfer(address(core), type(uint128).max);

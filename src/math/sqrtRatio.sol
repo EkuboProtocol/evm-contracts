@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, toSqrtRatio, MAX_FIXED_VALUE_ROUND_UP} from "../types/sqrtRatio.sol";

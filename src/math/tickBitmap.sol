@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
-import {Bitmap} from "../math/bitmap.sol";
+import {Bitmap} from "../types/bitmap.sol";
 import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
 // Addition of the offset does two things--it centers the 0 tick within a single bitmap regardless of tick spacing,
@@ -26,32 +25,37 @@ function bitmapWordAndIndexToTick(uint256 word, uint256 index, uint32 tickSpacin
     }
 }
 
+function loadBitmap(bytes32 bitmapsOffset, uint256 word) view returns (Bitmap bitmap) {
+    assembly ("memory-safe") {
+        bitmap := sload(add(bitmapsOffset, word))
+    }
+}
+
 // Flips the tick in the bitmap from true to false or vice versa
-function flipTick(mapping(uint256 word => Bitmap bitmap) storage map, int32 tick, uint32 tickSpacing) {
+function flipTick(bytes32 bitmapsOffset, int32 tick, uint32 tickSpacing) {
     (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
     assembly ("memory-safe") {
-        mstore(0, word)
-        mstore(32, map.slot)
-        let k := keccak256(0, 64)
+        let k := add(bitmapsOffset, word)
         let v := sload(k)
         sstore(k, xor(v, shl(index, 1)))
     }
 }
 
-function findNextInitializedTick(
-    mapping(uint256 word => Bitmap bitmap) storage map,
-    int32 fromTick,
-    uint32 tickSpacing,
-    uint256 skipAhead
-) view returns (int32 nextTick, bool isInitialized) {
+function findNextInitializedTick(bytes32 bitmapsOffset, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    view
+    returns (int32 nextTick, bool isInitialized)
+{
     unchecked {
         nextTick = fromTick;
+
         while (true) {
             // convert the given tick to the bitmap position of the next nearest potential initialized tick
             (uint256 word, uint256 index) = tickToBitmapWordAndIndex(nextTick + int32(tickSpacing), tickSpacing);
 
+            Bitmap bitmap = loadBitmap(bitmapsOffset, word);
+
             // find the index of the previous tick in that word
-            uint256 nextIndex = map[word].geSetBit(uint8(index));
+            uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
             // if we found one, return it
             if (nextIndex != 256) {
@@ -77,20 +81,21 @@ function findNextInitializedTick(
     }
 }
 
-function findPrevInitializedTick(
-    mapping(uint256 word => Bitmap bitmap) storage map,
-    int32 fromTick,
-    uint32 tickSpacing,
-    uint256 skipAhead
-) view returns (int32 prevTick, bool isInitialized) {
+function findPrevInitializedTick(bytes32 bitmapsOffset, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    view
+    returns (int32 prevTick, bool isInitialized)
+{
     unchecked {
         prevTick = fromTick;
+
         while (true) {
             // convert the given tick to its bitmap position
             (uint256 word, uint256 index) = tickToBitmapWordAndIndex(prevTick, tickSpacing);
 
+            Bitmap bitmap = loadBitmap(bitmapsOffset, word);
+
             // find the index of the previous tick in that word
-            uint256 prevIndex = map[word].leSetBit(uint8(index));
+            uint256 prevIndex = bitmap.leSetBit(uint8(index));
 
             if (prevIndex != 256) {
                 (prevTick, isInitialized) = (bitmapWordAndIndexToTick(word, prevIndex, tickSpacing), true);

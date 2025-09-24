@@ -1,13 +1,14 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/positionKey.sol";
+import {PositionId} from "../types/positionId.sol";
 import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {PoolId} from "../types/poolId.sol";
 
 contract CoreDataFetcher is UsesCore {
     using CoreLib for *;
@@ -15,11 +16,7 @@ contract CoreDataFetcher is UsesCore {
     constructor(ICore core) UsesCore(core) {}
 
     function isExtensionRegistered(address extension) external view returns (bool registered) {
-        registered = core.isExtensionRegistered(extension);
-    }
-
-    function protocolFeesCollected(address token) external view returns (uint256 amountCollected) {
-        amountCollected = core.protocolFeesCollected(token);
+        registered = CORE.isExtensionRegistered(extension);
     }
 
     function poolPrice(PoolKey memory poolKey) external view returns (uint256 sqrtRatioFixed, int32 tick) {
@@ -33,26 +30,26 @@ contract CoreDataFetcher is UsesCore {
         view
         returns (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity)
     {
-        (sqrtRatio, tick, liquidity) = core.poolState(poolKey.toPoolId());
+        (sqrtRatio, tick, liquidity) = CORE.poolState(poolKey.toPoolId()).parse();
     }
 
-    function poolPosition(PoolKey memory poolKey, PositionKey memory positionKey)
+    function poolPosition(PoolKey memory poolKey, address owner, PositionId positionId)
         external
         view
         returns (Position memory position)
     {
-        position = core.poolPositions(poolKey.toPoolId(), positionKey.toPositionId());
+        position = CORE.poolPositions(poolKey.toPoolId(), owner, positionId);
     }
 
-    function savedBalances(address owner, address token, bytes32 salt) external view returns (uint256 savedBalance) {
-        savedBalance = core.savedBalances(owner, token, salt);
-    }
-
-    function poolTicks(bytes32 poolId, int32 tick)
+    function savedBalances(address owner, address token0, address token1, bytes32 salt)
         external
         view
-        returns (int128 liquidityDelta, uint128 liquidityNet)
+        returns (uint128 savedBalance0, uint128 savedBalance1)
     {
-        (liquidityDelta, liquidityNet) = core.poolTicks(poolId, tick);
+        (savedBalance0, savedBalance1) = CORE.savedBalances(owner, token0, token1, salt);
+    }
+
+    function poolTicks(PoolId poolId, int32 tick) external view returns (int128 liquidityDelta, uint128 liquidityNet) {
+        (liquidityDelta, liquidityNet) = CORE.poolTicks(poolId, tick);
     }
 }

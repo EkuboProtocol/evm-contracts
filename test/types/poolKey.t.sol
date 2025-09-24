@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolKey, toConfig, Config, TokensMustBeSorted, InvalidTickSpacing} from "../../src/types/poolKey.sol";
+import {PoolId} from "../../src/types/poolId.sol";
 import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PoolKeyTest is Test {
@@ -55,58 +56,58 @@ contract PoolKeyTest is Test {
     }
 
     function test_toPoolId_changesWithToken0(PoolKey memory poolKey) public pure {
-        bytes32 id = poolKey.toPoolId();
+        PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.token0 = address(uint160(poolKey.token0) + 1);
         }
-        assertNotEq(poolKey.toPoolId(), id);
+        assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
     }
 
     function test_toPoolId_changesWithToken1(PoolKey memory poolKey) public pure {
-        bytes32 id = poolKey.toPoolId();
+        PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.token1 = address(uint160(poolKey.token1) + 1);
         }
-        assertNotEq(poolKey.toPoolId(), id);
+        assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
     }
 
     function test_toPoolId_changesWithExtension(PoolKey memory poolKey) public pure {
-        bytes32 id = poolKey.toPoolId();
+        PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.config = toConfig(poolKey.fee(), poolKey.tickSpacing(), address(uint160(poolKey.extension()) + 1));
         }
-        assertNotEq(poolKey.toPoolId(), id);
+        assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
     }
 
     function test_toPoolId_changesWithFee(PoolKey memory poolKey) public pure {
-        bytes32 id = poolKey.toPoolId();
+        PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.config = toConfig(poolKey.fee() + 1, poolKey.tickSpacing(), poolKey.extension());
         }
-        assertNotEq(poolKey.toPoolId(), id);
+        assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
     }
 
     function test_toPoolId_changesWithTickSpacing(PoolKey memory poolKey) public pure {
-        bytes32 id = poolKey.toPoolId();
+        PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.config = toConfig(poolKey.fee(), poolKey.tickSpacing() + 1, poolKey.extension());
         }
-        assertNotEq(poolKey.toPoolId(), id);
+        assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
     }
 
     function check_toPoolId_aligns_with_eq(PoolKey memory pk0, PoolKey memory pk1) public pure {
-        bytes32 pk0Id = pk0.toPoolId();
-        bytes32 pk1Id = pk1.toPoolId();
+        PoolId pk0Id = pk0.toPoolId();
+        PoolId pk1Id = pk1.toPoolId();
 
         assertEq(
             pk0.token0 == pk1.token0 && pk0.token1 == pk1.token1
                 && Config.unwrap(pk0.config) == Config.unwrap(pk1.config),
-            pk0Id == pk1Id
+            PoolId.unwrap(pk0Id) == PoolId.unwrap(pk1Id)
         );
     }
 
     function test_toPoolId_hash_matches_abi_encode(PoolKey memory pk) public pure {
-        bytes32 id = pk.toPoolId();
-        assertEq(id, keccak256(abi.encode(pk)));
+        PoolId id = pk.toPoolId();
+        assertEq(PoolId.unwrap(id), keccak256(abi.encode(pk)));
     }
 }

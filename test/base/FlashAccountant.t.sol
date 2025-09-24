@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
@@ -7,7 +7,9 @@ import {BaseForwardee} from "../../src/base/BaseForwardee.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {IFlashAccountant, IForwardee} from "../../src/interfaces/IFlashAccountant.sol";
 import {FlashAccountant} from "../../src/base/FlashAccountant.sol";
-import {TestToken} from "../TestToken.sol";
+import {Locker} from "../../src/types/locker.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 
 struct Action {
     uint8 kind;
@@ -43,6 +45,8 @@ function forwardActions(IForwardee forwardee, Action[] memory actions) pure retu
 }
 
 contract Actor is BaseLocker, BaseForwardee {
+    using FlashAccountantLib for *;
+
     constructor(Accountant accountant) BaseLocker(accountant) BaseForwardee(accountant) {}
 
     function doStuff(Action[] calldata actions) external returns (bytes[] memory results) {
@@ -71,10 +75,18 @@ contract Actor is BaseLocker, BaseForwardee {
                 if (sender != expected) revert SenderMismatch(sender, expected);
             } else if (a.kind == 2) {
                 (address token, uint128 amount, address recipient) = abi.decode(a.data, (address, uint128, address));
-                withdraw(token, amount, recipient);
+                if (amount > 0) {
+                    ACCOUNTANT.withdraw(token, recipient, amount);
+                }
             } else if (a.kind == 3) {
                 (address from, address token, uint256 amount) = abi.decode(a.data, (address, address, uint256));
-                pay(from, token, amount);
+                if (amount != 0) {
+                    if (token == NATIVE_TOKEN_ADDRESS) {
+                        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
+                    } else {
+                        ACCOUNTANT.payFrom(from, token, amount);
+                    }
+                }
             } else if (a.kind == 4) {
                 (Actor actor, Action[] memory nestedActions) = abi.decode(a.data, (Actor, Action[]));
                 results[i] = abi.encode(actor.doStuff(nestedActions));
@@ -90,9 +102,10 @@ contract Actor is BaseLocker, BaseForwardee {
     }
 
     function handleLockData(uint256 id, bytes memory data) internal override returns (bytes memory result) {
-        (uint256 lockerId, address locker) = Accountant(payable(accountant)).getLocker();
+        Locker locker = Accountant(payable(ACCOUNTANT)).getLocker();
+        (uint256 lockerId, address lockerAddr) = locker.parse();
         assert(lockerId == id);
-        assert(locker == address(this));
+        assert(lockerAddr == address(this));
 
         (address sender, Action[] memory actions) = abi.decode(data, (address, Action[]));
 
@@ -105,9 +118,10 @@ contract Actor is BaseLocker, BaseForwardee {
         returns (bytes memory result)
     {
         // forwardee is the locker now
-        (uint256 lockerId, address locker) = Accountant(payable(accountant)).getLocker();
+        Locker locker = Accountant(payable(ACCOUNTANT)).getLocker();
+        (uint256 lockerId, address lockerAddr) = locker.parse();
         assert(lockerId == id);
-        assert(locker == address(this));
+        assert(lockerAddr == address(this));
 
         Action[] memory actions = abi.decode(data, (Action[]));
 
@@ -118,8 +132,8 @@ contract Actor is BaseLocker, BaseForwardee {
 }
 
 contract Accountant is FlashAccountant {
-    function getLocker() external view returns (uint256 id, address locker) {
-        (id, locker) = _getLocker();
+    function getLocker() external view returns (Locker locker) {
+        locker = _getLocker();
     }
 }
 
@@ -135,8 +149,6 @@ contract FlashAccountantTest is Test {
     function test_callbacksByAccountantOnly() public {
         vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
         actor.locked(0);
-        vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
-        actor.payCallback(0, NATIVE_TOKEN_ADDRESS);
         vm.expectRevert(BaseForwardee.BaseForwardeeAccountantOnly.selector);
         actor.forwarded(0, address(0));
     }
@@ -269,45 +281,5 @@ contract FlashAccountantTest is Test {
         }
 
         actor.doStuff(actions);
-    }
-}
-
-contract DoubleCountingNoLoadBugTest is Test {
-    Accountant accountant;
-    TestToken token;
-
-    function setUp() public {
-        accountant = new Accountant();
-        token = new TestToken(address(this));
-    }
-
-    function payCallback(uint256, address) external {
-        uint256 nesting;
-        assembly ("memory-safe") {
-            nesting := calldataload(64)
-        }
-
-        if (nesting == 0) {
-            (bool success,) =
-                address(accountant).call(abi.encodeWithSelector(accountant.pay.selector, token, uint256(1)));
-            require(success);
-        } else {
-            token.transfer(address(accountant), 100);
-        }
-    }
-
-    function locked(uint256) external {
-        accountant.pay(address(token));
-        accountant.withdraw(address(token), address(this), 200);
-    }
-
-    function test_double_counting_bug() public {
-        token.transfer(address(accountant), 100);
-
-        assertEq(token.balanceOf(address(accountant)), 100);
-        vm.expectRevert(IFlashAccountant.PayReentrance.selector);
-        (bool success,) = address(accountant).call(abi.encodeWithSelector(IFlashAccountant.lock.selector, bytes32(0)));
-        assertFalse(success);
-        assertEq(token.balanceOf(address(accountant)), 100);
     }
 }

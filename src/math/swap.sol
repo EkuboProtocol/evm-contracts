@@ -1,7 +1,6 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {computeFee, amountBeforeFee} from "./fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./delta.sol";
@@ -9,19 +8,43 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {isPriceIncreasing} from "./isPriceIncreasing.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 
+// Swap Math Library
+// Contains the core swap calculation logic for Ekubo Protocol
+// Implements the mathematical functions needed to compute swap results including price impact, fees, and liquidity changes
+
+/// @notice Result of a swap calculation
+/// @dev Contains all the information needed to execute a swap
 struct SwapResult {
+    /// @notice Amount of the input token consumed by the swap
     int128 consumedAmount;
+    /// @notice Amount of the output token calculated from the swap
     uint128 calculatedAmount;
+    /// @notice The new sqrt price ratio after the swap
     SqrtRatio sqrtRatioNext;
+    /// @notice Amount of fees collected from the swap
     uint128 feeAmount;
 }
 
+/// @notice Creates a no-operation swap result
+/// @dev Used when a swap would have no effect (zero amount or already at limit price)
+/// @param sqrtRatioNext The sqrt price ratio to use in the result
+/// @return A SwapResult with zero amounts and the provided sqrt ratio
 function noOpSwapResult(SqrtRatio sqrtRatioNext) pure returns (SwapResult memory) {
     return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioNext});
 }
 
+/// @notice Thrown when the sqrt ratio limit is in the wrong direction for the swap
 error SqrtRatioLimitWrongDirection();
 
+/// @notice Computes the result of a swap given the current pool state and swap parameters
+/// @dev This is the core function that calculates how a swap will affect the pool
+/// @param sqrtRatio Current sqrt price ratio of the pool
+/// @param liquidity Current active liquidity in the pool
+/// @param sqrtRatioLimit Price limit for the swap (prevents excessive slippage)
+/// @param amount Amount to swap (positive for exact input, negative for exact output)
+/// @param isToken1 True if swapping token1, false if swapping token0
+/// @param fee Fee rate for the pool (as a fraction of 2^64)
+/// @return The calculated swap result including amounts and new price
 function swapResult(
     SqrtRatio sqrtRatio,
     uint128 liquidity,

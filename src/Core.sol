@@ -494,8 +494,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             // this loads only the input token fees per liquidity
             if (poolKey.mustLoadFees()) {
+                inputTokenFeesPerLiquiditySlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
                 assembly ("memory-safe") {
-                    inputTokenFeesPerLiquiditySlot := add(poolId, add(increasing, 1))
+                    inputTokenFeesPerLiquiditySlot := add(inputTokenFeesPerLiquiditySlot, increasing)
                     inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
                 }
             }

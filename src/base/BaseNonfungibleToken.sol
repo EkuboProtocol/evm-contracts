@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {LibString} from "solady/utils/LibString.sol";

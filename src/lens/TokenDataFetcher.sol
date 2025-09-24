@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";

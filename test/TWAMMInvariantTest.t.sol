@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";

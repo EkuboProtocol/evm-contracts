@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 /// @title Base Nonfungible Token Interface
 /// @notice Interface for the base NFT functionality used by Positions and Orders contracts

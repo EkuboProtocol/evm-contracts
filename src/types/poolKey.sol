@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {PoolId} from "./poolId.sol";

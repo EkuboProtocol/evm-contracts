@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 // The total fees per liquidity for each token.
 // Since these are always read together we put them in a struct, even though they cannot be packed.

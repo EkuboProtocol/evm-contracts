@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 /// @notice Packed representation of time-specific order information
 /// @dev Bit layout (256 bits total):

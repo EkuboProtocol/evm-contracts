@@ -21,23 +21,7 @@ library TWAMMLib {
         view
         returns (OrderState state)
     {
-        bytes32 key;
-
-        assembly ("memory-safe") {
-            // order state
-            mstore(0, owner)
-            mstore(32, 4)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, salt)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, orderId)
-
-            key := keccak256(0, 64)
-        }
-
-        state = OrderState.wrap(twamm.sload(key));
+        state = OrderState.wrap(twamm.sload(TWAMMStorageLayout.orderStateSlot(owner, salt, orderId)));
     }
 
     function rewardRateSnapshot(ITWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
@@ -45,22 +29,6 @@ library TWAMMLib {
         view
         returns (uint256)
     {
-        bytes32 key;
-
-        assembly ("memory-safe") {
-            // order state
-            mstore(0, owner)
-            mstore(32, 5)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, salt)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, orderId)
-
-            key := keccak256(0, 64)
-        }
-
-        return uint256(twamm.sload(key));
+        return uint256(twamm.sload(TWAMMStorageLayout.orderRewardRateSnapshotSlot(owner, salt, orderId)));
     }
 }

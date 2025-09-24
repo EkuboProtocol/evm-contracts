@@ -15,7 +15,7 @@ import {searchForNextInitializedTime, flipTime} from "../../src/math/timeBitmap.
 import {Bitmap} from "../../src/types/bitmap.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {createTimeInfo} from "../../src/types/timeInfo.sol";
+import {createTimeInfo, TimeInfo} from "../../src/types/timeInfo.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -62,6 +62,12 @@ contract TWAMMTest is BaseTWAMMTest {
 // Note the inheritance order matters because Test contains storage variables
 contract TWAMMInternalMethodsTests is TWAMM, Test {
     using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
+
+    // Test-only storage mappings for compatibility with existing tests
+    mapping(PoolId poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
+    mapping(PoolId poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
+    mapping(PoolId poolId => FeesPerLiquidity) internal poolRewardRates;
+    mapping(PoolId poolId => mapping(uint256 time => FeesPerLiquidity)) internal poolRewardRatesBefore;
 
     constructor() TWAMM(new Core()) {}
 

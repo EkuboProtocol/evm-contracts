@@ -15,10 +15,10 @@ import {PoolId} from "../types/poolId.sol";
 ///        [TIME_INFOS_OFFSET + time]: time infos
 ///        [REWARD_RATES_BEFORE_OFFSET + time]: reward rates before time
 library TWAMMStorageLayout {
-    uint256 internal constant REWARD_RATES_OFFSET = 0x10000;
-    uint256 internal constant TIME_BITMAPS_OFFSET = 0x20000;
-    uint256 internal constant TIME_INFOS_OFFSET = 0x100000000;
-    uint256 internal constant REWARD_RATES_BEFORE_OFFSET = 0x200000000;
+    uint256 internal constant REWARD_RATES_OFFSET = 0x01 << 224;
+    uint256 internal constant TIME_BITMAPS_OFFSET = 0x02 << 224;
+    uint256 internal constant TIME_INFOS_OFFSET = 0x03 << 224;
+    uint256 internal constant REWARD_RATES_BEFORE_OFFSET = 0x04 << 224;
 
     /// @notice Computes the storage slot of the TWAMM pool state
     /// @param poolId The unique identifier for the pool

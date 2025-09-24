@@ -11,7 +11,14 @@ import {PositionId} from "../types/positionId.sol";
 
 /// @title Core Storage Slot Library
 /// @notice Library providing functions to compute all storage slots used in Core
-/// @dev This library exists because
+/// @dev Core uses a custom storage layout to avoid keccak's where possible.
+///      For certain storage values, the pool id is used as a base offset and
+///      we allocate the following relative offsets (starting from the pool id) as:
+///        0: pool state
+///        1 + 2: fees per liquidity
+///        [TICKS_OFFSET + MIN_TICK, TICKS_OFFSET + MAX_TICK]: tick info
+///        [FPL_OUTSIDE_OFFSET + MIN_TICK, 2 * FPL_OUTSIDE_OFFSET + MAX_TICK]: fees per liquidity outside
+///        [BITMAPS_OFFSET + FIRST_BITMAP_WORD, BITMAPS_OFFSET + LAST_BITMAP_WORD]: tick bitmaps
 library CoreStorageSlotLib {
     uint256 internal constant TICKS_OFFSET = 0xffffffff;
     uint256 internal constant FPL_OUTSIDE_OFFSET = 0xffffffffff;
@@ -44,6 +51,16 @@ library CoreStorageSlotLib {
         }
     }
 
+    /// @notice Computes the storage slot of tick information for a specific tick in a pool
+    /// @param poolId The unique identifier for the pool
+    /// @param tick The tick to query
+    /// @return slot The storage slot in the Core contract
+    function poolTicksSlot(PoolId poolId, int32 tick) internal pure returns (bytes32 slot) {
+        assembly ("memory-safe") {
+            slot := add(poolId, add(tick, TICKS_OFFSET))
+        }
+    }
+
     /// @notice Computes the storage slot of the current state of a pool
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
@@ -57,6 +74,15 @@ library CoreStorageSlotLib {
         assembly ("memory-safe") {
             firstSlot := add(poolId, add(FPL_OUTSIDE_OFFSET, tick))
             secondSlot := add(firstSlot, FPL_OUTSIDE_OFFSET)
+        }
+    }
+
+    /// @notice Computes the first storage slot of the tick bitmaps for a specific pool
+    /// @param poolId The unique identifier for the pool
+    /// @return firstSlot The first storage slot in the Core contract
+    function tickBitmapsSlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
+        assembly ("memory-safe") {
+            firstSlot := add(poolId, BITMAPS_OFFSET)
         }
     }
 
@@ -95,25 +121,6 @@ library CoreStorageSlotLib {
             mstore(add(free, 0x40), token1)
             mstore(add(free, 0x60), salt)
             slot := keccak256(free, 128)
-        }
-    }
-
-    /// @notice Computes the storage slot of tick information for a specific tick in a pool
-    /// @param poolId The unique identifier for the pool
-    /// @param tick The tick to query
-    /// @return slot The storage slot in the Core contract
-    function poolTicksSlot(PoolId poolId, int32 tick) internal pure returns (bytes32 slot) {
-        assembly ("memory-safe") {
-            slot := add(poolId, add(tick, TICKS_OFFSET))
-        }
-    }
-
-    /// @notice Computes the first storage slot of the tick bitmaps for a specific pool
-    /// @param poolId The unique identifier for the pool
-    /// @return firstSlot The first storage slot in the Core contract
-    function tickBitmapsSlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
-        assembly ("memory-safe") {
-            firstSlot := add(poolId, BITMAPS_OFFSET)
         }
     }
 }

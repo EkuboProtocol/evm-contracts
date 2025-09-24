@@ -203,43 +203,33 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         uint256 untilTime
     ) internal view returns (uint256 nextTime, bool initialized) {
         unchecked {
-            nextTime = fromTime;
-            while (!initialized && nextTime != untilTime) {
-                // Align to 16-second boundary
-                uint256 alignedTime = (nextTime / 16) * 16;
-                if (alignedTime < nextTime) {
-                    alignedTime += 16;
-                }
+            // Start from the next 16-second boundary after fromTime
+            nextTime = ((fromTime >> 4) + 1) << 4;
 
-                if (alignedTime > untilTime) {
-                    nextTime = untilTime;
-                    initialized = false;
-                    break;
-                }
+            // Ensure we're also after lastVirtualOrderExecutionTime
+            if (nextTime <= lastVirtualOrderExecutionTime) {
+                nextTime = ((lastVirtualOrderExecutionTime >> 4) + 1) << 4;
+            }
 
-                // Check if this time is initialized
+            while (nextTime < untilTime) {
                 assembly ("memory-safe") {
-                    let word := shr(12, alignedTime)
-                    let bit := and(shr(4, alignedTime), 0xff)
+                    let word := shr(12, nextTime)
+                    let bit := and(shr(4, nextTime), 0xff)
                     let slot := add(add(poolId, shl(224, 0x02)), word)
                     let bitmap := sload(slot)
                     let isSet := and(shr(bit, bitmap), 1)
 
-                    if isSet {
-                        nextTime := alignedTime
-                        initialized := 1
-                    }
+                    if isSet { initialized := 1 }
                 }
 
-                if (!initialized) {
-                    nextTime = alignedTime + 16;
+                if (initialized) {
+                    return (nextTime, true);
                 }
+
+                nextTime += 16;
             }
 
-            if (nextTime > untilTime) {
-                nextTime = untilTime;
-                initialized = false;
-            }
+            return (untilTime, false);
         }
     }
 
@@ -513,8 +503,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
-                    (uint256 nextTime, bool initialized) =
-                        _searchForNextInitializedTime(poolId, realLastVirtualOrderExecutionTime, time, block.timestamp);
+                    // Simple search: find next 16-second boundary after current time
+                    uint256 nextTime = ((time >> 4) + 1) << 4;
+                    if (nextTime > block.timestamp) {
+                        nextTime = block.timestamp;
+                    }
 
                     // it is assumed that this will never return a value greater than type(uint32).max
                     uint256 timeElapsed = nextTime - time;
@@ -587,6 +580,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         rewardRates.value1 += (uint256(-rewardDelta1) << 128) / state.saleRateToken0();
                     }
 
+                    // Check if this time has orders (is initialized)
+                    TimeInfo timeInfo;
+                    assembly ("memory-safe") {
+                        timeInfo := sload(add(add(poolId, shl(224, 0x03)), nextTime))
+                    }
+                    bool initialized = TimeInfo.unwrap(timeInfo) != 0;
+
                     if (initialized) {
                         assembly ("memory-safe") {
                             let slot := add(add(poolId, shl(224, 0x04)), mul(nextTime, 2))
@@ -594,10 +594,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             sstore(add(slot, 1), mload(add(rewardRates, 32)))
                         }
 
-                        TimeInfo timeInfo;
-                        assembly ("memory-safe") {
-                            timeInfo := sload(add(add(poolId, shl(224, 0x03)), nextTime))
-                        }
                         (, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
                         state = createTwammPoolState({

@@ -9,6 +9,7 @@ import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult}
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {Bitmap} from "./types/bitmap.sol";
+import {CoreStorageSlotLib} from "./libraries/CoreStorageSlotLib.sol";
 import {ExtensionCallPointsLib} from "./libraries/ExtensionCallPointsLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -28,24 +29,7 @@ import {PoolId} from "./types/poolId.sol";
 /// @notice Singleton contract holding all tokens and containing all possible operations in Ekubo Protocol
 /// @dev Implements the core AMM functionality including pools, positions, swaps, and fee collection
 contract Core is ICore, FlashAccountant, ExposedStorage {
-    using {findNextInitializedTick, findPrevInitializedTick, flipTick} for mapping(uint256 word => Bitmap bitmap);
     using ExtensionCallPointsLib for *;
-
-    /// @notice Mapping of extension addresses to their registration status
-    mapping(address extension => bool isRegistered) private isExtensionRegistered;
-
-    /// @notice Mapping of pool IDs to their accumulated fees per liquidity
-    mapping(PoolId poolId => FeesPerLiquidity feesPerLiquidity) private poolFeesPerLiquidity;
-    /// @notice Mapping of pool IDs to position IDs to position data
-    mapping(PoolId poolId => mapping(address owner => mapping(PositionId positionId => Position position))) private
-        poolPositions;
-    /// @notice Mapping of pool IDs to tick information
-    mapping(PoolId poolId => mapping(int32 tick => TickInfo tickInfo)) private poolTicks;
-    /// @notice Mapping of pool IDs to tick fees per liquidity outside the tick
-    mapping(PoolId poolId => mapping(int32 tick => FeesPerLiquidity feesPerLiquidityOutside)) private
-        poolTickFeesPerLiquidityOutside;
-    /// @notice Mapping of pool IDs to initialized tick bitmaps
-    mapping(PoolId poolId => mapping(uint256 word => Bitmap bitmap)) private poolInitializedTickBitmaps;
 
     /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
@@ -53,8 +37,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) {
             revert FailedRegisterInvalidCallPoints();
         }
-        if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
-        isExtensionRegistered[msg.sender] = true;
+        bytes32 isExtensionRegisteredSlot = CoreStorageSlotLib.isExtensionRegisteredSlot(msg.sender);
+        bool isExtensionRegistered;
+        assembly ("memory-safe") {
+            isExtensionRegistered := sload(isExtensionRegisteredSlot)
+        }
+        if (isExtensionRegistered) revert ExtensionAlreadyRegistered();
+
+        assembly ("memory-safe") {
+            sstore(isExtensionRegisteredSlot, 1)
+        }
+
         emit ExtensionRegistered(msg.sender);
     }
 
@@ -76,7 +69,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         address extension = poolKey.extension();
         if (extension != address(0)) {
-            if (!isExtensionRegistered[extension]) {
+            bytes32 isExtensionRegisteredSlot = CoreStorageSlotLib.isExtensionRegisteredSlot(extension);
+            bool isExtensionRegistered;
+            assembly ("memory-safe") {
+                isExtensionRegistered := sload(isExtensionRegisteredSlot)
+            }
+
+            if (!isExtensionRegistered) {
                 revert ExtensionNotRegistered();
             }
 
@@ -102,7 +101,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (int32 tick, bool isInitialized)
     {
         (tick, isInitialized) =
-            poolInitializedTickBitmaps[poolId].findPrevInitializedTick(fromTick, tickSpacing, skipAhead);
+            findPrevInitializedTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -112,7 +111,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (int32 tick, bool isInitialized)
     {
         (tick, isInitialized) =
-            poolInitializedTickBitmaps[poolId].findNextInitializedTick(fromTick, tickSpacing, skipAhead);
+            findNextInitializedTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -142,6 +141,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 result := sum
             }
 
+            // we can cheaply calldatacopy the arguments into memory, hence no call to CoreStorageSlotLib#savedBalancesSlot
             let free := mload(0x40)
             mstore(free, lockerAddr)
             // copy the first 3 arguments in the same order
@@ -173,18 +173,44 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         view
         returns (FeesPerLiquidity memory)
     {
-        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) return poolFeesPerLiquidity[poolId];
+        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+            FeesPerLiquidity memory fpl;
+            bytes32 fplFirstSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
+            assembly ("memory-safe") {
+                mstore(fpl, sload(fplFirstSlot))
+                mstore(add(fpl, 0x20), sload(add(fplFirstSlot, 1)))
+            }
+            return fpl;
+        }
 
         int32 tick = readPoolState(poolId).tick();
-        mapping(int32 => FeesPerLiquidity) storage poolIdEntry = poolTickFeesPerLiquidityOutside[poolId];
-        FeesPerLiquidity memory lower = poolIdEntry[tickLower];
-        FeesPerLiquidity memory upper = poolIdEntry[tickUpper];
+
+        FeesPerLiquidity memory lower;
+        FeesPerLiquidity memory upper;
+
+        (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
+            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
+        (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
+            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
+
+        assembly ("memory-safe") {
+            mstore(lower, sload(lowerFirstSlot))
+            mstore(add(lower, 0x20), sload(lowerSecondSlot))
+
+            mstore(upper, sload(upperFirstSlot))
+            mstore(add(upper, 0x20), sload(upperSecondSlot))
+        }
 
         if (tick < tickLower) {
             lower.subAssign(upper);
             return lower;
         } else if (tick < tickUpper) {
-            FeesPerLiquidity memory fees = poolFeesPerLiquidity[poolId];
+            FeesPerLiquidity memory fees;
+            bytes32 fplFirstSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
+            assembly ("memory-safe") {
+                mstore(fees, sload(fplFirstSlot))
+                mstore(add(fees, 0x20), sload(add(fplFirstSlot, 1)))
+            }
 
             fees.subAssign(lower);
             fees.subAssign(upper);
@@ -219,9 +245,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 let liquidity := shr(128, shl(128, sload(poolId)))
 
                 if liquidity {
-                    mstore(0, poolId)
-                    mstore(32, 1)
-                    let slot0 := keccak256(0, 64)
+                    let slot0 := add(poolId, 1)
 
                     if amount0 {
                         let v := div(shl(128, amount0), liquidity)
@@ -252,15 +276,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(PoolId poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
-        bytes32 slot;
+        bytes32 slot = CoreStorageSlotLib.poolTicksSlot(poolId, tick);
         TickInfo ti;
-
         assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, 3)
-            mstore(32, keccak256(0, 64))
-            mstore(0, tick)
-            slot := keccak256(0, 64)
             ti := sload(slot)
         }
 
@@ -271,7 +289,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(poolInitializedTickBitmaps[poolId], tick, tickSpacing);
+            flipTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, tickSpacing);
         }
 
         ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
@@ -344,7 +362,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
-            Position storage position = poolPositions[poolId][lockerAddr][positionId];
+            bytes32 positionSlot = CoreStorageSlotLib.poolPositionsSlot(poolId, lockerAddr, positionId);
+            Position storage position;
+            assembly ("memory-safe") {
+                position.slot := positionSlot
+            }
 
             FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
                 poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
@@ -407,7 +429,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         PoolId poolId = poolKey.toPoolId();
 
-        Position memory position = poolPositions[poolId][lockerAddr][positionId];
+        Position storage position;
+        bytes32 positionSlot = CoreStorageSlotLib.poolPositionsSlot(poolId, lockerAddr, positionId);
+        assembly ("memory-safe") {
+            position.slot := positionSlot
+        }
 
         FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
             poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
@@ -415,8 +441,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 
-        poolPositions[poolId][lockerAddr][positionId] =
-            Position({liquidity: position.liquidity, feesPerLiquidityInsideLast: feesPerLiquidityInside});
+        position.feesPerLiquidityInsideLast = feesPerLiquidityInside;
 
         _updatePairDebt(id, poolKey.token0, poolKey.token1, -int256(uint256(amount0)), -int256(uint256(amount1)));
 
@@ -467,10 +492,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             // this loads only the input token fees per liquidity
             if (poolKey.mustLoadFees()) {
+                bytes32 fplSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
                 assembly ("memory-safe") {
-                    mstore(0, poolId)
-                    mstore(32, 1)
-                    inputTokenFeesPerLiquiditySlot := add(keccak256(0, 64), increasing)
+                    inputTokenFeesPerLiquiditySlot := add(fplSlot, increasing)
                     inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
                 }
             }
@@ -483,8 +507,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                     (nextTick, isInitialized) = increasing
-                        ? poolInitializedTickBitmaps[poolId].findNextInitializedTick(tick, poolKey.tickSpacing(), skipAhead)
-                        : poolInitializedTickBitmaps[poolId].findPrevInitializedTick(tick, poolKey.tickSpacing(), skipAhead);
+                        ? findNextInitializedTick(
+                            CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                        )
+                        : findPrevInitializedTick(
+                            CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                        );
 
                     nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                 } else {
@@ -520,11 +548,23 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
 
                     if (isInitialized) {
-                        int128 liquidityDelta = poolTicks[poolId][nextTick].liquidityDelta();
+                        int128 liquidityDelta;
+                        bytes32 tickSlot = CoreStorageSlotLib.poolTicksSlot(poolId, nextTick);
+                        assembly ("memory-safe") {
+                            liquidityDelta := signextend(15, sload(tickSlot))
+                        }
+
                         liquidity = increasing
                             ? addLiquidityDelta(liquidity, liquidityDelta)
                             : subLiquidityDelta(liquidity, liquidityDelta);
-                        FeesPerLiquidity memory tickFpl = poolTickFeesPerLiquidityOutside[poolId][nextTick];
+
+                        FeesPerLiquidity memory tickFpl;
+                        (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
+                            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
+                        assembly ("memory-safe") {
+                            mstore(tickFpl, sload(tickFplFirstSlot))
+                            mstore(add(tickFpl, 0x20), sload(tickFplSecondSlot))
+                        }
 
                         FeesPerLiquidity memory totalFpl;
 
@@ -538,7 +578,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         totalFpl.subAssign(tickFpl);
-                        poolTickFeesPerLiquidityOutside[poolId][nextTick] = totalFpl;
+                        assembly ("memory-safe") {
+                            sstore(tickFplFirstSlot, mload(totalFpl))
+                            sstore(tickFplSecondSlot, mload(add(totalFpl, 0x20)))
+                        }
                     }
                 } else if (sqrtRatio != result.sqrtRatioNext) {
                     sqrtRatio = result.sqrtRatioNext;

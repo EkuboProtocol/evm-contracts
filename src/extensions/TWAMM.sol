@@ -503,7 +503,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
-                    // Simple search: find next 16-second boundary after current time
+                    // Find next 16-second boundary after current time
                     uint256 nextTime = ((time >> 4) + 1) << 4;
                     if (nextTime > block.timestamp) {
                         nextTime = block.timestamp;

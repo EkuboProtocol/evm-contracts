@@ -4,7 +4,7 @@ pragma solidity =0.8.30;
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {PositionsOwner} from "../src/PositionsOwner.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
-import {CoreStorageSlotLib} from "../src/libraries/CoreStorageSlotLib.sol";
+import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -45,7 +45,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
 
         vm.store(
             address(core),
-            CoreStorageSlotLib.savedBalancesSlot(address(positions), token0, token1, bytes32(0)),
+            CoreStorageLayout.savedBalancesSlot(address(positions), token0, token1, bytes32(0)),
             bytes32(((uint256(amount0Old + amount0) << 128)) | uint256(amount1Old + amount1))
         );
 

@@ -4,8 +4,8 @@ pragma solidity =0.8.30;
 import {PoolId} from "../types/poolId.sol";
 import {PositionId} from "../types/positionId.sol";
 
-/// @title Core Storage Slot Library
-/// @notice Library providing functions to compute all storage slots used in Core
+/// @title Core Storage Layout
+/// @notice Library providing functions to compute the storage locations for the Core contract
 /// @dev Core uses a custom storage layout to avoid keccak's where possible.
 ///      For certain storage values, the pool id is used as a base offset and
 ///      we allocate the following relative offsets (starting from the pool id) as:
@@ -14,7 +14,7 @@ import {PositionId} from "../types/positionId.sol";
 ///        [TICKS_OFFSET + MIN_TICK, TICKS_OFFSET + MAX_TICK]: tick info
 ///        [FPL_OUTSIDE_OFFSET + MIN_TICK, 2 * FPL_OUTSIDE_OFFSET + MAX_TICK]: fees per liquidity outside
 ///        [BITMAPS_OFFSET + FIRST_BITMAP_WORD, BITMAPS_OFFSET + LAST_BITMAP_WORD]: tick bitmaps
-library CoreStorageSlotLib {
+library CoreStorageLayout {
     uint256 internal constant TICKS_OFFSET = 0xffffffff;
     uint256 internal constant FPL_OUTSIDE_OFFSET = 0xffffffffff;
     uint256 internal constant BITMAPS_OFFSET = 0xffffffffffff;

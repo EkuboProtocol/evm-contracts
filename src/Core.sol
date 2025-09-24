@@ -8,7 +8,7 @@ import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiqu
 import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
-import {CoreStorageSlotLib} from "./libraries/CoreStorageSlotLib.sol";
+import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
 import {ExtensionCallPointsLib} from "./libraries/ExtensionCallPointsLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -36,7 +36,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) {
             revert FailedRegisterInvalidCallPoints();
         }
-        bytes32 isExtensionRegisteredSlot = CoreStorageSlotLib.isExtensionRegisteredSlot(msg.sender);
+        bytes32 isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(msg.sender);
         bool isExtensionRegistered;
         assembly ("memory-safe") {
             isExtensionRegistered := sload(isExtensionRegisteredSlot)
@@ -68,7 +68,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         address extension = poolKey.extension();
         if (extension != address(0)) {
-            bytes32 isExtensionRegisteredSlot = CoreStorageSlotLib.isExtensionRegisteredSlot(extension);
+            bytes32 isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
             bool isExtensionRegistered;
             assembly ("memory-safe") {
                 isExtensionRegistered := sload(isExtensionRegisteredSlot)
@@ -100,7 +100,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (int32 tick, bool isInitialized)
     {
         (tick, isInitialized) =
-            findPrevInitializedTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
+            findPrevInitializedTick(CoreStorageLayout.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -110,7 +110,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (int32 tick, bool isInitialized)
     {
         (tick, isInitialized) =
-            findNextInitializedTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
+            findNextInitializedTick(CoreStorageLayout.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -140,7 +140,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 result := sum
             }
 
-            // we can cheaply calldatacopy the arguments into memory, hence no call to CoreStorageSlotLib#savedBalancesSlot
+            // we can cheaply calldatacopy the arguments into memory, hence no call to CoreStorageLayout#savedBalancesSlot
             let free := mload(0x40)
             mstore(free, lockerAddr)
             // copy the first 3 arguments in the same order
@@ -174,7 +174,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     {
         if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
             FeesPerLiquidity memory fpl;
-            bytes32 fplFirstSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
+            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             assembly ("memory-safe") {
                 mstore(fpl, sload(fplFirstSlot))
                 mstore(add(fpl, 0x20), sload(add(fplFirstSlot, 1)))
@@ -188,9 +188,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         FeesPerLiquidity memory upper;
 
         (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
-            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
+            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
         (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
-            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
+            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
 
         assembly ("memory-safe") {
             mstore(lower, sload(lowerFirstSlot))
@@ -205,7 +205,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             return lower;
         } else if (tick < tickUpper) {
             FeesPerLiquidity memory fees;
-            bytes32 fplFirstSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
+            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             assembly ("memory-safe") {
                 mstore(fees, sload(fplFirstSlot))
                 mstore(add(fees, 0x20), sload(add(fplFirstSlot, 1)))
@@ -275,7 +275,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
     function _updateTick(PoolId poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
-        bytes32 slot = CoreStorageSlotLib.poolTicksSlot(poolId, tick);
+        bytes32 slot = CoreStorageLayout.poolTicksSlot(poolId, tick);
         TickInfo ti;
         assembly ("memory-safe") {
             ti := sload(slot)
@@ -288,7 +288,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, tickSpacing);
+            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, tickSpacing);
         }
 
         ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
@@ -361,7 +361,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
-            bytes32 positionSlot = CoreStorageSlotLib.poolPositionsSlot(poolId, lockerAddr, positionId);
+            bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, lockerAddr, positionId);
             Position storage position;
             assembly ("memory-safe") {
                 position.slot := positionSlot
@@ -429,7 +429,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         PoolId poolId = poolKey.toPoolId();
 
         Position storage position;
-        bytes32 positionSlot = CoreStorageSlotLib.poolPositionsSlot(poolId, lockerAddr, positionId);
+        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, lockerAddr, positionId);
         assembly ("memory-safe") {
             position.slot := positionSlot
         }
@@ -491,7 +491,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             // this loads only the input token fees per liquidity
             if (poolKey.mustLoadFees()) {
-                bytes32 fplSlot = CoreStorageSlotLib.poolFeesPerLiquiditySlot(poolId);
+                bytes32 fplSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
                 assembly ("memory-safe") {
                     inputTokenFeesPerLiquiditySlot := add(fplSlot, increasing)
                     inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
@@ -507,10 +507,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                     (nextTick, isInitialized) = increasing
                         ? findNextInitializedTick(
-                            CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                            CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
                         )
                         : findPrevInitializedTick(
-                            CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                            CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
                         );
 
                     nextTickSqrtRatio = tickToSqrtRatio(nextTick);
@@ -548,7 +548,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                     if (isInitialized) {
                         int128 liquidityDelta;
-                        bytes32 tickSlot = CoreStorageSlotLib.poolTicksSlot(poolId, nextTick);
+                        bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick);
                         assembly ("memory-safe") {
                             liquidityDelta := signextend(15, sload(tickSlot))
                         }
@@ -559,7 +559,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                         FeesPerLiquidity memory tickFpl;
                         (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
-                            CoreStorageSlotLib.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
+                            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
                         assembly ("memory-safe") {
                             mstore(tickFpl, sload(tickFplFirstSlot))
                             mstore(add(tickFpl, 0x20), sload(tickFplSecondSlot))

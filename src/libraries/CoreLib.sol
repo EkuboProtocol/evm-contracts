@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {ICore} from "../interfaces/ICore.sol";
-import {CoreStorageSlotLib} from "./CoreStorageSlotLib.sol";
+import {CoreStorageLayout} from "./CoreStorageLayout.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
@@ -22,7 +22,7 @@ library CoreLib {
     /// @param extension The extension address to check
     /// @return registered True if the extension is registered
     function isExtensionRegistered(ICore core, address extension) internal view returns (bool registered) {
-        registered = uint256(core.sload(CoreStorageSlotLib.isExtensionRegisteredSlot(extension))) != 0;
+        registered = uint256(core.sload(CoreStorageLayout.isExtensionRegisteredSlot(extension))) != 0;
     }
 
     /// @notice Gets the current state of a pool
@@ -31,7 +31,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @return state The current state of the pool
     function poolState(ICore core, PoolId poolId) internal view returns (PoolState state) {
-        state = PoolState.wrap(core.sload(CoreStorageSlotLib.poolStateSlot(poolId)));
+        state = PoolState.wrap(core.sload(CoreStorageLayout.poolStateSlot(poolId)));
     }
 
     /// @notice Gets position data for a specific position in a pool
@@ -45,7 +45,7 @@ library CoreLib {
         view
         returns (Position memory position)
     {
-        bytes32 firstSlot = CoreStorageSlotLib.poolPositionsSlot(poolId, owner, positionId);
+        bytes32 firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId);
         (bytes32 v0, bytes32 v1, bytes32 v2) =
             core.sload(firstSlot, bytes32(uint256(firstSlot) + 1), bytes32(uint256(firstSlot) + 2));
 
@@ -67,7 +67,7 @@ library CoreLib {
         view
         returns (uint128 savedBalance0, uint128 savedBalance1)
     {
-        uint256 value = uint256(core.sload(CoreStorageSlotLib.savedBalancesSlot(owner, token0, token1, salt)));
+        uint256 value = uint256(core.sload(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt)));
 
         savedBalance0 = uint128(value >> 128);
         savedBalance1 = uint128(value);
@@ -85,7 +85,7 @@ library CoreLib {
         view
         returns (int128 liquidityDelta, uint128 liquidityNet)
     {
-        bytes32 data = core.sload(CoreStorageSlotLib.poolTicksSlot(poolId, tick));
+        bytes32 data = core.sload(CoreStorageLayout.poolTicksSlot(poolId, tick));
 
         // takes only least significant 128 bits
         liquidityDelta = int128(uint128(uint256(data)));

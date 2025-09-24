@@ -31,17 +31,23 @@ import {PoolId} from "./types/poolId.sol";
 contract Core is ICore, FlashAccountant, ExposedStorage {
     using ExtensionCallPointsLib for *;
 
-    /// @notice Mapping of extension addresses to their registration status
-    mapping(address extension => bool isRegistered) private isExtensionRegistered;
-
     /// @inheritdoc ICore
     function registerExtension(CallPoints memory expectedCallPoints) external {
         CallPoints memory computed = addressToCallPoints(msg.sender);
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) {
             revert FailedRegisterInvalidCallPoints();
         }
-        if (isExtensionRegistered[msg.sender]) revert ExtensionAlreadyRegistered();
-        isExtensionRegistered[msg.sender] = true;
+        bytes32 isExtensionRegisteredSlot = CoreStorageSlotLib.isExtensionRegisteredSlot(msg.sender);
+        bool isExtensionRegistered;
+        assembly ("memory-safe") {
+            isExtensionRegistered := sload(isExtensionRegisteredSlot)
+        }
+        if (isExtensionRegistered) revert ExtensionAlreadyRegistered();
+
+        assembly ("memory-safe") {
+            sstore(isExtensionRegisteredSlot, 1)
+        }
+
         emit ExtensionRegistered(msg.sender);
     }
 
@@ -63,7 +69,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         address extension = poolKey.extension();
         if (extension != address(0)) {
-            if (!isExtensionRegistered[extension]) {
+            bytes32 isExtensionRegisteredSlot = CoreStorageSlotLib.isExtensionRegisteredSlot(extension);
+            bool isExtensionRegistered;
+            assembly ("memory-safe") {
+                isExtensionRegistered := sload(isExtensionRegisteredSlot)
+            }
+
+            if (!isExtensionRegistered) {
                 revert ExtensionNotRegistered();
             }
 

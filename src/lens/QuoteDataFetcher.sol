@@ -1,15 +1,14 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PositionKey} from "../types/positionKey.sol";
-import {Position} from "../types/position.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
+import {PoolId} from "../types/poolId.sol";
 
 struct TickDelta {
     int32 number;
@@ -43,8 +42,8 @@ contract QuoteDataFetcher is UsesCore {
         unchecked {
             results = new QuoteData[](poolKeys.length);
             for (uint256 i = 0; i < poolKeys.length; i++) {
-                bytes32 poolId = poolKeys[i].toPoolId();
-                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId);
+                PoolId poolId = poolKeys[i].toPoolId();
+                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
 
                 if (!sqrtRatio.isZero()) {
                     int256 minTick;
@@ -93,7 +92,7 @@ contract QuoteDataFetcher is UsesCore {
     }
 
     // Returns all the initialized ticks and the liquidity delta of each tick in the given range
-    function _getInitializedTicksInRange(bytes32 poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
+    function _getInitializedTicksInRange(PoolId poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
         internal
         view
         returns (TickDelta[] memory ticks)
@@ -104,12 +103,12 @@ contract QuoteDataFetcher is UsesCore {
             DynamicArrayLib.DynamicArray memory packedTicks;
 
             while (toTick >= fromTick) {
-                (int32 tick, bool initialized) = core.prevInitializedTick(
+                (int32 tick, bool initialized) = CORE.prevInitializedTick(
                     poolId, toTick, tickSpacing, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
                 );
 
                 if (initialized && tick >= fromTick) {
-                    (int128 liquidityDelta,) = core.poolTicks(poolId, tick);
+                    (int128 liquidityDelta,) = CORE.poolTicks(poolId, tick);
                     uint256 v;
                     assembly ("memory-safe") {
                         v := or(shl(128, tick), and(liquidityDelta, 0xffffffffffffffffffffffffffffffff))

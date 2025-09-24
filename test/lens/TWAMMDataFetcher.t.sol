@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {BaseOrdersTest} from "../Orders.t.sol";
 import {PoolState, TWAMMDataFetcher, getAllValidFutureTimes} from "../../src/lens/TWAMMDataFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {isTimeValid, nextValidTime} from "../../src/math/time.sol";
-import {OrderKey} from "../../src/extensions/TWAMM.sol";
+import {OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TWAMMDataFetcherTest is BaseOrdersTest {

@@ -1,61 +1,83 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
-import {IPayer, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {Locker} from "../types/locker.sol";
 
+/// @title FlashAccountant
+/// @notice Abstract contract that provides flash loan accounting functionality using transient storage
+/// @dev This contract manages debt tracking for flash loans, allowing users to borrow tokens temporarily
+///      and ensuring all debts are settled before the transaction completes. Uses transient storage
+///      for gas-efficient temporary state management within a single transaction.
 abstract contract FlashAccountant is IFlashAccountant {
     // These offsets are selected so that they do not accidentally overlap with any other base contract's use of transient storage
 
-    // cast keccak "FlashAccountant#CURRENT_LOCKER_SLOT"
+    /// @dev Transient storage slot for tracking the current locker ID and address
+    /// @dev The stored ID is kept as id + 1 to facilitate the NotLocked check (zero means unlocked)
+    /// @dev Generated using: cast keccak "FlashAccountant#CURRENT_LOCKER_SLOT"
     uint256 private constant _CURRENT_LOCKER_SLOT = 0x07cc7f5195d862f505d6b095c82f92e00cfc1766f5bca4383c28dc5fca1555fd;
-    // cast keccak "FlashAccountant#NONZERO_DEBT_COUNT_OFFSET"
+
+    /// @dev Transient storage offset for tracking token debts for each locker
+    /// @dev Generated using: cast keccak "FlashAccountant#_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET"
+    uint256 private constant _DEBT_LOCKER_TOKEN_ADDRESS_OFFSET =
+        0x753dfe4b4dfb3ff6c11bbf6a97f3c094e91c003ce904a55cc5662fbad220f599;
+
+    /// @dev Transient storage offset for tracking the count of tokens with non-zero debt for each locker
+    /// @dev Generated using: cast keccak "FlashAccountant#NONZERO_DEBT_COUNT_OFFSET"
     uint256 private constant _NONZERO_DEBT_COUNT_OFFSET =
         0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d;
-    // cast keccak "FlashAccountant#DEBT_HASH_OFFSET"
-    uint256 private constant _DEBT_HASH_OFFSET = 0x3fee1dc3ade45aa30d633b5b8645760533723e46597841ef1126c6577a091742;
-    // cast keccak "FlashAccountant#PAY_REENTRANCY_LOCK"
-    uint256 private constant _PAY_REENTRANCY_LOCK = 0xe1be600102d456bf2d4dee36e1641404df82292916888bf32557e00dfe166412;
 
-    function _getLocker() internal view returns (uint256 id, address locker) {
+    /// @dev Transient storage offset for tracking token balances during payment operations
+    /// @dev Generated using: cast keccak "FlashAccountant#_PAYMENT_TOKEN_ADDRESS_OFFSET"
+    uint256 private constant _PAYMENT_TOKEN_ADDRESS_OFFSET =
+        0x6747da56dbd05b26a7ecd2a0106781585141cf07098ad54c0e049e4e86dccb8c;
+
+    /// @notice Gets the current locker information from transient storage
+    /// @dev Reverts with NotLocked() if no lock is currently active
+    /// @return locker The current locker containing both id and address
+    function _getLocker() internal view returns (Locker locker) {
         assembly ("memory-safe") {
-            let current := tload(_CURRENT_LOCKER_SLOT)
+            locker := tload(_CURRENT_LOCKER_SLOT)
 
-            if iszero(current) {
+            if iszero(locker) {
                 // cast sig "NotLocked()"
                 mstore(0, shl(224, 0x1834e265))
                 revert(0, 4)
             }
-
-            id := sub(shr(160, current), 1)
-            locker := shr(96, shl(96, current))
         }
     }
 
-    function _requireLocker() internal view returns (uint256 id, address locker) {
-        (id, locker) = _getLocker();
-        if (locker != msg.sender) revert LockerOnly();
+    /// @notice Gets the current locker information and ensures the caller is the locker
+    /// @dev Reverts with LockerOnly() if the caller is not the current locker
+    /// @return locker The current locker containing both id and address (address must be msg.sender)
+    function _requireLocker() internal view returns (Locker locker) {
+        locker = _getLocker();
+        if (locker.addr() != msg.sender) revert LockerOnly();
     }
 
-    // We assume debtChange cannot exceed a 128 bits value, even though it uses a int256 container
-    // This must be enforced at the places it is called for this contract's safety
-    // Negative means erasing debt, positive means adding debt
+    /// @notice Updates the debt tracking for a specific locker and token
+    /// @dev We assume debtChange cannot exceed a 128 bits value, even though it uses a int256 container.
+    ///      This must be enforced at the places it is called for this contract's safety.
+    ///      Negative values erase debt, positive values add debt.
+    ///      Updates the non-zero debt count when debt transitions between zero and non-zero states.
+    /// @param id The locker ID to update debt for
+    /// @param token The token address to update debt for
+    /// @param debtChange The change in debt (negative to reduce, positive to increase)
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
-            if iszero(iszero(debtChange)) {
-                mstore(0, add(add(shl(160, id), token), _DEBT_HASH_OFFSET))
-                let deltaSlot := keccak256(0, 32)
+            if debtChange {
+                let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
                 let current := tload(deltaSlot)
 
                 // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
                 let next := add(current, debtChange)
 
-                let nextZero := iszero(next)
-                if xor(iszero(current), nextZero) {
-                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                let countChange := sub(iszero(current), iszero(next))
 
-                    tstore(nzdCountSlot, add(sub(tload(nzdCountSlot), nextZero), iszero(nextZero)))
+                if countChange {
+                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                    tstore(nzdCountSlot, add(tload(nzdCountSlot), countChange))
                 }
 
                 tstore(deltaSlot, next)
@@ -63,7 +85,59 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    // The entrypoint for all operations on the core contract
+    /// @notice Updates the debt tracking for a specific locker and pair of tokens in a single operation
+    /// @dev Optimized version that updates both tokens' debts and performs a single tload/tstore on the non-zero debt count.
+    ///      Individual token debt slots are still updated separately, but the non-zero debt count is only loaded/stored once.
+    ///      We assume debtChange values cannot exceed 128 bits. This must be enforced at the places it is called for this contract's safety.
+    ///      Negative values erase debt, positive values add debt.
+    /// @param id The locker ID to update debt for
+    /// @param tokenA The first token address
+    /// @param tokenB The second token address
+    /// @param debtChangeA The change in debt for tokenA (negative to reduce, positive to increase)
+    /// @param debtChangeB The change in debt for tokenB (negative to reduce, positive to increase)
+    function _updatePairDebt(uint256 id, address tokenA, address tokenB, int256 debtChangeA, int256 debtChangeB)
+        internal
+    {
+        assembly ("memory-safe") {
+            let nzdCountChange := 0
+
+            // Update token0 debt if there's a change
+            if debtChangeA {
+                let deltaSlotA := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), tokenA))
+                let currentA := tload(deltaSlotA)
+                let nextA := add(currentA, debtChangeA)
+
+                nzdCountChange := sub(iszero(currentA), iszero(nextA))
+
+                tstore(deltaSlotA, nextA)
+            }
+
+            if debtChangeB {
+                let deltaSlotB := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), tokenB))
+                let currentB := tload(deltaSlotB)
+                let nextB := add(currentB, debtChangeB)
+
+                nzdCountChange := add(nzdCountChange, sub(iszero(currentB), iszero(nextB)))
+
+                tstore(deltaSlotB, nextB)
+            }
+
+            // Update non-zero debt count only if it changed
+            if nzdCountChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
+            }
+        }
+    }
+
+    /// @inheritdoc IFlashAccountant
+    function updateDebt(int256 delta) external {
+        uint256 id = _getLocker().id();
+        if (delta > type(int128).max || delta < type(int128).min) revert UpdateDebtOverflow();
+        _accountDebt(id, msg.sender, delta);
+    }
+
+    /// @inheritdoc IFlashAccountant
     function lock() external {
         assembly ("memory-safe") {
             let current := tload(_CURRENT_LOCKER_SLOT)
@@ -107,9 +181,10 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    // Allows forwarding the lock context to another actor, allowing them to act on the original locker's debt
+    /// @inheritdoc IFlashAccountant
     function forward(address to) external {
-        (uint256 id, address locker) = _requireLocker();
+        Locker locker = _requireLocker();
+        (uint256 id, address lockerAddr) = locker.parse();
 
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state
@@ -121,7 +196,7 @@ abstract contract FlashAccountant is IFlashAccountant {
             // Prepare call to forwarded(uint256,address) -> selector 0x64919dea
             mstore(free, shl(224, 0x64919dea))
             mstore(add(free, 4), id)
-            mstore(add(free, 36), locker)
+            mstore(add(free, 36), lockerAddr)
 
             calldatacopy(add(free, 68), 36, sub(calldatasize(), 36))
 
@@ -134,7 +209,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 revert(free, returndatasize())
             }
 
-            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), locker))
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), lockerAddr))
 
             // Directly return whatever the subcall returned
             returndatacopy(free, 0, returndatasize())
@@ -142,97 +217,163 @@ abstract contract FlashAccountant is IFlashAccountant {
         }
     }
 
-    function pay(address token) external returns (uint128 payment) {
+    /// @inheritdoc IFlashAccountant
+    function startPayments() external {
         assembly ("memory-safe") {
-            if tload(_PAY_REENTRANCY_LOCK) {
-                // cast sig "PayReentrance()"
-                mstore(0, 0xced108be)
-                revert(0x1c, 0x04)
-            }
-            tstore(_PAY_REENTRANCY_LOCK, 1)
-        }
-
-        (uint256 id,) = _getLocker();
-
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-
+            // 0-52 are used for the balanceOf calldata
             mstore(20, address()) // Store the `account` argument.
             mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
-            let tokenBalanceBefore :=
-                mul( // The arguments of `mul` are evaluated from right to left.
-                    mload(free),
-                    and( // The arguments of `and` are evaluated from right to left.
-                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                        staticcall(gas(), token, 0x10, 0x24, free, 0x20)
+
+            let free := mload(0x40)
+
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
+                // clean upper 96 bits of the token argument at i
+                let token := shr(96, shl(96, calldataload(i)))
+
+                let returnLocation := add(free, sub(i, 4))
+
+                let tokenBalance :=
+                    mul( // The arguments of `mul` are evaluated from right to left.
+                        mload(returnLocation),
+                        and( // The arguments of `and` are evaluated from right to left.
+                            gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                            staticcall(gas(), token, 0x10, 0x24, returnLocation, 0x20)
+                        )
                     )
-                )
 
-            // Prepare call to "payCallback(uint256,address)"
-            mstore(free, shl(224, 0x599d0714))
-            mstore(add(free, 4), id)
-            mstore(add(free, 36), token)
-
-            // copy the token, plus anything else that they wanted to forward
-            calldatacopy(add(free, 68), 36, sub(calldatasize(), 36))
-
-            // Call the forwardee with the packed data
-            // Pass through the error on failure
-            if iszero(call(gas(), caller(), 0, free, add(32, calldatasize()), 0, 0)) {
-                returndatacopy(free, 0, returndatasize())
-                revert(free, returndatasize())
+                tstore(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token), add(tokenBalance, 1))
             }
 
-            // Arguments are still in scratch, we don't need to rewrite them
-            let tokenBalanceAfter :=
-                mul( // The arguments of `mul` are evaluated from right to left.
-                    mload(0x20),
-                    and( // The arguments of `and` are evaluated from right to left.
-                        gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                        staticcall(gas(), token, 0x10, 0x24, 0x20, 0x20)
-                    )
-                )
-
-            if lt(tokenBalanceAfter, tokenBalanceBefore) {
-                // cast sig "NoPaymentMade()"
-                mstore(0x00, 0x01b243b9)
-                revert(0x1c, 4)
-            }
-
-            payment := sub(tokenBalanceAfter, tokenBalanceBefore)
-
-            // We never expect tokens to have this much total supply
-            if gt(payment, 0xffffffffffffffffffffffffffffffff) {
-                // cast sig "PaymentOverflow()"
-                mstore(0x00, 0x9cac58ca)
-                revert(0x1c, 4)
-            }
+            return(free, sub(calldatasize(), 4))
         }
+    }
 
-        // The unary negative operator never fails because payment is less than max uint128
-        unchecked {
-            _accountDebt(id, token, -int256(uint256(payment)));
-        }
+    /// @inheritdoc IFlashAccountant
+    function completePayments() external {
+        uint256 id = _getLocker().id();
 
         assembly ("memory-safe") {
-            tstore(_PAY_REENTRANCY_LOCK, 0)
+            let paymentAmounts := mload(0x40)
+            let nzdCountChange := 0
+
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 32) } {
+                let token := shr(96, shl(96, calldataload(i)))
+
+                let offset := add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token)
+                let lastBalance := tload(offset)
+                tstore(offset, 0)
+
+                mstore(20, address()) // Store the `account` argument.
+                mstore(0, 0x70a08231000000000000000000000000) // `balanceOf(address)`.
+
+                let currentBalance :=
+                    mul( // The arguments of `mul` are evaluated from right to left.
+                        mload(0),
+                        and( // The arguments of `and` are evaluated from right to left.
+                            gt(returndatasize(), 0x1f), // At least 32 bytes returned.
+                            staticcall(gas(), token, 0x10, 0x24, 0, 0x20)
+                        )
+                    )
+
+                let payment :=
+                    mul(
+                        and(gt(lastBalance, 0), not(lt(currentBalance, lastBalance))),
+                        sub(currentBalance, sub(lastBalance, 1))
+                    )
+
+                // We never expect tokens to have this much total supply
+                if shr(128, payment) {
+                    // cast sig "PaymentOverflow()"
+                    mstore(0x00, 0x9cac58ca)
+                    revert(0x1c, 4)
+                }
+
+                mstore(add(paymentAmounts, mul(16, div(i, 32))), shl(128, payment))
+
+                if payment {
+                    let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
+                    let current := tload(deltaSlot)
+
+                    // never overflows because of the payment overflow check that bounds payment to 128 bits
+                    let next := sub(current, payment)
+
+                    nzdCountChange := add(nzdCountChange, sub(iszero(current), iszero(next)))
+
+                    tstore(deltaSlot, next)
+                }
+            }
+
+            // Update nzdCountSlot only once if there were any changes
+            if nzdCountChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
+            }
+
+            return(paymentAmounts, mul(16, div(calldatasize(), 32)))
         }
     }
 
-    function withdraw(address token, address recipient, uint128 amount) external {
-        (uint256 id,) = _requireLocker();
+    /// @inheritdoc IFlashAccountant
+    function withdraw() external {
+        uint256 id = _requireLocker().id();
 
-        _accountDebt(id, token, int256(uint256(amount)));
+        assembly ("memory-safe") {
+            let nzdCountChange := 0
 
-        if (token == NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeTransferETH(recipient, amount);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, amount);
+            // Process each withdrawal entry
+            for { let i := 4 } lt(i, calldatasize()) { i := add(i, 56) } {
+                let token := shr(96, calldataload(i))
+                let recipient := shr(96, calldataload(add(i, 20)))
+                let amount := shr(128, calldataload(add(i, 40)))
+
+                if amount {
+                    // Update debt tracking without updating nzdCountSlot yet
+                    let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
+                    let current := tload(deltaSlot)
+                    let next := add(current, amount)
+
+                    nzdCountChange := add(nzdCountChange, sub(iszero(current), iszero(next)))
+
+                    tstore(deltaSlot, next)
+
+                    // Perform the token transfer
+                    if iszero(token) {
+                        let success := call(gas(), recipient, amount, 0, 0, 0, 0)
+                        if iszero(success) {
+                            // cast sig "ETHTransferFailed()"
+                            mstore(0x00, 0xb12d13eb)
+                            revert(0x1c, 4)
+                        }
+                    }
+
+                    if token {
+                        mstore(0x14, recipient) // Store the `to` argument.
+                        mstore(0x34, amount) // Store the `amount` argument.
+                        mstore(0x00, 0xa9059cbb000000000000000000000000) // `transfer(address,uint256)`.
+                        // Perform the transfer, reverting upon failure.
+                        let success := call(gas(), token, 0, 0x10, 0x44, 0x00, 0x20)
+                        if iszero(and(eq(mload(0x00), 1), success)) {
+                            if iszero(lt(or(iszero(extcodesize(token)), returndatasize()), success)) {
+                                mstore(0x00, 0x90b8ec18) // `TransferFailed()`.
+                                revert(0x1c, 0x04)
+                            }
+                        }
+                        mstore(0x34, 0) // Restore the part of the free memory pointer that was overwritten.
+                    }
+                }
+            }
+
+            // Update nzdCountSlot only once if there were any changes
+            if nzdCountChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
+            }
         }
     }
 
+    /// @inheritdoc IFlashAccountant
     receive() external payable {
-        (uint256 id,) = _getLocker();
+        uint256 id = _getLocker().id();
 
         // Note because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
         //      to delegatecall itself more than once in a single call

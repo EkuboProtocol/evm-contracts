@@ -1,11 +1,20 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
-// Exposes all the storage of a contract via view methods.
-// Absent https://eips.ethereum.org/EIPS/eip-2330 this makes it easier to access specific pieces of state in the inheriting contract.
+/// @title IExposedStorage
+/// @notice Interface for exposing contract storage via view methods
+/// @dev This interface provides a way to access specific pieces of state in the inheriting contract.
+///      It serves as a workaround in the absence of EIP-2330 (https://eips.ethereum.org/EIPS/eip-2330)
+///      which would provide native support for exposing contract storage.
 interface IExposedStorage {
-    // Loads each slot after the function selector from the contract's storage and returns all of them.
+    /// @notice Loads storage slots from the contract's persistent storage
+    /// @dev Reads each 32-byte slot specified in the calldata (after the function selector) from storage
+    ///      and returns all the loaded values concatenated together.
     function sload() external view;
-    // Loads each slot after the function selector from the contract's transient storage and returns all of them.
+
+    /// @notice Loads storage slots from the contract's transient storage
+    /// @dev Reads each 32-byte slot specified in the calldata (after the function selector) from transient storage
+    ///      and returns all the loaded values concatenated together. Transient storage is cleared at the end
+    ///      of each transaction.
     function tload() external view;
 }

@@ -11,8 +11,8 @@ import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
 function tickToBitmapWordAndIndex(int32 tick, uint32 tickSpacing) pure returns (uint256 word, uint256 index) {
     assembly ("memory-safe") {
         let rawIndex := add(sub(sdiv(tick, tickSpacing), slt(smod(tick, tickSpacing), 0)), 89421695)
-        word := div(rawIndex, 256)
-        index := mod(rawIndex, 256)
+        word := shr(8, rawIndex)
+        index := and(rawIndex, 0xff)
     }
 }
 

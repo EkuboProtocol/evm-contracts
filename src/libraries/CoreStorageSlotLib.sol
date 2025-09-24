@@ -15,6 +15,7 @@ import {PositionId} from "../types/positionId.sol";
 library CoreStorageSlotLib {
     uint256 internal constant TICKS_OFFSET = 0xffffffff;
     uint256 internal constant FPL_OUTSIDE_OFFSET = 0xffffffffff;
+    uint256 internal constant BITMAPS_OFFSET = 0xffffffffffff;
 
     /// @notice Computes the storage slot containing information on whether an extension is registered
     /// @param extension The extension address to check
@@ -104,6 +105,15 @@ library CoreStorageSlotLib {
     function poolTicksSlot(PoolId poolId, int32 tick) internal pure returns (bytes32 slot) {
         assembly ("memory-safe") {
             slot := add(poolId, add(tick, TICKS_OFFSET))
+        }
+    }
+
+    /// @notice Computes the first storage slot of the tick bitmaps for a specific pool
+    /// @param poolId The unique identifier for the pool
+    /// @return firstSlot The first storage slot in the Core contract
+    function tickBitmapsSlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
+        assembly ("memory-safe") {
+            firstSlot := add(poolId, BITMAPS_OFFSET)
         }
     }
 }

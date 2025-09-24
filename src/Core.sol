@@ -82,19 +82,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(extension).maybeCallAfterInitializePool(msg.sender, poolKey, tick, sqrtRatio);
     }
 
-    function bitmapsOffset(PoolId poolId) internal pure returns (bytes32 offset) {
-        assembly ("memory-safe") {
-            offset := add(poolId, 0xffffffffffff)
-        }
-    }
-
     /// @inheritdoc ICore
     function prevInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) = findPrevInitializedTick(bitmapsOffset(poolId), fromTick, tickSpacing, skipAhead);
+        (tick, isInitialized) =
+            findPrevInitializedTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -103,7 +98,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         view
         returns (int32 tick, bool isInitialized)
     {
-        (tick, isInitialized) = findNextInitializedTick(bitmapsOffset(poolId), fromTick, tickSpacing, skipAhead);
+        (tick, isInitialized) =
+            findNextInitializedTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -281,7 +277,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(bitmapsOffset(poolId), tick, tickSpacing);
+            flipTick(CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, tickSpacing);
         }
 
         ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
@@ -500,8 +496,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                     (nextTick, isInitialized) = increasing
-                        ? findNextInitializedTick(bitmapsOffset(poolId), tick, poolKey.tickSpacing(), skipAhead)
-                        : findPrevInitializedTick(bitmapsOffset(poolId), tick, poolKey.tickSpacing(), skipAhead);
+                        ? findNextInitializedTick(
+                            CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                        )
+                        : findPrevInitializedTick(
+                            CoreStorageSlotLib.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                        );
 
                     nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                 } else {

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
-import {Oracle} from "../extensions/Oracle.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+
+import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 address constant IERC7726_ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 address constant IERC7726_BTC_ADDRESS = 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB;
@@ -17,7 +18,7 @@ interface IERC7726 {
 /// @dev Implements the standard Oracle interface using data from the Ekubo Protocol Oracle extension
 contract ERC7726 is IERC7726 {
     // The oracle stores all the oracle pool snapshot data used to compute quotes
-    Oracle public immutable oracle;
+    IOracle public immutable oracle;
 
     // The token price we query to represent USD
     address public immutable usdProxyToken;
@@ -27,7 +28,7 @@ contract ERC7726 is IERC7726 {
     // The amount of time over which we query to get the price
     uint32 public immutable twapDuration;
 
-    constructor(Oracle _oracle, address _usdProxyToken, address _btcProxyToken, uint32 _twapDuration) {
+    constructor(IOracle _oracle, address _usdProxyToken, address _btcProxyToken, uint32 _twapDuration) {
         oracle = _oracle;
         usdProxyToken = _usdProxyToken;
         btcProxyToken = _btcProxyToken;

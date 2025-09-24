@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {BaseOracleTest} from "../extensions/Oracle.t.sol";
 import {ERC7726, IERC7726_ETH_ADDRESS, IERC7726_BTC_ADDRESS, IERC7726_USD_ADDRESS} from "../../src/lens/ERC7726.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING} from "../../src/math/constants.sol";
-import {Bounds} from "../../src/types/positionKey.sol";
 
 contract ERC7726Test is BaseOracleTest {
     ERC7726 internal erc;

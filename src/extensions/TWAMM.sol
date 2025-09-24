@@ -17,7 +17,6 @@ import {Bitmap} from "../types/bitmap.sol";
 import {PoolState} from "../types/poolState.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {OrderState, createOrderState} from "../types/orderState.sol";
-import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {computeFee} from "../math/fee.sol";
@@ -49,7 +48,6 @@ function twammCallPoints() pure returns (CallPoints memory) {
 /// @notice Extension for Ekubo Protocol that enables creation of DCA (Dollar Cost Averaging) orders that are executed over time
 /// @dev Implements virtual order execution that spreads trades over time periods to reduce price impact and provide better execution
 contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
-    using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
@@ -240,50 +238,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         }
 
         return untilTime;
-    }
-
-    /// @notice Searches for the next initialized time in the bitmap
-    /// @param poolId The unique identifier for the pool
-    /// @param lastVirtualOrderExecutionTime The last virtual order execution time
-    /// @param fromTime The time to start searching from
-    /// @param untilTime The time to search until
-    /// @return nextTime The next initialized time
-    /// @return initialized Whether the time is initialized
-    function _searchForNextInitializedTime(
-        PoolId poolId,
-        uint256 lastVirtualOrderExecutionTime,
-        uint256 fromTime,
-        uint256 untilTime
-    ) internal view returns (uint256 nextTime, bool initialized) {
-        unchecked {
-            // Start from the next 16-second boundary after fromTime
-            nextTime = ((fromTime >> 4) + 1) << 4;
-
-            // Ensure we're also after lastVirtualOrderExecutionTime
-            if (nextTime <= lastVirtualOrderExecutionTime) {
-                nextTime = ((lastVirtualOrderExecutionTime >> 4) + 1) << 4;
-            }
-
-            while (nextTime < untilTime) {
-                assembly ("memory-safe") {
-                    let word := shr(12, nextTime)
-                    let bit := and(shr(4, nextTime), 0xff)
-                    let slot := add(add(poolId, shl(224, 0x02)), word)
-                    let bitmap := sload(slot)
-                    let isSet := and(shr(bit, bitmap), 1)
-
-                    if isSet { initialized := 1 }
-                }
-
-                if (initialized) {
-                    return (nextTime, true);
-                }
-
-                nextTime += 16;
-            }
-
-            return (untilTime, false);
-        }
     }
 
     /// @notice Returns the call points configuration for this extension

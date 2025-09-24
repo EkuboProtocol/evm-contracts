@@ -23,7 +23,7 @@ import {computeFee} from "../math/fee.sol";
 import {
     computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount, addSaleRateDelta
 } from "../math/twamm.sol";
-import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
+import {isTimeValid, nextValidTime, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 import {PoolId} from "../types/poolId.sol";
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 
@@ -197,17 +197,23 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         view
         returns (uint256 nextTime)
     {
-        // Start from the next 16-second boundary
-        nextTime = ((time >> 4) + 1) << 4;
-        if (nextTime > untilTime) {
+        // Get the first valid time after the current time
+        nextTime = nextValidTime(time, time + 1);
+        if (nextTime == 0 || nextTime > untilTime) {
             return untilTime;
         }
 
-        // Convert time to word and bit index (16-second granularity, 256 bits per word)
-        uint256 word = nextTime >> 12; // nextTime / 4096 (256 * 16)
-        uint256 bitIndex = (nextTime >> 4) & 0xff; // (nextTime / 16) % 256
+        // Convert to 16-second aligned boundary for bitmap operations
+        uint256 alignedTime = (nextTime >> 4) << 4;
+        if (alignedTime < nextTime) {
+            alignedTime += 16;
+        }
 
-        while (nextTime <= untilTime) {
+        // Start word-level bitmap scanning from the aligned time
+        uint256 word = alignedTime >> 12; // alignedTime / 4096 (256 * 16)
+        uint256 bitIndex = (alignedTime >> 4) & 0xff; // (alignedTime / 16) % 256
+
+        while (alignedTime <= untilTime) {
             // Load the bitmap word
             uint256 bitmapWord;
             assembly ("memory-safe") {
@@ -228,13 +234,21 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 // Calculate the corresponding time
                 uint256 foundTime = ((word << 8) + bitIndex + offset) << 4;
-                return foundTime <= untilTime ? foundTime : untilTime;
+
+                // Check if this time is valid according to nextValidTime rules
+                if (foundTime >= nextTime && foundTime <= untilTime) {
+                    // Verify this time is actually valid
+                    uint256 validTime = nextValidTime(time, foundTime);
+                    if (validTime == foundTime) {
+                        return foundTime;
+                    }
+                }
             }
 
             // No bits set in this word, jump to next word
             word++;
             bitIndex = 0;
-            nextTime = word << 12; // word * 4096
+            alignedTime = word << 12; // word * 4096
         }
 
         return untilTime;

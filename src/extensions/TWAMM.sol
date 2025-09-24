@@ -189,6 +189,59 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         }
     }
 
+    /// @dev Efficiently finds the next initialized time using word-level bitmap scanning
+    /// @param poolId The pool identifier
+    /// @param time The current time to search from
+    /// @param untilTime The maximum time to search until
+    /// @return nextTime The next initialized time, or untilTime if none found
+    function _findNextInitializedTime(PoolId poolId, uint256 time, uint256 untilTime)
+        internal
+        view
+        returns (uint256 nextTime)
+    {
+        // Start from the next 16-second boundary
+        nextTime = ((time >> 4) + 1) << 4;
+        if (nextTime > untilTime) {
+            return untilTime;
+        }
+
+        // Convert time to word and bit index (16-second granularity, 256 bits per word)
+        uint256 word = nextTime >> 12; // nextTime / 4096 (256 * 16)
+        uint256 bitIndex = (nextTime >> 4) & 0xff; // (nextTime / 16) % 256
+
+        while (nextTime <= untilTime) {
+            // Load the bitmap word
+            uint256 bitmapWord;
+            assembly ("memory-safe") {
+                let slot := add(add(poolId, shl(224, 0x02)), word)
+                bitmapWord := sload(slot)
+            }
+
+            // Mask out bits below the current index for the first word
+            uint256 masked = bitmapWord >> bitIndex;
+
+            if (masked != 0) {
+                // Find the first set bit in this word
+                uint256 offset = 0;
+                while ((masked & 1) == 0) {
+                    masked >>= 1;
+                    offset++;
+                }
+
+                // Calculate the corresponding time
+                uint256 foundTime = ((word << 8) + bitIndex + offset) << 4;
+                return foundTime <= untilTime ? foundTime : untilTime;
+            }
+
+            // No bits set in this word, jump to next word
+            word++;
+            bitIndex = 0;
+            nextTime = word << 12; // word * 4096
+        }
+
+        return untilTime;
+    }
+
     /// @notice Searches for the next initialized time in the bitmap
     /// @param poolId The unique identifier for the pool
     /// @param lastVirtualOrderExecutionTime The last virtual order execution time
@@ -503,11 +556,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
-                    // Find next 16-second boundary after current time
-                    uint256 nextTime = ((time >> 4) + 1) << 4;
-                    if (nextTime > block.timestamp) {
-                        nextTime = block.timestamp;
-                    }
+                    // Find next initialized time using word-level bitmap scanning
+                    uint256 nextTime = _findNextInitializedTime(poolId, time, block.timestamp);
 
                     // it is assumed that this will never return a value greater than type(uint32).max
                     uint256 timeElapsed = nextTime - time;

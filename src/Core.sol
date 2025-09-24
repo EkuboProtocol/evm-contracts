@@ -577,10 +577,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             mstore(add(totalFpl, mul(32, iszero(increasing))), outputTokenFeesPerLiquidity)
                         }
 
-                        FeesPerLiquidity memory newFpl = totalFpl.sub(tickFpl);
+                        totalFpl.subAssign(tickFpl);
                         assembly ("memory-safe") {
-                            sstore(tickFplFirstSlot, mload(newFpl))
-                            sstore(tickFplSecondSlot, mload(add(newFpl, 0x20)))
+                            sstore(tickFplFirstSlot, mload(totalFpl))
+                            sstore(tickFplSecondSlot, mload(add(totalFpl, 0x20)))
                         }
                     }
                 } else if (sqrtRatio != result.sqrtRatioNext) {

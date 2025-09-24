@@ -116,56 +116,8 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
-        unchecked {
-            PoolKey memory poolKey = orderKey.toPoolKey(address(TWAMM_EXTENSION));
-            TWAMM_EXTENSION.lockAndExecuteVirtualOrders(poolKey);
-
-            uint32 lastUpdateTime;
-            bytes32 orderId = orderKey.toOrderId();
-
-            (lastUpdateTime, saleRate, amountSold) =
-                TWAMM_EXTENSION.orderState(address(this), bytes32(id), orderId).parse();
-
-            uint256 rewardRateSnapshot = TWAMM_EXTENSION.rewardRateSnapshot(address(this), bytes32(id), orderId);
-
-            if (saleRate != 0) {
-                uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(
-                    poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
-                );
-
-                purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
-
-                if (block.timestamp > orderKey.startTime) {
-                    uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
-
-                    uint32 secondsSinceOrderStart = uint32(block.timestamp - orderKey.startTime);
-
-                    uint32 totalOrderDuration = uint32(orderKey.endTime - orderKey.startTime);
-
-                    uint32 remainingTimeSinceLastUpdate = uint32(orderKey.endTime) - lastUpdateTime;
-
-                    uint32 saleDuration = uint32(
-                        FixedPointMathLib.min(
-                            remainingTimeSinceLastUpdate,
-                            FixedPointMathLib.min(
-                                FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
-                                totalOrderDuration
-                            )
-                        )
-                    );
-
-                    amountSold +=
-                        computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false});
-                }
-                if (block.timestamp < orderKey.endTime) {
-                    remainingSellAmount = computeAmountFromSaleRate({
-                        saleRate: saleRate,
-                        duration: uint32(orderKey.endTime - FixedPointMathLib.max(orderKey.startTime, block.timestamp)),
-                        roundUp: true
-                    });
-                }
-            }
-        }
+        (saleRate, amountSold, remainingSellAmount, purchasedAmount) =
+            TWAMM_EXTENSION.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(id), orderKey);
     }
 
     /// @notice Handles lock callback data for order operations

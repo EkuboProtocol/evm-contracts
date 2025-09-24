@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
-import {Bounds} from "../src/types/positionKey.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
+import {createPositionId} from "../src/types/positionId.sol";
 import {Delta, RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {
@@ -19,14 +19,12 @@ import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
-import {FeeAccumulatingExtension} from "./SolvencyInvariantTest.t.sol";
 import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
-import {BaseURLTokenURIGenerator} from "../src/BaseURLTokenURIGenerator.sol";
-import {TWAMM, OrderKey} from "../src/extensions/TWAMM.sol";
+import {TWAMM} from "../src/extensions/TWAMM.sol";
+import {OrderKey} from "../src/types/orderKey.sol";
 import {getNextLaunchTime, SniperNoSniping, roundDownToNearest} from "../src/SniperNoSniping.sol";
-import {LibString} from "solady/utils/LibString.sol";
 import {SNOSToken} from "../src/SNOSToken.sol";
 import {computeFee} from "../src/math/fee.sol";
 
@@ -38,13 +36,12 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     function setUp() public virtual override {
         BaseOrdersTest.setUp();
         snos = new SniperNoSniping({
-            _router: router,
-            _positions: positions,
-            _orders: orders,
-            orderDurationMagnitude: 3,
-            _tokenTotalSupply: 1_000_000_000e9,
-            _fee: uint64((uint256(1) << 64) / 100),
-            _tickSpacing: 1000
+            core: core,
+            twamm: twamm,
+            orderDurationMagnitude: 4,
+            tokenTotalSupply: 1_000_000_000e18,
+            poolFee: uint64((uint256(1) << 64) / 100),
+            tickSpacing: 1000
         });
     }
 
@@ -92,7 +89,8 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         assertEq(token.symbol(), "ABC");
         assertEq(token.name(), "ABC Token");
 
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(snos.getLaunchPool(token).toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) =
+            core.poolState(snos.getLaunchPool(token).toPoolId()).parse();
         assertEq(sqrtRatio.toFixed(), 1 << 128);
         assertEq(tick, 0);
         assertEq(liquidity, 0);
@@ -100,8 +98,8 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount) =
             snos.executeVirtualOrdersAndGetSaleStatus(token);
 
-        assertEq(saleRate, (uint256(snos.tokenTotalSupply()) << 32) / snos.orderDuration());
-        assertEq(remainingSellAmount, uint256(snos.tokenTotalSupply()));
+        assertEq(saleRate, (uint256(snos.TOKEN_TOTAL_SUPPLY()) << 32) / snos.ORDER_DURATION());
+        assertEq(remainingSellAmount, uint256(snos.TOKEN_TOTAL_SUPPLY()));
         assertEq(purchasedAmount, 0);
         assertEq(amountSold, 0);
 
@@ -126,7 +124,8 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         assertEq(token.symbol(), "ABC");
         assertEq(token.name(), "ABC Token");
 
-        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(snos.getLaunchPool(token).toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) =
+            core.poolState(snos.getLaunchPool(token).toPoolId()).parse();
         assertEq(sqrtRatio.toFixed(), 1 << 128);
         assertEq(tick, 0);
         assertEq(liquidity, 0);
@@ -136,10 +135,10 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount) =
             snos.executeVirtualOrdersAndGetSaleStatus(token);
 
-        assertEq(saleRate, (uint256(snos.tokenTotalSupply()) << 32) / 4096);
+        assertEq(saleRate, (uint256(snos.TOKEN_TOTAL_SUPPLY()) << 32) / 4096);
         assertEq(remainingSellAmount, 0);
         assertEq(purchasedAmount, 1e18);
-        assertEq(amountSold, uint256(snos.tokenTotalSupply()));
+        assertEq(amountSold, uint256(snos.TOKEN_TOTAL_SUPPLY()));
     }
 
     function test_launch_reverts_if_reuse_salt() public {
@@ -169,7 +168,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             }),
@@ -194,7 +193,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             }),
@@ -211,7 +210,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         // saleEndTick is what we consider the average sale price after it finishes
         (,, int32 saleEndTick) = snos.tokenInfos(token);
 
-        (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(snos.getGraduationPool(token).toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(snos.getGraduationPool(token).toPoolId()).parse();
 
         // price must be _higher_ i.e. token / eth is less than the sale end tick
         assertLe(sqrtRatio.toFixed(), tickToSqrtRatio(saleEndTick).toFixed());
@@ -235,7 +234,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             }),
@@ -251,7 +250,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             })
@@ -259,10 +258,11 @@ contract SniperNoSnipingTest is BaseOrdersTest {
 
         positions.maybeInitializePool(snos.getGraduationPool(token), initializedTick);
 
-        int32 s = int32(snos.tickSpacing());
+        int32 s = int32(snos.GRADUATION_POOL_TICK_SPACING());
         positions.mintAndDeposit(
             snos.getGraduationPool(token),
-            Bounds(snos.minUsableTick(), (((initializedTick - (s - 1)) / s) * s)),
+            snos.MIN_USABLE_TICK(),
+            (((initializedTick - (s - 1)) / s) * s),
             0,
             tokenPurchased,
             1
@@ -275,7 +275,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         // saleEndTick is what we consider the average sale price after it finishes
         (,, int32 saleEndTick) = snos.tokenInfos(token);
 
-        (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(snos.getGraduationPool(token).toPoolId());
+        (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(snos.getGraduationPool(token).toPoolId()).parse();
 
         // price must be _higher_ i.e. token / eth is less than the sale end tick
         assertLe(sqrtRatio.toFixed(), tickToSqrtRatio(saleEndTick).toFixed());
@@ -298,7 +298,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             }),
@@ -315,7 +315,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             })
@@ -326,7 +326,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         (int128 delta0, int128 delta1) =
             router.swap(snos.getGraduationPool(token), true, int128(boughtAmount), MAX_SQRT_RATIO, 0);
         // pay at most fee x 9/8 on the redemption
-        assertGe(uint128(-delta0), buyAmount - computeFee(buyAmount, snos.fee() * 9 / 8));
+        assertGe(uint128(-delta0), buyAmount - computeFee(buyAmount, snos.POOL_FEE() * 9 / 8));
         assertEq(delta1, int128(boughtAmount));
     }
 
@@ -367,7 +367,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             }),
@@ -388,7 +388,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             OrderKey({
                 sellToken: NATIVE_TOKEN_ADDRESS,
                 buyToken: address(token),
-                fee: snos.fee(),
+                fee: snos.POOL_FEE(),
                 startTime: 4096,
                 endTime: 4096 + 4096
             }),

@@ -1,26 +1,29 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+pragma solidity =0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {Positions} from "../src/Positions.sol";
 import {Router} from "../src/Router.sol";
 import {Orders} from "../src/Orders.sol";
 import {SniperNoSniping} from "../src/SniperNoSniping.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
+import {ITWAMM} from "../src/interfaces/extensions/ITWAMM.sol";
 
 contract DeploySniperNoSniping is Script {
     function run() public {
         bytes32 salt = vm.envOr("SALT", bytes32(0x0));
+        ICore core = ICore(payable(vm.envAddress("CORE_ADDRESS")));
+        ITWAMM twamm = ITWAMM(payable(vm.envAddress("TWAMM_ADDRESS")));
 
         vm.startBroadcast();
 
         new SniperNoSniping{salt: salt}({
-            _router: Router(0x9995855C00494d039aB6792f18e368e530DFf931),
-            _positions: Positions(0xA37cc341634AFD9E0919D334606E676dbAb63E17),
-            _orders: Orders(0xAE1430E3E089794bEaCBA260657FcD0F0967C18A),
+            core: core,
+            twamm: twamm,
             orderDurationMagnitude: 4,
-            _tokenTotalSupply: 1_000_000_000e9,
-            _fee: uint64((uint256(1) << 64) / 100),
-            _tickSpacing: 1000
+            tokenTotalSupply: 1_000_000_000e9,
+            poolFee: uint64((uint256(1) << 64) / 100),
+            tickSpacing: 1000
         });
 
         vm.stopBroadcast();

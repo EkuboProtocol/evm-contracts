@@ -1,68 +1,84 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.28;
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+pragma solidity =0.8.30;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {Orders} from "./Orders.sol";
+
+import {ICore} from "./interfaces/ICore.sol";
+import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {SqrtRatio, toSqrtRatio} from "./types/sqrtRatio.sol";
 import {sqrtRatioToTick, tickToSqrtRatio} from "./math/ticks.sol";
-import {OrderKey} from "./extensions/TWAMM.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "./math/constants.sol";
-import {Positions} from "./Positions.sol";
-import {Router} from "./Router.sol";
-import {PoolKey, toConfig} from "./types/poolKey.sol";
-import {Bounds} from "./types/positionKey.sol";
+import {IPositions} from "./interfaces/IPositions.sol";
+import {TWAMMLib} from "./libraries/TWAMMLib.sol";
+import {PoolKey, Config, toConfig} from "./types/poolKey.sol";
+import {CallPoints} from "./types/callPoints.sol";
+import {OrderKey} from "./types/orderKey.sol";
+import {createPositionId} from "./types/positionId.sol";
 import {SNOSToken} from "./SNOSToken.sol";
 import {nextValidTime} from "./math/time.sol";
+import {BaseExtension} from "./base/BaseExtension.sol";
 
-function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {
+function roundDownToNearest(int32 tick, int32 POOL_TICK_SPACING) pure returns (int32) {
     unchecked {
         if (tick < 0) {
-            tick = int32(FixedPointMathLib.max(MIN_TICK, tick - (tickSpacing - 1)));
+            tick = int32(FixedPointMathLib.max(MIN_TICK, tick - (POOL_TICK_SPACING - 1)));
         }
-        return tick / tickSpacing * tickSpacing;
+        return tick / POOL_TICK_SPACING * POOL_TICK_SPACING;
     }
 }
 
-function getNextLaunchTime(uint256 orderDuration, uint256 minLeadTime)
+function getNextLaunchTime(uint256 ORDER_DURATION, uint256 MIN_LEAD_TIME)
     view
     returns (uint256 startTime, uint256 endTime)
 {
-    startTime = nextValidTime(block.timestamp, block.timestamp + minLeadTime);
-    endTime = nextValidTime(block.timestamp, startTime + orderDuration - 1);
-    startTime = endTime - orderDuration;
+    startTime = nextValidTime(block.timestamp, block.timestamp + MIN_LEAD_TIME);
+    endTime = nextValidTime(block.timestamp, startTime + ORDER_DURATION - 1);
+    startTime = endTime - ORDER_DURATION;
+}
+
+/// @notice Returns the call points configuration for the SniperNoSniping extension
+/// @dev Specifies which hooks the extension needs
+/// @return The call points configuration for SniperNoSniping functionality
+function sniperNoSnipingCallPoints() pure returns (CallPoints memory) {
+    return CallPoints({
+        beforeInitializePool: true,
+        afterInitializePool: false,
+        beforeUpdatePosition: false,
+        afterUpdatePosition: false,
+        beforeSwap: false,
+        afterSwap: false,
+        beforeCollectFees: false,
+        afterCollectFees: false
+    });
 }
 
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Sniper No Sniping
-/// @notice Launchpad for creating fair launches using Ekubo Protocol's TWAMM implementation
-contract SniperNoSniping {
-    Router private immutable router;
-    Orders private immutable orders;
-    Positions private immutable positions;
+/// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM implementation
+contract SniperNoSniping is BaseExtension {
+    using TWAMMLib for *;
+
+    ITWAMM private immutable TWAMM;
+    IPositions private immutable POSITIONS;
 
     /// @dev The duration of the sale for any newly created tokens
-    uint256 public immutable orderDuration;
+    uint256 public immutable ORDER_DURATION;
     /// @dev The minimum amount of time in the future that the order must start
-    uint256 public immutable minLeadTime;
+    uint256 public immutable MIN_LEAD_TIME;
 
     /// @dev The total supply that all tokens are created with.
-    uint80 public immutable tokenTotalSupply;
+    uint256 public immutable TOKEN_TOTAL_SUPPLY;
 
-    /// @dev The fee of the pools that are used by this contract
-    uint64 public immutable fee;
+    /// @dev The fee used for both the launch pool and graduation pool
+    uint64 public immutable POOL_FEE;
 
-    /// @dev The tick spacing of the pool that is created post-graduation
-    uint32 public immutable tickSpacing;
-
-    /// @dev The ID of the order that is used for all sale NFTs
-    uint256 public immutable orderId;
-    /// @dev The ID of the position that is used for all positions created by this contract
-    uint256 public immutable positionId;
+    /// @dev The tick spacing to use for the graduation pool
+    uint32 public immutable GRADUATION_POOL_TICK_SPACING;
 
     /// @dev The min usable tick, based on tick spacing, for adding liquidity
-    int32 public immutable minUsableTick;
+    int32 public immutable MIN_USABLE_TICK;
 
     error InvalidNameOrSymbol();
     error SaleStillOngoing();
@@ -79,41 +95,41 @@ contract SniperNoSniping {
     mapping(SNOSToken => TokenInfo) public tokenInfos;
 
     constructor(
-        Router _router,
-        Positions _positions,
-        Orders _orders,
+        ICore core,
+        ITWAMM twamm,
         uint256 orderDurationMagnitude,
-        uint80 _tokenTotalSupply,
-        uint64 _fee,
-        uint32 _tickSpacing
-    ) {
-        router = _router;
-        positions = _positions;
-        orders = _orders;
+        uint256 tokenTotalSupply,
+        uint64 poolFee,
+        uint32 tickSpacing
+    ) BaseExtension(core) {
+        TWAMM = twamm;
+        POOL_FEE = poolFee;
+
+        // LAUNCH_POOL_CONFIG = toConfig(poolFee, 0, address(TWAMM));
+        // GRADUATION_POOL_CONFIG = toConfig(POOL_FEE, tickSpacing, address(this));
 
         assert(orderDurationMagnitude > 1 && orderDurationMagnitude < 6);
-        orderDuration = 16 ** orderDurationMagnitude;
-        minLeadTime = orderDuration / 2;
-        tokenTotalSupply = _tokenTotalSupply;
-        fee = _fee;
-        tickSpacing = _tickSpacing;
+        ORDER_DURATION = 16 ** orderDurationMagnitude;
+        MIN_LEAD_TIME = ORDER_DURATION / 2;
+        TOKEN_TOTAL_SUPPLY = tokenTotalSupply;
 
-        orderId = orders.mint();
-        positionId = positions.mint();
+        MIN_USABLE_TICK = (MIN_TICK / int32(tickSpacing)) * int32(tickSpacing);
+        GRADUATION_POOL_TICK_SPACING = tickSpacing;
+    }
 
-        minUsableTick = (MIN_TICK / int32(_tickSpacing)) * int32(_tickSpacing);
+    function getCallPoints() internal override returns (CallPoints memory) {
+        return sniperNoSnipingCallPoints();
     }
 
     event Launched(address token, address owner, uint256 startTime, uint256 endTime, string symbol, string name);
 
     /// @notice Returns the next available launch time
     function nextLaunchTime() external view returns (uint256 startTime, uint256 endTime) {
-        (startTime, endTime) = getNextLaunchTime(orderDuration, minLeadTime);
+        (startTime, endTime) = getNextLaunchTime(ORDER_DURATION, MIN_LEAD_TIME);
     }
 
     function getLaunchPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
-        poolKey =
-            PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, 0, address(orders.twamm()))});
+        poolKey = PoolKey({token0: address(0), token1: address(token), config: toConfig(POOL_FEE, 0, address(TWAMM))});
     }
 
     function getSaleOrderKey(SNOSToken token) public view returns (OrderKey memory orderKey) {
@@ -122,13 +138,13 @@ contract SniperNoSniping {
         if (endTime == 0) {
             revert TokenNotLaunched();
         }
-        uint256 startTime = endTime - orderDuration;
+        uint256 startTime = endTime - ORDER_DURATION;
         orderKey = OrderKey({
             startTime: startTime,
             endTime: endTime,
             sellToken: address(token),
             buyToken: NATIVE_TOKEN_ADDRESS,
-            fee: fee
+            fee: POOL_FEE
         });
     }
 
@@ -137,7 +153,7 @@ contract SniperNoSniping {
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
         (saleRate, amountSold, remainingSellAmount, purchasedAmount) =
-            orders.executeVirtualOrdersAndGetCurrentOrderInfo(orderId, getSaleOrderKey(token));
+            TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(0), getSaleOrderKey(token));
     }
 
     function getExpectedTokenAddress(address creator, bytes32 salt, string memory symbol, string memory name)
@@ -156,14 +172,7 @@ contract SniperNoSniping {
                             keccak256(
                                 abi.encodePacked(
                                     type(SNOSToken).creationCode,
-                                    abi.encode(
-                                        address(router),
-                                        address(positions),
-                                        address(orders),
-                                        LibString.packOne(symbol),
-                                        LibString.packOne(name),
-                                        tokenTotalSupply
-                                    )
+                                    abi.encode(LibString.packOne(symbol), LibString.packOne(name), TOKEN_TOTAL_SUPPLY)
                                 )
                             )
                         )
@@ -178,7 +187,7 @@ contract SniperNoSniping {
         payable
         returns (SNOSToken token)
     {
-        (uint256 startTime, uint256 endTime) = getNextLaunchTime(orderDuration, minLeadTime);
+        (uint256 startTime, uint256 endTime) = getNextLaunchTime(ORDER_DURATION, MIN_LEAD_TIME);
 
         if (
             !LibString.is7BitASCII(symbol) || !LibString.is7BitASCII(name) || bytes(symbol).length < 3
@@ -188,52 +197,51 @@ contract SniperNoSniping {
         }
 
         token = new SNOSToken{salt: keccak256(abi.encode(msg.sender, salt))}(
-            address(router),
-            address(positions),
-            address(orders),
-            LibString.packOne(symbol),
-            LibString.packOne(name),
-            tokenTotalSupply
+            LibString.packOne(symbol), LibString.packOne(name), TOKEN_TOTAL_SUPPLY
         );
 
-        positions.maybeInitializePool(getLaunchPool(token), 0);
+        // POSITIONS.maybeInitializePool(getLaunchPool(token), 0);
 
-        orders.increaseSellAmount(
-            orderId,
-            OrderKey({
-                sellToken: address(token),
-                buyToken: NATIVE_TOKEN_ADDRESS,
-                fee: fee,
-                startTime: startTime,
-                endTime: endTime
-            }),
-            tokenTotalSupply,
-            type(uint112).max
-        );
+        // ORDERS.increaseSellAmount(
+        //     ORDER_ID,
+        //     OrderKey({
+        //         sellToken: address(token),
+        //         buyToken: NATIVE_TOKEN_ADDRESS,
+        //         startTime: startTime,
+        //         endTime: endTime,
+        //         fee: POOL_FEE
+        //     }),
+        //     TOKEN_TOTAL_SUPPLY,
+        //     type(uint112).max
+        // );
 
         tokenInfos[token] = TokenInfo({endTime: uint64(endTime), creator: msg.sender, saleEndTick: 0});
 
         emit Launched(address(token), msg.sender, startTime, endTime, symbol, name);
 
         if (msg.value > 0) {
-            (uint256 id,) = orders.mintAndIncreaseSellAmount{value: msg.value}(
-                OrderKey({
-                    sellToken: NATIVE_TOKEN_ADDRESS,
-                    buyToken: address(token),
-                    fee: fee,
-                    startTime: startTime,
-                    endTime: endTime
-                }),
-                uint112(msg.value),
-                type(uint112).max
-            );
+            // (uint256 id,) = ORDERS.mintAndIncreaseSellAmount{value: msg.value}(
+            //     OrderKey({
+            //         sellToken: NATIVE_TOKEN_ADDRESS,
+            //         buyToken: address(token),
+            //         poolFee: POOL_FEE,
+            //         startTime: startTime,
+            //         endTime: endTime
+            //     }),
+            //     uint112(msg.value),
+            //     type(uint112).max
+            // );
 
-            orders.transferFrom(address(this), msg.sender, id);
+            // ORDERS.transferFrom(address(this), msg.sender, id);
         }
     }
 
     function getGraduationPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
-        poolKey = PoolKey({token0: address(0), token1: address(token), config: toConfig(fee, tickSpacing, address(0))});
+        poolKey = PoolKey({
+            token0: address(0),
+            token1: address(token),
+            config: toConfig(POOL_FEE, GRADUATION_POOL_TICK_SPACING, address(this))
+        });
     }
 
     function graduate(SNOSToken token) external returns (uint256 proceeds) {
@@ -243,16 +251,16 @@ contract SniperNoSniping {
             revert SaleStillOngoing();
         }
 
-        proceeds = orders.collectProceeds(
-            orderId,
-            OrderKey({
-                sellToken: address(token),
-                buyToken: NATIVE_TOKEN_ADDRESS,
-                fee: fee,
-                startTime: tokenInfo.endTime - orderDuration,
-                endTime: tokenInfo.endTime
-            })
-        );
+        // proceeds = ORDERS.collectProceeds(
+        //     ORDER_ID,
+        //     OrderKey({
+        //         sellToken: address(token),
+        //         buyToken: NATIVE_TOKEN_ADDRESS,
+        //         POOL_FEE: POOL_FEE,
+        //         startTime: tokenInfo.endTime - ORDER_DURATION,
+        //         endTime: tokenInfo.endTime
+        //     })
+        // );
 
         // This will also trigger if graduate has already been called
         if (proceeds == 0) {
@@ -263,11 +271,11 @@ contract SniperNoSniping {
 
         // computes the number of tokens that people received per eth, rounded down
         SqrtRatio sqrtSaleRatio =
-            toSqrtRatio(FixedPointMathLib.sqrt((uint256(tokenTotalSupply) << 176) / proceeds) << 40, false);
+            toSqrtRatio(FixedPointMathLib.sqrt((uint256(TOKEN_TOTAL_SUPPLY) << 176) / proceeds) << 40, false);
 
-        int32 saleTick = roundDownToNearest(sqrtRatioToTick(sqrtSaleRatio), int32(tickSpacing));
+        int32 saleTick = roundDownToNearest(sqrtRatioToTick(sqrtSaleRatio), int32(GRADUATION_POOL_TICK_SPACING));
 
-        (bool didInitialize, SqrtRatio sqrtRatioCurrent) = positions.maybeInitializePool(graduationPool, saleTick);
+        (bool didInitialize, SqrtRatio sqrtRatioCurrent) = POSITIONS.maybeInitializePool(graduationPool, saleTick);
 
         uint256 purchasedTokens;
 
@@ -277,27 +285,36 @@ contract SniperNoSniping {
             SqrtRatio targetRatio = tickToSqrtRatio(saleTick);
             // if the price is lower than average sale price, i.e. eth is too expensive in terms of tokens, we need to buy any leftover
             if (sqrtRatioCurrent > targetRatio) {
-                (int128 delta0, int128 delta1) = router.swap{value: proceeds}(
-                    graduationPool, false, int128(int256(uint256(proceeds))), targetRatio, 0, 0, address(this)
-                );
+                // todo: do this swap via lock, possibly must happen in forward
+                // (int128 delta0, int128 delta1) = ROUTER.swap{value: proceeds}(
+                //     graduationPool, false, int128(int256(uint256(proceeds))), targetRatio, 0, 0, address(this)
+                // );
 
-                router.refundNativeToken();
-
-                proceeds -= uint256(int256(delta0));
-                purchasedTokens += uint256(-int256(delta1));
+                // proceeds -= uint256(int256(delta0));
+                // purchasedTokens += uint256(-int256(delta1));
             }
         }
 
         if (proceeds > 0) {
-            positions.deposit{value: proceeds}(
-                positionId, graduationPool, Bounds(saleTick, saleTick + int32(tickSpacing)), uint128(proceeds), 0, 0
-            );
+            // POSITIONS.deposit{value: proceeds}(
+            //     POSITION_ID,
+            //     graduationPool,
+            //     createPositionId(bytes24(0), saleTick, saleTick + int32(POOL_TICK_SPACING)),
+            //     uint128(proceeds),
+            //     0,
+            //     0
+            // );
         }
 
         if (purchasedTokens > 0) {
-            positions.deposit(
-                positionId, graduationPool, Bounds(minUsableTick, saleTick), 0, uint128(purchasedTokens), 0
-            );
+            // POSITIONS.deposit(
+            //     POSITION_ID,
+            //     graduationPool,
+            //     createPositionId(bytes24(0), MIN_USABLE_TICK, saleTick),
+            //     0,
+            //     uint128(purchasedTokens),
+            //     0
+            // );
         }
 
         // used to recompute the bounds later
@@ -311,26 +328,28 @@ contract SniperNoSniping {
     {
         TokenInfo memory tokenInfo = tokenInfos[token];
         PoolKey memory graduationPool = getGraduationPool(token);
-        (, principal0, principal1, fees0, fees1) = positions.getPositionFeesAndLiquidity(
-            positionId, graduationPool, Bounds(tokenInfo.saleEndTick, tokenInfo.saleEndTick + int32(tickSpacing))
-        );
+        // (, principal0, principal1, fees0, fees1) = POSITIONS.getPositionFeesAndLiquidity(
+        //     POSITION_ID,
+        //     graduationPool,
+        //     createPositionId(bytes24(0), tokenInfo.saleEndTick, tokenInfo.saleEndTick + int32(POOL_TICK_SPACING))
+        // );
 
-        (
-            uint128 liquidityAbove,
-            uint128 principal0Above,
-            uint128 principal1Above,
-            uint128 fees0Above,
-            uint128 fees1Above
-        ) = positions.getPositionFeesAndLiquidity(
-            positionId, graduationPool, Bounds(minUsableTick, tokenInfo.saleEndTick)
-        );
+        // (
+        //     uint128 liquidityAbove,
+        //     uint128 principal0Above,
+        //     uint128 principal1Above,
+        //     uint128 fees0Above,
+        //     uint128 fees1Above
+        // ) = POSITIONS.getPositionFeesAndLiquidity(
+        //     POSITION_ID, graduationPool, createPositionId(bytes24(0), MIN_USABLE_TICK, tokenInfo.saleEndTick)
+        // );
 
-        if (liquidityAbove != 0) {
-            principal0 += principal0Above;
-            principal1 += principal1Above;
-            fees0 += fees0Above;
-            fees1 += fees1Above;
-        }
+        // if (liquidityAbove != 0) {
+        //     principal0 += principal0Above;
+        //     principal1 += principal1Above;
+        //     fees0 += fees0Above;
+        //     fees1 += fees1Above;
+        // }
     }
 
     // Collect to caller
@@ -345,13 +364,15 @@ contract SniperNoSniping {
 
         PoolKey memory graduationPool = getGraduationPool(token);
 
-        positions.collectFees(
-            positionId,
-            graduationPool,
-            Bounds(tokenInfo.saleEndTick, tokenInfo.saleEndTick + int32(tickSpacing)),
-            recipient
-        );
-        positions.collectFees(positionId, graduationPool, Bounds(minUsableTick, tokenInfo.saleEndTick), recipient);
+        // POSITIONS.collectFees(
+        //     POSITION_ID,
+        //     graduationPool,
+        //     createPositionId(bytes24(0), tokenInfo.saleEndTick, tokenInfo.saleEndTick + int32(POOL_TICK_SPACING)),
+        //     recipient
+        // );
+        // POSITIONS.collectFees(
+        //     POSITION_ID, graduationPool, createPositionId(bytes24(0), MIN_USABLE_TICK, tokenInfo.saleEndTick), recipient
+        // );
     }
 
     receive() external payable {}

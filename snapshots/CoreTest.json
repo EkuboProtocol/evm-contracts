@@ -1,0 +1,5 @@
+{
+  "Core#registerExtension": "29296",
+  "initializePool w/ extension": "32778",
+  "initializePool w/o extension": "26535"
+}

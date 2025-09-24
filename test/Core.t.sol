@@ -46,6 +46,15 @@ contract CoreTest is FullTest {
         MockExtension(actual).register(core, byteToCallPoints(b));
     }
 
+    function test_gas_cost_registerExtension() public {
+        address impl = address(new MockExtension(core));
+        address actual = address((uint160(type(uint8).max) << 152) + 0xdeadbeef);
+        vm.etch(actual, impl.code);
+
+        MockExtension(actual).register(core, byteToCallPoints(type(uint8).max));
+        vm.snapshotGasLastCall("Core#registerExtension");
+    }
+
     function test_balanceSubtractionAssumption() public pure {
         unchecked {
             assertEq(
@@ -102,6 +111,25 @@ contract CoreTest is FullTest {
 
         vm.expectRevert(ICore.PoolAlreadyInitialized.selector);
         core.initializePool(key, tick);
+    }
+
+    function test_initializePool_gas() public {
+        address impl = address(new MockExtension(core));
+        address extension = address((uint160(type(uint8).max) << 152) + 0xdeadbeef);
+        vm.etch(extension, impl.code);
+
+        MockExtension(extension).register(core, byteToCallPoints(type(uint8).max));
+
+        PoolKey memory key =
+            PoolKey({token0: address(0), token1: address(1), config: toConfig(type(uint64).max / 100, 100, extension)});
+
+        core.initializePool(key, 150);
+        vm.snapshotGasLastCall("initializePool w/ extension");
+
+        key =
+            PoolKey({token0: address(0), token1: address(1), config: toConfig(type(uint64).max / 100, 100, address(0))});
+        core.initializePool(key, 300);
+        vm.snapshotGasLastCall("initializePool w/o extension");
     }
 }
 

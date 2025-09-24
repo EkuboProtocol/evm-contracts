@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {ICore} from "../interfaces/ICore.sol";
-import {ExposedStorageLib} from "./ExposedStorageLib.sol";
-import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
-import {Position} from "../types/position.sol";
-import {PoolState} from "../types/poolState.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PositionId} from "../types/positionId.sol";
 

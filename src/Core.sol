@@ -8,7 +8,6 @@ import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiqu
 import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
-import {Bitmap} from "./types/bitmap.sol";
 import {CoreStorageSlotLib} from "./libraries/CoreStorageSlotLib.sol";
 import {ExtensionCallPointsLib} from "./libraries/ExtensionCallPointsLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";

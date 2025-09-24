@@ -203,17 +203,14 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             return untilTime;
         }
 
-        // Convert to 16-second aligned boundary for bitmap operations
-        uint256 alignedTime = (nextTime >> 4) << 4;
-        if (alignedTime < nextTime) {
-            alignedTime += 16;
-        }
+        // Start from the next valid time and scan for initialized times
+        uint256 candidate = nextTime;
 
-        // Start word-level bitmap scanning from the aligned time
-        uint256 word = alignedTime >> 12; // alignedTime / 4096 (256 * 16)
-        uint256 bitIndex = (alignedTime >> 4) & 0xff; // (alignedTime / 16) % 256
+        while (candidate <= untilTime) {
+            // Convert candidate to word and bit index (16-second granularity, 256 bits per word)
+            uint256 word = candidate >> 12; // candidate / 4096 (256 * 16)
+            uint256 bitIndex = (candidate >> 4) & 0xff; // (candidate / 16) % 256
 
-        while (alignedTime <= untilTime) {
             // Load the bitmap word
             uint256 bitmapWord;
             assembly ("memory-safe") {
@@ -221,34 +218,18 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 bitmapWord := sload(slot)
             }
 
-            // Mask out bits below the current index for the first word
-            uint256 masked = bitmapWord >> bitIndex;
-
-            if (masked != 0) {
-                // Find the first set bit in this word
-                uint256 offset = 0;
-                while ((masked & 1) == 0) {
-                    masked >>= 1;
-                    offset++;
-                }
-
-                // Calculate the corresponding time
-                uint256 foundTime = ((word << 8) + bitIndex + offset) << 4;
-
-                // Check if this time is valid according to nextValidTime rules
-                if (foundTime >= nextTime && foundTime <= untilTime) {
-                    // Verify this time is actually valid
-                    uint256 validTime = nextValidTime(time, foundTime);
-                    if (validTime == foundTime) {
-                        return foundTime;
-                    }
-                }
+            // Check if this candidate time is initialized
+            if ((bitmapWord >> bitIndex) & 1 != 0) {
+                return candidate;
             }
 
-            // No bits set in this word, jump to next word
-            word++;
-            bitIndex = 0;
-            alignedTime = word << 12; // word * 4096
+            // Move to the next valid time
+            uint256 nextCandidate = nextValidTime(time, candidate + 1);
+            if (nextCandidate == 0 || nextCandidate <= candidate) {
+                // No more valid times or we've wrapped around
+                break;
+            }
+            candidate = nextCandidate;
         }
 
         return untilTime;

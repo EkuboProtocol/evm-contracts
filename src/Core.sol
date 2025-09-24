@@ -537,7 +537,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             mstore(add(totalFpl, mul(32, iszero(increasing))), outputTokenFeesPerLiquidity)
                         }
 
-                        poolTickFeesPerLiquidityOutside[poolId][nextTick] = totalFpl.sub(tickFpl);
+                        totalFpl.subAssign(tickFpl);
+                        poolTickFeesPerLiquidityOutside[poolId][nextTick] = totalFpl;
                     }
                 } else if (sqrtRatio != result.sqrtRatioNext) {
                     sqrtRatio = result.sqrtRatioNext;

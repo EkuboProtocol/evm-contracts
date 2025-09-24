@@ -6,6 +6,7 @@ import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {TwammPoolState} from "../types/twammPoolState.sol";
 import {OrderState} from "../types/orderState.sol";
 import {PoolId} from "../types/poolId.sol";
+import {TWAMMStorageLayout} from "./TWAMMStorageLayout.sol";
 
 // Common storage getters we need for external contracts are defined here instead of in the core contract
 library TWAMMLib {

@@ -32,7 +32,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         BaseOrdersTest.setUp();
         address deployAddress = address(uint160(sniperNoSnipingCallPoints().toUint8()) << 152);
         uint256 orderDurationMagnitude = 4;
-        uint256 tokenTotalSupply = 1_000_000_000e18;
+        uint128 tokenTotalSupply = 1_000_000e18;
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
         uint32 tickSpacing = 1000;
         deployCodeTo(
@@ -64,10 +64,10 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         assertTrue(isTimeValid(time, endTime), "end time is valid");
     }
 
-    // function test_launch_gas() public {
-    //     snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
-    //     vm.snapshotGasLastCall("SniperNoSniping#launch");
-    // }
+    function test_launch_gas() public {
+        snos.launch({creator: address(this), salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        vm.snapshotGasLastCall("SniperNoSniping#launch");
+    }
 
     // function test_launch_create_order_gas() public {
     //     snos.launch{value: 100}({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});

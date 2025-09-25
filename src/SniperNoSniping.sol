@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {LibString} from "solady/utils/LibString.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 import {ICore} from "./interfaces/ICore.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
@@ -10,6 +11,7 @@ import {SqrtRatio, toSqrtRatio} from "./types/sqrtRatio.sol";
 import {sqrtRatioToTick} from "./math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK} from "./math/constants.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolKey, Config, toConfig} from "./types/poolKey.sol";
 import {CallPoints} from "./types/callPoints.sol";
 import {OrderKey} from "./types/orderKey.sol";
@@ -17,9 +19,9 @@ import {createPositionId} from "./types/positionId.sol";
 import {SimpleToken} from "./SimpleToken.sol";
 import {nextValidTime} from "./math/time.sol";
 import {BaseExtension} from "./base/BaseExtension.sol";
-import {BaseForwardee} from "./base/BaseForwardee.sol";
+import {BaseLocker} from "./base/BaseLocker.sol";
 import {LaunchInfo, createLaunchInfo} from "./types/LaunchInfo.sol";
-import {Locker} from "./types/locker.sol";
+import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
 
 function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {
     unchecked {
@@ -31,6 +33,7 @@ function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) 
 }
 
 /// @dev Computes the start and end time for the next batch of launches, given the duration and minimum lead time
+/// @dev Assumes that orderDuration is a power of 16
 function getNextLaunchTime(uint256 orderDuration, uint256 minLeadTime)
     view
     returns (uint256 startTime, uint256 endTime)
@@ -59,8 +62,10 @@ function sniperNoSnipingCallPoints() pure returns (CallPoints memory) {
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Sniper No Sniping
 /// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM
-contract SniperNoSniping is BaseExtension, BaseForwardee {
+contract SniperNoSniping is BaseExtension, BaseLocker {
+    using FlashAccountantLib for *;
     using TWAMMLib for *;
+    using LibString for *;
 
     /// @notice The TWAMM extension address
     ITWAMM public immutable TWAMM;
@@ -72,7 +77,7 @@ contract SniperNoSniping is BaseExtension, BaseForwardee {
     uint256 public immutable MIN_LEAD_TIME;
 
     /// @dev The total supply that all tokens are created with.
-    uint256 public immutable TOKEN_TOTAL_SUPPLY;
+    uint128 public immutable TOKEN_TOTAL_SUPPLY;
 
     /// @dev The fee used for both the launch pool and graduation pool
     uint64 public immutable POOL_FEE;
@@ -94,19 +99,30 @@ contract SniperNoSniping is BaseExtension, BaseForwardee {
     /// @notice The token has not yet been launched
     error TokenNotLaunched();
 
+    /// @notice Thrown when the order duration and total supply parameters create a sale rate that exceeds TWAMM's maximum
+    error SaleRateTooLarge();
+    /// @notice Thrown when the order duration magnitude is too large
+    error OrderDurationMagnitude();
+
     constructor(
         ICore core,
         ITWAMM twamm,
         uint256 orderDurationMagnitude,
-        uint256 tokenTotalSupply,
+        uint128 tokenTotalSupply,
         uint64 poolFee,
         uint32 tickSpacing
-    ) BaseExtension(core) BaseForwardee(core) {
+    ) BaseExtension(core) BaseLocker(core) {
         TWAMM = twamm;
         POOL_FEE = poolFee;
 
-        assert(orderDurationMagnitude > 1 && orderDurationMagnitude < 6);
+        if (orderDurationMagnitude == 0 || orderDurationMagnitude > 5) revert OrderDurationMagnitude();
+
         ORDER_DURATION = 16 ** orderDurationMagnitude;
+
+        if ((uint256(tokenTotalSupply) << 32) / ORDER_DURATION > MAX_ABS_VALUE_SALE_RATE_DELTA) {
+            revert SaleRateTooLarge();
+        }
+
         MIN_LEAD_TIME = ORDER_DURATION / 2;
         TOKEN_TOTAL_SUPPLY = tokenTotalSupply;
 
@@ -124,7 +140,11 @@ contract SniperNoSniping is BaseExtension, BaseForwardee {
     }
 
     function getLaunchPool(SimpleToken token) public view returns (PoolKey memory poolKey) {
-        poolKey = PoolKey({token0: address(0), token1: address(token), config: toConfig(POOL_FEE, 0, address(TWAMM))});
+        poolKey = PoolKey({
+            token0: NATIVE_TOKEN_ADDRESS,
+            token1: address(token),
+            config: toConfig(POOL_FEE, 0, address(TWAMM))
+        });
     }
 
     function readLaunchInfo(SimpleToken token) internal view returns (LaunchInfo launchInfo) {
@@ -163,68 +183,85 @@ contract SniperNoSniping is BaseExtension, BaseForwardee {
             TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(0), getSaleOrderKey(token));
     }
 
-    function getExpectedTokenAddress(address creator, bytes32 salt, string memory symbol, string memory name)
-        external
-        view
-        returns (address token)
-    {
-        token = address(
-            uint160(
-                uint256(
-                    keccak256(
-                        abi.encodePacked(
-                            bytes1(0xff),
-                            address(this),
-                            keccak256(abi.encode(creator, salt)),
-                            keccak256(
-                                abi.encodePacked(
-                                    type(SimpleToken).creationCode,
-                                    abi.encode(LibString.packOne(symbol), LibString.packOne(name), TOKEN_TOTAL_SUPPLY)
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        );
-    }
-
     function getGraduationPool(SimpleToken token) public view returns (PoolKey memory poolKey) {
         poolKey = PoolKey({
-            token0: address(0),
+            token0: NATIVE_TOKEN_ADDRESS,
             token1: address(token),
             config: toConfig(POOL_FEE, GRADUATION_POOL_TICK_SPACING, address(this))
         });
     }
 
-    struct LaunchTokenParameters {
-        address creator;
-        string name;
-        string symbol;
+    function launch(address creator, bytes32 salt, string memory symbol, string memory name)
+        external
+        returns (SimpleToken token, uint256 startTime, uint256 endTime)
+    {
+        if (!LibString.is7BitASCII(name) || !LibString.is7BitASCII(symbol)) {
+            revert InvalidNameOrSymbol();
+        }
+
+        (token, startTime, endTime) = abi.decode(
+            lock(abi.encode(0, creator, salt, name.packOne(), symbol.packOne())), (SimpleToken, uint256, uint256)
+        );
     }
 
-    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         (uint8 kind) = abi.decode(data, (uint8));
 
         // either launch, graduate, or collect
         if (kind == 0) {
-            (, LaunchTokenParameters memory params) = abi.decode(data, (uint8, LaunchTokenParameters));
+            (, address creator, bytes32 salt, bytes32 namePacked, bytes32 symbolPacked) =
+                abi.decode(data, (uint8, address, bytes32, bytes32, bytes32));
 
-            if (!LibString.is7BitASCII(params.name) || !LibString.is7BitASCII(params.symbol)) {
-                revert InvalidNameOrSymbol();
-            }
-
-            // todo: enforce an immutable configurable bytes prefix on the token address
-            SimpleToken token = new SimpleToken({
-                symbolPacked: LibString.packOne(params.symbol),
-                namePacked: LibString.packOne(params.name),
+            // todo: enforce an immutable configurable bytes prefix on the token address for branding and DDOS protection
+            SimpleToken token = new SimpleToken{salt: EfficientHashLib.hash(bytes32(uint256(uint160(creator))), salt)}({
+                symbolPacked: symbolPacked,
+                namePacked: namePacked,
                 totalSupply: TOKEN_TOTAL_SUPPLY
             });
+
+            CORE.pay(address(token), TOKEN_TOTAL_SUPPLY);
 
             (uint256 startTime, uint256 endTime) =
                 getNextLaunchTime({orderDuration: ORDER_DURATION, minLeadTime: MIN_LEAD_TIME});
 
-            LaunchInfo info = createLaunchInfo({_endTime: uint64(endTime), _creator: params.creator, _saleEndTick: 0});
+            PoolKey memory twammPoolKey = PoolKey({
+                token0: NATIVE_TOKEN_ADDRESS,
+                token1: address(token),
+                config: toConfig({_fee: POOL_FEE, _tickSpacing: 0, _extension: address(TWAMM)})
+            });
+
+            // The initial tick does not matter since we do not add liquidity
+            CORE.initializePool(twammPoolKey, 0);
+
+            (int256 amountDelta) = abi.decode(
+                forward(
+                    address(TWAMM),
+                    abi.encode(
+                        uint256(0),
+                        ITWAMM.UpdateSaleRateParams({
+                            salt: bytes32(0),
+                            orderKey: OrderKey({
+                                sellToken: address(token),
+                                buyToken: NATIVE_TOKEN_ADDRESS,
+                                fee: POOL_FEE,
+                                startTime: startTime,
+                                endTime: endTime
+                            }),
+                            saleRateDelta: int112(int256((uint256(TOKEN_TOTAL_SUPPLY) << 32) / (2 * ORDER_DURATION)))
+                        })
+                    )
+                ),
+                (int256)
+            );
+
+            // save the rest for creating the liquidity position later
+            CORE.updateSavedBalances(
+                NATIVE_TOKEN_ADDRESS, address(token), bytes32(0), 0, int256(uint256(TOKEN_TOTAL_SUPPLY)) - amountDelta
+            );
+
+            LaunchInfo info = createLaunchInfo({_endTime: uint64(endTime), _creator: creator, _saleEndTick: 0});
+            // prevents the case where endTime happens to be a multiple of 2**64
+            assert(info.endTime() != 0);
 
             assembly ("memory-safe") {
                 sstore(token, info)
@@ -232,9 +269,9 @@ contract SniperNoSniping is BaseExtension, BaseForwardee {
 
             result = abi.encode(token, startTime, endTime);
         } else if (kind == 1) {
-            // todo: graduate the token
+            revert("todo: graduate the token");
         } else if (kind == 2) {
-            // todo: collect fees
+            revert("todo: collect fees");
         }
     }
 }

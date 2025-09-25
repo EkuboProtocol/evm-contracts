@@ -448,6 +448,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             if (realLastVirtualOrderExecutionTime != block.timestamp) {
                 // initialize the values that are handled once per execution
                 FeesPerLiquidity memory rewardRates;
+                bool rewardRate0Updated;
+                bool rewardRate1Updated;
                 int256 saveDelta0;
                 int256 saveDelta1;
                 PoolState corePoolState;
@@ -525,24 +527,26 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     }
 
                     if (rewardDelta0 < 0) {
-                        if (rewardRates.value0 == 0) {
+                        if (!rewardRate0Updated) {
                             rewardRates.value0 = poolRewardRates[poolId].value0;
+                            rewardRate0Updated = true;
                         }
                         rewardRates.value0 += (uint256(-rewardDelta0) << 128) / state.saleRateToken1();
                     }
 
                     if (rewardDelta1 < 0) {
-                        if (rewardRates.value1 == 0) {
+                        if (!rewardRate1Updated) {
                             rewardRates.value1 = poolRewardRates[poolId].value1;
+                            rewardRate1Updated = true;
                         }
                         rewardRates.value1 += (uint256(-rewardDelta1) << 128) / state.saleRateToken0();
                     }
 
                     if (initialized) {
-                        if (rewardRates.value0 == 0) {
+                        if (!rewardRate0Updated) {
                             rewardRates.value0 = poolRewardRates[poolId].value0;
                         }
-                        if (rewardRates.value1 == 0) {
+                        if (!rewardRate1Updated) {
                             rewardRates.value1 = poolRewardRates[poolId].value1;
                         }
 
@@ -576,10 +580,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), saveDelta0, saveDelta1);
                 }
 
-                if (rewardRates.value0 > 0) {
+                if (rewardRate0Updated) {
                     poolRewardRates[poolId].value0 = rewardRates.value0;
                 }
-                if (rewardRates.value1 > 0) {
+                if (rewardRate1Updated) {
                     poolRewardRates[poolId].value1 = rewardRates.value1;
                 }
 

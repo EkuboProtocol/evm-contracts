@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey} from "../../src/types/poolKey.sol";
+import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
@@ -16,6 +16,7 @@ import {Bitmap} from "../../src/types/bitmap.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {createTimeInfo} from "../../src/types/timeInfo.sol";
+import {TwammPoolState} from "../../src/types/twammPoolState.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -56,6 +57,38 @@ contract TWAMMTest is BaseTWAMMTest {
         assertEq(lvoe, uint32(time));
         assertEq(srt0, 0);
         assertEq(srt1, 0);
+    }
+
+    function test_createPool() public {
+        coolAllContracts();
+        PoolKey memory key = createTwammPool(100, 0);
+        vm.snapshotGasLastCall("create pool");
+    }
+
+    function test_lockAndExecuteVirtualOrders_initialized_but_state_zero() public {
+        // recreate the conditions as described in TWAMM#_executeVirtualOrdersFromWithinLock
+        vm.warp(1 << 32);
+        PoolKey memory key = createTwammPool(100, 0);
+
+        assertEq(TwammPoolState.unwrap(twamm.poolState(key.toPoolId())), bytes32(0));
+
+        twamm.lockAndExecuteVirtualOrders(key);
+    }
+
+    function test_lockAndExecuteVirtualOrders_not_initialized() public {
+        PoolKey memory key = PoolKey({
+            token0: address(token0),
+            token1: address(token1),
+            config: toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(twamm))
+        });
+        vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
+        twamm.lockAndExecuteVirtualOrders(key);
+    }
+
+    function test_lockAndExecuteVirtualOrders_initialized_but_from_other_extension() public {
+        PoolKey memory key = createPool(0, 0, FULL_RANGE_ONLY_TICK_SPACING);
+        vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
+        twamm.lockAndExecuteVirtualOrders(key);
     }
 }
 

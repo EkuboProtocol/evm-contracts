@@ -2,7 +2,6 @@
 pragma solidity =0.8.30;
 
 import {Bitmap} from "../types/bitmap.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {nextValidTime} from "../math/time.sol";
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the time is initialized

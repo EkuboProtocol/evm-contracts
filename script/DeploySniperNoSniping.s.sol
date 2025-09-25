@@ -15,19 +15,29 @@ contract DeploySniperNoSniping is Script {
 
         vm.startBroadcast();
 
+        uint256 orderDurationMagnitude = 4;
+        uint256 tokenTotalSupply = 1_000_000_000e18;
+        uint64 poolFee = uint64((uint256(1) << 64) / 100);
+        uint32 tickSpacing = 1000;
+
         new SniperNoSniping{
             salt: findExtensionSalt(
                 salt,
-                keccak256(abi.encodePacked(type(SniperNoSniping).creationCode, abi.encode(core))),
+                keccak256(
+                    abi.encodePacked(
+                        type(SniperNoSniping).creationCode,
+                        abi.encode(core, twamm, orderDurationMagnitude, tokenTotalSupply, poolFee, tickSpacing)
+                    )
+                ),
                 sniperNoSnipingCallPoints()
             )
         }({
             core: core,
             twamm: twamm,
-            orderDurationMagnitude: 4,
-            tokenTotalSupply: 1_000_000_000e9,
-            poolFee: uint64((uint256(1) << 64) / 100),
-            tickSpacing: 1000
+            orderDurationMagnitude: orderDurationMagnitude,
+            tokenTotalSupply: tokenTotalSupply,
+            poolFee: poolFee,
+            tickSpacing: tickSpacing
         });
 
         vm.stopBroadcast();

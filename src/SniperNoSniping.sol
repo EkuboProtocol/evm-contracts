@@ -17,7 +17,9 @@ import {createPositionId} from "./types/positionId.sol";
 import {SimpleToken} from "./SimpleToken.sol";
 import {nextValidTime} from "./math/time.sol";
 import {BaseExtension} from "./base/BaseExtension.sol";
+import {BaseForwardee} from "./base/BaseForwardee.sol";
 import {LaunchInfo, createLaunchInfo} from "./types/LaunchInfo.sol";
+import {Locker} from "./types/locker.sol";
 
 function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {
     unchecked {
@@ -57,7 +59,7 @@ function sniperNoSnipingCallPoints() pure returns (CallPoints memory) {
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Sniper No Sniping
 /// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM
-contract SniperNoSniping is BaseExtension {
+contract SniperNoSniping is BaseExtension, BaseForwardee {
     using TWAMMLib for *;
 
     /// @notice The TWAMM extension address
@@ -92,8 +94,6 @@ contract SniperNoSniping is BaseExtension {
     /// @notice The token has not yet been launched
     error TokenNotLaunched();
 
-    mapping(SimpleToken => LaunchInfo) public launchInfo;
-
     constructor(
         ICore core,
         ITWAMM twamm,
@@ -101,7 +101,7 @@ contract SniperNoSniping is BaseExtension {
         uint256 tokenTotalSupply,
         uint64 poolFee,
         uint32 tickSpacing
-    ) BaseExtension(core) {
+    ) BaseExtension(core) BaseForwardee(core) {
         TWAMM = twamm;
         POOL_FEE = poolFee;
 
@@ -127,8 +127,20 @@ contract SniperNoSniping is BaseExtension {
         poolKey = PoolKey({token0: address(0), token1: address(token), config: toConfig(POOL_FEE, 0, address(TWAMM))});
     }
 
+    function readLaunchInfo(SimpleToken token) internal view returns (LaunchInfo launchInfo) {
+        assembly ("memory-safe") {
+            launchInfo := sload(token)
+        }
+    }
+
+    function writeLaunchInfo(SimpleToken token, LaunchInfo launchInfo) internal {
+        assembly ("memory-safe") {
+            sstore(token, launchInfo)
+        }
+    }
+
     function getSaleOrderKey(SimpleToken token) public view returns (OrderKey memory orderKey) {
-        LaunchInfo li = launchInfo[token];
+        LaunchInfo li = readLaunchInfo(token);
         uint256 endTime = li.endTime();
         if (endTime == 0) {
             revert TokenNotLaunched();
@@ -183,5 +195,46 @@ contract SniperNoSniping is BaseExtension {
             token1: address(token),
             config: toConfig(POOL_FEE, GRADUATION_POOL_TICK_SPACING, address(this))
         });
+    }
+
+    struct LaunchTokenParameters {
+        address creator;
+        string name;
+        string symbol;
+    }
+
+    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {
+        (uint8 kind) = abi.decode(data, (uint8));
+
+        // either launch, graduate, or collect
+        if (kind == 0) {
+            (, LaunchTokenParameters memory params) = abi.decode(data, (uint8, LaunchTokenParameters));
+
+            if (!LibString.is7BitASCII(params.name) || !LibString.is7BitASCII(params.symbol)) {
+                revert InvalidNameOrSymbol();
+            }
+
+            // todo: enforce an immutable configurable bytes prefix on the token address
+            SimpleToken token = new SimpleToken({
+                symbolPacked: LibString.packOne(params.symbol),
+                namePacked: LibString.packOne(params.name),
+                totalSupply: TOKEN_TOTAL_SUPPLY
+            });
+
+            (uint256 startTime, uint256 endTime) =
+                getNextLaunchTime({orderDuration: ORDER_DURATION, minLeadTime: MIN_LEAD_TIME});
+
+            LaunchInfo info = createLaunchInfo({_endTime: uint64(endTime), _creator: params.creator, _saleEndTick: 0});
+
+            assembly ("memory-safe") {
+                sstore(token, info)
+            }
+
+            result = abi.encode(token, startTime, endTime);
+        } else if (kind == 1) {
+            // todo: graduate the token
+        } else if (kind == 2) {
+            // todo: collect fees
+        }
     }
 }

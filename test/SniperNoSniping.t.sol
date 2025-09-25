@@ -21,6 +21,7 @@ import {
 import {SimpleToken} from "../src/SimpleToken.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {isTimeValid} from "../src/math/time.sol";
+import {BaseLocker} from "../src/base/BaseLocker.sol";
 
 contract SniperNoSnipingTest is BaseOrdersTest {
     using CoreLib for *;

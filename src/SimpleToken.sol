@@ -7,14 +7,13 @@ import {LibString} from "solady/utils/LibString.sol";
 /// @title Simple Token
 /// @notice Simple ERC20 token that mints the entire total supply to the sender
 contract SimpleToken is ERC20 {
-    bytes32 private immutable NAME_PACKED;
     bytes32 private immutable SYMBOL_PACKED;
+    bytes32 private immutable NAME_PACKED;
     bytes32 private immutable CONSTANT_NAME_HASH;
 
     constructor(bytes32 symbolPacked, bytes32 namePacked, uint256 totalSupply) {
         SYMBOL_PACKED = symbolPacked;
         NAME_PACKED = namePacked;
-
         CONSTANT_NAME_HASH = keccak256(bytes(LibString.unpackOne(NAME_PACKED)));
 
         _mint(msg.sender, totalSupply);

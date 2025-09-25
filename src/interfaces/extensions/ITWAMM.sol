@@ -67,6 +67,9 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @notice Thrown when trying to operate on an uninitialized pool
     error PoolNotInitialized();
 
+    /// @notice Thrown when trying to execute virtual orders on a pool that does not use the TWAMM extension
+    error InvalidPoolKey();
+
     /// @notice Gets the reward rate inside a time range for a specific token
     /// @dev Used to calculate how much of the buy token an order has earned
     /// @param poolId Unique identifier for the pool

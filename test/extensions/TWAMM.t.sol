@@ -87,7 +87,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_lockAndExecuteVirtualOrders_initialized_but_from_other_extension() public {
         PoolKey memory key = createPool(0, 0, FULL_RANGE_ONLY_TICK_SPACING);
-        vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
+        vm.expectRevert(ITWAMM.InvalidPoolKey.selector);
         twamm.lockAndExecuteVirtualOrders(key);
     }
 }

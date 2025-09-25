@@ -428,12 +428,15 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 state := sload(poolId)
             }
 
-            // we only conditionally load this if the state is coincidentally zero,
-            // in order to not lock the pool if state is 0 but the pool _is_ initialized
+            PoolState corePoolState;
+
+            // we only conditionally load core pool state to check initialization iff the state is coincidentally zero,
+            // in order to not lock the pool if state is 0 but the pool _is_ in fact initialized
             // this can only happen iff a pool has zero sale rates **and** an execution of virtual orders
             // happens on the uint32 boundary
             if (TwammPoolState.unwrap(state) == bytes32(0)) {
-                if (poolKey.extension() != address(this) || !CORE.poolState(poolId).isInitialized()) {
+                corePoolState = CORE.poolState(poolId);
+                if (!corePoolState.isInitialized()) {
                     revert PoolNotInitialized();
                 }
             }
@@ -446,7 +449,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 FeesPerLiquidity memory rewardRates = poolRewardRates[poolId];
                 int256 saveDelta0;
                 int256 saveDelta1;
-                PoolState corePoolState;
                 uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
@@ -586,6 +588,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
     /// @inheritdoc ITWAMM
     function lockAndExecuteVirtualOrders(PoolKey memory poolKey) public {
+        if (poolKey.extension() != address(this)) revert InvalidPoolKey();
+
         // the only thing we lock for is executing virtual orders, so all we need to encode is the pool key
         // so we call lock on the core contract with the pool key after it
         address target = address(CORE);

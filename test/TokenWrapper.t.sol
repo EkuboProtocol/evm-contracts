@@ -40,7 +40,7 @@ contract TokenWrapperPeriphery is BaseLocker {
 
         if (amount >= 0) {
             // this creates the deltas
-            forward(address(wrapper), abi.encode(amount));
+            FlashAccountantLib.forward(ACCOUNTANT, address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
             if (uint128(uint256(amount)) > 0) {
                 ACCOUNTANT.withdraw(address(wrapper), recipient, uint128(uint256(amount)));
@@ -55,7 +55,7 @@ contract TokenWrapperPeriphery is BaseLocker {
             }
         } else {
             // this creates the deltas
-            forward(address(wrapper), abi.encode(amount));
+            FlashAccountantLib.forward(ACCOUNTANT, address(wrapper), abi.encode(amount));
             // now withdraw to the recipient
             if (uint128(uint256(-amount)) > 0) {
                 ACCOUNTANT.withdraw(address(wrapper.UNDERLYING_TOKEN()), recipient, uint128(uint256(-amount)));

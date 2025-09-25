@@ -12,7 +12,8 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PoolId} from "../types/poolId.sol";
 import {computeAmountFromSaleRate, computeRewardAmount} from "../math/twamm.sol";
 
-// Common storage getters we need for external contracts are defined here instead of in the core contract
+/// @title TWAMM Library
+/// @notice Helper methods for interacting with the TWAMM extension
 library TWAMMLib {
     using ExposedStorageLib for *;
 

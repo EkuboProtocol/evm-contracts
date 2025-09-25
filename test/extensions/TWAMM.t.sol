@@ -61,7 +61,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_createPool() public {
         coolAllContracts();
-        PoolKey memory key = createTwammPool(100, 0);
+        createTwammPool(100, 0);
         vm.snapshotGasLastCall("create pool");
     }
 

@@ -5,11 +5,14 @@ import {Router} from "./Router.sol";
 import {ICore, PoolKey, SqrtRatio} from "./interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {PoolState} from "./types/poolState.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 
 /// @title Ekubo MEV Capture Router
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol including the MEV capture extension pools
 contract MEVCaptureRouter is Router {
+    using FlashAccountantLib for *;
+
     address public immutable MEV_CAPTURE;
 
     constructor(ICore core, address _mevCapture) Router(core) {
@@ -29,7 +32,7 @@ contract MEVCaptureRouter is Router {
                 CORE.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         } else {
             (delta0, delta1, stateAfter) = abi.decode(
-                forward(MEV_CAPTURE, abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
+                CORE.forward(MEV_CAPTURE, abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
                 (int128, int128, PoolState)
             );
             if (value != 0) {

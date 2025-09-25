@@ -12,7 +12,7 @@ import {
     findNextInitializedTick,
     findPrevInitializedTick
 } from "../../src/math/tickBitmap.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, MAX_TICK_MAGNITUDE} from "../../src/math/constants.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 
 contract TickBitmap {
@@ -249,6 +249,40 @@ contract TickBitmapTest is Test {
         assertLe(calculatedTick, tick);
         assertGt(calculatedTick + int32(tickSpacing), tick);
         assertEq(calculatedTick % int32(tickSpacing), 0);
+    }
+
+    function test_tickToBitmapWordAndIndex_zero_tick_always_centered_within_word(uint32 tickSpacing) public pure {
+        tickSpacing = boundTickSpacing(tickSpacing);
+        (, uint256 index) = tickToBitmapWordAndIndex(0, tickSpacing);
+        assertEq(index, 127, "always centered");
+    }
+
+    function test_tickToBitmapWordAndIndex_contiguous_range(int32 tick, uint32 tickSpacing) public pure {
+        (tick, tickSpacing) = (boundTick(tick), boundTickSpacing(tickSpacing));
+
+        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+        (uint256 wordPrev, uint256 indexPrev) = tickToBitmapWordAndIndex(tick - int32(tickSpacing), tickSpacing);
+        (uint256 wordNext, uint256 indexNext) = tickToBitmapWordAndIndex(tick + int32(tickSpacing), tickSpacing);
+        assertGe(word, wordPrev, "word is always increasing");
+        assertGe(wordNext, word, "word is always increasing");
+        if (wordNext == word) {
+            assertGt(indexNext, index, "if in same word, indexNext is greater than index");
+        } else {
+            assertEq(indexNext, 0, "if in next word, indexNext is always zero");
+        }
+        if (wordPrev == word) {
+            assertGt(index, indexPrev, "if in same word, previous index is less than current index");
+        } else {
+            assertEq(indexPrev, 255, "if in previous word, previous index is 255");
+        }
+    }
+
+    function test_tickToBitmapWordAndIndex_results_always_within_bounds(int32 tick, uint32 tickSpacing) public pure {
+        (tick, tickSpacing) = (boundTick(tick), boundTickSpacing(tickSpacing));
+
+        (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+        assertLe(word, type(uint32).max, "word always fits in 32 bits");
+        assertLt(index, 256, "index always fits 8 bits");
     }
 
     function checkNextTick(

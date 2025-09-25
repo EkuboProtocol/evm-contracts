@@ -15,6 +15,7 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolId} from "../types/poolId.sol";
+import {Locker} from "../types/locker.sol";
 
 function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -183,7 +184,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         }
     }
 
-    function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory result) {
+    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
             (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
                 abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));

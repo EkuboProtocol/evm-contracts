@@ -112,20 +112,16 @@ contract Actor is BaseLocker, BaseForwardee {
         result = abi.encode(execute(id, sender, actions));
     }
 
-    function handleForwardData(uint256 id, address originalLocker, bytes memory data)
-        internal
-        override
-        returns (bytes memory result)
-    {
+    function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         // forwardee is the locker now
         Locker locker = Accountant(payable(ACCOUNTANT)).getLocker();
         (uint256 lockerId, address lockerAddr) = locker.parse();
-        assert(lockerId == id);
+        assert(lockerId == original.id());
         assert(lockerAddr == address(this));
 
         Action[] memory actions = abi.decode(data, (Action[]));
 
-        result = abi.encode(execute(id, originalLocker, actions));
+        result = abi.encode(execute(lockerId, original.addr(), actions));
     }
 
     receive() external payable {}
@@ -150,7 +146,7 @@ contract FlashAccountantTest is Test {
         vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
         actor.locked(0);
         vm.expectRevert(BaseForwardee.BaseForwardeeAccountantOnly.selector);
-        actor.forwarded(0, address(0));
+        actor.forwarded(Locker.wrap(bytes32(0)));
     }
 
     function test_assertIdStartsAtZero() public {

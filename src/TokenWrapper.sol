@@ -8,6 +8,7 @@ import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {toDate, toQuarter} from "./libraries/TimeDescriptor.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
+import {Locker} from "./types/locker.sol";
 
 /// @title Time-locked Token Wrapper
 /// @author Ekubo Protocol
@@ -154,7 +155,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// For unwrap: the specified amount of the underlying will be credited to the locker and the same amount of this wrapper token will be debited, iff block.timestamp > unlockTime and at least that much token has been wrapped
     /// @param data Encoded int256 delta (positive for wrap, negative for unwrap)
     /// @return Empty bytes (no return data needed)
-    function handleForwardData(uint256, address, bytes memory data) internal override returns (bytes memory) {
+    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory) {
         (int256 amount) = abi.decode(data, (int256));
 
         // unwrap

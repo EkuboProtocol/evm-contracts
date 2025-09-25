@@ -9,9 +9,8 @@ import {nextValidTime} from "../math/time.sol";
 // Always rounds the time down
 function timeToBitmapWordAndIndex(uint256 time) pure returns (uint256 word, uint256 index) {
     assembly ("memory-safe") {
-        let rawIndex := shr(4, time)
-        word := div(rawIndex, 256)
-        index := mod(rawIndex, 256)
+        word := shr(12, time)
+        index := and(shr(4, time), 0xff)
     }
 }
 
@@ -19,7 +18,7 @@ function timeToBitmapWordAndIndex(uint256 time) pure returns (uint256 word, uint
 /// @dev Assumes word is less than 2**252 and index is less than 2**8
 function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uint256 time) {
     assembly ("memory-safe") {
-        time := shl(4, add(mul(word, 256), index))
+        time := add(shl(12, word), shl(4, index))
     }
 }
 
@@ -48,7 +47,13 @@ function findNextInitializedTime(mapping(uint256 word => Bitmap bitmap) storage 
         // find the index of the previous tick in that word
         uint256 nextIndex = map[word].geSetBit(uint8(index));
 
-        return (bitmapWordAndIndexToTime(word, FixedPointMathLib.min(255, nextIndex)), nextIndex != 256);
+        assembly ("memory-safe") {
+            let noBitsSet := shr(8, nextIndex)
+            isInitialized := iszero(noBitsSet)
+            nextIndex := sub(nextIndex, noBitsSet)
+        }
+
+        nextTime = bitmapWordAndIndexToTime(word, nextIndex);
     }
 }
 

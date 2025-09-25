@@ -4,15 +4,17 @@ pragma solidity =0.8.30;
 import {Bitmap} from "../types/bitmap.sol";
 import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
 
-// Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
-// Addition of the offset does two things--it centers the 0 tick within a single bitmap regardless of tick spacing,
+// Addition of this offset does two things--it centers the 0 tick within a single bitmap regardless of tick spacing,
 // and gives us a contiguous range of unsigned integers for all ticks
+uint256 constant TICK_BITMAP_STORAGE_OFFSET = 89421695;
+
+// Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
 // Always rounds the tick down to the nearest multiple of tickSpacing
 function tickToBitmapWordAndIndex(int32 tick, uint32 tickSpacing) pure returns (uint256 word, uint256 index) {
     assembly ("memory-safe") {
-        let rawIndex := add(sub(sdiv(tick, tickSpacing), slt(smod(tick, tickSpacing), 0)), 89421695)
-        word := div(rawIndex, 256)
-        index := mod(rawIndex, 256)
+        let rawIndex := add(sub(sdiv(tick, tickSpacing), slt(smod(tick, tickSpacing), 0)), TICK_BITMAP_STORAGE_OFFSET)
+        word := shr(8, rawIndex)
+        index := and(rawIndex, 0xff)
     }
 }
 
@@ -20,8 +22,8 @@ function tickToBitmapWordAndIndex(int32 tick, uint32 tickSpacing) pure returns (
 /// @dev This function is only safe if tickSpacing is between 1 and MAX_TICK_SPACING, and word/index correspond to the results of tickToBitmapWordAndIndex for a tick between MIN_TICK and MAX_TICK
 function bitmapWordAndIndexToTick(uint256 word, uint256 index, uint32 tickSpacing) pure returns (int32 tick) {
     assembly ("memory-safe") {
-        let rawIndex := add(mul(word, 256), index)
-        tick := mul(sub(rawIndex, 89421695), tickSpacing)
+        let rawIndex := add(shl(8, word), index)
+        tick := mul(sub(rawIndex, TICK_BITMAP_STORAGE_OFFSET), tickSpacing)
     }
 }
 

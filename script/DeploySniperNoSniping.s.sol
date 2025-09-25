@@ -2,12 +2,10 @@
 pragma solidity =0.8.30;
 
 import {Script} from "forge-std/Script.sol";
-import {Positions} from "../src/Positions.sol";
-import {Router} from "../src/Router.sol";
-import {Orders} from "../src/Orders.sol";
-import {SniperNoSniping} from "../src/SniperNoSniping.sol";
+import {SniperNoSniping, sniperNoSnipingCallPoints} from "../src/SniperNoSniping.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {ITWAMM} from "../src/interfaces/extensions/ITWAMM.sol";
+import {findExtensionSalt} from "./DeployCore.s.sol";
 
 contract DeploySniperNoSniping is Script {
     function run() public {
@@ -17,7 +15,13 @@ contract DeploySniperNoSniping is Script {
 
         vm.startBroadcast();
 
-        new SniperNoSniping{salt: salt}({
+        new SniperNoSniping{
+            salt: findExtensionSalt(
+                salt,
+                keccak256(abi.encodePacked(type(SniperNoSniping).creationCode, abi.encode(core))),
+                sniperNoSnipingCallPoints()
+            )
+        }({
             core: core,
             twamm: twamm,
             orderDurationMagnitude: 4,

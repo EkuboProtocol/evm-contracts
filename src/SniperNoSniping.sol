@@ -10,22 +10,21 @@ import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {SqrtRatio, toSqrtRatio} from "./types/sqrtRatio.sol";
 import {sqrtRatioToTick, tickToSqrtRatio} from "./math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "./math/constants.sol";
-import {IPositions} from "./interfaces/IPositions.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {PoolKey, Config, toConfig} from "./types/poolKey.sol";
 import {CallPoints} from "./types/callPoints.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createPositionId} from "./types/positionId.sol";
-import {SNOSToken} from "./SNOSToken.sol";
+import {SimpleToken} from "./SimpleToken.sol";
 import {nextValidTime} from "./math/time.sol";
 import {BaseExtension} from "./base/BaseExtension.sol";
 
-function roundDownToNearest(int32 tick, int32 POOL_TICK_SPACING) pure returns (int32) {
+function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {
     unchecked {
         if (tick < 0) {
-            tick = int32(FixedPointMathLib.max(MIN_TICK, tick - (POOL_TICK_SPACING - 1)));
+            tick = int32(FixedPointMathLib.max(MIN_TICK, tick - (tickSpacing - 1)));
         }
-        return tick / POOL_TICK_SPACING * POOL_TICK_SPACING;
+        return tick / tickSpacing * tickSpacing;
     }
 }
 
@@ -56,15 +55,16 @@ function sniperNoSnipingCallPoints() pure returns (CallPoints memory) {
 
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Sniper No Sniping
-/// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM implementation
+/// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM
 contract SniperNoSniping is BaseExtension {
     using TWAMMLib for *;
 
-    ITWAMM private immutable TWAMM;
-    IPositions private immutable POSITIONS;
+    /// @notice The TWAMM extension address
+    ITWAMM public immutable TWAMM;
 
     /// @dev The duration of the sale for any newly created tokens
     uint256 public immutable ORDER_DURATION;
+
     /// @dev The minimum amount of time in the future that the order must start
     uint256 public immutable MIN_LEAD_TIME;
 
@@ -92,7 +92,7 @@ contract SniperNoSniping is BaseExtension {
         int32 saleEndTick;
     }
 
-    mapping(SNOSToken => TokenInfo) public tokenInfos;
+    mapping(SimpleToken => TokenInfo) public tokenInfos;
 
     constructor(
         ICore core,
@@ -104,9 +104,6 @@ contract SniperNoSniping is BaseExtension {
     ) BaseExtension(core) {
         TWAMM = twamm;
         POOL_FEE = poolFee;
-
-        // LAUNCH_POOL_CONFIG = toConfig(poolFee, 0, address(TWAMM));
-        // GRADUATION_POOL_CONFIG = toConfig(POOL_FEE, tickSpacing, address(this));
 
         assert(orderDurationMagnitude > 1 && orderDurationMagnitude < 6);
         ORDER_DURATION = 16 ** orderDurationMagnitude;
@@ -128,11 +125,11 @@ contract SniperNoSniping is BaseExtension {
         (startTime, endTime) = getNextLaunchTime(ORDER_DURATION, MIN_LEAD_TIME);
     }
 
-    function getLaunchPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
+    function getLaunchPool(SimpleToken token) public view returns (PoolKey memory poolKey) {
         poolKey = PoolKey({token0: address(0), token1: address(token), config: toConfig(POOL_FEE, 0, address(TWAMM))});
     }
 
-    function getSaleOrderKey(SNOSToken token) public view returns (OrderKey memory orderKey) {
+    function getSaleOrderKey(SimpleToken token) public view returns (OrderKey memory orderKey) {
         TokenInfo memory tokenInfo = tokenInfos[token];
         uint256 endTime = tokenInfo.endTime;
         if (endTime == 0) {
@@ -148,7 +145,7 @@ contract SniperNoSniping is BaseExtension {
         });
     }
 
-    function executeVirtualOrdersAndGetSaleStatus(SNOSToken token)
+    function executeVirtualOrdersAndGetSaleStatus(SimpleToken token)
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
@@ -171,7 +168,7 @@ contract SniperNoSniping is BaseExtension {
                             keccak256(abi.encode(creator, salt)),
                             keccak256(
                                 abi.encodePacked(
-                                    type(SNOSToken).creationCode,
+                                    type(SimpleToken).creationCode,
                                     abi.encode(LibString.packOne(symbol), LibString.packOne(name), TOKEN_TOTAL_SUPPLY)
                                 )
                             )
@@ -185,7 +182,7 @@ contract SniperNoSniping is BaseExtension {
     function launch(bytes32 salt, string memory symbol, string memory name)
         external
         payable
-        returns (SNOSToken token)
+        returns (SimpleToken token)
     {
         (uint256 startTime, uint256 endTime) = getNextLaunchTime(ORDER_DURATION, MIN_LEAD_TIME);
 
@@ -196,7 +193,7 @@ contract SniperNoSniping is BaseExtension {
             revert InvalidNameOrSymbol();
         }
 
-        token = new SNOSToken{salt: keccak256(abi.encode(msg.sender, salt))}(
+        token = new SimpleToken{salt: keccak256(abi.encode(msg.sender, salt))}(
             LibString.packOne(symbol), LibString.packOne(name), TOKEN_TOTAL_SUPPLY
         );
 
@@ -236,7 +233,7 @@ contract SniperNoSniping is BaseExtension {
         }
     }
 
-    function getGraduationPool(SNOSToken token) public view returns (PoolKey memory poolKey) {
+    function getGraduationPool(SimpleToken token) public view returns (PoolKey memory poolKey) {
         poolKey = PoolKey({
             token0: address(0),
             token1: address(token),
@@ -244,7 +241,7 @@ contract SniperNoSniping is BaseExtension {
         });
     }
 
-    function graduate(SNOSToken token) external returns (uint256 proceeds) {
+    function graduate(SimpleToken token) external returns (uint256 proceeds) {
         TokenInfo memory tokenInfo = tokenInfos[token];
 
         if (block.timestamp < tokenInfo.endTime) {
@@ -275,53 +272,53 @@ contract SniperNoSniping is BaseExtension {
 
         int32 saleTick = roundDownToNearest(sqrtRatioToTick(sqrtSaleRatio), int32(GRADUATION_POOL_TICK_SPACING));
 
-        (bool didInitialize, SqrtRatio sqrtRatioCurrent) = POSITIONS.maybeInitializePool(graduationPool, saleTick);
+        // (bool didInitialize, SqrtRatio sqrtRatioCurrent) = POSITIONS.maybeInitializePool(graduationPool, saleTick);
 
-        uint256 purchasedTokens;
+        // uint256 purchasedTokens;
 
         // someone already created the graduation pool
         // we need to make sure the price is not worse than our computed average sale price
-        if (!didInitialize) {
-            SqrtRatio targetRatio = tickToSqrtRatio(saleTick);
-            // if the price is lower than average sale price, i.e. eth is too expensive in terms of tokens, we need to buy any leftover
-            if (sqrtRatioCurrent > targetRatio) {
-                // todo: do this swap via lock, possibly must happen in forward
-                // (int128 delta0, int128 delta1) = ROUTER.swap{value: proceeds}(
-                //     graduationPool, false, int128(int256(uint256(proceeds))), targetRatio, 0, 0, address(this)
-                // );
+        // if (!didInitialize) {
+        // SqrtRatio targetRatio = tickToSqrtRatio(saleTick);
+        // if the price is lower than average sale price, i.e. eth is too expensive in terms of tokens, we need to buy any leftover
+        // if (sqrtRatioCurrent > targetRatio) {
+        // todo: do this swap via lock, possibly must happen in forward
+        // (int128 delta0, int128 delta1) = ROUTER.swap{value: proceeds}(
+        //     graduationPool, false, int128(int256(uint256(proceeds))), targetRatio, 0, 0, address(this)
+        // );
 
-                // proceeds -= uint256(int256(delta0));
-                // purchasedTokens += uint256(-int256(delta1));
-            }
-        }
+        // proceeds -= uint256(int256(delta0));
+        // purchasedTokens += uint256(-int256(delta1));
+        //     }
+        // }
 
-        if (proceeds > 0) {
-            // POSITIONS.deposit{value: proceeds}(
-            //     POSITION_ID,
-            //     graduationPool,
-            //     createPositionId(bytes24(0), saleTick, saleTick + int32(POOL_TICK_SPACING)),
-            //     uint128(proceeds),
-            //     0,
-            //     0
-            // );
-        }
+        // if (proceeds > 0) {
+        // POSITIONS.deposit{value: proceeds}(
+        //     POSITION_ID,
+        //     graduationPool,
+        //     createPositionId(bytes24(0), saleTick, saleTick + int32(POOL_TICK_SPACING)),
+        //     uint128(proceeds),
+        //     0,
+        //     0
+        // );
+        // }
 
-        if (purchasedTokens > 0) {
-            // POSITIONS.deposit(
-            //     POSITION_ID,
-            //     graduationPool,
-            //     createPositionId(bytes24(0), MIN_USABLE_TICK, saleTick),
-            //     0,
-            //     uint128(purchasedTokens),
-            //     0
-            // );
-        }
+        // if (purchasedTokens > 0) {
+        // POSITIONS.deposit(
+        //     POSITION_ID,
+        //     graduationPool,
+        //     createPositionId(bytes24(0), MIN_USABLE_TICK, saleTick),
+        //     0,
+        //     uint128(purchasedTokens),
+        //     0
+        // );
+        // }
 
         // used to recompute the bounds later
         tokenInfos[token].saleEndTick = saleTick;
     }
 
-    function getGraduationPositionFeesAndLiquidity(SNOSToken token)
+    function getGraduationPositionFeesAndLiquidity(SimpleToken token)
         external
         view
         returns (uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1)
@@ -353,12 +350,12 @@ contract SniperNoSniping is BaseExtension {
     }
 
     // Collect to caller
-    function collect(SNOSToken token) external {
+    function collect(SimpleToken token) external {
         collect(token, msg.sender);
     }
 
     /// The creator can call this method to get what they are due
-    function collect(SNOSToken token, address recipient) public {
+    function collect(SimpleToken token, address recipient) public {
         TokenInfo memory tokenInfo = tokenInfos[token];
         if (msg.sender != tokenInfo.creator) revert CreatorOnly();
 

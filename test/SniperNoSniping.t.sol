@@ -19,13 +19,9 @@ import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
-import {byteToCallPoints} from "../src/types/callPoints.sol";
-import {Orders} from "../src/Orders.sol";
-import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
-import {TWAMM} from "../src/extensions/TWAMM.sol";
 import {OrderKey} from "../src/types/orderKey.sol";
 import {getNextLaunchTime, SniperNoSniping, roundDownToNearest} from "../src/SniperNoSniping.sol";
-import {SNOSToken} from "../src/SNOSToken.sol";
+import {SimpleToken} from "../src/SimpleToken.sol";
 import {computeFee} from "../src/math/fee.sol";
 
 contract SniperNoSnipingTest is BaseOrdersTest {
@@ -84,7 +80,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             "ABC",
             "ABC Token"
         );
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         assertEq(token.symbol(), "ABC");
         assertEq(token.name(), "ABC Token");
@@ -119,7 +115,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
             "ABC",
             "ABC Token"
         );
-        SNOSToken token = snos.launch{value: 1e18}({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch{value: 1e18}({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         assertEq(token.symbol(), "ABC");
         assertEq(token.name(), "ABC Token");
@@ -148,21 +144,21 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_graduate_reverts_if_no_bid() public {
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
         vm.warp(4096 + 4096);
         vm.expectRevert(SniperNoSniping.NoProceeds.selector);
         snos.graduate(token);
     }
 
     function test_graduate_reverts_if_too_soon() public {
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
         vm.warp(4096 + 4095);
         vm.expectRevert(SniperNoSniping.SaleStillOngoing.selector);
         snos.graduate(token);
     }
 
     function test_graduate_reverts_if_called_twice() public {
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         orders.mintAndIncreaseSellAmount{value: 10000}(
             OrderKey({
@@ -187,7 +183,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         buyAmount = uint80(bound(buyAmount, 2, type(uint80).max));
         initializedTick = int32(bound(initializedTick, MIN_TICK, MAX_TICK));
 
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         orders.mintAndIncreaseSellAmount{value: buyAmount}(
             OrderKey({
@@ -228,7 +224,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         buyAmount = uint80(bound(buyAmount, 1e18, type(uint80).max));
         initializedTick = int32(bound(initializedTick, MIN_TICK / 2, MAX_TICK / 2));
 
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         (uint256 id,) = orders.mintAndIncreaseSellAmount{value: buyAmount}(
             OrderKey({
@@ -292,7 +288,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     function test_graduate_sell_after_launch_for_almost_all_proceeds(uint112 buyAmount) public {
         buyAmount = uint112(bound(buyAmount, 1e9, 1e23));
 
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         (uint256 id,) = orders.mintAndIncreaseSellAmount{value: buyAmount}(
             OrderKey({
@@ -361,7 +357,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_graduate_gas() public {
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         orders.mintAndIncreaseSellAmount{value: 10000}(
             OrderKey({
@@ -382,7 +378,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_collect_gas_no_fees() public {
-        SNOSToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        SimpleToken token = snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
 
         orders.mintAndIncreaseSellAmount{value: 10000}(
             OrderKey({

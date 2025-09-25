@@ -237,8 +237,6 @@ library FlashAccountantLib {
         internal
         returns (bytes memory result)
     {
-        address target = address(accountant);
-
         assembly ("memory-safe") {
             // We will store result where the free memory pointer is now, ...
             result := mload(0x40)
@@ -254,7 +252,7 @@ library FlashAccountantLib {
             mcopy(add(result, 36), add(data, 32), len)
 
             // If the call failed, pass through the revert
-            if iszero(call(gas(), target, 0, result, add(36, len), 0, 0)) {
+            if iszero(call(gas(), accountant, 0, result, add(36, len), 0, 0)) {
                 returndatacopy(result, 0, returndatasize())
                 revert(result, returndatasize())
             }

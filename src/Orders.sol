@@ -130,8 +130,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
                 abi.decode(data, (bytes1, address, uint256, OrderKey, int256));
 
             int256 amount = abi.decode(
-                FlashAccountantLib.forward(
-                    ACCOUNTANT,
+                CORE.forward(
                     address(TWAMM_EXTENSION),
                     abi.encode(
                         uint256(0),
@@ -166,8 +165,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
                 abi.decode(data, (bytes1, uint256, OrderKey, address));
 
             uint128 proceeds = abi.decode(
-                FlashAccountantLib.forward(
-                    ACCOUNTANT,
+                CORE.forward(
                     address(TWAMM_EXTENSION),
                     abi.encode(uint256(1), ITWAMM.CollectProceedsParams({salt: bytes32(id), orderKey: orderKey}))
                 ),

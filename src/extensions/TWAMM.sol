@@ -433,7 +433,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             // this can only happen iff a pool has zero sale rates **and** an execution of virtual orders
             // happens on the uint32 boundary
             if (TwammPoolState.unwrap(state) == bytes32(0)) {
-                if (!CORE.poolState(poolId).isInitialized()) {
+                if (poolKey.extension() != address(this) || !CORE.poolState(poolId).isInitialized()) {
                     revert PoolNotInitialized();
                 }
             }

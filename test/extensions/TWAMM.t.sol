@@ -57,6 +57,12 @@ contract TWAMMTest is BaseTWAMMTest {
         assertEq(srt0, 0);
         assertEq(srt1, 0);
     }
+
+    function test_createPool() public {
+        coolAllContracts();
+        PoolKey memory key = createTwammPool(100, 0);
+        vm.snapshotGasLastCall("create pool");
+    }
 }
 
 // Note the inheritance order matters because Test contains storage variables

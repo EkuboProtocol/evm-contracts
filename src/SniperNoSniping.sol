@@ -20,7 +20,7 @@ import {SimpleToken} from "./SimpleToken.sol";
 import {nextValidTime} from "./math/time.sol";
 import {BaseExtension} from "./base/BaseExtension.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
-import {LaunchInfo, createLaunchInfo} from "./types/LaunchInfo.sol";
+import {LaunchInfo, createLaunchInfo} from "./types/launchInfo.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
 
 function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {

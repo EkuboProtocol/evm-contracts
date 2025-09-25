@@ -4,7 +4,7 @@ pragma solidity =0.8.30;
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
-import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {ICore} from "../interfaces/ICore.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {FlashAccountantLib} from "./FlashAccountantLib.sol";
 import {TwammPoolState} from "../types/twammPoolState.sol";
@@ -131,21 +131,18 @@ library TWAMMLib {
 
     /// @notice Updates the sale rate for a TWAMM order using FlashAccountantLib.forward
     /// @dev Uses FlashAccountantLib.forward to make the necessary call to update the sale rate and parse the result
-    /// @param accountant The flash accountant contract to forward through
-    /// @param twamm The TWAMM extension contract address
+    /// @param core The core contract to forward through
+    /// @param twamm The TWAMM extension contract
     /// @param salt Unique salt for the order
     /// @param orderKey Order key identifying the order
     /// @param saleRateDelta Change in sale rate (positive to increase, negative to decrease)
     /// @return amount The amount delta resulting from the sale rate update
-    function updateSaleRate(
-        IFlashAccountant accountant,
-        address twamm,
-        bytes32 salt,
-        OrderKey memory orderKey,
-        int112 saleRateDelta
-    ) internal returns (int256 amount) {
-        bytes memory result = accountant.forward(
-            twamm,
+    function updateSaleRate(ICore core, ITWAMM twamm, bytes32 salt, OrderKey memory orderKey, int112 saleRateDelta)
+        internal
+        returns (int256 amount)
+    {
+        bytes memory result = core.forward(
+            address(twamm),
             abi.encode(
                 uint256(0), ITWAMM.UpdateSaleRateParams({salt: salt, orderKey: orderKey, saleRateDelta: saleRateDelta})
             )
@@ -156,17 +153,17 @@ library TWAMMLib {
 
     /// @notice Collects proceeds from a TWAMM order using FlashAccountantLib.forward
     /// @dev Uses FlashAccountantLib.forward to make the necessary call to collect proceeds and parse the result
-    /// @param accountant The flash accountant contract to forward through
-    /// @param twamm The TWAMM extension contract address
+    /// @param core The core contract to forward through
+    /// @param twamm The TWAMM extension contract
     /// @param salt Unique salt for the order
     /// @param orderKey Order key identifying the order
     /// @return proceeds The amount of proceeds collected
-    function collectProceeds(IFlashAccountant accountant, address twamm, bytes32 salt, OrderKey memory orderKey)
+    function collectProceeds(ICore core, ITWAMM twamm, bytes32 salt, OrderKey memory orderKey)
         internal
         returns (uint128 proceeds)
     {
-        bytes memory result = accountant.forward(
-            twamm, abi.encode(uint256(1), ITWAMM.CollectProceedsParams({salt: salt, orderKey: orderKey}))
+        bytes memory result = core.forward(
+            address(twamm), abi.encode(uint256(1), ITWAMM.CollectProceedsParams({salt: salt, orderKey: orderKey}))
         );
 
         proceeds = abi.decode(result, (uint128));

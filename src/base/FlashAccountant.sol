@@ -184,24 +184,22 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @inheritdoc IFlashAccountant
     function forward(address to) external {
         Locker locker = _requireLocker();
-        (uint256 id, address lockerAddr) = locker.parse();
 
         // update this lock's locker to the forwarded address for the duration of the forwarded
         // call, meaning only the forwarded address can update state
         assembly ("memory-safe") {
-            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), to))
+            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, shr(160, locker)), to))
 
             let free := mload(0x40)
 
-            // Prepare call to forwarded(uint256,address) -> selector 0x64919dea
-            mstore(free, shl(224, 0x64919dea))
-            mstore(add(free, 4), id)
-            mstore(add(free, 36), lockerAddr)
+            // Prepare call to forwarded(bytes32) -> selector 0xebf5e12c
+            mstore(free, shl(224, 0xebf5e12c))
+            mstore(add(free, 4), locker)
 
-            calldatacopy(add(free, 68), 36, sub(calldatasize(), 36))
+            calldatacopy(add(free, 36), 36, sub(calldatasize(), 36))
 
             // Call the forwardee with the packed data
-            let success := call(gas(), to, 0, free, add(32, calldatasize()), 0, 0)
+            let success := call(gas(), to, 0, free, calldatasize(), 0, 0)
 
             // Pass through the error on failure
             if iszero(success) {
@@ -209,7 +207,7 @@ abstract contract FlashAccountant is IFlashAccountant {
                 revert(free, returndatasize())
             }
 
-            tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), lockerAddr))
+            tstore(_CURRENT_LOCKER_SLOT, locker)
 
             // Directly return whatever the subcall returned
             returndatacopy(free, 0, returndatasize())

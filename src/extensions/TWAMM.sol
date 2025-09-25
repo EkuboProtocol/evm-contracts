@@ -26,6 +26,7 @@ import {
 } from "../math/twamm.sol";
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 import {PoolId} from "../types/poolId.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @notice Returns the call points configuration for the TWAMM extension
 /// @dev Specifies which hooks TWAMM needs to execute virtual orders and manage DCA functionality
@@ -220,11 +221,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
     ///////////////////////// Callbacks /////////////////////////
 
-    function handleForwardData(uint256, address originalLocker, bytes memory data)
-        internal
-        override
-        returns (bytes memory result)
-    {
+    function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
             uint256 callType = abi.decode(data, (uint256));
 
@@ -246,8 +243,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
                 bytes32 orderId = params.orderKey.toOrderId();
-                OrderState order = orderState[originalLocker][params.salt][orderId];
-                uint256 rewardRateSnapshot = orderRewardRateSnapshot[originalLocker][params.salt][orderId];
+                OrderState order = orderState[original.addr()][params.salt][orderId];
+                uint256 rewardRateSnapshot = orderRewardRateSnapshot[original.addr()][params.salt][orderId];
 
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
@@ -283,7 +280,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
                 }
 
-                orderState[originalLocker][params.salt][orderId] = createOrderState({
+                orderState[original.addr()][params.salt][orderId] = createOrderState({
                     _lastUpdateTime: uint32(block.timestamp),
                     _saleRate: uint112(saleRateNext),
                     _amountSold: uint112(
@@ -298,7 +295,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             })
                     )
                 });
-                orderRewardRateSnapshot[originalLocker][params.salt][orderId] = rewardRateSnapshotAdjusted;
+                orderRewardRateSnapshot[original.addr()][params.salt][orderId] = rewardRateSnapshotAdjusted;
 
                 bool isToken1 = params.orderKey.sellToken > params.orderKey.buyToken;
 
@@ -379,7 +376,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     }
                 }
 
-                emit OrderUpdated(originalLocker, params.salt, params.orderKey, params.saleRateDelta);
+                emit OrderUpdated(original.addr(), params.salt, params.orderKey, params.saleRateDelta);
 
                 result = abi.encode(amountDelta);
             } else if (callType == 1) {
@@ -391,8 +388,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
                 bytes32 orderId = params.orderKey.toOrderId();
-                OrderState order = orderState[originalLocker][params.salt][orderId];
-                uint256 rewardRateSnapshot = orderRewardRateSnapshot[originalLocker][params.salt][orderId];
+                OrderState order = orderState[original.addr()][params.salt][orderId];
+                uint256 rewardRateSnapshot = orderRewardRateSnapshot[original.addr()][params.salt][orderId];
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId,
                     params.orderKey.startTime,
@@ -401,7 +398,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 );
 
                 uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, order.saleRate());
-                orderRewardRateSnapshot[originalLocker][params.salt][orderId] = rewardRateInside;
+                orderRewardRateSnapshot[original.addr()][params.salt][orderId] = rewardRateInside;
 
                 if (purchasedAmount != 0) {
                     if (params.orderKey.sellToken > params.orderKey.buyToken) {
@@ -415,7 +412,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     }
                 }
 
-                emit OrderProceedsWithdrawn(originalLocker, params.salt, params.orderKey, uint128(purchasedAmount));
+                emit OrderProceedsWithdrawn(original.addr(), params.salt, params.orderKey, uint128(purchasedAmount));
 
                 result = abi.encode(purchasedAmount);
             } else {

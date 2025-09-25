@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
+import {Locker} from "../types/locker.sol";
+
 interface ILocker {
     function locked(uint256 id) external;
 }
 
 interface IForwardee {
-    function forwarded(uint256 id, address originalLocker) external;
+    function forwarded(Locker original) external;
 }
 
 /// @title IFlashAccountant

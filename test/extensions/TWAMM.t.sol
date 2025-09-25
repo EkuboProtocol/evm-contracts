@@ -16,6 +16,7 @@ import {Bitmap} from "../../src/types/bitmap.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {createTimeInfo} from "../../src/types/timeInfo.sol";
+import {TwammPoolState} from "../../src/types/twammPoolState.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -62,6 +63,16 @@ contract TWAMMTest is BaseTWAMMTest {
         coolAllContracts();
         PoolKey memory key = createTwammPool(100, 0);
         vm.snapshotGasLastCall("create pool");
+    }
+
+    function test_lockAndExecuteVirtualOrders_initialized_but_state_zero() public {
+        // recreate the conditions as described in TWAMM#_executeVirtualOrdersFromWithinLock
+        vm.warp(1 << 32);
+        PoolKey memory key = createTwammPool(100, 0);
+
+        assertEq(TwammPoolState.unwrap(twamm.poolState(key.toPoolId())), bytes32(0));
+
+        twamm.lockAndExecuteVirtualOrders(key);
     }
 }
 

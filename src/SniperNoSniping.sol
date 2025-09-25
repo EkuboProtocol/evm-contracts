@@ -234,7 +234,7 @@ contract SniperNoSniping is BaseExtension, BaseLocker {
             CORE.initializePool(twammPoolKey, 0);
 
             (int256 amountDelta) = abi.decode(
-                forward(
+                CORE.forward(
                     address(TWAMM),
                     abi.encode(
                         uint256(0),

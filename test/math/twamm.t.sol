@@ -15,7 +15,7 @@ import {
 } from "../../src/math/twamm.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 
-contract TwammTest is Test {
+contract TwammMathTest is Test {
     function test_computeSaleRate_examples() public pure {
         assertEq(computeSaleRate(1000, 5), (1000 << 32) / 5);
     }

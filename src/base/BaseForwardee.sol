@@ -2,6 +2,7 @@
 pragma solidity =0.8.30;
 
 import {IForwardee, IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @title Base Forwardee
 /// @notice Abstract base contract for contracts that need to receive forwarded calls from the flash accountant
@@ -27,12 +28,12 @@ abstract contract BaseForwardee is IForwardee {
     /// All remaining calldata is treated as the forwarded data
     /// Return data from handleForwardData is returned exactly as is, with no additional encoding or decoding
     /// Reverts are also bubbled up
-    function forwarded(uint256 id, address originalLocker) external {
+    function forwarded(Locker original) external {
         if (msg.sender != address(ACCOUNTANT)) revert BaseForwardeeAccountantOnly();
 
-        bytes memory data = msg.data[68:];
+        bytes memory data = msg.data[36:];
 
-        bytes memory result = handleForwardData(id, originalLocker, data);
+        bytes memory result = handleForwardData(original, data);
 
         assembly ("memory-safe") {
             // raw return whatever the handler sent
@@ -44,12 +45,8 @@ abstract contract BaseForwardee is IForwardee {
 
     /// @notice Handles the execution of forwarded data
     /// @dev Must be implemented by derived contracts to define forwarding behavior
-    /// @param id The lock ID from the flash accountant
-    /// @param originalLocker The address of the original locker that initiated the forward
+    /// @param original The original locker that called forward
     /// @param data The forwarded data to process
     /// @return result The result of processing the forwarded data
-    function handleForwardData(uint256 id, address originalLocker, bytes memory data)
-        internal
-        virtual
-        returns (bytes memory result);
+    function handleForwardData(Locker original, bytes memory data) internal virtual returns (bytes memory result);
 }

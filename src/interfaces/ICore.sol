@@ -273,7 +273,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
         returns (uint128 amount0, uint128 amount1);
 
     /// @notice Executes a swap against a pool
-    /// @dev Function name includes hash to prevent signature collisions
+    /// @dev Function name is mined to have a zero function selector for gas efficiency
     /// @param poolKey Pool key identifying the pool
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param isToken1 True if swapping token1, false if swapping token0

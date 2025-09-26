@@ -11,7 +11,7 @@ contract LaunchInfoTest is Test {
                 createLaunchInfo({
                     _endTime: launchInfo.endTime(),
                     _creator: launchInfo.creator(),
-                    _saleEndTick: int32(uint32(uint160(launchInfo.saleEndTick())))
+                    _saleEndTick: launchInfo.saleEndTick()
                 })
             ),
             LaunchInfo.unwrap(launchInfo)
@@ -22,7 +22,7 @@ contract LaunchInfoTest is Test {
         LaunchInfo launchInfo = createLaunchInfo({_endTime: endTime, _creator: creator, _saleEndTick: saleEndTick});
         assertEq(launchInfo.endTime(), endTime);
         assertEq(launchInfo.creator(), creator);
-        assertEq(int32(uint32(uint160(launchInfo.saleEndTick()))), saleEndTick);
+        assertEq(launchInfo.saleEndTick(), saleEndTick);
     }
 
     function test_conversionFromAndToDirtyBits(bytes32 endTimeDirty, bytes32 creatorDirty, bytes32 saleEndTickDirty)
@@ -42,6 +42,6 @@ contract LaunchInfoTest is Test {
         LaunchInfo launchInfo = createLaunchInfo({_endTime: endTime, _creator: creator, _saleEndTick: saleEndTick});
         assertEq(launchInfo.endTime(), endTime, "endTime");
         assertEq(launchInfo.creator(), creator, "creator");
-        assertEq(int32(uint32(uint160(launchInfo.saleEndTick()))), saleEndTick, "saleEndTick");
+        assertEq(launchInfo.saleEndTick(), saleEndTick, "saleEndTick");
     }
 }

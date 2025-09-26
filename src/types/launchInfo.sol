@@ -17,7 +17,7 @@ function creator(LaunchInfo launchInfo) pure returns (address v) {
     }
 }
 
-function saleEndTick(LaunchInfo launchInfo) pure returns (address v) {
+function saleEndTick(LaunchInfo launchInfo) pure returns (int32 v) {
     assembly ("memory-safe") {
         v := signextend(3, launchInfo)
     }

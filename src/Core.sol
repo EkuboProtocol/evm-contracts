@@ -485,7 +485,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             // Read remaining parameters
             amount := signextend(15, shr(128, calldataload(add(dataPtr, 72)))) // int128 amount (16 bytes, high bits)
             isToken1 := and(byte(0, calldataload(add(dataPtr, 88))), 1) // bool isToken1 (1 byte)
-            sqrtRatioLimit := and(calldataload(add(dataPtr, 73)), 0xffffffffffffffffffffffff) // SqrtRatio (12 bytes at offset 93)
+            sqrtRatioLimit := shr(160, calldataload(add(dataPtr, 89))) // SqrtRatio (12 bytes at offset 93)
             skipAhead := calldataload(add(dataPtr, 105)) // uint256 skipAhead (32 bytes)
         }
 

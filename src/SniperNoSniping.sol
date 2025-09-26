@@ -20,6 +20,7 @@ import {SimpleToken} from "./SimpleToken.sol";
 import {nextValidTime} from "./math/time.sol";
 import {BaseExtension} from "./base/BaseExtension.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
+import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {LaunchInfo, createLaunchInfo} from "./types/launchInfo.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
 
@@ -53,7 +54,7 @@ function sniperNoSnipingCallPoints() pure returns (CallPoints memory) {
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Sniper No Sniping
 /// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM
-contract SniperNoSniping is BaseExtension, BaseLocker {
+contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
     using FlashAccountantLib for *;
     using TWAMMLib for *;
     using LibString for *;
@@ -187,7 +188,7 @@ contract SniperNoSniping is BaseExtension, BaseLocker {
         });
     }
 
-    function launch(address creator, bytes32 salt, string memory symbol, string memory name)
+    function launch(bytes32 salt, string memory symbol, string memory name)
         external
         returns (SimpleToken token, uint256 startTime, uint256 endTime)
     {
@@ -196,7 +197,7 @@ contract SniperNoSniping is BaseExtension, BaseLocker {
         }
 
         (token, startTime, endTime) = abi.decode(
-            lock(abi.encode(0, creator, salt, name.packOne(), symbol.packOne())), (SimpleToken, uint256, uint256)
+            lock(abi.encode(0, msg.sender, salt, name.packOne(), symbol.packOne())), (SimpleToken, uint256, uint256)
         );
     }
 

@@ -60,7 +60,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_launch_gas() public {
-        snos.launch({creator: address(this), salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
         vm.snapshotGasLastCall("SniperNoSniping#launch");
     }
 }

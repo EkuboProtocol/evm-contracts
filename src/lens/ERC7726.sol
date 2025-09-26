@@ -11,28 +11,31 @@ address constant IERC7726_ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEE
 address constant IERC7726_BTC_ADDRESS = 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB;
 address constant IERC7726_USD_ADDRESS = address(840);
 
+/// @title ERC7726
+/// @notice Standard interface for price oracles
 interface IERC7726 {
     function getQuote(uint256 baseAmount, address base, address quote) external view returns (uint256 quoteAmount);
 }
 
+/// @title Ekubo ERC7726 Oracle Implementation
 /// @dev Implements the standard Oracle interface using data from the Ekubo Protocol Oracle extension
 contract ERC7726 is IERC7726 {
-    // The oracle stores all the oracle pool snapshot data used to compute quotes
-    IOracle public immutable oracle;
+    /// @notice The oracle contract that is queried for prices
+    IOracle public immutable ORACLE;
 
-    // The token price we query to represent USD
-    address public immutable usdProxyToken;
-    // The token price we query to represent BTC
-    address public immutable btcProxyToken;
+    /// @notice The token whose price we query to represent USD
+    address public immutable USD_PROXY_TOKEN;
+    /// @notice The token whose price we query to represent BTC
+    address public immutable BTC_PROXY_TOKEN;
 
-    // The amount of time over which we query to get the price
-    uint32 public immutable twapDuration;
+    /// @notice The amount of time over which we query to get the average price
+    uint32 public immutable TWAP_DURATION;
 
-    constructor(IOracle _oracle, address _usdProxyToken, address _btcProxyToken, uint32 _twapDuration) {
-        oracle = _oracle;
-        usdProxyToken = _usdProxyToken;
-        btcProxyToken = _btcProxyToken;
-        twapDuration = _twapDuration;
+    constructor(IOracle oracle, address usdProxyToken, address btcProxyToken, uint32 twapDuration) {
+        ORACLE = oracle;
+        USD_PROXY_TOKEN = usdProxyToken;
+        BTC_PROXY_TOKEN = btcProxyToken;
+        TWAP_DURATION = twapDuration;
     }
 
     /// @dev Returns the average tick for the given pair over the last `twapDuration` seconds
@@ -44,10 +47,10 @@ contract ERC7726 is IERC7726 {
                 (int32 tickSign, address otherToken) =
                     baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
 
-                (, int64 tickCumulativeStart) = oracle.extrapolateSnapshot(otherToken, block.timestamp - twapDuration);
-                (, int64 tickCumulativeEnd) = oracle.extrapolateSnapshot(otherToken, block.timestamp);
+                (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
+                (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
 
-                return tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / int64(uint64(twapDuration)));
+                return tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / int64(uint64(TWAP_DURATION)));
             } else {
                 int32 baseTick = getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);
                 int32 quoteTick = getAverageTick(NATIVE_TOKEN_ADDRESS, quoteToken);
@@ -67,10 +70,10 @@ contract ERC7726 is IERC7726 {
             return NATIVE_TOKEN_ADDRESS;
         }
         if (addr == IERC7726_BTC_ADDRESS) {
-            return btcProxyToken;
+            return BTC_PROXY_TOKEN;
         }
         if (addr == IERC7726_USD_ADDRESS) {
-            return usdProxyToken;
+            return USD_PROXY_TOKEN;
         }
 
         return addr;

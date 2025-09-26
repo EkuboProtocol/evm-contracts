@@ -213,7 +213,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             }
 
             (int128 delta0, int128 delta1, PoolState stateAfter) =
-                CORE.swap_611415377(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+                CoreLib.swap(CORE, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
 
             // however many tick spacings were crossed is the fee multiplier
             uint256 feeMultiplierX64 =

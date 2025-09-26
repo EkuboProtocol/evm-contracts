@@ -272,21 +272,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
         external
         returns (uint128 amount0, uint128 amount1);
 
-    /// @notice Executes a swap against a pool
-    /// @dev Function name includes hash to prevent signature collisions
-    /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance of the pool
-    /// @return delta1 Change in token1 balance of the pool
-    /// @return stateAfter The pool state after the swap
-    function swap_611415377(
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter);
+    /// @notice Swap functionality is now handled by the fallback function with custom encoding
+    /// @dev Use CoreLib.swap() functions to call the optimized swap implementation
+    /// The fallback function handles swap operations with custom encoding to save gas
 }

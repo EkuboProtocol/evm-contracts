@@ -449,14 +449,64 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(extension).maybeCallAfterCollectFees(lockerAddr, poolKey, positionId, amount0, amount1);
     }
 
-    /// @inheritdoc ICore
-    function swap_611415377(
+    /// @notice Fallback function that handles swap operations with custom encoding
+    /// @dev Uses custom encoding to save gas compared to standard ABI encoding
+    fallback() external payable {
+        // Only handle swap calls in fallback
+        if (msg.data.length < 4) revert();
+
+        // Custom encoding format (tightly packed):
+        // bytes4 selector (can be anything, we ignore it)
+        // PoolKey (72 bytes: token0, token1, fee, tickSpacing, extension)
+        // int128 amount (16 bytes)
+        // bool isToken1 (1 byte)
+        // SqrtRatio sqrtRatioLimit (12 bytes)
+        // uint256 skipAhead (32 bytes)
+
+        PoolKey memory poolKey;
+        int128 amount;
+        bool isToken1;
+        SqrtRatio sqrtRatioLimit;
+        uint256 skipAhead;
+
+        assembly ("memory-safe") {
+            // Skip 4-byte selector, start reading from offset 4
+            let dataPtr := 4
+
+            // Read PoolKey components (72 bytes total)
+            mstore(poolKey, shr(96, calldataload(dataPtr))) // token0 (20 bytes)
+            mstore(add(poolKey, 0x20), shr(96, calldataload(add(dataPtr, 20)))) // token1 (20 bytes)
+            mstore(add(poolKey, 0x40), calldataload(add(dataPtr, 40))) // config (32 bytes)
+
+            // Read remaining parameters
+            amount := signextend(15, calldataload(add(dataPtr, 72))) // int128 amount (16 bytes)
+            isToken1 := byte(0, calldataload(add(dataPtr, 88))) // bool isToken1 (1 byte)
+            sqrtRatioLimit := shr(160, calldataload(add(dataPtr, 89))) // SqrtRatio (12 bytes)
+            skipAhead := calldataload(add(dataPtr, 101)) // uint256 skipAhead (32 bytes)
+        }
+
+        (int128 delta0, int128 delta1, PoolState stateAfter) =
+            _executeSwap(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+
+        // Return the results
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, delta0)
+            mstore(add(ptr, 32), delta1)
+            mstore(add(ptr, 64), stateAfter)
+            return(ptr, 96)
+        }
+    }
+
+    /// @notice Internal function that executes the swap logic
+    /// @dev Extracted from the original swap_611415377 function
+    function _executeSwap(
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+    ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
         (uint256 id, address lockerAddr) = _requireLocker().parse();

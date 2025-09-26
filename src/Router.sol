@@ -13,6 +13,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolState} from "./types/poolState.sol";
+import {CoreLib} from "./libraries/CoreLib.sol";
 
 /// @notice Represents a single hop in a multi-hop swap route
 /// @dev Contains pool information and swap parameters for one step
@@ -110,8 +111,11 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal virtual returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        (delta0, delta1, stateAfter) =
-            CORE.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        // Handle native token payment by updating debt before swap
+        if (value > 0) {
+            CORE.updateSavedBalances{value: value}(address(0), address(0), bytes32(0), 0, 0);
+        }
+        (delta0, delta1, stateAfter) = CoreLib.swap(CORE, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {

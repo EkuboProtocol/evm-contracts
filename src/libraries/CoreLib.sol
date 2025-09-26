@@ -117,35 +117,29 @@ library CoreLib {
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         assembly ("memory-safe") {
-            let ptr := mload(0x40)
+            let free := mload(0x40)
 
-            // Function selector for swap_611415377: 0xe30c9270
-            mstore(ptr, shl(224, 0xe30c9270))
+            // the function selector of swap is 0
+            mstore(free, 0)
 
-            // Copy PoolKey (96 bytes: token0, token1, config)
-            let poolKeyPtr := add(ptr, 4)
-            mstore(poolKeyPtr, mload(poolKey)) // token0
-            mstore(add(poolKeyPtr, 32), mload(add(poolKey, 32))) // token1
-            mstore(add(poolKeyPtr, 64), mload(add(poolKey, 64))) // config
+            // Copy PoolKey
+            mcopy(add(free, 4), poolKey, 96)
 
             // Add remaining parameters
-            mstore(add(ptr, 100), amount) // int128 amount
-            mstore(add(ptr, 132), isToken1) // bool isToken1
-            mstore(add(ptr, 164), sqrtRatioLimit) // SqrtRatio sqrtRatioLimit
-            mstore(add(ptr, 196), skipAhead) // uint256 skipAhead
+            mstore(add(free, 100), amount) // int128 amount
+            mstore(add(free, 132), isToken1) // bool isToken1
+            mstore(add(free, 164), sqrtRatioLimit) // SqrtRatio sqrtRatioLimit
+            mstore(add(free, 196), skipAhead) // uint256 skipAhead
 
-            // Make the call
-            let success := call(gas(), core, value, ptr, 228, ptr, 96)
-
-            if iszero(success) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
+            if iszero(call(gas(), core, value, free, 228, free, 96)) {
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
             }
 
             // Extract return values
-            delta0 := mload(ptr)
-            delta1 := mload(add(ptr, 32))
-            stateAfter := mload(add(ptr, 64))
+            delta0 := mload(free)
+            delta1 := mload(add(free, 32))
+            stateAfter := mload(add(free, 64))
         }
     }
 }

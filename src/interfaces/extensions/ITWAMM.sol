@@ -12,26 +12,6 @@ import {PoolId} from "../../types/poolId.sol";
 /// @notice Interface for the Ekubo TWAMM Extension
 /// @dev Extension for Ekubo Protocol that enables creation of DCA orders that are executed over time
 interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
-    /// @notice Parameters for updating the sale rate of an order
-    /// @dev Used when creating, modifying, or canceling orders
-    struct UpdateSaleRateParams {
-        /// @notice Unique salt for the order
-        bytes32 salt;
-        /// @notice Order key identifying the order
-        OrderKey orderKey;
-        /// @notice Change in sale rate (positive to increase, negative to decrease)
-        int112 saleRateDelta;
-    }
-
-    /// @notice Parameters for collecting proceeds from an order
-    /// @dev Used when withdrawing tokens purchased by an order
-    struct CollectProceedsParams {
-        /// @notice Unique salt for the order
-        bytes32 salt;
-        /// @notice Order key identifying the order
-        OrderKey orderKey;
-    }
-
     /// @notice Emitted when an order is updated
     /// @param owner Address of the order owner
     /// @param salt Unique salt for the order

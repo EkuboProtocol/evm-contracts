@@ -6,6 +6,7 @@ import {ICore, PoolKey, SqrtRatio} from "./interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {PoolState} from "./types/poolState.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
+import {CoreLib} from "./libraries/CoreLib.sol";
 
 /// @title Ekubo MEV Capture Router
 /// @author Moody Salem <moody@ekubo.org>
@@ -29,7 +30,7 @@ contract MEVCaptureRouter is Router {
     ) internal override returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         if (poolKey.extension() != MEV_CAPTURE) {
             (delta0, delta1, stateAfter) =
-                CORE.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+                CoreLib.swap(CORE, value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         } else {
             (delta0, delta1, stateAfter) = abi.decode(
                 CORE.forward(MEV_CAPTURE, abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),

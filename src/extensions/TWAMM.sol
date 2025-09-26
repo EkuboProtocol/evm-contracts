@@ -483,10 +483,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             // todo: we could update corePoolState here and avoid calling into core to get it again
                             // however it causes stack too deep and it's not a huge optimization because in cases where two tokens are sold
                             (swapDelta0, swapDelta1, corePoolState) =
-                                CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
+                                CoreLib.swap(CORE, 0, poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
                         } else if (sqrtRatioNext < corePoolState.sqrtRatio()) {
                             (swapDelta0, swapDelta1, corePoolState) =
-                                CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
+                                CoreLib.swap(CORE, 0, poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
                         }
 
                         saveDelta0 -= swapDelta0;
@@ -499,10 +499,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
                             (rewardDelta0, rewardDelta1, corePoolState) =
-                                CORE.swap_611415377(poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
+                                CoreLib.swap(CORE, 0, poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
                         } else {
                             (rewardDelta0, rewardDelta1, corePoolState) =
-                                CORE.swap_611415377(poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
+                                CoreLib.swap(CORE, 0, poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
                         }
 
                         saveDelta0 -= rewardDelta0;

@@ -12,6 +12,7 @@ import {SqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./types/sqrtRat
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
+import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolState} from "./types/poolState.sol";
 
 /// @notice Represents a single hop in a multi-hop swap route
@@ -110,8 +111,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal virtual returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        (delta0, delta1, stateAfter) =
-            CORE.swap_611415377{value: value}(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        (delta0, delta1, stateAfter) = CoreLib.swap(CORE, value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {

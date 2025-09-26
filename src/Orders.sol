@@ -129,20 +129,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             (, address recipientOrPayer, uint256 id, OrderKey memory orderKey, int256 saleRateDelta) =
                 abi.decode(data, (bytes1, address, uint256, OrderKey, int256));
 
-            int256 amount = abi.decode(
-                CORE.forward(
-                    address(TWAMM_EXTENSION),
-                    abi.encode(
-                        uint256(0),
-                        ITWAMM.UpdateSaleRateParams({
-                            salt: bytes32(id),
-                            orderKey: orderKey,
-                            saleRateDelta: int112(saleRateDelta)
-                        })
-                    )
-                ),
-                (int256)
-            );
+            int256 amount = CORE.updateSaleRate(TWAMM_EXTENSION, bytes32(id), orderKey, int112(saleRateDelta));
 
             if (amount != 0) {
                 if (saleRateDelta > 0) {
@@ -164,13 +151,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             (, uint256 id, OrderKey memory orderKey, address recipient) =
                 abi.decode(data, (bytes1, uint256, OrderKey, address));
 
-            uint128 proceeds = abi.decode(
-                CORE.forward(
-                    address(TWAMM_EXTENSION),
-                    abi.encode(uint256(1), ITWAMM.CollectProceedsParams({salt: bytes32(id), orderKey: orderKey}))
-                ),
-                (uint128)
-            );
+            uint128 proceeds = CORE.collectProceeds(TWAMM_EXTENSION, bytes32(id), orderKey);
 
             if (proceeds != 0) {
                 ACCOUNTANT.withdraw(orderKey.buyToken, recipient, proceeds);

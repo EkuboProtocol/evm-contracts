@@ -23,15 +23,6 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {LaunchInfo, createLaunchInfo} from "./types/launchInfo.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
 
-function roundDownToNearest(int32 tick, int32 tickSpacing) pure returns (int32) {
-    unchecked {
-        if (tick < 0) {
-            tick = int32(FixedPointMathLib.max(MIN_TICK, tick - (tickSpacing - 1)));
-        }
-        return tick / tickSpacing * tickSpacing;
-    }
-}
-
 /// @dev Computes the start and end time for the next batch of launches, given the duration and minimum lead time
 /// @dev Assumes that orderDuration is a power of 16
 function getNextLaunchTime(uint256 orderDuration, uint256 minLeadTime)

@@ -503,7 +503,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @notice Internal function that executes the swap logic
-    /// @dev Extracted from the original swap_611415377 function
+    /// @dev Contains the core swap implementation logic
     function _executeSwap(
         PoolKey memory poolKey,
         int128 amount,

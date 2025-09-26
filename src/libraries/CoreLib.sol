@@ -137,7 +137,7 @@ library CoreLib {
             mstore(add(dataPtr, 44), mload(add(poolKey, 64))) // config (32 bytes)
             mstore(add(dataPtr, 76), shl(128, amount)) // amount (16 bytes, high bits)
             mstore8(add(dataPtr, 92), isToken1) // isToken1 (1 byte)
-            mstore(add(dataPtr, 93), shl(160, sqrtRatioLimitRaw)) // sqrtRatioLimit (12 bytes, high bits)
+            mstore(add(dataPtr, 89), shl(160, sqrtRatioLimitRaw)) // sqrtRatioLimit (12 bytes) - store at 89 so it's at offset 93 after shift
             mstore(add(dataPtr, 105), shl(232, skipAhead)) // skipAhead (3 bytes, high bits)
         }
 

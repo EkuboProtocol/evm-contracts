@@ -274,5 +274,5 @@ interface ICore is IFlashAccountant, IExposedStorage {
 
     /// @notice Swap function with custom encoding
     /// @dev Use CoreLib.swap() functions to call the optimized swap implementation
-    function swap_qmsxprhfximjaaaa() external returns (int128 delta0, int128 delta1, PoolState stateAfter);
+    function swap_qmsxprhfximjaaaa() external payable returns (int128 delta0, int128 delta1, PoolState stateAfter);
 }

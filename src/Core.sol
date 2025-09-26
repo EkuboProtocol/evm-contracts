@@ -450,7 +450,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function swap_qmsxprhfximjaaaa() external returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+    function swap_qmsxprhfximjaaaa() external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         PoolKey memory poolKey;
         int128 amount;
         bool isToken1;
@@ -469,7 +469,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             // Read remaining parameters
             amount := signextend(15, shr(128, calldataload(76))) // int128 amount (16 bytes, high bits)
             isToken1 := and(byte(0, calldataload(92)), 1) // bool isToken1 (1 byte at offset 92)
-            sqrtRatioLimit := shr(160, calldataload(89)) // SqrtRatio (12 bytes at offset 93)
+            sqrtRatioLimit := shr(160, calldataload(93)) // SqrtRatio (12 bytes at offset 93)
             skipAhead := shr(232, calldataload(105)) // skipAhead (3 bytes at offset 105)
         }
 

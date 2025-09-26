@@ -118,14 +118,14 @@ library CoreLib {
         uint256 value
     ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         bytes memory data = abi.encodePacked(
-            bytes4(0x00000000), // dummy selector, ignored by fallback
+            ICore.swap_qmsxprhfximjaaaa.selector, // swap selector is 0
             poolKey.token0, // 20 bytes
             poolKey.token1, // 20 bytes
             poolKey.config, // 32 bytes (contains extension, fee, tick spacing)
             amount, // 16 bytes (int128)
             isToken1, // 1 byte
             SqrtRatio.unwrap(sqrtRatioLimit), // 12 bytes (uint96)
-            skipAhead // 32 bytes
+            uint24(skipAhead) // 3 bytes
         );
 
         (bool success, bytes memory result) = address(core).call{value: value}(data);

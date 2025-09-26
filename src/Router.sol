@@ -76,6 +76,7 @@ function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 a
 /// @dev Provides high-level swap functionality including single-hop, multi-hop, and batch swaps
 contract Router is UsesCore, PayableMulticallable, BaseLocker {
     using FlashAccountantLib for *;
+    using CoreLib for *;
 
     /// @notice Thrown when a swap doesn't consume the full input amount
     error PartialSwapsDisallowed();
@@ -111,7 +112,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal virtual returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        (delta0, delta1, stateAfter) = CoreLib.swap(CORE, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, value);
+        (delta0, delta1, stateAfter) = CORE.swap(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, value);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {

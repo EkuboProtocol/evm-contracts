@@ -29,18 +29,15 @@ contract MEVCaptureRouter is Router {
         uint256 skipAhead
     ) internal override returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         if (poolKey.extension() != MEV_CAPTURE) {
-            // Handle native token payment by updating debt before swap
-            if (value > 0) {
-                CORE.updateSavedBalances{value: value}(address(0), address(0), bytes32(0), 0, 0);
-            }
-            (delta0, delta1, stateAfter) = CoreLib.swap(CORE, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (delta0, delta1, stateAfter) =
+                CoreLib.swap(CORE, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, value);
         } else {
             (delta0, delta1, stateAfter) = abi.decode(
                 CORE.forward(MEV_CAPTURE, abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
                 (int128, int128, PoolState)
             );
             if (value != 0) {
-                SafeTransferLib.safeTransferETH(address(CORE), value);
+                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), value);
             }
         }
     }

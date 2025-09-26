@@ -104,6 +104,7 @@ library CoreLib {
     /// @param isToken1 True if swapping token1, false if swapping token0
     /// @param sqrtRatioLimit Price limit for the swap
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param value Native token value to send with the call
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance
     /// @return stateAfter The pool state after the swap
@@ -113,7 +114,8 @@ library CoreLib {
         int128 amount,
         bool isToken1,
         SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
+        uint256 skipAhead,
+        uint256 value
     ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         bytes memory data = abi.encodePacked(
             bytes4(0x00000000), // dummy selector, ignored by fallback
@@ -122,11 +124,11 @@ library CoreLib {
             poolKey.config, // 32 bytes (contains extension, fee, tick spacing)
             amount, // 16 bytes (int128)
             isToken1, // 1 byte
-            sqrtRatioLimit, // 12 bytes (uint96)
+            SqrtRatio.unwrap(sqrtRatioLimit), // 12 bytes (uint96)
             skipAhead // 32 bytes
         );
 
-        (bool success, bytes memory result) = address(core).call(data);
+        (bool success, bytes memory result) = address(core).call{value: value}(data);
         if (!success) {
             // Re-throw the revert reason
             assembly ("memory-safe") {
@@ -141,7 +143,49 @@ library CoreLib {
         }
     }
 
+    /// @notice Executes a swap with all parameters specified (no value)
+    /// @dev Calls the core contract's fallback function with custom encoding
+    /// @param core The core contract instance
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param sqrtRatioLimit Price limit for the swap
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
+    /// @return stateAfter The pool state after the swap
+    function swap(
+        ICore core,
+        PoolKey memory poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+        return swap(core, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, 0);
+    }
+
     /// @notice Executes a swap with automatic sqrtRatioLimit based on swap direction
+    /// @dev sqrtRatioLimit is set to MIN_SQRT_RATIO or MAX_SQRT_RATIO based on price direction
+    /// @param core The core contract instance
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param value Native token value to send with the call
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
+    /// @return stateAfter The pool state after the swap
+    function swap(ICore core, PoolKey memory poolKey, int128 amount, bool isToken1, uint256 skipAhead, uint256 value)
+        internal
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+    {
+        bool increasing = isPriceIncreasing(amount, isToken1);
+        SqrtRatio sqrtRatioLimit = increasing ? MAX_SQRT_RATIO : MIN_SQRT_RATIO;
+        return swap(core, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, value);
+    }
+
+    /// @notice Executes a swap with automatic sqrtRatioLimit based on swap direction (no value)
     /// @dev sqrtRatioLimit is set to MIN_SQRT_RATIO or MAX_SQRT_RATIO based on price direction
     /// @param core The core contract instance
     /// @param poolKey Pool key identifying the pool
@@ -155,12 +199,10 @@ library CoreLib {
         internal
         returns (int128 delta0, int128 delta1, PoolState stateAfter)
     {
-        bool increasing = isPriceIncreasing(amount, isToken1);
-        SqrtRatio sqrtRatioLimit = increasing ? MAX_SQRT_RATIO : MIN_SQRT_RATIO;
-        return swap(core, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        return swap(core, poolKey, amount, isToken1, skipAhead, 0);
     }
 
-    /// @notice Executes a swap with automatic sqrtRatioLimit and skipAhead = 0
+    /// @notice Executes a swap with automatic sqrtRatioLimit and skipAhead = 0 (no value)
     /// @dev sqrtRatioLimit is set to MIN_SQRT_RATIO or MAX_SQRT_RATIO based on price direction
     /// @param core The core contract instance
     /// @param poolKey Pool key identifying the pool
@@ -173,6 +215,6 @@ library CoreLib {
         internal
         returns (int128 delta0, int128 delta1, PoolState stateAfter)
     {
-        return swap(core, poolKey, amount, isToken1, 0);
+        return swap(core, poolKey, amount, isToken1, 0, 0);
     }
 }

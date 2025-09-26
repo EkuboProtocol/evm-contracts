@@ -452,8 +452,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @notice Fallback function that handles swap operations with custom encoding
     /// @dev Uses custom encoding to save gas compared to standard ABI encoding
     fallback() external payable {
-        // Only handle swap calls in fallback
-        if (msg.data.length < 4) revert();
+        // Only handle swap calls in fallback - expect exactly 137 bytes (4 + 20 + 20 + 32 + 16 + 1 + 12 + 32)
+        if (msg.data.length != 137) revert();
 
         // Custom encoding format (tightly packed):
         // bytes4 selector (can be anything, we ignore it)
@@ -470,6 +470,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         uint256 skipAhead;
 
         assembly ("memory-safe") {
+            // Allocate memory for poolKey (96 bytes: 32 + 32 + 32)
+            poolKey := mload(0x40)
+            mstore(0x40, add(poolKey, 96))
+
             // Skip 4-byte selector, start reading from offset 4
             let dataPtr := 4
 
@@ -479,7 +483,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             mstore(add(poolKey, 0x40), calldataload(add(dataPtr, 40))) // config (32 bytes)
 
             // Read remaining parameters
-            amount := signextend(15, calldataload(add(dataPtr, 72))) // int128 amount (16 bytes)
+            amount := signextend(15, shr(128, calldataload(add(dataPtr, 72)))) // int128 amount (16 bytes, high bits)
             isToken1 := byte(0, calldataload(add(dataPtr, 88))) // bool isToken1 (1 byte)
             sqrtRatioLimit := shr(160, calldataload(add(dataPtr, 89))) // SqrtRatio (12 bytes)
             skipAhead := calldataload(add(dataPtr, 101)) // uint256 skipAhead (32 bytes)

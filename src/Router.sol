@@ -111,11 +111,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal virtual returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        // Handle native token payment by updating debt before swap
-        if (value > 0) {
-            CORE.updateSavedBalances{value: value}(address(0), address(0), bytes32(0), 0, 0);
-        }
-        (delta0, delta1, stateAfter) = CoreLib.swap(CORE, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        (delta0, delta1, stateAfter) = CoreLib.swap(CORE, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, value);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {

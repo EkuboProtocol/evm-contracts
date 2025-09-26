@@ -139,8 +139,8 @@ library CoreLib {
                 revert(data, returndatasize())
             }
 
-            delta0 := signextend(15, mload(data))
-            delta1 := signextend(15, mload(add(32, data)))
+            delta0 := mload(data)
+            delta1 := mload(add(32, data))
             stateAfter := mload(add(64, data))
         }
     }

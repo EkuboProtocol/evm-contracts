@@ -450,13 +450,30 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function swap_611415377(
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+    function swap_qmsxprhfximjaaaa() external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+        PoolKey memory poolKey;
+        int128 amount;
+        bool isToken1;
+        SqrtRatio sqrtRatioLimit;
+        uint256 skipAhead;
+
+        assembly ("memory-safe") {
+            poolKey := mload(0x40)
+            mstore(0x40, add(poolKey, 96))
+
+            // Read PoolKey components (72 bytes total)
+            mstore(poolKey, shr(96, calldataload(4))) // token0 (20 bytes)
+            mstore(add(poolKey, 0x20), shr(96, calldataload(24))) // token1 (20 bytes)
+            mstore(add(poolKey, 0x40), calldataload(44)) // config (32 bytes)
+
+            // Read remaining parameters from the packed tail word
+            let tailWord := calldataload(76)
+            amount := signextend(15, shr(128, tailWord)) // int128 amount (16 bytes, high bits)
+            isToken1 := and(shr(120, tailWord), 1) // bool isToken1 (1 byte)
+            sqrtRatioLimit := and(shr(24, tailWord), 0xFFFFFFFFFFFFFFFFFFFFFFFF) // SqrtRatio (12 bytes)
+            skipAhead := and(tailWord, 0xFFFFFF) // skipAhead (3 bytes, low bits)
+        }
+
         if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
         (uint256 id, address lockerAddr) = _requireLocker().parse();

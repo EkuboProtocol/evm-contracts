@@ -9,6 +9,8 @@ import {Position} from "../types/position.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
 import {PoolId} from "../types/poolId.sol";
+import {PoolKey} from "../types/poolKey.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 /// @title Core Library
 /// @notice Library providing common storage getters for external contracts
@@ -91,5 +93,55 @@ library CoreLib {
         liquidityDelta = int128(uint128(uint256(data)));
         // takes only most significant 128 bits
         liquidityNet = uint128(bytes16(data));
+    }
+
+    /// @param core The core contract to call swap on
+    /// @param poolKey Pool key identifying the pool
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param sqrtRatioLimit Price limit for the swap
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    function swap(
+        ICore core,
+        uint256 value,
+        PoolKey memory poolKey,
+        int128 amount,
+        bool isToken1,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+        assembly ("memory-safe") {
+            // Allocate memory for calldata (108 bytes total)
+            let data := mload(0x40)
+
+            // Pack the data manually
+            mstore(data, 0) // selector (4 bytes of zeros)
+            mstore(add(data, 4), shl(96, mload(poolKey))) // token0 (20 bytes)
+            mstore(add(data, 24), shl(96, mload(add(poolKey, 32)))) // token1 (20 bytes)
+            mstore(add(data, 44), mload(add(poolKey, 64))) // config (32 bytes)
+
+            // Pack the tail word (offset 76-107): amount(16) + isToken1(1) + sqrtRatioLimit(12) + skipAhead(3)
+            let tailWord :=
+                or(
+                    shl(128, amount), // amount in high 16 bytes (128 bits)
+                    or(
+                        shl(120, isToken1), // isToken1 in next byte (120 bits from right)
+                        or(
+                            shl(24, sqrtRatioLimit), // sqrtRatioLimit in next 12 bytes (24 bits from right)
+                            and(skipAhead, 0xFFFFFF) // skipAhead in low 3 bytes
+                        )
+                    )
+                )
+            mstore(add(data, 76), tailWord)
+
+            if iszero(call(gas(), core, value, data, 108, data, 96)) {
+                returndatacopy(data, 0, returndatasize())
+                revert(data, returndatasize())
+            }
+
+            delta0 := signextend(15, mload(data))
+            delta1 := signextend(15, mload(add(32, data)))
+            stateAfter := mload(add(64, data))
+        }
     }
 }

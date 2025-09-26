@@ -135,10 +135,20 @@ library CoreLib {
             mstore(add(dataPtr, 4), shl(96, mload(poolKey))) // token0 (20 bytes)
             mstore(add(dataPtr, 24), shl(96, mload(add(poolKey, 32)))) // token1 (20 bytes)
             mstore(add(dataPtr, 44), mload(add(poolKey, 64))) // config (32 bytes)
-            mstore(add(dataPtr, 76), shl(128, amount)) // amount (16 bytes, high bits)
-            mstore8(add(dataPtr, 92), isToken1) // isToken1 (1 byte)
-            mstore(add(dataPtr, 89), shl(160, sqrtRatioLimitRaw)) // sqrtRatioLimit (12 bytes) - store at 89 so it's at offset 93 after shift
-            mstore(add(dataPtr, 105), shl(232, skipAhead)) // skipAhead (3 bytes, high bits)
+
+            // Pack the tail word (offset 76-107): amount(16) + isToken1(1) + sqrtRatioLimit(12) + skipAhead(3)
+            let tailWord :=
+                or(
+                    shl(128, amount), // amount in high 16 bytes (128 bits)
+                    or(
+                        shl(120, isToken1), // isToken1 in next byte (120 bits from right)
+                        or(
+                            shl(24, sqrtRatioLimitRaw), // sqrtRatioLimit in next 12 bytes (24 bits from right)
+                            and(skipAhead, 0xFFFFFF) // skipAhead in low 3 bytes
+                        )
+                    )
+                )
+            mstore(add(dataPtr, 76), tailWord)
         }
 
         (bool success, bytes memory result) = address(core).call{value: value}(data);

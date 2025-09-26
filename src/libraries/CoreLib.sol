@@ -117,16 +117,29 @@ library CoreLib {
         uint256 skipAhead,
         uint256 value
     ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        bytes memory data = abi.encodePacked(
-            ICore.swap_qmsxprhfximjaaaa.selector, // swap selector is 0
-            poolKey.token0, // 20 bytes
-            poolKey.token1, // 20 bytes
-            poolKey.config, // 32 bytes (contains extension, fee, tick spacing)
-            amount, // 16 bytes (int128)
-            isToken1, // 1 byte
-            SqrtRatio.unwrap(sqrtRatioLimit), // 12 bytes (uint96)
-            uint24(skipAhead) // 3 bytes
-        );
+        bytes memory data;
+        uint96 sqrtRatioLimitRaw = SqrtRatio.unwrap(sqrtRatioLimit);
+
+        assembly ("memory-safe") {
+            // Allocate memory for calldata (108 bytes total)
+            data := mload(0x40)
+            mstore(0x40, add(data, 140)) // 32 (length) + 108 (data) = 140
+
+            // Set length
+            mstore(data, 108)
+
+            let dataPtr := add(data, 32)
+
+            // Pack the data manually
+            mstore(dataPtr, 0) // selector (4 bytes of zeros)
+            mstore(add(dataPtr, 4), shl(96, mload(poolKey))) // token0 (20 bytes)
+            mstore(add(dataPtr, 24), shl(96, mload(add(poolKey, 32)))) // token1 (20 bytes)
+            mstore(add(dataPtr, 44), mload(add(poolKey, 64))) // config (32 bytes)
+            mstore(add(dataPtr, 76), shl(128, amount)) // amount (16 bytes, high bits)
+            mstore8(add(dataPtr, 92), isToken1) // isToken1 (1 byte)
+            mstore(add(dataPtr, 93), shl(160, sqrtRatioLimitRaw)) // sqrtRatioLimit (12 bytes, high bits)
+            mstore(add(dataPtr, 105), shl(232, skipAhead)) // skipAhead (3 bytes, high bits)
+        }
 
         (bool success, bytes memory result) = address(core).call{value: value}(data);
         if (!success) {

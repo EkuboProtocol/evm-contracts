@@ -32,7 +32,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
         BaseOrdersTest.setUp();
         address deployAddress = address(uint160(sniperNoSnipingCallPoints().toUint8()) << 152);
         uint256 orderDurationMagnitude = 4;
-        uint128 tokenTotalSupply = 1_000_000e18;
+        uint128 tokenTotalSupply = 69_420_000e18;
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
         uint32 tickSpacing = 1000;
         deployCodeTo(

@@ -37,7 +37,7 @@ contract MEVCaptureRouter is Router {
                 (int128, int128, PoolState)
             );
             if (value != 0) {
-                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), value);
+                SafeTransferLib.safeTransferETH(address(CORE), value);
             }
         }
     }

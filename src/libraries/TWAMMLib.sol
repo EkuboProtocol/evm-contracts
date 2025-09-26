@@ -141,14 +141,8 @@ library TWAMMLib {
         internal
         returns (int256 amount)
     {
-        bytes memory result = core.forward(
-            address(twamm),
-            abi.encode(
-                uint256(0), ITWAMM.UpdateSaleRateParams({salt: salt, orderKey: orderKey, saleRateDelta: saleRateDelta})
-            )
-        );
-
-        amount = abi.decode(result, (int256));
+        amount =
+            abi.decode(core.forward(address(twamm), abi.encode(uint256(0), salt, orderKey, saleRateDelta)), (int256));
     }
 
     /// @notice Collects proceeds from a TWAMM order using FlashAccountantLib.forward
@@ -162,10 +156,6 @@ library TWAMMLib {
         internal
         returns (uint128 proceeds)
     {
-        bytes memory result = core.forward(
-            address(twamm), abi.encode(uint256(1), ITWAMM.CollectProceedsParams({salt: salt, orderKey: orderKey}))
-        );
-
-        proceeds = abi.decode(result, (uint128));
+        proceeds = abi.decode(core.forward(address(twamm), abi.encode(uint256(1), salt, orderKey)), (uint128));
     }
 }

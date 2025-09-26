@@ -460,7 +460,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         PoolKey memory poolKey;
         int128 amount;
         bool isToken1;
-        SqrtRatio sqrtRatioLimit;
+        uint96 sqrtRatioLimitRaw;
         uint256 skipAhead;
 
         assembly ("memory-safe") {
@@ -476,12 +476,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             let tailWord := calldataload(76)
             amount := signextend(15, shr(128, tailWord)) // int128 amount (16 bytes, high bits)
             isToken1 := and(shr(120, tailWord), 1) // bool isToken1 (1 byte)
-            sqrtRatioLimit := and(shr(24, tailWord), 0xFFFFFFFFFFFFFFFFFFFFFFFF) // SqrtRatio (12 bytes)
+            sqrtRatioLimitRaw := and(shr(24, tailWord), 0xFFFFFFFFFFFFFFFFFFFFFFFF) // SqrtRatio (12 bytes)
             skipAhead := and(tailWord, 0xFFFFFF) // skipAhead (3 bytes, low bits)
         }
 
         (int128 delta0, int128 delta1, PoolState stateAfter) =
-            _executeSwap(poolKey, amount, isToken1, SqrtRatio.wrap(sqrtRatioLimit), skipAhead);
+            _executeSwap(poolKey, amount, isToken1, SqrtRatio.wrap(sqrtRatioLimitRaw), skipAhead);
 
         // Return the results using assembly for gas efficiency
         assembly ("memory-safe") {

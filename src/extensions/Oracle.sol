@@ -233,7 +233,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     /// @dev Searches the logical range [min, maxExclusive) for the latest snapshot with timestamp <= time.
     ///      See logicalIndexToStorageIndex for an explanation of logical indices.
     ///      We make the assumption that all snapshots for the token were written within (2**32 - 1) seconds of the current block timestamp
-    /// @param c The counts struct containing snapshot metadata
+    /// @param c The counts containing metadata about the snapshots array
     /// @param token The token address to search snapshots for
     /// @param time The target timestamp to search for
     /// @param logicalMin The minimum logical index to search from
@@ -300,7 +300,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @notice Computes cumulative values at a given time by extrapolating from a previous snapshot
     /// @dev Uses linear interpolation between snapshots or current pool state for extrapolation
-    /// @param c The counts struct containing snapshot metadata
+    /// @param c The counts containing metadata about the snapshots array
     /// @param token The token address to extrapolate for
     /// @param atTime The timestamp to extrapolate to
     /// @param logicalIndex The logical index of the base snapshot

@@ -94,7 +94,7 @@ contract Actor is BaseLocker, BaseForwardee {
                 emit EventAction(a.data);
             } else if (a.kind == 6) {
                 (address forwardee, Action[] memory nestedActions) = abi.decode(a.data, (address, Action[]));
-                results[i] = forward(forwardee, abi.encode(nestedActions));
+                results[i] = FlashAccountantLib.forward(ACCOUNTANT, forwardee, abi.encode(nestedActions));
             } else {
                 revert("unrecognized");
             }

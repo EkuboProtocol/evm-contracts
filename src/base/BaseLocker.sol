@@ -110,43 +110,6 @@ abstract contract BaseLocker is ILocker {
         }
     }
 
-    /// @notice Forwards a call to another contract through the accountant
-    /// @dev Used to call other contracts while maintaining the lock context
-    /// @param to The address to forward the call to
-    /// @param data The call data to forward
-    /// @return result The result of the forwarded call
-    function forward(address to, bytes memory data) internal returns (bytes memory result) {
-        address target = address(ACCOUNTANT);
-
-        assembly ("memory-safe") {
-            // We will store result where the free memory pointer is now, ...
-            result := mload(0x40)
-
-            // But first use it to store the calldata
-
-            // Selector of forward(address)
-            mstore(result, shl(224, 0x101e8952))
-            mstore(add(result, 4), to)
-
-            // We only copy the data, not the length, because the length is read from the calldata size
-            let len := mload(data)
-            mcopy(add(result, 36), add(data, 32), len)
-
-            // If the call failed, pass through the revert
-            if iszero(call(gas(), target, 0, result, add(36, len), 0, 0)) {
-                returndatacopy(result, 0, returndatasize())
-                revert(result, returndatasize())
-            }
-
-            // Copy the entire return data into the space where the result is pointing
-            mstore(result, returndatasize())
-            returndatacopy(add(result, 32), 0, returndatasize())
-
-            // Update the free memory pointer to be after the end of the data, aligned to the next 32 byte word
-            mstore(0x40, and(add(add(result, add(32, returndatasize())), 31), not(31)))
-        }
-    }
-
     /// @notice Handles the execution of lock data
     /// @dev Must be implemented by derived contracts to define lock behavior
     /// @param id The lock ID

@@ -22,6 +22,10 @@ contract CoreTest is FullTest {
         }
     }
 
+    function test_swap_function_selector() public pure {
+        assertEq(ICore.swap_611415377.selector, bytes4(0));
+    }
+
     function test_registerExtension(uint8 b) public {
         b = uint8(bound(b, 1, type(uint8).max));
 

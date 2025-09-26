@@ -5,12 +5,11 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
-import {PoolKey} from "./types/poolKey.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {OrderKey} from "./types/orderKey.sol";
-import {computeSaleRate, computeAmountFromSaleRate, computeRewardAmount} from "./math/twamm.sol";
+import {computeSaleRate} from "./math/twamm.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -116,56 +115,8 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
-        unchecked {
-            PoolKey memory poolKey = orderKey.toPoolKey(address(TWAMM_EXTENSION));
-            TWAMM_EXTENSION.lockAndExecuteVirtualOrders(poolKey);
-
-            uint32 lastUpdateTime;
-            bytes32 orderId = orderKey.toOrderId();
-
-            (lastUpdateTime, saleRate, amountSold) =
-                TWAMM_EXTENSION.orderState(address(this), bytes32(id), orderId).parse();
-
-            uint256 rewardRateSnapshot = TWAMM_EXTENSION.rewardRateSnapshot(address(this), bytes32(id), orderId);
-
-            if (saleRate != 0) {
-                uint256 rewardRateInside = TWAMM_EXTENSION.getRewardRateInside(
-                    poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
-                );
-
-                purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
-
-                if (block.timestamp > orderKey.startTime) {
-                    uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
-
-                    uint32 secondsSinceOrderStart = uint32(block.timestamp - orderKey.startTime);
-
-                    uint32 totalOrderDuration = uint32(orderKey.endTime - orderKey.startTime);
-
-                    uint32 remainingTimeSinceLastUpdate = uint32(orderKey.endTime) - lastUpdateTime;
-
-                    uint32 saleDuration = uint32(
-                        FixedPointMathLib.min(
-                            remainingTimeSinceLastUpdate,
-                            FixedPointMathLib.min(
-                                FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
-                                totalOrderDuration
-                            )
-                        )
-                    );
-
-                    amountSold +=
-                        computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false});
-                }
-                if (block.timestamp < orderKey.endTime) {
-                    remainingSellAmount = computeAmountFromSaleRate({
-                        saleRate: saleRate,
-                        duration: uint32(orderKey.endTime - FixedPointMathLib.max(orderKey.startTime, block.timestamp)),
-                        roundUp: true
-                    });
-                }
-            }
-        }
+        (saleRate, amountSold, remainingSellAmount, purchasedAmount) =
+            TWAMM_EXTENSION.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(id), orderKey);
     }
 
     /// @notice Handles lock callback data for order operations
@@ -178,20 +129,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             (, address recipientOrPayer, uint256 id, OrderKey memory orderKey, int256 saleRateDelta) =
                 abi.decode(data, (bytes1, address, uint256, OrderKey, int256));
 
-            int256 amount = abi.decode(
-                forward(
-                    address(TWAMM_EXTENSION),
-                    abi.encode(
-                        uint256(0),
-                        ITWAMM.UpdateSaleRateParams({
-                            salt: bytes32(id),
-                            orderKey: orderKey,
-                            saleRateDelta: int112(saleRateDelta)
-                        })
-                    )
-                ),
-                (int256)
-            );
+            int256 amount = CORE.updateSaleRate(TWAMM_EXTENSION, bytes32(id), orderKey, int112(saleRateDelta));
 
             if (amount != 0) {
                 if (saleRateDelta > 0) {
@@ -213,13 +151,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             (, uint256 id, OrderKey memory orderKey, address recipient) =
                 abi.decode(data, (bytes1, uint256, OrderKey, address));
 
-            uint128 proceeds = abi.decode(
-                forward(
-                    address(TWAMM_EXTENSION),
-                    abi.encode(uint256(1), ITWAMM.CollectProceedsParams({salt: bytes32(id), orderKey: orderKey}))
-                ),
-                (uint128)
-            );
+            uint128 proceeds = CORE.collectProceeds(TWAMM_EXTENSION, bytes32(id), orderKey);
 
             if (proceeds != 0) {
                 ACCOUNTANT.withdraw(orderKey.buyToken, recipient, proceeds);

@@ -88,6 +88,9 @@ contract SniperNoSniping is BaseExtension, BaseLocker {
     /// @dev The min usable tick, based on tick spacing, for adding liquidity
     int32 public immutable MIN_USABLE_TICK;
 
+    /// @dev The sale rate of the order that is created for launches
+    int112 public immutable ORDER_SALE_RATE;
+
     /// @notice The name or symbol of the token is invalid. Both must be 7-bit ASCII and less than 32 bytes in length.
     error InvalidNameOrSymbol();
     /// @notice The sale is still ongoing so graduation is not allowed
@@ -122,6 +125,8 @@ contract SniperNoSniping is BaseExtension, BaseLocker {
         if ((uint256(tokenTotalSupply) << 32) / ORDER_DURATION > MAX_ABS_VALUE_SALE_RATE_DELTA) {
             revert SaleRateTooLarge();
         }
+
+        ORDER_SALE_RATE = int112(int256((uint256(TOKEN_TOTAL_SUPPLY) << 32) / (2 * ORDER_DURATION)));
 
         MIN_LEAD_TIME = ORDER_DURATION / 2;
         TOKEN_TOTAL_SUPPLY = tokenTotalSupply;
@@ -233,26 +238,18 @@ contract SniperNoSniping is BaseExtension, BaseLocker {
             // The initial tick does not matter since we do not add liquidity
             CORE.initializePool(twammPoolKey, 0);
 
-            (int256 amountDelta) = abi.decode(
-                CORE.forward(
-                    address(TWAMM),
-                    abi.encode(
-                        uint256(0),
-                        ITWAMM.UpdateSaleRateParams({
-                            salt: bytes32(0),
-                            orderKey: OrderKey({
-                                sellToken: address(token),
-                                buyToken: NATIVE_TOKEN_ADDRESS,
-                                fee: POOL_FEE,
-                                startTime: startTime,
-                                endTime: endTime
-                            }),
-                            saleRateDelta: int112(int256((uint256(TOKEN_TOTAL_SUPPLY) << 32) / (2 * ORDER_DURATION)))
-                        })
-                    )
-                ),
-                (int256)
-            );
+            int256 amountDelta = CORE.updateSaleRate({
+                twamm: TWAMM,
+                salt: bytes32(0),
+                orderKey: OrderKey({
+                    sellToken: address(token),
+                    buyToken: NATIVE_TOKEN_ADDRESS,
+                    fee: POOL_FEE,
+                    startTime: startTime,
+                    endTime: endTime
+                }),
+                saleRateDelta: ORDER_SALE_RATE
+            });
 
             // save the rest for creating the liquidity position later
             CORE.updateSavedBalances(

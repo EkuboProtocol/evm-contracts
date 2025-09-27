@@ -108,12 +108,14 @@ contract ERC7726Test is BaseOracleTest {
     }
 
     function test_getQuote_same_token() public {
-        oracle.expandCapacity(address(usdc), 10);
-        createOraclePool(address(usdc), 0);
-        advanceTime(60);
-
-        // Same token should return the same amount
+        // Same token should return the same amount without needing oracle setup
         assertEq(erc.getQuote(1e18, address(usdc), address(usdc)), 1e18, "same token quote");
+        assertEq(erc.getQuote(5e17, address(wbtc), address(wbtc)), 5e17, "same token quote different amount");
+
+        // Test with standard addresses
+        assertEq(erc.getQuote(2e18, IERC7726_ETH_ADDRESS, IERC7726_ETH_ADDRESS), 2e18, "ETH to ETH");
+        assertEq(erc.getQuote(3e18, IERC7726_USD_ADDRESS, IERC7726_USD_ADDRESS), 3e18, "USD to USD");
+        assertEq(erc.getQuote(4e18, IERC7726_BTC_ADDRESS, IERC7726_BTC_ADDRESS), 4e18, "BTC to BTC");
     }
 
     function test_getQuote_standard_addresses() public {

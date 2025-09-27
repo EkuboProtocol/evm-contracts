@@ -155,6 +155,11 @@ contract ERC7726 is IERC7726 {
         address normalizedBase = normalizeAddress(base);
         address normalizedQuote = normalizeAddress(quote);
 
+        // Short-circuit same-token quotes to avoid unnecessary oracle calls and math
+        if (normalizedBase == normalizedQuote) {
+            return baseAmount;
+        }
+
         int32 tick = getAverageTick({baseToken: normalizedBase, quoteToken: normalizedQuote});
 
         uint256 sqrtRatio = tickToSqrtRatio(tick).toFixed();

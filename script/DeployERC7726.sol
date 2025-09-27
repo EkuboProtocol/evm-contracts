@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
-import {Oracle} from "../src/extensions/Oracle.sol";
+import {IOracle} from "../src/interfaces/extensions/IOracle.sol";
 import {ERC7726} from "../src/lens/ERC7726.sol";
 
 /// @title ERC-7726 Oracle Deployment Script
@@ -34,13 +34,17 @@ contract DeployERC7726 is Script {
     uint32 private constant DEFAULT_TWAP_DURATION = 60;
 
     /// @notice Emitted when the ERC7726 oracle is successfully deployed
-    /// @param oracle The deployed ERC7726 contract address
+    /// @param erc7726Oracle The deployed ERC7726 contract address
     /// @param oracleExtension The Ekubo Oracle extension address used
     /// @param usdProxy The USD proxy token address
     /// @param btcProxy The BTC proxy token address
     /// @param twapDuration The TWAP duration in seconds
     event ERC7726Deployed(
-        address indexed oracle, address indexed oracleExtension, address usdProxy, address btcProxy, uint32 twapDuration
+        address indexed erc7726Oracle,
+        address indexed oracleExtension,
+        address usdProxy,
+        address btcProxy,
+        uint32 twapDuration
     );
 
     /// @notice Main deployment function
@@ -50,7 +54,7 @@ contract DeployERC7726 is Script {
         require(block.chainid == 1, "DeployERC7726: Mainnet only");
 
         // Load configuration from environment variables with fallback defaults
-        Oracle oracle = Oracle(vm.envOr("ORACLE_ADDRESS", DEFAULT_ORACLE_ADDRESS));
+        IOracle oracle = IOracle(vm.envOr("ORACLE_ADDRESS", DEFAULT_ORACLE_ADDRESS));
         uint32 twapDuration = uint32(vm.envOr("TWAP_DURATION", uint256(DEFAULT_TWAP_DURATION)));
         address usdProxyToken = vm.envOr("USD_PROXY_TOKEN", DEFAULT_USD_PROXY_TOKEN);
         address btcProxyToken = vm.envOr("BTC_PROXY_TOKEN", DEFAULT_BTC_PROXY_TOKEN);

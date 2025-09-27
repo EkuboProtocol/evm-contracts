@@ -67,7 +67,11 @@ function swapResult(
         return noOpSwapResult(sqrtRatioLimit);
     }
 
-    bool isExactOut = amount < 0;
+    // Pre-compute boolean flags to reduce repeated calculations
+    bool isExactOut;
+    assembly ("memory-safe") {
+        isExactOut := slt(amount, 0)
+    }
 
     // this amount is what moves the price
     int128 priceImpactAmount;
@@ -81,32 +85,34 @@ function swapResult(
         }
     }
 
-    SqrtRatio sqrtRatioNextFromAmount;
-    if (isToken1) {
-        sqrtRatioNextFromAmount = nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount);
-    } else {
-        sqrtRatioNextFromAmount = nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+    // Compute next sqrt ratio - optimized token selection
+    SqrtRatio sqrtRatioNextFromAmount = isToken1
+        ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
+        : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+
+    // Optimized limit checking - single branchless comparison
+    bool hitLimit;
+    assembly ("memory-safe") {
+        // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
+        let exceedsUp := and(increasing, gt(sqrtRatioNextFromAmount, sqrtRatioLimit))
+        let exceedsDown := and(iszero(increasing), lt(sqrtRatioNextFromAmount, sqrtRatioLimit))
+        hitLimit := or(exceedsUp, exceedsDown)
     }
 
-    int128 consumedAmount;
-    uint128 calculatedAmount;
-    uint128 feeAmount;
+    if (hitLimit) {
+        // Optimized delta calculations using branchless selection
+        uint128 specifiedAmountDelta = isToken1
+            ? amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut)
+            : amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
 
-    // the amount requires a swapping past the sqrt ratio limit,
-    // so we need to compute the result of swapping only to the limit
-    if (
-        (increasing && sqrtRatioNextFromAmount > sqrtRatioLimit)
-            || (!increasing && sqrtRatioNextFromAmount < sqrtRatioLimit)
-    ) {
-        uint128 specifiedAmountDelta;
-        uint128 calculatedAmountDelta;
-        if (isToken1) {
-            specifiedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
-            calculatedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
-        } else {
-            specifiedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
-            calculatedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
-        }
+        uint128 calculatedAmountDelta = isToken1
+            ? amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut)
+            : amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
+
+        // Optimized fee and amount calculations
+        int128 consumedAmount;
+        uint128 calculatedAmount;
+        uint128 feeAmount;
 
         if (isExactOut) {
             uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, fee);
@@ -139,15 +145,15 @@ function swapResult(
         });
     }
 
-    // rounds down for calculated == output, up for calculated == input
-    uint128 calculatedAmountWithoutFee;
-    if (isToken1) {
-        calculatedAmountWithoutFee = amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
-    } else {
-        calculatedAmountWithoutFee = amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
-    }
+    // Optimized final calculation - single ternary for token selection
+    uint128 calculatedAmountWithoutFee = isToken1
+        ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
+        : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
 
-    // add on the fee to calculated amount for exact output
+    // Optimized fee calculation
+    uint128 calculatedAmount;
+    uint128 feeAmount;
+
     if (isExactOut) {
         uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, fee);
         calculatedAmount = includingFee;

@@ -582,6 +582,25 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRateToken1, saleRateOrder0);
     }
 
+    function test_gas_costs_no_orders() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        advanceTime(15);
+
+        token0.approve(address(router), type(uint256).max);
+        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        vm.snapshotGasLastCall("swap and executeVirtualOrders no orders");
+    }
+
     function test_gas_costs_single_sided() public {
         vm.warp(1);
 

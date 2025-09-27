@@ -49,6 +49,18 @@ contract ERC7726Test is BaseOracleTest {
         erc.getQuote(0, address(usdc), address(wbtc));
     }
 
+    function test_getQuote_insufficient_history() public {
+        // Create a new oracle with a very long TWAP duration that exceeds block.timestamp
+        ERC7726 longTwapOracle = new ERC7726(oracle, address(usdc), address(wbtc), uint32(block.timestamp + 1));
+
+        oracle.expandCapacity(address(usdc), 10);
+        createOraclePool(address(usdc), 0);
+
+        // Should revert due to insufficient price history
+        vm.expectRevert(ERC7726.InsufficientPriceHistory.selector);
+        longTwapOracle.getQuote(1e18, address(usdc), address(0)); // ETH quote requires oracle call
+    }
+
     function test_getQuote() public {
         oracle.expandCapacity(address(usdc), 10);
         oracle.expandCapacity(address(wbtc), 10);

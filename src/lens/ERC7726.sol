@@ -51,6 +51,9 @@ contract ERC7726 is IERC7726 {
     /// @notice Thrown when a zero base amount is provided to getQuote
     error ZeroBaseAmount();
 
+    /// @notice Thrown when insufficient price history exists for the requested TWAP duration
+    error InsufficientPriceHistory();
+
     /// @notice The Ekubo Oracle extension contract used for price data
     /// @dev This oracle records price and liquidity snapshots for manipulation-resistant TWAP calculations
     IOracle public immutable ORACLE;
@@ -98,6 +101,11 @@ contract ERC7726 is IERC7726 {
             if (baseIsOracleToken || quoteToken == NATIVE_TOKEN_ADDRESS) {
                 (int32 tickSign, address otherToken) =
                     baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
+
+                // Prevent timestamp underflow by checking if sufficient time has passed
+                if (block.timestamp < TWAP_DURATION) {
+                    revert InsufficientPriceHistory();
+                }
 
                 (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
                 (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);

@@ -16,7 +16,7 @@ import {ERC7726} from "../src/lens/ERC7726.sol";
 /// - TWAP_DURATION: Time window in seconds for TWAP calculations (default: 60 seconds)
 /// - USD_PROXY_TOKEN: Token address to use as USD proxy (default: USDC mainnet address)
 /// - BTC_PROXY_TOKEN: Token address to use as BTC proxy (default: WBTC mainnet address)
-/// - SALT: Salt for CREATE2 deployment (default: 0x0 for standard CREATE)
+/// - SALT: Salt for CREATE2 deployment (default: 0x0, always uses CREATE2)
 ///
 /// Usage:
 /// forge script script/DeployERC7726.sol:DeployERC7726 --rpc-url $RPC_URL --broadcast --verify

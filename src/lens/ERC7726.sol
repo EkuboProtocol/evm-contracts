@@ -7,39 +7,91 @@ import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 
+// Standard ERC-7726 address representing ETH in price queries
+// This is the canonical address defined in ERC-7726 for representing Ethereum
 address constant IERC7726_ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
+// Standard ERC-7726 address representing BTC in price queries
+// This is the canonical address defined in ERC-7726 for representing Bitcoin
 address constant IERC7726_BTC_ADDRESS = 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB;
+
+// Standard ERC-7726 address representing USD in price queries
+// This is the canonical address defined in ERC-7726 for representing US Dollar (ISO 4217 code 840)
 address constant IERC7726_USD_ADDRESS = address(840);
 
-/// @title ERC7726
-/// @notice Standard interface for price oracles
+/// @title ERC-7726 Standard Oracle Interface
+/// @notice Defines the standard interface for price oracles as specified in ERC-7726
+/// @dev This interface provides a unified way to query asset prices across different oracle implementations
 interface IERC7726 {
+    /// @notice Returns the quote amount for a given base amount and asset pair
+    /// @dev Implementations should handle standard ERC-7726 addresses (ETH, BTC, USD) appropriately
+    /// @param baseAmount The amount of the base asset to convert
+    /// @param base The address of the base asset (asset being converted from)
+    /// @param quote The address of the quote asset (asset being converted to)
+    /// @return quoteAmount The equivalent amount in the quote asset
     function getQuote(uint256 baseAmount, address base, address quote) external view returns (uint256 quoteAmount);
 }
 
-/// @title Ekubo ERC7726 Oracle Implementation
-/// @dev Implements the standard Oracle interface using data from the Ekubo Protocol Oracle extension
+/// @title Ekubo ERC-7726 Oracle Implementation
+/// @notice Implements the ERC-7726 standard oracle interface using time-weighted average prices from Ekubo Protocol
+/// @dev This contract provides manipulation-resistant price quotes by leveraging Ekubo's Oracle extension
+///      which records price and liquidity data into accumulators. The oracle supports direct queries for
+///      tokens paired with ETH, and cross-pair calculations for other token pairs.
+/// @author Ekubo Protocol
 contract ERC7726 is IERC7726 {
-    /// @notice The oracle contract that is queried for prices
+    /// @notice Thrown when an invalid oracle address is provided
+    error InvalidOracle();
+
+    /// @notice Thrown when an invalid proxy token address is provided
+    error InvalidProxyToken();
+
+    /// @notice Thrown when an invalid TWAP duration is provided
+    error InvalidTwapDuration();
+
+    /// @notice Thrown when a zero base amount is provided to getQuote
+    error ZeroBaseAmount();
+
+    /// @notice The Ekubo Oracle extension contract used for price data
+    /// @dev This oracle records price and liquidity snapshots for manipulation-resistant TWAP calculations
     IOracle public immutable ORACLE;
 
-    /// @notice The token whose price we query to represent USD
+    /// @notice The ERC-20 token used as a proxy to represent USD in price calculations
+    /// @dev Since the oracle only tracks token pairs with ETH, we use a USD-pegged token (e.g., USDC) as a proxy
     address public immutable USD_PROXY_TOKEN;
-    /// @notice The token whose price we query to represent BTC
+
+    /// @notice The ERC-20 token used as a proxy to represent BTC in price calculations
+    /// @dev Since the oracle only tracks token pairs with ETH, we use a BTC-pegged token (e.g., WBTC) as a proxy
     address public immutable BTC_PROXY_TOKEN;
 
-    /// @notice The amount of time over which we query to get the average price
+    /// @notice The time window in seconds over which to calculate time-weighted average prices
+    /// @dev Longer durations provide more manipulation resistance but less price responsiveness
     uint32 public immutable TWAP_DURATION;
 
+    /// @notice Constructs the ERC-7726 oracle with the specified parameters
+    /// @dev Validates all input parameters to ensure proper oracle functionality
+    /// @param oracle The Ekubo Oracle extension contract address
+    /// @param usdProxyToken The token address to use as a USD proxy (e.g., USDC)
+    /// @param btcProxyToken The token address to use as a BTC proxy (e.g., WBTC)
+    /// @param twapDuration The time window in seconds for TWAP calculations (must be > 0)
     constructor(IOracle oracle, address usdProxyToken, address btcProxyToken, uint32 twapDuration) {
+        if (address(oracle) == address(0)) revert InvalidOracle();
+        if (usdProxyToken == address(0)) revert InvalidProxyToken();
+        if (btcProxyToken == address(0)) revert InvalidProxyToken();
+        if (twapDuration == 0) revert InvalidTwapDuration();
+
         ORACLE = oracle;
         USD_PROXY_TOKEN = usdProxyToken;
         BTC_PROXY_TOKEN = btcProxyToken;
         TWAP_DURATION = twapDuration;
     }
 
-    /// @dev Returns the average tick for the given pair over the last `twapDuration` seconds
-    /// @dev The returned tick always represents the price in terms of quoteToken / baseToken
+    /// @notice Calculates the time-weighted average tick for a token pair over the specified duration
+    /// @dev The returned tick represents the logarithmic price ratio (quoteToken / baseToken)
+    ///      For pairs not directly tracked by the oracle, this function performs cross-pair calculations
+    ///      using ETH as an intermediary asset
+    /// @param baseToken The base token address (denominator in the price ratio)
+    /// @param quoteToken The quote token address (numerator in the price ratio)
+    /// @return tick The average tick over the TWAP duration, bounded by MIN_TICK and MAX_TICK
     function getAverageTick(address baseToken, address quoteToken) private view returns (int32 tick) {
         unchecked {
             bool baseIsOracleToken = baseToken == NATIVE_TOKEN_ADDRESS;
@@ -62,9 +114,15 @@ contract ERC7726 is IERC7726 {
         }
     }
 
-    /// @dev Because the oracle only knows about tokens, except for the native token ETH,
-    ///      we need to use tokens in place of USD, BTC. Since ETH is used directly in the protocol,
-    ///      an ETH proxy token is not needed, but Ekubo Protocol uses address 0 to represent ETH.
+    /// @notice Converts ERC-7726 standard addresses to their corresponding token addresses
+    /// @dev The Ekubo Oracle only tracks token pairs with ETH (represented as address(0) internally).
+    ///      This function maps standard ERC-7726 addresses to actual token addresses:
+    ///      - ETH address maps to NATIVE_TOKEN_ADDRESS (address(0))
+    ///      - BTC address maps to BTC_PROXY_TOKEN (e.g., WBTC)
+    ///      - USD address maps to USD_PROXY_TOKEN (e.g., USDC)
+    ///      - All other addresses pass through unchanged
+    /// @param addr The input address (may be an ERC-7726 standard address or regular token address)
+    /// @return The normalized token address for use with the Ekubo Oracle
     function normalizeAddress(address addr) private view returns (address) {
         if (addr == IERC7726_ETH_ADDRESS) {
             return NATIVE_TOKEN_ADDRESS;
@@ -79,8 +137,25 @@ contract ERC7726 is IERC7726 {
         return addr;
     }
 
+    /// @inheritdoc IERC7726
+    /// @dev Calculates the quote using time-weighted average price data from the Ekubo Oracle.
+    ///      The calculation process:
+    ///      1. Normalize ERC-7726 standard addresses to actual token addresses
+    ///      2. Calculate the average tick (log price) over the TWAP duration
+    ///      3. Convert tick to sqrt price ratio
+    ///      4. Square the sqrt ratio to get the actual price ratio
+    ///      5. Apply the price ratio to the base amount
+    /// @param baseAmount The amount of base asset to convert (must be > 0)
+    /// @param base The base asset address (supports ERC-7726 standard addresses)
+    /// @param quote The quote asset address (supports ERC-7726 standard addresses)
+    /// @return quoteAmount The equivalent amount in the quote asset
     function getQuote(uint256 baseAmount, address base, address quote) external view returns (uint256 quoteAmount) {
-        int32 tick = getAverageTick({baseToken: normalizeAddress(base), quoteToken: normalizeAddress(quote)});
+        if (baseAmount == 0) revert ZeroBaseAmount();
+
+        address normalizedBase = normalizeAddress(base);
+        address normalizedQuote = normalizeAddress(quote);
+
+        int32 tick = getAverageTick({baseToken: normalizedBase, quoteToken: normalizedQuote});
 
         uint256 sqrtRatio = tickToSqrtRatio(tick).toFixed();
 

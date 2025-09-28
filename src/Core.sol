@@ -25,9 +25,6 @@ import {computeFee, amountBeforeFee} from "./math/fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./math/delta.sol";
 
-/// @notice Thrown when the sqrt ratio limit is in the wrong direction for the swap
-error SqrtRatioLimitWrongDirection();
-
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Singleton contract holding all tokens and containing all possible operations in Ekubo Protocol

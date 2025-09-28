@@ -5,7 +5,6 @@ import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
-import {isPriceIncreasing, SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
@@ -22,6 +21,25 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 import {PoolId} from "./types/poolId.sol";
+import {computeFee, amountBeforeFee} from "./math/fee.sol";
+import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
+import {amount0Delta, amount1Delta} from "./math/delta.sol";
+
+/// @notice Result of a swap calculation
+/// @dev Contains all the information needed to execute a swap
+struct SwapResult {
+    /// @notice Amount of the input token consumed by the swap
+    int128 consumedAmount;
+    /// @notice Amount of the output token calculated from the swap
+    uint128 calculatedAmount;
+    /// @notice The new sqrt price ratio after the swap
+    SqrtRatio sqrtRatioNext;
+    /// @notice Amount of fees collected from the swap
+    uint128 feeAmount;
+}
+
+/// @notice Thrown when the sqrt ratio limit is in the wrong direction for the swap
+error SqrtRatioLimitWrongDirection();
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -449,6 +467,142 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(extension).maybeCallAfterCollectFees(lockerAddr, poolKey, positionId, amount0, amount1);
     }
 
+    /// @notice Inlined and optimized swap calculation
+    /// @dev Optimized to reduce branching to 4 cases based on isExactOut and isToken1 combinations
+    /// @param sqrtRatio Current sqrt price ratio of the pool
+    /// @param liquidity Current active liquidity in the pool
+    /// @param sqrtRatioLimit Price limit for the swap (prevents excessive slippage)
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param fee Fee rate for the pool (as a fraction of 2^64)
+    /// @return The calculated swap result including amounts and new price
+    function _inlineSwapResult(
+        SqrtRatio sqrtRatio,
+        uint128 liquidity,
+        SqrtRatio sqrtRatioLimit,
+        int128 amount,
+        bool isToken1,
+        uint64 fee
+    ) private pure returns (SwapResult memory) {
+        if (amount == 0 || sqrtRatio == sqrtRatioLimit) {
+            return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatio});
+        }
+
+        // Pre-compute boolean flags to reduce repeated calculations
+        bool isExactOut;
+        bool increasing;
+        assembly ("memory-safe") {
+            isExactOut := slt(amount, 0)
+            increasing := xor(isToken1, isExactOut)
+        }
+
+        // We know sqrtRatio != sqrtRatioLimit because we early return above if it is
+        if ((sqrtRatioLimit > sqrtRatio) != increasing) revert SqrtRatioLimitWrongDirection();
+
+        if (liquidity == 0) {
+            // if the pool is empty, the swap will always move all the way to the limit price
+            return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioLimit});
+        }
+
+        // this amount is what moves the price
+        int128 priceImpactAmount;
+        if (isExactOut) {
+            priceImpactAmount = amount;
+        } else {
+            unchecked {
+                // cast is safe because amount is g.t.e. 0
+                // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
+                priceImpactAmount = amount - int128(computeFee(uint128(amount), fee));
+            }
+        }
+
+        SqrtRatio sqrtRatioNextFromAmount = isToken1
+            ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
+            : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+
+        bool hitLimit;
+        assembly ("memory-safe") {
+            // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
+            let exceedsUp := and(increasing, gt(sqrtRatioNextFromAmount, sqrtRatioLimit))
+            let exceedsDown := and(iszero(increasing), lt(sqrtRatioNextFromAmount, sqrtRatioLimit))
+            hitLimit := or(exceedsUp, exceedsDown)
+        }
+
+        if (hitLimit) {
+            // Optimized branching: 4 cases based on isToken1 and isExactOut
+            uint128 specifiedAmountDelta;
+            uint128 calculatedAmountDelta;
+
+            if (isToken1) {
+                specifiedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
+                calculatedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
+            } else {
+                specifiedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
+                calculatedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
+            }
+
+            int128 consumedAmount;
+            uint128 calculatedAmountResult;
+            uint128 feeAmountResult;
+
+            if (isExactOut) {
+                uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, fee);
+                consumedAmount = -SafeCastLib.toInt128(specifiedAmountDelta);
+                calculatedAmountResult = beforeFee;
+                feeAmountResult = beforeFee - calculatedAmountDelta;
+            } else {
+                uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, fee);
+                consumedAmount = SafeCastLib.toInt128(beforeFee);
+                calculatedAmountResult = calculatedAmountDelta;
+                feeAmountResult = beforeFee - specifiedAmountDelta;
+            }
+
+            return SwapResult({
+                consumedAmount: consumedAmount,
+                calculatedAmount: calculatedAmountResult,
+                sqrtRatioNext: sqrtRatioLimit,
+                feeAmount: feeAmountResult
+            });
+        }
+
+        if (sqrtRatioNextFromAmount == sqrtRatio) {
+            // for an exact output swap, the price should always move because we have to round away from the current price
+            // or else the pool can leak value
+            assert(!isExactOut);
+
+            return SwapResult({
+                consumedAmount: amount,
+                calculatedAmount: 0,
+                sqrtRatioNext: sqrtRatio,
+                // consume the entire input amount as fees since the price did not move
+                feeAmount: uint128(amount)
+            });
+        }
+
+        uint128 calculatedAmountWithoutFee = isToken1
+            ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
+            : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+
+        uint128 finalCalculatedAmount;
+        uint128 finalFeeAmount;
+
+        if (isExactOut) {
+            uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, fee);
+            finalCalculatedAmount = includingFee;
+            finalFeeAmount = includingFee - calculatedAmountWithoutFee;
+        } else {
+            finalCalculatedAmount = calculatedAmountWithoutFee;
+            finalFeeAmount = uint128(amount - priceImpactAmount);
+        }
+
+        return SwapResult({
+            consumedAmount: amount,
+            calculatedAmount: finalCalculatedAmount,
+            sqrtRatioNext: sqrtRatioNextFromAmount,
+            feeAmount: finalFeeAmount
+        });
+    }
+
     /// @inheritdoc ICore
     function swap_611415377(
         PoolKey memory poolKey,
@@ -472,16 +626,21 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         // 0 swap amount is no-op
         if (amount != 0) {
-            bool increasing = isPriceIncreasing(amount, isToken1);
-            if (increasing) {
-                if (sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
-            } else {
-                if (sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
+            // Pre-compute swap direction and exact out flag to reduce repeated calculations
+            bool isExactOut;
+            bool increasing;
+            assembly ("memory-safe") {
+                isExactOut := slt(amount, 0)
+                increasing := xor(isToken1, isExactOut)
             }
 
-            int128 amountRemaining = amount;
+            // Single direction check at the beginning
+            if ((sqrtRatioLimit > sqrtRatio) != increasing) revert SqrtRatioLimitWrongDirection();
 
+            // Store all swap state on the stack for optimization
+            int128 amountRemaining = amount;
             uint128 calculatedAmount = 0;
+            uint64 poolFee = poolKey.fee();
 
             // the slot where inputTokenFeesPerLiquidity is stored, reused later
             bytes32 inputTokenFeesPerLiquiditySlot;
@@ -502,7 +661,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 int32 nextTick;
                 bool isInitialized;
                 SqrtRatio nextTickSqrtRatio;
-                SwapResult memory result;
 
                 if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                     (nextTick, isInitialized) = increasing
@@ -523,8 +681,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 SqrtRatio limitedNextSqrtRatio =
                     increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
 
-                result =
-                    swapResult(sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, isToken1, poolKey.fee());
+                SwapResult memory result =
+                    _inlineSwapResult(sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, isToken1, poolFee);
 
                 // this accounts the fees into the feesPerLiquidity memory struct
                 assembly ("memory-safe") {

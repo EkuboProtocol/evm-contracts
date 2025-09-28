@@ -101,15 +101,16 @@ function swapResult(
 
     if (hitLimit) {
         // Optimized delta calculations using branchless selection
-        uint128 specifiedAmountDelta = isToken1
-            ? amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut)
-            : amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
+        (uint128 specifiedAmountDelta, uint128 calculatedAmountDelta) = isToken1
+            ? (
+                amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut),
+                amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut)
+            )
+            : (
+                amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut),
+                amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut)
+            );
 
-        uint128 calculatedAmountDelta = isToken1
-            ? amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut)
-            : amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
-
-        // Optimized fee and amount calculations
         int128 consumedAmount;
         uint128 calculatedAmount;
         uint128 feeAmount;
@@ -135,22 +136,23 @@ function swapResult(
     }
 
     if (sqrtRatioNextFromAmount == sqrtRatio) {
+        // for an exact output swap, the price should always move because we have to round away from the current price
+        // or else the pool can leak value
         assert(!isExactOut);
 
         return SwapResult({
             consumedAmount: amount,
             calculatedAmount: 0,
             sqrtRatioNext: sqrtRatio,
+            // consume the entire input amount as fees since the price did not move
             feeAmount: uint128(amount)
         });
     }
 
-    // Optimized final calculation - single ternary for token selection
     uint128 calculatedAmountWithoutFee = isToken1
         ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
         : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
 
-    // Optimized fee calculation
     uint128 calculatedAmount;
     uint128 feeAmount;
 

@@ -16,6 +16,7 @@ import {Snapshot, createSnapshot} from "../types/snapshot.sol";
 import {Counts, createCounts} from "../types/counts.sol";
 import {Observation, createObservation} from "../types/observation.sol";
 import {PoolId} from "../types/poolId.sol";
+import {PoolState} from "../types/poolState.sol";
 
 /// @notice Returns the call points configuration for the Oracle extension
 /// @dev Specifies which hooks the Oracle needs to capture price and liquidity data
@@ -108,13 +109,13 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 last := sload(or(shl(32, token), index))
             }
 
-            (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
+            PoolState state = CORE.poolState(poolId);
 
             Snapshot snapshot = createSnapshot({
                 _timestamp: uint32(block.timestamp),
                 _secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative()
-                    + ((uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity))),
-                _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * tick
+                    + ((uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, state.liquidity()))),
+                _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * state.tick()
             });
 
             uint32 count = c.count();

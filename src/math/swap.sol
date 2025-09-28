@@ -85,12 +85,10 @@ function swapResult(
         }
     }
 
-    // Compute next sqrt ratio - optimized token selection
     SqrtRatio sqrtRatioNextFromAmount = isToken1
         ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
         : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
 
-    // Optimized limit checking - single branchless comparison
     bool hitLimit;
     assembly ("memory-safe") {
         // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
@@ -100,7 +98,6 @@ function swapResult(
     }
 
     if (hitLimit) {
-        // Optimized delta calculations using branchless selection
         (uint128 specifiedAmountDelta, uint128 calculatedAmountDelta) = isToken1
             ? (
                 amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut),

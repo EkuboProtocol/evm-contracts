@@ -18,9 +18,7 @@ import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math
 import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
-import {
-    MIN_SQRT_RATIO, MAX_SQRT_RATIO, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW, SqrtRatio
-} from "./types/sqrtRatio.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 import {PoolId} from "./types/poolId.sol";

@@ -485,7 +485,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             // Store all swap state on the stack for optimization
             int128 amountRemaining = amount;
             uint128 calculatedAmount = 0;
-            uint64 poolFee = poolKey.fee();
 
             // the slot where inputTokenFeesPerLiquidity is stored, reused later
             bytes32 inputTokenFeesPerLiquiditySlot;
@@ -557,7 +556,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         unchecked {
                             // cast is safe because amount is g.t.e. 0
                             // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
-                            priceImpactAmount = amountRemaining - int128(computeFee(uint128(amountRemaining), poolFee));
+                            priceImpactAmount =
+                                amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.fee()));
                         }
                     }
 
@@ -587,12 +587,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         if (isExactOut) {
-                            uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, poolFee);
+                            uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, poolKey.fee());
                             consumedAmount = -SafeCastLib.toInt128(specifiedAmountDelta);
                             calculatedAmountStep = beforeFee;
                             feeAmount = beforeFee - calculatedAmountDelta;
                         } else {
-                            uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, poolFee);
+                            uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, poolKey.fee());
                             consumedAmount = SafeCastLib.toInt128(beforeFee);
                             calculatedAmountStep = calculatedAmountDelta;
                             feeAmount = beforeFee - specifiedAmountDelta;
@@ -615,7 +615,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
 
                         if (isExactOut) {
-                            uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolFee);
+                            uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.fee());
                             calculatedAmountStep = includingFee;
                             feeAmount = includingFee - calculatedAmountWithoutFee;
                         } else {

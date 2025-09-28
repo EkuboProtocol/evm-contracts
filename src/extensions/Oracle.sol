@@ -323,11 +323,11 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 if (logicalIndex == c.count() - 1) {
                     // Use current pool state.
                     PoolId poolId = getPoolKey(token).toPoolId();
-                    (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
+                    PoolState state = CORE.poolState(poolId);
 
-                    tickCumulative += int64(tick) * int64(uint64(timePassed));
+                    tickCumulative += int64(state.tick()) * int64(uint64(timePassed));
                     secondsPerLiquidityCumulative +=
-                        (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
+                        (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, state.liquidity()));
                 } else {
                     // Use the next snapshot.
                     uint256 logicalIndexNext = logicalIndexToStorageIndex(c.index(), c.count(), logicalIndex + 1);

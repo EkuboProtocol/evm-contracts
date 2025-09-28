@@ -485,9 +485,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 increasing := xor(isToken1, isExactOut)
             }
 
-            // Single direction check at the beginning
-            if ((sqrtRatioLimit > sqrtRatio) != increasing) revert SqrtRatioLimitWrongDirection();
-
             // Store all swap state on the stack for optimization
             int128 amountRemaining = amount;
             uint128 calculatedAmount = 0;
@@ -529,17 +526,24 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     (nextTick, nextTickSqrtRatio) = increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                 }
 
-                SqrtRatio limitedNextSqrtRatio =
-                    increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
+                // Clamp next tick to ensure it's always in the right direction
+                // If nextTickSqrtRatio is on the wrong side, use sqrtRatioLimit instead
+                SqrtRatio limitedNextSqrtRatio;
+                if (increasing) {
+                    // For increasing swaps, next tick should be >= current price
+                    limitedNextSqrtRatio =
+                        (nextTickSqrtRatio <= sqrtRatio) ? sqrtRatioLimit : nextTickSqrtRatio.min(sqrtRatioLimit);
+                } else {
+                    // For decreasing swaps, next tick should be <= current price
+                    limitedNextSqrtRatio =
+                        (nextTickSqrtRatio >= sqrtRatio) ? sqrtRatioLimit : nextTickSqrtRatio.max(sqrtRatioLimit);
+                }
 
                 // Inlined swap calculation - optimized to reduce branching
                 int128 consumedAmount;
                 uint128 calculatedAmountStep;
                 uint128 feeAmount;
                 SqrtRatio sqrtRatioNext;
-
-                // Direction check - limitedNextSqrtRatio can still be in wrong direction
-                if ((limitedNextSqrtRatio > sqrtRatio) != increasing) revert SqrtRatioLimitWrongDirection();
 
                 if (liquidity == 0) {
                     // if the pool is empty, the swap will always move all the way to the limit price

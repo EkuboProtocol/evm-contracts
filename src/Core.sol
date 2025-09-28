@@ -25,19 +25,6 @@ import {computeFee, amountBeforeFee} from "./math/fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./math/delta.sol";
 
-/// @notice Result of a swap calculation
-/// @dev Contains all the information needed to execute a swap
-struct SwapResult {
-    /// @notice Amount of the input token consumed by the swap
-    int128 consumedAmount;
-    /// @notice Amount of the output token calculated from the swap
-    uint128 calculatedAmount;
-    /// @notice The new sqrt price ratio after the swap
-    SqrtRatio sqrtRatioNext;
-    /// @notice Amount of fees collected from the swap
-    uint128 feeAmount;
-}
-
 /// @notice Thrown when the sqrt ratio limit is in the wrong direction for the swap
 error SqrtRatioLimitWrongDirection();
 
@@ -467,142 +454,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(extension).maybeCallAfterCollectFees(lockerAddr, poolKey, positionId, amount0, amount1);
     }
 
-    /// @notice Inlined and optimized swap calculation
-    /// @dev Optimized to reduce branching to 4 cases based on isExactOut and isToken1 combinations
-    /// @param sqrtRatio Current sqrt price ratio of the pool
-    /// @param liquidity Current active liquidity in the pool
-    /// @param sqrtRatioLimit Price limit for the swap (prevents excessive slippage)
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param fee Fee rate for the pool (as a fraction of 2^64)
-    /// @return The calculated swap result including amounts and new price
-    function _inlineSwapResult(
-        SqrtRatio sqrtRatio,
-        uint128 liquidity,
-        SqrtRatio sqrtRatioLimit,
-        int128 amount,
-        bool isToken1,
-        uint64 fee
-    ) private pure returns (SwapResult memory) {
-        if (amount == 0 || sqrtRatio == sqrtRatioLimit) {
-            return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatio});
-        }
-
-        // Pre-compute boolean flags to reduce repeated calculations
-        bool isExactOut;
-        bool increasing;
-        assembly ("memory-safe") {
-            isExactOut := slt(amount, 0)
-            increasing := xor(isToken1, isExactOut)
-        }
-
-        // We know sqrtRatio != sqrtRatioLimit because we early return above if it is
-        if ((sqrtRatioLimit > sqrtRatio) != increasing) revert SqrtRatioLimitWrongDirection();
-
-        if (liquidity == 0) {
-            // if the pool is empty, the swap will always move all the way to the limit price
-            return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioLimit});
-        }
-
-        // this amount is what moves the price
-        int128 priceImpactAmount;
-        if (isExactOut) {
-            priceImpactAmount = amount;
-        } else {
-            unchecked {
-                // cast is safe because amount is g.t.e. 0
-                // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
-                priceImpactAmount = amount - int128(computeFee(uint128(amount), fee));
-            }
-        }
-
-        SqrtRatio sqrtRatioNextFromAmount = isToken1
-            ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
-            : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
-
-        bool hitLimit;
-        assembly ("memory-safe") {
-            // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
-            let exceedsUp := and(increasing, gt(sqrtRatioNextFromAmount, sqrtRatioLimit))
-            let exceedsDown := and(iszero(increasing), lt(sqrtRatioNextFromAmount, sqrtRatioLimit))
-            hitLimit := or(exceedsUp, exceedsDown)
-        }
-
-        if (hitLimit) {
-            // Optimized branching: 4 cases based on isToken1 and isExactOut
-            uint128 specifiedAmountDelta;
-            uint128 calculatedAmountDelta;
-
-            if (isToken1) {
-                specifiedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
-                calculatedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
-            } else {
-                specifiedAmountDelta = amount0Delta(sqrtRatioLimit, sqrtRatio, liquidity, !isExactOut);
-                calculatedAmountDelta = amount1Delta(sqrtRatioLimit, sqrtRatio, liquidity, isExactOut);
-            }
-
-            int128 consumedAmount;
-            uint128 calculatedAmountResult;
-            uint128 feeAmountResult;
-
-            if (isExactOut) {
-                uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, fee);
-                consumedAmount = -SafeCastLib.toInt128(specifiedAmountDelta);
-                calculatedAmountResult = beforeFee;
-                feeAmountResult = beforeFee - calculatedAmountDelta;
-            } else {
-                uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, fee);
-                consumedAmount = SafeCastLib.toInt128(beforeFee);
-                calculatedAmountResult = calculatedAmountDelta;
-                feeAmountResult = beforeFee - specifiedAmountDelta;
-            }
-
-            return SwapResult({
-                consumedAmount: consumedAmount,
-                calculatedAmount: calculatedAmountResult,
-                sqrtRatioNext: sqrtRatioLimit,
-                feeAmount: feeAmountResult
-            });
-        }
-
-        if (sqrtRatioNextFromAmount == sqrtRatio) {
-            // for an exact output swap, the price should always move because we have to round away from the current price
-            // or else the pool can leak value
-            assert(!isExactOut);
-
-            return SwapResult({
-                consumedAmount: amount,
-                calculatedAmount: 0,
-                sqrtRatioNext: sqrtRatio,
-                // consume the entire input amount as fees since the price did not move
-                feeAmount: uint128(amount)
-            });
-        }
-
-        uint128 calculatedAmountWithoutFee = isToken1
-            ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
-            : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
-
-        uint128 finalCalculatedAmount;
-        uint128 finalFeeAmount;
-
-        if (isExactOut) {
-            uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, fee);
-            finalCalculatedAmount = includingFee;
-            finalFeeAmount = includingFee - calculatedAmountWithoutFee;
-        } else {
-            finalCalculatedAmount = calculatedAmountWithoutFee;
-            finalFeeAmount = uint128(amount - priceImpactAmount);
-        }
-
-        return SwapResult({
-            consumedAmount: amount,
-            calculatedAmount: finalCalculatedAmount,
-            sqrtRatioNext: sqrtRatioNextFromAmount,
-            feeAmount: finalFeeAmount
-        });
-    }
-
     /// @inheritdoc ICore
     function swap_611415377(
         PoolKey memory poolKey,
@@ -681,24 +532,116 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 SqrtRatio limitedNextSqrtRatio =
                     increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
 
-                SwapResult memory result =
-                    _inlineSwapResult(sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, isToken1, poolFee);
+                // Inlined swap calculation - optimized to reduce branching
+                int128 consumedAmount;
+                uint128 calculatedAmountStep;
+                uint128 feeAmount;
+                SqrtRatio sqrtRatioNext;
+
+                // Direction check - limitedNextSqrtRatio can still be in wrong direction
+                if ((limitedNextSqrtRatio > sqrtRatio) != increasing) revert SqrtRatioLimitWrongDirection();
+
+                if (liquidity == 0) {
+                    // if the pool is empty, the swap will always move all the way to the limit price
+                    consumedAmount = 0;
+                    calculatedAmountStep = 0;
+                    feeAmount = 0;
+                    sqrtRatioNext = limitedNextSqrtRatio;
+                } else {
+                    // this amount is what moves the price
+                    int128 priceImpactAmount;
+                    if (isExactOut) {
+                        priceImpactAmount = amountRemaining;
+                    } else {
+                        unchecked {
+                            // cast is safe because amount is g.t.e. 0
+                            // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
+                            priceImpactAmount = amountRemaining - int128(computeFee(uint128(amountRemaining), poolFee));
+                        }
+                    }
+
+                    SqrtRatio sqrtRatioNextFromAmount = isToken1
+                        ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
+                        : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+
+                    bool hitLimit;
+                    assembly ("memory-safe") {
+                        // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
+                        let exceedsUp := and(increasing, gt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
+                        let exceedsDown := and(iszero(increasing), lt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
+                        hitLimit := or(exceedsUp, exceedsDown)
+                    }
+
+                    if (hitLimit) {
+                        // Optimized branching: 4 cases based on isToken1 and isExactOut
+                        uint128 specifiedAmountDelta;
+                        uint128 calculatedAmountDelta;
+
+                        if (isToken1) {
+                            specifiedAmountDelta = amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut);
+                            calculatedAmountDelta = amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut);
+                        } else {
+                            specifiedAmountDelta = amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut);
+                            calculatedAmountDelta = amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut);
+                        }
+
+                        if (isExactOut) {
+                            uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, poolFee);
+                            consumedAmount = -SafeCastLib.toInt128(specifiedAmountDelta);
+                            calculatedAmountStep = beforeFee;
+                            feeAmount = beforeFee - calculatedAmountDelta;
+                        } else {
+                            uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, poolFee);
+                            consumedAmount = SafeCastLib.toInt128(beforeFee);
+                            calculatedAmountStep = calculatedAmountDelta;
+                            feeAmount = beforeFee - specifiedAmountDelta;
+                        }
+
+                        sqrtRatioNext = limitedNextSqrtRatio;
+                    } else if (sqrtRatioNextFromAmount == sqrtRatio) {
+                        // for an exact output swap, the price should always move because we have to round away from the current price
+                        // or else the pool can leak value
+                        assert(!isExactOut);
+
+                        consumedAmount = amountRemaining;
+                        calculatedAmountStep = 0;
+                        sqrtRatioNext = sqrtRatio;
+                        // consume the entire input amount as fees since the price did not move
+                        feeAmount = uint128(amountRemaining);
+                    } else {
+                        uint128 calculatedAmountWithoutFee = isToken1
+                            ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
+                            : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+
+                        if (isExactOut) {
+                            uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolFee);
+                            calculatedAmountStep = includingFee;
+                            feeAmount = includingFee - calculatedAmountWithoutFee;
+                        } else {
+                            calculatedAmountStep = calculatedAmountWithoutFee;
+                            feeAmount = uint128(amountRemaining - priceImpactAmount);
+                        }
+
+                        consumedAmount = amountRemaining;
+                        sqrtRatioNext = sqrtRatioNextFromAmount;
+                    }
+                }
 
                 // this accounts the fees into the feesPerLiquidity memory struct
                 assembly ("memory-safe") {
                     // div by 0 returns 0, so it's ok
-                    let v := div(shl(128, mload(add(result, 96))), liquidity)
+                    let v := div(shl(128, feeAmount), liquidity)
                     inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
                 }
 
                 unchecked {
                     // the signs are the same and a swap round can't consume more than it was given
-                    amountRemaining -= result.consumedAmount;
+                    amountRemaining -= consumedAmount;
                 }
-                calculatedAmount += result.calculatedAmount;
+                calculatedAmount += calculatedAmountStep;
 
-                if (result.sqrtRatioNext == nextTickSqrtRatio) {
-                    sqrtRatio = result.sqrtRatioNext;
+                if (sqrtRatioNext == nextTickSqrtRatio) {
+                    sqrtRatio = sqrtRatioNext;
                     assembly ("memory-safe") {
                         // no overflow danger because nextTick is always inside the valid tick bounds
                         tick := sub(nextTick, iszero(increasing))
@@ -740,8 +683,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             sstore(tickFplSecondSlot, mload(add(totalFpl, 0x20)))
                         }
                     }
-                } else if (sqrtRatio != result.sqrtRatioNext) {
-                    sqrtRatio = result.sqrtRatioNext;
+                } else if (sqrtRatio != sqrtRatioNext) {
+                    sqrtRatio = sqrtRatioNext;
                     tick = sqrtRatioToTick(sqrtRatio);
                 }
             }

@@ -75,8 +75,9 @@ contract MockExtension is IExtension, BaseLocker {
     );
 
     function beforeSwap(Locker locker, PoolKey memory poolKey, SwapParameters params) external {
-        (SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead) = params.parse();
-        emit BeforeSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        emit BeforeSwapCalled(
+            locker, poolKey, params.amount(), params.isToken1(), params.sqrtRatioLimit(), params.skipAhead()
+        );
     }
 
     event AfterSwapCalled(
@@ -99,8 +100,17 @@ contract MockExtension is IExtension, BaseLocker {
         int128 delta1,
         PoolState stateAfter
     ) external {
-        (SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead) = params.parse();
-        emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter);
+        emit AfterSwapCalled(
+            locker,
+            poolKey,
+            params.amount(),
+            params.isToken1(),
+            params.sqrtRatioLimit(),
+            params.skipAhead(),
+            delta0,
+            delta1,
+            stateAfter
+        );
     }
 
     event BeforeCollectFeesCalled(Locker locker, PoolKey poolKey, PositionId positionId);

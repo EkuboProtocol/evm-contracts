@@ -5,7 +5,7 @@ import {SqrtRatio} from "./sqrtRatio.sol";
 
 type SwapParameters is bytes32;
 
-using {sqrtRatioLimit, amount, isToken1, skipAhead, parse} for SwapParameters global;
+using {sqrtRatioLimit, amount, isToken1, skipAhead} for SwapParameters global;
 
 function sqrtRatioLimit(SwapParameters params) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {
@@ -27,15 +27,6 @@ function isToken1(SwapParameters params) pure returns (bool t) {
 
 function skipAhead(SwapParameters params) pure returns (uint256 s) {
     assembly ("memory-safe") {
-        s := and(params, 0x7fffffff)
-    }
-}
-
-function parse(SwapParameters params) pure returns (SqrtRatio r, int128 a, bool t, uint256 s) {
-    assembly ("memory-safe") {
-        r := shr(160, params)
-        a := signextend(15, and(shr(32, params), 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
-        t := and(shr(31, params), 1)
         s := and(params, 0x7fffffff)
     }
 }

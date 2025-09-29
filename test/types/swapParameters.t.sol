@@ -70,19 +70,4 @@ contract SwapParametersTest is Test {
         assertEq(params.isToken1(), isToken1, "isToken1");
         assertEq(params.skipAhead(), skipAhead, "skipAhead");
     }
-
-    function test_parse(SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead) public pure {
-        skipAhead = bound(skipAhead, 0, type(uint32).max >> 1);
-        SwapParameters params = createSwapParameters({
-            _sqrtRatioLimit: sqrtRatioLimit,
-            _amount: amount,
-            _isToken1: isToken1,
-            _skipAhead: skipAhead
-        });
-        (SqrtRatio r, int128 a, bool t, uint256 s) = params.parse();
-        assertEq(SqrtRatio.unwrap(r), SqrtRatio.unwrap(sqrtRatioLimit), "sqrtRatioLimit");
-        assertEq(a, amount, "amount");
-        assertEq(t, isToken1, "isToken1");
-        assertEq(s, skipAhead, "skipAhead");
-    }
 }

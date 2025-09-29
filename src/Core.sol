@@ -468,20 +468,21 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             PoolId poolId = poolKey.toPoolId();
 
-            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = readPoolState(poolId).parse();
+            stateAfter = readPoolState(poolId);
 
-            if (sqrtRatio.isZero()) revert PoolNotInitialized();
+            if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
-            if (amount != 0 && sqrtRatio != sqrtRatioLimit) {
+            if (amount != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
+                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
+
                 bool increasing = isPriceIncreasing(amount, isToken1);
                 if ((sqrtRatioLimit < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();
                 }
 
                 int128 amountRemaining = amount;
-
-                uint256 calculatedAmount = 0;
+                uint256 calculatedAmount;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
                 bytes32 inputTokenFeesPerLiquiditySlot;

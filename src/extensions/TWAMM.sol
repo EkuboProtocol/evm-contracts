@@ -638,7 +638,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeSwap(address, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256)
+    function beforeSwap(Locker, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256)
         external
         override(BaseExtension, IExtension)
     {
@@ -646,7 +646,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128)
+    function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128)
         external
         override(BaseExtension, IExtension)
     {
@@ -654,7 +654,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeCollectFees(address, PoolKey memory poolKey, PositionId)
+    function beforeCollectFees(Locker, PoolKey memory poolKey, PositionId)
         external
         override(BaseExtension, IExtension)
     {

@@ -28,6 +28,7 @@ import {FullRangeOnlyPool} from "../../src/types/positionId.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {Locker} from "../../src/types/locker.sol";
 
 abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
@@ -857,11 +858,14 @@ contract OracleTest is BaseOracleTest {
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
         oracle.beforeUpdatePosition(
-            address(0), poolKey, createPositionId({_salt: bytes24(0), _tickLower: -100, _tickUpper: 100}), 0
+            Locker.wrap(bytes32(0)),
+            poolKey,
+            createPositionId({_salt: bytes24(0), _tickLower: -100, _tickUpper: 100}),
+            0
         );
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeSwap(address(0), poolKey, 0, false, SqrtRatio.wrap(0), 0);
+        oracle.beforeSwap(Locker.wrap(bytes32(0)), poolKey, 0, false, SqrtRatio.wrap(0), 0);
     }
 
     function test_gas_swap_on_oracle_pool() public {

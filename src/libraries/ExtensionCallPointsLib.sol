@@ -6,6 +6,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @dev Contains methods for determining whether an extension should be called
 library ExtensionCallPointsLib {
@@ -79,15 +80,15 @@ library ExtensionCallPointsLib {
         }
     }
 
-    function shouldCallBeforeSwap(IExtension extension, address locker) internal pure returns (bool yes) {
+    function shouldCallBeforeSwap(IExtension extension, Locker locker) internal pure returns (bool yes) {
         assembly ("memory-safe") {
-            yes := and(shr(158, extension), iszero(eq(locker, extension)))
+            yes := and(shr(158, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 
     function maybeCallBeforeSwap(
         IExtension extension,
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
@@ -98,8 +99,8 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "beforeSwap(address, (address,address,bytes32), int128, bool, uint96, uint256)"
-                mstore(freeMem, shl(224, 0x3c65c87a))
+                // cast sig "beforeSwap(bytes32, (address,address,bytes32), int128, bool, uint96, uint256)"
+                mstore(freeMem, shl(224, 0x0a05ea4c))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), amount)
@@ -115,15 +116,15 @@ library ExtensionCallPointsLib {
         }
     }
 
-    function shouldCallAfterSwap(IExtension extension, address locker) internal pure returns (bool yes) {
+    function shouldCallAfterSwap(IExtension extension, Locker locker) internal pure returns (bool yes) {
         assembly ("memory-safe") {
-            yes := and(shr(157, extension), iszero(eq(locker, extension)))
+            yes := and(shr(157, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 
     function maybeCallAfterSwap(
         IExtension extension,
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
@@ -137,8 +138,8 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "afterSwap(address, (address,address,bytes32), int128, bool, uint96, uint256, int128, int128, bytes32)"
-                mstore(freeMem, shl(224, 0x109b5369))
+                // cast sig "afterSwap(bytes32, (address,address,bytes32), int128, bool, uint96, uint256, int128, int128, bytes32)"
+                mstore(freeMem, shl(224, 0x1ccbe15f))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), amount)
@@ -157,33 +158,33 @@ library ExtensionCallPointsLib {
         }
     }
 
-    function shouldCallBeforeUpdatePosition(IExtension extension, address locker) internal pure returns (bool yes) {
+    function shouldCallBeforeUpdatePosition(IExtension extension, Locker locker) internal pure returns (bool yes) {
         assembly ("memory-safe") {
-            yes := and(shr(156, extension), iszero(eq(locker, extension)))
+            yes := and(shr(156, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 
-    function shouldCallAfterUpdatePosition(IExtension extension, address locker) internal pure returns (bool yes) {
+    function shouldCallAfterUpdatePosition(IExtension extension, Locker locker) internal pure returns (bool yes) {
         assembly ("memory-safe") {
-            yes := and(shr(155, extension), iszero(eq(locker, extension)))
+            yes := and(shr(155, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 
-    function shouldCallBeforeCollectFees(IExtension extension, address locker) internal pure returns (bool yes) {
+    function shouldCallBeforeCollectFees(IExtension extension, Locker locker) internal pure returns (bool yes) {
         assembly ("memory-safe") {
-            yes := and(shr(154, extension), iszero(eq(locker, extension)))
+            yes := and(shr(154, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 
-    function shouldCallAfterCollectFees(IExtension extension, address locker) internal pure returns (bool yes) {
+    function shouldCallAfterCollectFees(IExtension extension, Locker locker) internal pure returns (bool yes) {
         assembly ("memory-safe") {
-            yes := and(shr(153, extension), iszero(eq(locker, extension)))
+            yes := and(shr(153, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 
     function maybeCallBeforeUpdatePosition(
         IExtension extension,
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta
@@ -192,8 +193,8 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "beforeUpdatePosition(address, (address,address,bytes32), bytes32, int128)"
-                mstore(freeMem, shl(224, 0x2465a9fd))
+                // cast sig "beforeUpdatePosition(bytes32, (address,address,bytes32), bytes32, int128)"
+                mstore(freeMem, shl(224, 0x0035c723))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), positionId)
@@ -209,7 +210,7 @@ library ExtensionCallPointsLib {
 
     function maybeCallAfterUpdatePosition(
         IExtension extension,
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
@@ -221,8 +222,8 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "afterUpdatePosition(address, (address,address,bytes32), bytes32, int128, int128, int128, bytes32)"
-                mstore(freeMem, shl(224, 0x54993d0c))
+                // cast sig "afterUpdatePosition(bytes32, (address,address,bytes32), bytes32, int128, int128, int128, bytes32)"
+                mstore(freeMem, shl(224, 0xebb9e6a0))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), positionId)
@@ -241,7 +242,7 @@ library ExtensionCallPointsLib {
 
     function maybeCallBeforeCollectFees(
         IExtension extension,
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId
     ) internal {
@@ -249,8 +250,8 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "beforeCollectFees(address, (address,address,bytes32), bytes32)"
-                mstore(freeMem, shl(224, 0xc564d6cc))
+                // cast sig "beforeCollectFees(bytes32, (address,address,bytes32), bytes32)"
+                mstore(freeMem, shl(224, 0xdf65d8d1))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), positionId)
@@ -265,7 +266,7 @@ library ExtensionCallPointsLib {
 
     function maybeCallAfterCollectFees(
         IExtension extension,
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         uint128 amount0,
@@ -275,8 +276,8 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "afterCollectFees(address, (address,address,bytes32), bytes32, uint128, uint128)"
-                mstore(freeMem, shl(224, 0xf9aa0f7a))
+                // cast sig "afterCollectFees(bytes32, (address,address,bytes32), bytes32, uint128, uint128)"
+                mstore(freeMem, shl(224, 0x751fd5df))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), positionId)

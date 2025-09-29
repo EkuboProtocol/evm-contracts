@@ -9,15 +9,16 @@ import {PoolKey, Config, toConfig} from "../../src/types/poolKey.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "../../src/types/poolState.sol";
+import {Locker} from "../../src/types/locker.sol";
 
 contract ExtensionCallPointsLibTest is Test {
     using ExtensionCallPointsLib for *;
 
-    function check_shouldCall(IExtension extension, address locker) public pure {
+    function check_shouldCall(IExtension extension, Locker locker) public pure {
         CallPoints memory cp = addressToCallPoints(address(extension));
-        bool skipSelfCall = address(extension) == locker;
-        assertEq(extension.shouldCallBeforeInitializePool(locker), cp.beforeInitializePool && !skipSelfCall);
-        assertEq(extension.shouldCallAfterInitializePool(locker), cp.afterInitializePool && !skipSelfCall);
+        bool skipSelfCall = address(extension) == locker.addr();
+        assertEq(extension.shouldCallBeforeInitializePool(locker.addr()), cp.beforeInitializePool && !skipSelfCall);
+        assertEq(extension.shouldCallAfterInitializePool(locker.addr()), cp.afterInitializePool && !skipSelfCall);
         assertEq(extension.shouldCallBeforeSwap(locker), cp.beforeSwap && !skipSelfCall);
         assertEq(extension.shouldCallAfterSwap(locker), cp.afterSwap && !skipSelfCall);
         assertEq(extension.shouldCallBeforeUpdatePosition(locker), cp.beforeUpdatePosition && !skipSelfCall);
@@ -33,7 +34,7 @@ contract ExtensionCallPointsLibTest is Test {
         vm.etch(extensionAddr, address(extension).code);
         extension = MockExtension(extensionAddr);
 
-        address locker = address(0x1234);
+        Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
         PoolKey memory poolKey =
             PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
@@ -43,7 +44,7 @@ contract ExtensionCallPointsLibTest is Test {
         IExtension(address(extension)).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
 
         assertEq(extension.beforeUpdatePositionCalls(), 1);
-        assertEq(extension.lastLocker(), locker);
+        assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
         assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
@@ -53,7 +54,7 @@ contract ExtensionCallPointsLibTest is Test {
         // Test when extension should not be called (locker == extension)
         extension.reset();
         IExtension(address(extension)).maybeCallBeforeUpdatePosition(
-            address(extension), poolKey, positionId, liquidityDelta
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId, liquidityDelta
         );
         assertEq(extension.beforeUpdatePositionCalls(), 0);
     }
@@ -65,7 +66,7 @@ contract ExtensionCallPointsLibTest is Test {
         vm.etch(extensionAddr, address(extension).code);
         extension = MockExtension(extensionAddr);
 
-        address locker = address(0x1234);
+        Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
         PoolKey memory poolKey =
             PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
@@ -80,7 +81,7 @@ contract ExtensionCallPointsLibTest is Test {
         );
 
         assertEq(extension.afterUpdatePositionCalls(), 1);
-        assertEq(extension.lastLocker(), locker);
+        assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
         assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
@@ -93,7 +94,13 @@ contract ExtensionCallPointsLibTest is Test {
         // Test when extension should not be called (locker == extension)
         extension.reset();
         IExtension(address(extension)).maybeCallAfterUpdatePosition(
-            address(extension), poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))),
+            poolKey,
+            positionId,
+            liquidityDelta,
+            delta0,
+            delta1,
+            stateAfter
         );
         assertEq(extension.afterUpdatePositionCalls(), 0);
     }
@@ -105,7 +112,7 @@ contract ExtensionCallPointsLibTest is Test {
         vm.etch(extensionAddr, address(extension).code);
         extension = MockExtension(extensionAddr);
 
-        address locker = address(0x1234);
+        Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
         PoolKey memory poolKey =
             PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
@@ -114,7 +121,7 @@ contract ExtensionCallPointsLibTest is Test {
         IExtension(address(extension)).maybeCallBeforeCollectFees(locker, poolKey, positionId);
 
         assertEq(extension.beforeCollectFeesCalls(), 1);
-        assertEq(extension.lastLocker(), locker);
+        assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
         assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
@@ -122,7 +129,9 @@ contract ExtensionCallPointsLibTest is Test {
 
         // Test when extension should not be called (locker == extension)
         extension.reset();
-        IExtension(address(extension)).maybeCallBeforeCollectFees(address(extension), poolKey, positionId);
+        IExtension(address(extension)).maybeCallBeforeCollectFees(
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId
+        );
         assertEq(extension.beforeCollectFeesCalls(), 0);
     }
 
@@ -133,7 +142,7 @@ contract ExtensionCallPointsLibTest is Test {
         vm.etch(extensionAddr, address(extension).code);
         extension = MockExtension(extensionAddr);
 
-        address locker = address(0x1234);
+        Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
         PoolKey memory poolKey =
             PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
@@ -144,7 +153,7 @@ contract ExtensionCallPointsLibTest is Test {
         IExtension(address(extension)).maybeCallAfterCollectFees(locker, poolKey, positionId, amount0, amount1);
 
         assertEq(extension.afterCollectFeesCalls(), 1);
-        assertEq(extension.lastLocker(), locker);
+        assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
         assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
@@ -155,7 +164,7 @@ contract ExtensionCallPointsLibTest is Test {
         // Test when extension should not be called (locker == extension)
         extension.reset();
         IExtension(address(extension)).maybeCallAfterCollectFees(
-            address(extension), poolKey, positionId, amount0, amount1
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId, amount0, amount1
         );
         assertEq(extension.afterCollectFeesCalls(), 0);
     }
@@ -168,7 +177,7 @@ contract ExtensionCallPointsLibTest is Test {
         extension = MockExtension(extensionAddr);
 
         extension.setShouldRevert(true);
-        address locker = address(0x1234);
+        Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
         PoolKey memory poolKey =
             PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
@@ -197,7 +206,7 @@ contract MockExtension is IExtension {
     uint256 public beforeCollectFeesCalls;
     uint256 public afterCollectFeesCalls;
 
-    address public lastLocker;
+    Locker public lastLocker;
     PoolKey private _lastPoolKey;
     PositionId public lastPositionId;
     int128 public lastLiquidityDelta;
@@ -222,7 +231,7 @@ contract MockExtension is IExtension {
         afterUpdatePositionCalls = 0;
         beforeCollectFeesCalls = 0;
         afterCollectFeesCalls = 0;
-        lastLocker = address(0);
+        lastLocker = Locker.wrap(bytes32(0));
         delete _lastPoolKey;
         lastPositionId = PositionId.wrap(0);
         lastLiquidityDelta = 0;
@@ -240,7 +249,7 @@ contract MockExtension is IExtension {
         revert("Not implemented");
     }
 
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
+    function beforeUpdatePosition(Locker locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
     {
         if (shouldRevert) revert("MockExtension: revert");
@@ -252,7 +261,7 @@ contract MockExtension is IExtension {
     }
 
     function afterUpdatePosition(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
@@ -271,18 +280,18 @@ contract MockExtension is IExtension {
         lastStateAfter = stateAfter;
     }
 
-    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure {
+    function beforeSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure {
         revert("Not implemented");
     }
 
-    function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
+    function afterSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
         external
         pure
     {
         revert("Not implemented");
     }
 
-    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionId) external {
+    function beforeCollectFees(Locker locker, PoolKey memory poolKey, PositionId positionId) external {
         if (shouldRevert) revert("MockExtension: revert");
         beforeCollectFeesCalls++;
         lastLocker = locker;
@@ -291,7 +300,7 @@ contract MockExtension is IExtension {
     }
 
     function afterCollectFees(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         uint128 amount0,

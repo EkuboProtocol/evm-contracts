@@ -559,7 +559,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         uint128 feeAmount;
 
                         if (hitLimit) {
-                            (uint128 specifiedAmountDelta, uint128 calculatedAmountDelta) = isToken1
+                            (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
                                 ? (
                                     amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
                                     amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
@@ -570,15 +570,15 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 );
 
                             if (isExactOut) {
-                                uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, poolKey.fee());
-                                amountRemaining += SafeCastLib.toInt128(specifiedAmountDelta);
+                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.fee());
+                                amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
                                 calculatedAmount += beforeFee;
-                                feeAmount = beforeFee - calculatedAmountDelta;
+                                feeAmount = beforeFee - limitCalculatedAmountDelta;
                             } else {
-                                uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, poolKey.fee());
+                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.fee());
                                 amountRemaining -= SafeCastLib.toInt128(beforeFee);
-                                calculatedAmount += calculatedAmountDelta;
-                                feeAmount = beforeFee - specifiedAmountDelta;
+                                calculatedAmount += limitCalculatedAmountDelta;
+                                feeAmount = beforeFee - limitSpecifiedAmountDelta;
                             }
 
                             sqrtRatioNext = limitedNextSqrtRatio;

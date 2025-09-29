@@ -4,11 +4,10 @@ pragma solidity =0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {isPriceIncreasing} from "../../src/math/isPriceIncreasing.sol";
 
 contract SwapParametersTest is Test {
     function test_conversionToAndFrom(SwapParameters params) public pure {
-        // Unused bits are bits 6-0, so mask them out
-        vm.assume((uint256(SwapParameters.unwrap(params)) & 0x7F) == 0);
         assertEq(
             SwapParameters.unwrap(
                 createSwapParameters({
@@ -20,6 +19,14 @@ contract SwapParametersTest is Test {
             ),
             SwapParameters.unwrap(params)
         );
+    }
+
+    function test_isExactOut(SwapParameters params) public pure {
+        assertEq(params.isExactOut(), params.amount() < 0);
+    }
+
+    function test_isPriceIncreasing(SwapParameters params) public pure {
+        assertEq(params.isPriceIncreasing(), isPriceIncreasing(params.amount(), params.isToken1()));
     }
 
     function test_conversionFromAndTo(SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead)

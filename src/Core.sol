@@ -5,7 +5,6 @@ import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
-import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
@@ -477,12 +476,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             if (params.amount() != 0 && stateAfter.sqrtRatio() != params.sqrtRatioLimit()) {
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
 
-                bool isExactOut;
-                bool increasing;
-                assembly ("memory-safe") {
-                    isExactOut := and(shr(159, params), 1)
-                    increasing := xor(isExactOut, and(shr(31, params), 1))
-                }
+                bool isExactOut = params.isExactOut();
+                bool increasing = params.isPriceIncreasing();
 
                 if ((params.sqrtRatioLimit() < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();

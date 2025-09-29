@@ -3,25 +3,21 @@ pragma solidity =0.8.30;
 
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
-import {ICore} from "../../src/interfaces/ICore.sol";
-import {isPriceIncreasing} from "../../src/math/isPriceIncreasing.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
+import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio, SqrtRatio, ONE} from "../../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
-import {sqrtRatioToTick} from "../../src/math/ticks.sol";
+import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
+import {sqrtRatioToTick} from "../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
-import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
-import {FullTest} from "../FullTest.sol";
-import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {FullTest} from "./FullTest.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 
 struct SwapResult {
     int128 consumedAmount;
     uint128 calculatedAmount;
     SqrtRatio sqrtRatioNext;
     uint128 feeAmount;
-}
-
-function noOpSwapResult(SqrtRatio sqrtRatioNext) pure returns (SwapResult memory) {
-    return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioNext});
 }
 
 contract SwapTest is FullTest {
@@ -34,14 +30,6 @@ contract SwapTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), type(uint256).max);
-    }
-
-    function test_noOpSwapResult(SqrtRatio sqrtRatio) public pure {
-        SwapResult memory result = noOpSwapResult(sqrtRatio);
-        assertEq(result.calculatedAmount, 0);
-        assertEq(result.consumedAmount, 0);
-        assertApproxEqAbs(result.feeAmount, 0, 1);
-        assertEq(SqrtRatio.unwrap(result.sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio));
     }
 
     function swapResult(
@@ -229,19 +217,19 @@ contract SwapTest is FullTest {
     }
 
     function test_swap_ratio_wrong_direction_token0_zero_input_and_liquidity() public {
+        SqrtRatio sqrtRatio = toSqrtRatio(uint256(2) << 128, false);
         SwapResult memory result = this.swapResult({
-            sqrtRatio: toSqrtRatio(uint256(2) << 128, false),
+            sqrtRatio: sqrtRatio,
             liquidity: 0,
             sqrtRatioLimit: toSqrtRatio((uint256(2) << 128) + (1 << 65), false),
             amount: 0,
             isToken1: false,
             fee: 0
         });
-        SwapResult memory expected = noOpSwapResult(toSqrtRatio(uint256(2) << 128, false));
-        assertEq(result.consumedAmount, expected.consumedAmount);
-        assertEq(result.sqrtRatioNext.toFixed(), expected.sqrtRatioNext.toFixed());
-        assertEq(result.calculatedAmount, expected.calculatedAmount);
-        assertEq(result.feeAmount, expected.feeAmount);
+        assertEq(result.consumedAmount, 0);
+        assertEq(result.sqrtRatioNext.toFixed(), sqrtRatio.toFixed());
+        assertEq(result.calculatedAmount, 0);
+        assertEq(result.feeAmount, 0);
     }
 
     function test_swap_ratio_wrong_direction_token0_output() public {
@@ -277,11 +265,10 @@ contract SwapTest is FullTest {
             isToken1: false,
             fee: 0
         });
-        SwapResult memory expected = noOpSwapResult(toSqrtRatio(uint256(2) << 128, false));
-        assertEq(result.consumedAmount, expected.consumedAmount);
-        assertEq(result.sqrtRatioNext.toFixed(), expected.sqrtRatioNext.toFixed());
-        assertEq(result.calculatedAmount, expected.calculatedAmount);
-        assertEq(result.feeAmount, expected.feeAmount);
+        assertEq(result.consumedAmount, 0);
+        assertEq(result.sqrtRatioNext.toFixed(), toSqrtRatio(uint256(2) << 128, false).toFixed());
+        assertEq(result.calculatedAmount, 0);
+        assertEq(result.feeAmount, 0);
     }
 
     function test_swap_ratio_wrong_direction_token1_input() public {
@@ -317,11 +304,10 @@ contract SwapTest is FullTest {
             isToken1: true,
             fee: 0
         });
-        SwapResult memory expected = noOpSwapResult(toSqrtRatio(uint256(2) << 128, false));
-        assertEq(result.consumedAmount, expected.consumedAmount);
-        assertEq(result.sqrtRatioNext.toFixed(), expected.sqrtRatioNext.toFixed());
-        assertEq(result.calculatedAmount, expected.calculatedAmount);
-        assertEq(result.feeAmount, expected.feeAmount);
+        assertEq(result.consumedAmount, 0);
+        assertEq(result.sqrtRatioNext.toFixed(), toSqrtRatio(uint256(2) << 128, false).toFixed());
+        assertEq(result.calculatedAmount, 0);
+        assertEq(result.feeAmount, 0);
     }
 
     function test_swap_ratio_wrong_direction_token1_output() public {
@@ -357,11 +343,10 @@ contract SwapTest is FullTest {
             isToken1: true,
             fee: 0
         });
-        SwapResult memory expected = noOpSwapResult(toSqrtRatio(uint256(2) << 128, false));
-        assertEq(result.consumedAmount, expected.consumedAmount);
-        assertTrue(result.sqrtRatioNext == expected.sqrtRatioNext);
-        assertEq(result.calculatedAmount, expected.calculatedAmount);
-        assertEq(result.feeAmount, expected.feeAmount);
+        assertEq(result.consumedAmount, 0);
+        assertTrue(result.sqrtRatioNext == toSqrtRatio(uint256(2) << 128, false));
+        assertEq(result.calculatedAmount, 0);
+        assertEq(result.feeAmount, 0);
     }
 
     function test_swap_against_liquidity_max_limit_token0_input() public {

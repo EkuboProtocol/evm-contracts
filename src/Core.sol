@@ -474,7 +474,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (sqrtRatio.isZero()) revert PoolNotInitialized();
 
-            // 0 swap amount is no-op and does not emit an event, but does trigger calls to the extension
+            // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
             if (amount != 0 && sqrtRatio != sqrtRatioLimit) {
                 bool increasing = isPriceIncreasing(amount, isToken1);
                 if ((sqrtRatioLimit < sqrtRatio) == increasing) {
@@ -483,7 +483,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 bool isExactOut = amount < 0;
 
                 int128 amountRemaining = amount;
-                uint128 calculatedAmount;
+                uint256 calculatedAmount;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
                 bytes32 inputTokenFeesPerLiquiditySlot;
@@ -672,7 +672,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(isExactOut, 1, type(uint256).max));
                 int128 calculatedAmountDelta = SafeCastLib.toInt128(
-                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(uint256(calculatedAmount)))
+                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );
 
                 (delta0, delta1) = isToken1

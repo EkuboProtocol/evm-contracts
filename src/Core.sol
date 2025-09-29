@@ -5,7 +5,6 @@ import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
-import {SqrtRatioLimitWrongDirection, SwapResult, swapResult} from "./math/swap.sol";
 import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
@@ -24,6 +23,9 @@ import {PoolState, createPoolState} from "./types/poolState.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 import {PoolId} from "./types/poolId.sol";
 import {Locker} from "./types/locker.sol";
+import {computeFee, amountBeforeFee} from "./math/fee.sol";
+import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
+import {amount0Delta, amount1Delta} from "./math/delta.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -480,6 +482,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 if ((sqrtRatioLimit < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();
                 }
+                bool isExactOut = amount < 0;
 
                 int128 amountRemaining = amount;
                 uint256 calculatedAmount;
@@ -503,7 +506,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     int32 nextTick;
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
-                    SwapResult memory result;
 
                     if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                         (nextTick, isInitialized) = increasing
@@ -517,7 +519,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     } else {
                         // we never cross ticks in the full range version
-                        // isInitialized = false;
                         (nextTick, nextTickSqrtRatio) =
                             increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                     }
@@ -525,23 +526,101 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     SqrtRatio limitedNextSqrtRatio =
                         increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
 
-                    result =
-                        swapResult(sqrtRatio, liquidity, limitedNextSqrtRatio, amountRemaining, isToken1, poolKey.fee());
+                    SqrtRatio sqrtRatioNext;
 
-                    // this accounts the fees into the feesPerLiquidity memory struct
-                    assembly ("memory-safe") {
-                        // div by 0 returns 0, so it's ok
-                        let v := div(shl(128, mload(add(result, 96))), liquidity)
-                        inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
+                    if (liquidity == 0) {
+                        // if the pool is empty, the swap will always move all the way to the limit price
+                        sqrtRatioNext = limitedNextSqrtRatio;
+                    } else {
+                        // this amount is what moves the price
+                        int128 priceImpactAmount;
+                        if (isExactOut) {
+                            priceImpactAmount = amountRemaining;
+                        } else {
+                            // cast is safe because amount is g.t.e. 0
+                            // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
+                            priceImpactAmount =
+                                amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.fee()));
+                        }
+
+                        SqrtRatio sqrtRatioNextFromAmount = isToken1
+                            ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
+                            : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+
+                        bool hitLimit;
+                        assembly ("memory-safe") {
+                            // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
+                            let exceedsUp := and(increasing, gt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
+                            let exceedsDown :=
+                                and(iszero(increasing), lt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
+                            hitLimit := or(exceedsUp, exceedsDown)
+                        }
+
+                        uint128 feeAmount;
+
+                        if (hitLimit) {
+                            (uint128 specifiedAmountDelta, uint128 calculatedAmountDelta) = isToken1
+                                ? (
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                )
+                                : (
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                );
+
+                            if (isExactOut) {
+                                uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, poolKey.fee());
+                                amountRemaining += SafeCastLib.toInt128(specifiedAmountDelta);
+                                calculatedAmount += beforeFee;
+                                feeAmount = beforeFee - calculatedAmountDelta;
+                            } else {
+                                uint128 beforeFee = amountBeforeFee(specifiedAmountDelta, poolKey.fee());
+                                amountRemaining -= SafeCastLib.toInt128(beforeFee);
+                                calculatedAmount += calculatedAmountDelta;
+                                feeAmount = beforeFee - specifiedAmountDelta;
+                            }
+
+                            sqrtRatioNext = limitedNextSqrtRatio;
+                        } else if (sqrtRatioNextFromAmount == sqrtRatio) {
+                            // for an exact output swap, the price should always move because we have to round away from the current price
+                            // or else the pool can leak value
+                            assert(!isExactOut);
+
+                            amountRemaining = 0;
+                            sqrtRatioNext = sqrtRatio;
+                            // consume the entire input amount as fees since the price did not move
+                            feeAmount = uint128(amountRemaining);
+
+                            sqrtRatioNext = sqrtRatioNextFromAmount;
+                        } else {
+                            uint128 calculatedAmountWithoutFee = isToken1
+                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
+                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+
+                            if (isExactOut) {
+                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.fee());
+                                calculatedAmount += includingFee;
+                                feeAmount = includingFee - calculatedAmountWithoutFee;
+                            } else {
+                                calculatedAmount += calculatedAmountWithoutFee;
+                                feeAmount = uint128(amountRemaining - priceImpactAmount);
+                            }
+
+                            amountRemaining = 0;
+                            sqrtRatioNext = sqrtRatioNextFromAmount;
+                        }
+
+                        // this accounts the fees into the feesPerLiquidity memory struct
+                        assembly ("memory-safe") {
+                            // div by 0 returns 0, so it's ok
+                            let v := div(shl(128, feeAmount), liquidity)
+                            inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
+                        }
                     }
 
-                    // the signs are the same and a swap round can't consume more than it was given
-                    amountRemaining -= result.consumedAmount;
-                    // this is safe because we are adding a uint128 to a uint256
-                    calculatedAmount += result.calculatedAmount;
-
-                    if (result.sqrtRatioNext == nextTickSqrtRatio) {
-                        sqrtRatio = result.sqrtRatioNext;
+                    if (sqrtRatioNext == nextTickSqrtRatio) {
+                        sqrtRatio = sqrtRatioNext;
                         assembly ("memory-safe") {
                             // no overflow danger because nextTick is always inside the valid tick bounds
                             tick := sub(nextTick, iszero(increasing))
@@ -583,8 +662,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 sstore(tickFplSecondSlot, mload(add(totalFpl, 0x20)))
                             }
                         }
-                    } else if (sqrtRatio != result.sqrtRatioNext) {
-                        sqrtRatio = result.sqrtRatioNext;
+                    } else if (sqrtRatio != sqrtRatioNext) {
+                        sqrtRatio = sqrtRatioNext;
                         tick = sqrtRatioToTick(sqrtRatio);
                     }
 
@@ -593,7 +672,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
                 }
 
-                int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(amount < 0, 1, type(uint256).max));
+                int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(isExactOut, 1, type(uint256).max));
                 int128 calculatedAmountDelta = SafeCastLib.toInt128(
                     FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );

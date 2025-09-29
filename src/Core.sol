@@ -502,7 +502,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
                 }
 
-                while (amountRemaining != 0 && sqrtRatio != sqrtRatioLimit) {
+                while (true) {
                     int32 nextTick;
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
@@ -526,7 +526,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     SqrtRatio limitedNextSqrtRatio =
                         increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
 
-                    // Inlined swap calculation - optimized to reduce branching
                     SqrtRatio sqrtRatioNext;
 
                     if (liquidity == 0) {
@@ -560,7 +559,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         uint128 feeAmount;
 
                         if (hitLimit) {
-                            (uint128 specifiedAmountDelta, uint128 calculatedAmountDelta) = (isToken1)
+                            (uint128 specifiedAmountDelta, uint128 calculatedAmountDelta) = isToken1
                                 ? (
                                     amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
                                     amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
@@ -666,6 +665,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     } else if (sqrtRatio != sqrtRatioNext) {
                         sqrtRatio = sqrtRatioNext;
                         tick = sqrtRatioToTick(sqrtRatio);
+                    }
+
+                    if (amountRemaining == 0 || sqrtRatio == sqrtRatioLimit) {
+                        break;
                     }
                 }
 

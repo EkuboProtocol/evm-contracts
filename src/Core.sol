@@ -5,6 +5,7 @@ import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
+import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
@@ -25,7 +26,6 @@ import {Locker} from "./types/locker.sol";
 import {computeFee, amountBeforeFee} from "./math/fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./math/delta.sol";
-import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>

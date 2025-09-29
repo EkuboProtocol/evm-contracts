@@ -481,7 +481,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 int128 amountRemaining = amount;
 
-                uint128 calculatedAmount = 0;
+                uint256 calculatedAmount = 0;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
                 bytes32 inputTokenFeesPerLiquiditySlot;
@@ -536,6 +536,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                     // the signs are the same and a swap round can't consume more than it was given
                     amountRemaining -= result.consumedAmount;
+                    // this is safe because we are adding a uint128 to a uint256
                     calculatedAmount += result.calculatedAmount;
 
                     if (result.sqrtRatioNext == nextTickSqrtRatio) {
@@ -593,7 +594,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(amount < 0, 1, type(uint256).max));
                 int128 calculatedAmountDelta = SafeCastLib.toInt128(
-                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(uint256(calculatedAmount)))
+                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );
 
                 (delta0, delta1) = isToken1

@@ -17,6 +17,7 @@ import {Counts, createCounts} from "../types/counts.sol";
 import {Observation, createObservation} from "../types/observation.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @notice Returns the call points configuration for the Oracle extension
 /// @dev Specifies which hooks the Oracle needs to capture price and liquidity data
@@ -180,7 +181,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @notice Called before a position is updated to capture price/liquidity snapshot
     /// @dev Inserts a new snapshot if liquidity is changing
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128 liquidityDelta)
+    function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128 liquidityDelta)
         external
         override(BaseExtension, IExtension)
         onlyCore
@@ -192,7 +193,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @notice Called before a swap to capture price/liquidity snapshot
     /// @dev Inserts a new snapshot if a swap is occurring
-    function beforeSwap(address, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
+    function beforeSwap(Locker, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
         external
         override(BaseExtension, IExtension)
         onlyCore

@@ -16,6 +16,7 @@ import {PoolState} from "../src/types/poolState.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
+import {Locker} from "../src/types/locker.sol";
 
 contract MockExtension is IExtension, BaseLocker {
     using FlashAccountantLib for *;
@@ -38,16 +39,16 @@ contract MockExtension is IExtension, BaseLocker {
         emit AfterInitializePoolCalled(caller, key, tick, sqrtRatio);
     }
 
-    event BeforeUpdatePositionCalled(address locker, PoolKey poolKey, PositionId positionId, int128 liquidityDelta);
+    event BeforeUpdatePositionCalled(Locker locker, PoolKey poolKey, PositionId positionId, int128 liquidityDelta);
 
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
+    function beforeUpdatePosition(Locker locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
     {
         emit BeforeUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta);
     }
 
     event AfterUpdatePositionCalled(
-        address locker,
+        Locker locker,
         PoolKey poolKey,
         PositionId positionId,
         int128 liquidityDelta,
@@ -57,7 +58,7 @@ contract MockExtension is IExtension, BaseLocker {
     );
 
     function afterUpdatePosition(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
@@ -69,11 +70,11 @@ contract MockExtension is IExtension, BaseLocker {
     }
 
     event BeforeSwapCalled(
-        address locker, PoolKey poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead
+        Locker locker, PoolKey poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead
     );
 
     function beforeSwap(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
@@ -84,7 +85,7 @@ contract MockExtension is IExtension, BaseLocker {
     }
 
     event AfterSwapCalled(
-        address locker,
+        Locker locker,
         PoolKey poolKey,
         int128 amount,
         bool isToken1,
@@ -96,7 +97,7 @@ contract MockExtension is IExtension, BaseLocker {
     );
 
     function afterSwap(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
@@ -109,18 +110,18 @@ contract MockExtension is IExtension, BaseLocker {
         emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter);
     }
 
-    event BeforeCollectFeesCalled(address locker, PoolKey poolKey, PositionId positionId);
+    event BeforeCollectFeesCalled(Locker locker, PoolKey poolKey, PositionId positionId);
 
-    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionId) external {
+    function beforeCollectFees(Locker locker, PoolKey memory poolKey, PositionId positionId) external {
         emit BeforeCollectFeesCalled(locker, poolKey, positionId);
     }
 
     event AfterCollectFeesCalled(
-        address locker, PoolKey poolKey, PositionId positionId, uint128 amount0, uint128 amount1
+        Locker locker, PoolKey poolKey, PositionId positionId, uint128 amount0, uint128 amount1
     );
 
     function afterCollectFees(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         uint128 amount0,

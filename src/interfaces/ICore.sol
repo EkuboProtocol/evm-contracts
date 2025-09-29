@@ -10,6 +10,7 @@ import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolId} from "../types/poolId.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @title Extension Interface
 /// @notice Interface for pool extensions that can hook into core operations
@@ -29,22 +30,22 @@ interface IExtension {
     function afterInitializePool(address caller, PoolKey calldata key, int32 tick, SqrtRatio sqrtRatio) external;
 
     /// @notice Called before a position is updated
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the position update
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position that is being updated
     /// @param liquidityDelta The change in liquidity that is being requested for the position
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
+    function beforeUpdatePosition(Locker locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external;
 
     /// @notice Called after a position is updated
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the position update
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position that was updated
     /// @param liquidityDelta Change in liquidity of the specified position key range
     /// @param delta0 Change in token0 balance of the pool
     /// @param delta1 Change in token1 balance of the pool
     function afterUpdatePosition(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
@@ -54,14 +55,14 @@ interface IExtension {
     ) external;
 
     /// @notice Called before a swap is executed
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the swap
     /// @param poolKey Pool key identifying the pool
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param isToken1 True if swapping token1, false if swapping token0
     /// @param sqrtRatioLimit Price limit for the swap
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
     function beforeSwap(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
@@ -70,7 +71,7 @@ interface IExtension {
     ) external;
 
     /// @notice Called after a swap is executed
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the swap
     /// @param poolKey Pool key identifying the pool
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param isToken1 True if swapping token1, false if swapping token0
@@ -79,7 +80,7 @@ interface IExtension {
     /// @param delta0 Change in token0 balance
     /// @param delta1 Change in token1 balance
     function afterSwap(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         int128 amount,
         bool isToken1,
@@ -91,19 +92,19 @@ interface IExtension {
     ) external;
 
     /// @notice Called before fees are collected from a position
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock collecting fees
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position for which fees will be collected
-    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionId) external;
+    function beforeCollectFees(Locker locker, PoolKey memory poolKey, PositionId positionId) external;
 
     /// @notice Called after fees are collected from a position
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock collecting fees
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position for which fees were collected
     /// @param amount0 Amount of token0 fees collected
     /// @param amount1 Amount of token1 fees collected
     function afterCollectFees(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         uint128 amount0,

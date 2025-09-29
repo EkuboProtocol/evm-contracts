@@ -76,7 +76,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     }
 
     /// @notice We only allow swapping via forward to this extension
-    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256)
+    function beforeSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256)
         external
         pure
         override(BaseExtension, IExtension)
@@ -85,7 +85,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     }
 
     // Allows users to collect pending fees before the first swap in the block happens
-    function beforeCollectFees(address, PoolKey memory poolKey, PositionId)
+    function beforeCollectFees(Locker, PoolKey memory poolKey, PositionId)
         external
         override(BaseExtension, IExtension)
     {
@@ -93,7 +93,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     }
 
     /// Prevents new liquidity from collecting on fees
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128)
+    function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128)
         external
         override(BaseExtension, IExtension)
     {

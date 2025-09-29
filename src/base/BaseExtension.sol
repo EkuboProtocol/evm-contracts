@@ -8,6 +8,7 @@ import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
 import {UsesCore} from "./UsesCore.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @title Base Extension
 /// @notice Abstract base contract for creating extensions to the Ekubo Protocol
@@ -46,12 +47,12 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function beforeUpdatePosition(address, PoolKey memory, PositionId, int128) external virtual {
+    function beforeUpdatePosition(Locker, PoolKey memory, PositionId, int128) external virtual {
         revert CallPointNotImplemented();
     }
 
     /// @inheritdoc IExtension
-    function afterUpdatePosition(address, PoolKey memory, PositionId, int128, int128, int128, PoolState)
+    function afterUpdatePosition(Locker, PoolKey memory, PositionId, int128, int128, int128, PoolState)
         external
         virtual
     {
@@ -59,12 +60,12 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function beforeSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256) external virtual {
+    function beforeSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256) external virtual {
         revert CallPointNotImplemented();
     }
 
     /// @inheritdoc IExtension
-    function afterSwap(address, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
+    function afterSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
         external
         virtual
     {
@@ -72,12 +73,12 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function beforeCollectFees(address, PoolKey memory, PositionId) external virtual {
+    function beforeCollectFees(Locker, PoolKey memory, PositionId) external virtual {
         revert CallPointNotImplemented();
     }
 
     /// @inheritdoc IExtension
-    function afterCollectFees(address, PoolKey memory, PositionId, uint128, uint128) external virtual {
+    function afterCollectFees(Locker, PoolKey memory, PositionId, uint128, uint128) external virtual {
         revert CallPointNotImplemented();
     }
 }

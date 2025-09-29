@@ -132,6 +132,7 @@ contract TokenWrapperTest is FullTest {
     }
 
     function testUnwrapTo(address recipient, uint128 wrapAmount, uint128 unwrapAmount, uint256 time) public {
+        vm.assume(recipient != address(core));
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 1755616480);
         wrapAmount = uint128(bound(wrapAmount, 1, uint128(type(int128).max)));
         unwrapAmount = uint128(bound(unwrapAmount, 1, wrapAmount));

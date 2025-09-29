@@ -38,11 +38,14 @@ contract CoreSwapTest is FullTest {
         core.initializePool(poolKey, 0);
     }
 
-    function locked(uint256) external returns (bytes memory) {
+    function locked(uint256) external {
         // Execute the swap using stored parameters
         (int128 delta0, int128 delta1, PoolState stateAfter) =
             core.swap_611415377(swapPoolKey, swapAmount, swapIsToken1, swapSqrtRatioLimit, swapSkipAhead);
-        return abi.encode(delta0, delta1, stateAfter);
+        bytes memory rd = abi.encode(delta0, delta1, stateAfter);
+        assembly ("memory-safe") {
+            return(add(rd, 0x20), mload(rd))
+        }
     }
 
     function performSwap(int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
@@ -81,7 +84,7 @@ contract CoreSwapTest is FullTest {
 
         require(success, "Lock call failed");
 
-        (int128 delta0, int128 delta1, PoolState stateAfter) = abi.decode(returnData, (int128, int128, PoolState));
+        (int128 delta0, int128 delta1,) = abi.decode(returnData, (int128, int128, PoolState));
 
         // Zero amount swap should not exchange any tokens
         assertEq(delta0, 0);
@@ -93,8 +96,8 @@ contract CoreSwapTest is FullTest {
 
         (int128 delta0, int128 delta1, PoolState stateAfter) = performSwap(1000, false, currentState.sqrtRatio(), 0);
 
-        assertEq(delta0, 0);
-        assertEq(delta1, 0);
+        assertEq(delta0, 0, "delta0");
+        assertEq(delta1, 0, "delta1");
         assertTrue(stateAfter.sqrtRatio() == currentState.sqrtRatio());
     }
 
@@ -143,7 +146,7 @@ contract CoreSwapTest is FullTest {
 
         // Price should increase (sqrt ratio should be higher)
         PoolState stateBefore = core.poolState(poolKey.toPoolId());
-        assertTrue(stateAfter.sqrtRatio() > ONE);
+        assertTrue(stateAfter.sqrtRatio() > stateBefore.sqrtRatio());
     }
 
     function test_swap_exact_input_token1_for_token0() public {
@@ -324,7 +327,7 @@ contract CoreSwapTest is FullTest {
         createPosition(poolKey, -60, 60, 1000000, 1000000);
 
         // Test with minimum amounts
-        (int128 delta0, int128 delta1, PoolState stateAfter) = performSwap(1, false, MAX_SQRT_RATIO, 0);
+        (int128 delta0, int128 delta1,) = performSwap(1, false, MAX_SQRT_RATIO, 0);
 
         assertEq(delta0, 1);
         // With such a small amount, might get 0 out due to fees/rounding
@@ -365,12 +368,12 @@ contract CoreSwapTest is FullTest {
     // Fuzz tests for comprehensive coverage
     function test_swap_fuzz_exact_input(
         uint128 liquidityAmount,
-        int128 swapAmount,
+        int128 _swapAmount,
         bool isToken1,
         uint256 sqrtRatioLimitFixed
     ) public {
         liquidityAmount = uint128(bound(liquidityAmount, 1000, type(uint128).max / 1000));
-        swapAmount = int128(bound(swapAmount, 1, type(int128).max / 1000));
+        _swapAmount = int128(bound(_swapAmount, 1, type(int128).max / 1000));
 
         // Add liquidity
         createPosition(poolKey, -600, 600, liquidityAmount, liquidityAmount);
@@ -381,19 +384,19 @@ contract CoreSwapTest is FullTest {
             : toSqrtRatio(bound(sqrtRatioLimitFixed, ONE.toFixed(), MAX_SQRT_RATIO.toFixed()), true);
 
         vm.assumeNoRevert();
-        (int128 delta0, int128 delta1, PoolState stateAfter) = performSwap(swapAmount, isToken1, sqrtRatioLimit, 0);
+        (int128 delta0, int128 delta1, PoolState stateAfter) = performSwap(_swapAmount, isToken1, sqrtRatioLimit, 0);
 
         // Basic invariants
         if (isToken1) {
-            assertEq(delta1, swapAmount);
+            assertEq(delta1, _swapAmount);
             assertLe(delta0, 0);
         } else {
-            assertEq(delta0, swapAmount);
+            assertEq(delta0, _swapAmount);
             assertLe(delta1, 0);
         }
 
         // Price should move in correct direction
-        if (swapAmount > 0) {
+        if (_swapAmount > 0) {
             if (isToken1) {
                 assertTrue(stateAfter.sqrtRatio() <= ONE);
             } else {

@@ -460,7 +460,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (int128 delta0, int128 delta1, PoolState stateAfter)
     {
         unchecked {
-            if (!params.sqrtRatioLimit().isValid()) revert InvalidSqrtRatioLimit();
+            SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
+            if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
             Locker locker = _requireLocker();
 
@@ -472,18 +473,22 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
+            int128 amountRemaining = params.amount();
+
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
-            if (params.amount() != 0 && stateAfter.sqrtRatio() != params.sqrtRatioLimit()) {
+            if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
 
-                bool isExactOut = params.isExactOut();
+                bool isExactOut;
+                assembly ("memory-safe") {
+                    isExactOut := slt(amountRemaining, 0)
+                }
                 bool increasing = params.isPriceIncreasing();
 
-                if ((params.sqrtRatioLimit() < sqrtRatio) == increasing) {
+                if ((sqrtRatioLimit < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();
                 }
 
-                int128 amountRemaining = params.amount();
                 uint256 calculatedAmount;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
@@ -522,9 +527,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                     }
 
-                    SqrtRatio limitedNextSqrtRatio = increasing
-                        ? nextTickSqrtRatio.min(params.sqrtRatioLimit())
-                        : nextTickSqrtRatio.max(params.sqrtRatioLimit());
+                    SqrtRatio limitedNextSqrtRatio =
+                        increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
 
                     SqrtRatio sqrtRatioNext;
 
@@ -665,7 +669,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         tick = sqrtRatioToTick(sqrtRatio);
                     }
 
-                    if (amountRemaining == 0 || sqrtRatio == params.sqrtRatioLimit()) {
+                    if (amountRemaining == 0 || sqrtRatio == sqrtRatioLimit) {
                         break;
                     }
                 }

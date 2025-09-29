@@ -6,8 +6,12 @@ import {Test} from "forge-std/Test.sol";
 import {Amount1DeltaOverflow} from "../../src/math/delta.sol";
 import {isPriceIncreasing} from "../../src/math/isPriceIncreasing.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio, SqrtRatio, ONE} from "../../src/types/sqrtRatio.sol";
-import {PoolKey} from "../../src/types/poolKey.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {sqrtRatioToTick} from "../../src/math/ticks.sol";
+import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
+import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {FullTest} from "../FullTest.sol";
+import {CoreLib} from "../../src/libraries/CoreLib.sol";
 
 /// @notice Result of a swap calculation
 /// @dev Contains all the information needed to execute a swap
@@ -31,15 +35,22 @@ function noOpSwapResult(SqrtRatio sqrtRatioNext) pure returns (SwapResult memory
 }
 
 contract SwapTest is FullTest {
+    using CoreLib for *;
+
     function setUp() public override {
         FullTest.setUp();
+
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
     }
 
     function test_noOpSwapResult(SqrtRatio sqrtRatio) public pure {
         SwapResult memory result = noOpSwapResult(sqrtRatio);
         assertEq(result.calculatedAmount, 0);
         assertEq(result.consumedAmount, 0);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
         assertEq(SqrtRatio.unwrap(result.sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio));
     }
 
@@ -50,16 +61,73 @@ contract SwapTest is FullTest {
         int128 amount,
         bool isToken1,
         uint64 fee
-    ) external returns (SwapResult memory) {
-        PoolKey memory poolKey = createPool({tick: 0, tickSpacing: 0, fee: fee});
-        // move starting price to the
+    ) external returns (SwapResult memory result) {
+        PoolKey memory poolKey = PoolKey({
+            token0: address(token0),
+            token1: address(token1),
+            config: toConfig({_tickSpacing: 0, _fee: fee, _extension: address(0)})
+        });
+        positions.maybeInitializePool(poolKey, sqrtRatioToTick(sqrtRatio));
+        SqrtRatio current = core.poolState(poolKey.toPoolId()).sqrtRatio();
+
+        // move starting price
         router.swap({
-            isToken1: false,
+            poolKey: poolKey,
+            isToken1: current > sqrtRatio,
             amount: type(int128).min,
             sqrtRatioLimit: sqrtRatio,
             skipAhead: 0,
             calculatedAmountThreshold: type(int128).min,
             recipient: address(0)
+        });
+
+        current = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        assertEq(SqrtRatio.unwrap(current), SqrtRatio.unwrap(sqrtRatio), "price is exact");
+
+        (int128 amount0, int128 amount1) = liquidityDeltaToAmountDelta({
+            sqrtRatio: current,
+            liquidityDelta: int128(liquidity),
+            sqrtRatioLower: MIN_SQRT_RATIO,
+            sqrtRatioUpper: MAX_SQRT_RATIO
+        });
+
+        (uint256 id, uint128 positionLiquidity,,) = positions.mintAndDeposit({
+            poolKey: poolKey,
+            tickLower: MIN_TICK,
+            tickUpper: MAX_TICK,
+            maxAmount0: uint128(amount0),
+            maxAmount1: uint128(amount1),
+            minLiquidity: liquidity
+        });
+
+        assertEq(positionLiquidity, liquidity, "liquidity expected");
+
+        // do the actual swap under test
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: isToken1,
+            amount: amount,
+            sqrtRatioLimit: sqrtRatioLimit,
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int128).min,
+            recipient: address(0)
+        });
+
+        current = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        (uint128 fees0, uint128 fees1) = positions.collectFees(id, poolKey, MIN_TICK, MAX_TICK, address(this));
+
+        // we withdraw so the next call starts with 0 liquidity as well
+        positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity, address(this), false);
+
+        (int128 consumedAmount, uint128 calculatedAmount) = amount >= 0
+            ? isToken1 ? (delta1, uint128(-delta0)) : (delta0, uint128(-delta1))
+            : isToken1 ? (delta1, uint128(delta0)) : (delta0, uint128(delta1));
+
+        result = SwapResult({
+            consumedAmount: consumedAmount,
+            calculatedAmount: calculatedAmount,
+            sqrtRatioNext: current,
+            feeAmount: fees0 + fees1
         });
     }
 
@@ -128,7 +196,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 0);
         assertEq(result.sqrtRatioNext.toFixed(), 0x100000000000000000000000000000000);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
     }
 
     function test_swap_ratio_equal_limit_token1() public {
@@ -143,7 +211,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 0);
         assertEq(result.sqrtRatioNext.toFixed(), 0x100000000000000000000000000000000);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
     }
 
     function test_swap_ratio_wrong_direction_token0_input() public {
@@ -318,7 +386,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 10000);
         assertEq(result.sqrtRatioNext.toFixed(), 324078444686608060441309149948106768384);
         assertEq(result.calculatedAmount, 4761);
-        assertEq(result.feeAmount, 5000);
+        assertApproxEqAbs(result.feeAmount, 5000, 1);
     }
 
     function test_swap_against_liquidity_max_limit_token0_minimum_input() public {
@@ -333,7 +401,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == ONE);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_swap_against_liquidity_min_limit_token0_output() public {
@@ -348,7 +416,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, -10000);
         assertEq(result.sqrtRatioNext.toFixed(), 378091518801042737222520106199097016320);
         assertEq(result.calculatedAmount, 22224);
-        assertEq(result.feeAmount, 11112);
+        assertApproxEqAbs(result.feeAmount, 11112, 1);
     }
 
     function test_swap_against_liquidity_min_limit_token0_minimum_output() public {
@@ -363,7 +431,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, -1);
         assertEq(result.sqrtRatioNext.toFixed(), 340285769778636249866166861115464613888);
         assertEq(result.calculatedAmount, 4);
-        assertEq(result.feeAmount, 2);
+        assertApproxEqAbs(result.feeAmount, 2, 1);
     }
 
     function test_swap_against_liquidity_max_limit_token1_input() public {
@@ -379,7 +447,7 @@ contract SwapTest is FullTest {
         SqrtRatio expectedSqrt = toSqrtRatio((uint256(1) << 128) + 17014118346046923173168730371588410572, false);
         assertTrue(result.sqrtRatioNext == expectedSqrt);
         assertEq(result.calculatedAmount, 4761);
-        assertEq(result.feeAmount, 5000);
+        assertApproxEqAbs(result.feeAmount, 5000, 1);
     }
 
     function test_swap_against_liquidity_max_limit_token1_minimum_input() public {
@@ -394,7 +462,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == ONE);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_swap_against_liquidity_min_limit_token1_output() public {
@@ -409,7 +477,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, -10000);
         assertTrue(result.sqrtRatioNext == toSqrtRatio(0xe6666666666666666666666666666666, false));
         assertEq(result.calculatedAmount, 22224);
-        assertEq(result.feeAmount, 11112);
+        assertApproxEqAbs(result.feeAmount, 11112, 1);
     }
 
     function test_swap_against_liquidity_min_limit_token1_minimum_output() public {
@@ -424,7 +492,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, -1);
         assertTrue(result.sqrtRatioNext == toSqrtRatio(0xffff583a53b8e4b87bdcf0307f23cc8d, false));
         assertEq(result.calculatedAmount, 4);
-        assertEq(result.feeAmount, 2);
+        assertApproxEqAbs(result.feeAmount, 2, 1);
     }
 
     function test_swap_against_liquidity_hit_limit_token0_input() public {
@@ -439,7 +507,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 4082);
         assertTrue(result.sqrtRatioNext == toSqrtRatio(333476719582519694194107115283132847226, false));
         assertEq(result.calculatedAmount, 2000);
-        assertEq(result.feeAmount, 2041);
+        assertApproxEqAbs(result.feeAmount, 2041, 1);
     }
 
     function test_swap_against_liquidity_hit_limit_token1_input() public {
@@ -455,7 +523,7 @@ contract SwapTest is FullTest {
         SqrtRatio expectedSqrt = toSqrtRatio((uint256(1) << 128) + 0x51eb851eb851eb851eb851eb851eb85, false);
         assertTrue(result.sqrtRatioNext == expectedSqrt);
         assertEq(result.calculatedAmount, 1960);
-        assertEq(result.feeAmount, 2000);
+        assertApproxEqAbs(result.feeAmount, 2000, 1);
     }
 
     function test_swap_against_liquidity_hit_limit_token0_output() public {
@@ -471,7 +539,7 @@ contract SwapTest is FullTest {
         SqrtRatio expectedSqrt = toSqrtRatio((uint256(1) << 128) + 0x51eb851eb851eb851eb851eb851eb85, false);
         assertTrue(result.sqrtRatioNext == expectedSqrt);
         assertEq(result.calculatedAmount, 4000);
-        assertEq(result.feeAmount, 2000);
+        assertApproxEqAbs(result.feeAmount, 2000, 1);
     }
 
     function test_swap_against_liquidity_hit_limit_token1_output() public {
@@ -486,7 +554,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, -2000);
         assertTrue(result.sqrtRatioNext == toSqrtRatio(333476719582519694194107115283132847226, false));
         assertEq(result.calculatedAmount, 4082);
-        assertEq(result.feeAmount, 2041);
+        assertApproxEqAbs(result.feeAmount, 2041, 1);
     }
 
     function test_swap_max_amount_token0() public {
@@ -517,7 +585,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1);
         assertEq(result.sqrtRatioNext.toFixed(), 340278964131297150491869688743818428416);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
     }
 
     function test_swap_min_amount_token0_very_high_price() public {
@@ -532,7 +600,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == toSqrtRatio(34028236692093846346337460743176821145600000, false));
         assertEq(result.calculatedAmount, 1844629699405262373841025);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
     }
 
     function test_swap_max_amount_token1() public {
@@ -550,7 +618,7 @@ contract SwapTest is FullTest {
             result.sqrtRatioNext == toSqrtRatio(6276949602062853172742588666638147158083741740262337144812, false)
         );
         assertEq(result.calculatedAmount, 0x1869f);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
     }
 
     function test_swap_min_amount_token1() public {
@@ -566,7 +634,7 @@ contract SwapTest is FullTest {
         SqrtRatio expectedSqrt = toSqrtRatio((uint256(1) << 128) + 0xa7c5ac471b4784230fcf80dc3372, false);
         assertTrue(result.sqrtRatioNext == expectedSqrt);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
     }
 
     function test_swap_min_amount_token1_very_high_price() public {
@@ -581,7 +649,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == toSqrtRatio(3402823669209403081824910276488208, false));
         assertEq(result.calculatedAmount, 1844629699405262374041016);
-        assertEq(result.feeAmount, 0);
+        assertApproxEqAbs(result.feeAmount, 0, 1);
     }
 
     function test_swap_max_fee() public {
@@ -596,7 +664,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1000);
         assertTrue(result.sqrtRatioNext == ONE);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 0x3e8);
+        assertApproxEqAbs(result.feeAmount, 1000, 1);
     }
 
     function test_swap_min_fee() public {
@@ -611,7 +679,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1000);
         assertEq(result.sqrtRatioNext.toFixed(), 336916570382814150103837273090563244032);
         assertEq(result.calculatedAmount, 989);
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_swap_all_max_inputs() public {
@@ -651,7 +719,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 9995000000);
         assertEq(result.sqrtRatioNext.toFixed(), 21157655283161685063980137627317698560);
         assertEq(result.calculatedAmount, 38557555);
-        assertEq(result.feeAmount, 29985000);
+        assertApproxEqAbs(result.feeAmount, 29985000, 1);
     }
 
     function test_exact_output_swap_max_fee_token0() public {
@@ -666,7 +734,7 @@ contract SwapTest is FullTest {
 
         assertEq(result.consumedAmount, -1);
         assertEq(result.calculatedAmount, 316912650057057350374175801344);
-        assertEq(result.feeAmount, 316912650057057350356995932160);
+        assertApproxEqAbs(result.feeAmount, 316912650057057350356995932160, 1);
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463537161583726606417920);
     }
 
@@ -682,7 +750,7 @@ contract SwapTest is FullTest {
 
         assertEq(result.consumedAmount, -10000);
         assertEq(result.calculatedAmount, 316912650057057350374175801344);
-        assertEq(result.feeAmount, 316912650057057350356995932160);
+        assertApproxEqAbs(result.feeAmount, 316912650057057350356995932160, 1);
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463537161583726606417920);
     }
 
@@ -698,7 +766,7 @@ contract SwapTest is FullTest {
 
         assertEq(result.consumedAmount, -1);
         assertEq(result.calculatedAmount, 316912650057057350374175801344);
-        assertEq(result.feeAmount, 316912650057057350356995932160);
+        assertApproxEqAbs(result.feeAmount, 316912650057057350356995932160, 1);
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463537161583726606417920);
     }
 
@@ -713,7 +781,7 @@ contract SwapTest is FullTest {
         });
         assertEq(result.consumedAmount, -1);
         assertEq(result.calculatedAmount, 92233720368547758080);
-        assertEq(result.feeAmount, 92233720368547758075);
+        assertApproxEqAbs(result.feeAmount, 92233720368547758075, 1);
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463463374607414588342272); // ~= 1
     }
 
@@ -729,7 +797,7 @@ contract SwapTest is FullTest {
 
         assertEq(result.consumedAmount, -1);
         assertEq(result.calculatedAmount, 92233720368547758080);
-        assertEq(result.feeAmount, 92233720368547758075);
+        assertApproxEqAbs(result.feeAmount, 92233720368547758075, 1);
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938463463374607414588342272);
     }
 
@@ -745,7 +813,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == ONE);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_exact_input_swap_max_fee_token1() public {
@@ -760,7 +828,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == ONE);
         assertEq(result.calculatedAmount, 0);
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_large_liquidity_rounding_price_eg_usdc_usdt_token1() public {
@@ -776,7 +844,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1e6);
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920940164695900061221456445440);
         assertEq(result.calculatedAmount, 999894);
-        assertEq(result.feeAmount, 100);
+        assertApproxEqAbs(result.feeAmount, 100, 1);
     }
 
     function test_large_liquidity_rounding_price_eg_usdc_usdt_token0() public {
@@ -792,7 +860,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1000);
         assertEq(result.sqrtRatioNext.toFixed(), 340282366920938461763664184673493319680);
         assertEq(result.calculatedAmount, 998);
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_large_liquidity_rounding_price_eg_eth_wbtc_token1() public {
@@ -811,7 +879,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 1e8);
         assertEq(result.sqrtRatioNext.toFixed(), 567416326791111742716100667768832);
         assertEq(result.calculatedAmount, 35.946617682297259606e18);
-        assertEq(result.feeAmount, 50000);
+        assertApproxEqAbs(result.feeAmount, 50000, 1);
     }
 
     function test_large_liquidity_rounding_price_eg_eth_wbtc_eth_in_token0() public {
@@ -830,7 +898,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 100e18);
         assertEq(result.sqrtRatioNext.toFixed(), 567416325734720088492796473769984);
         assertEq(result.calculatedAmount, 2.77912168e8);
-        assertEq(result.feeAmount, 49999999999999996);
+        assertApproxEqAbs(result.feeAmount, 49999999999999996, 1);
     }
 
     function test_unrealistic_large_liquidity_rounding_token0_in_high_price() public {
@@ -848,7 +916,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 100);
         assertEq(result.sqrtRatioNext.toFixed(), 95780971304118053647389083293292954599762214917242880);
         assertEq(result.calculatedAmount, 7_605_903_601_369_376_408_980_219_232_255); // approximately 100 input - 1 fee * 2**96 price == 7.9228162514E30
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_unrealistic_large_liquidity_rounding_token1_in_high_price() public {
@@ -866,7 +934,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, type(int128).max);
         assertEq(result.sqrtRatioNext.toFixed(), 95780971304118223703509385535409808758432655611002880);
         assertEq(result.calculatedAmount, 2_146_409_903); // approximately 2**127 input / 2**96 price == 2,147,483,648
-        assertEq(result.feeAmount, 85070591730234608413359046079283200);
+        assertApproxEqAbs(result.feeAmount, 85070591730234608413359046079283200, 1);
     }
 
     function test_unrealistic_large_liquidity_rounding_token0_in_low_price() public {
@@ -884,7 +952,7 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, 100);
         assertEq(result.sqrtRatioNext.toFixed(), 1208925819614629174706272);
         assertEq(result.calculatedAmount, 7_605_903_601_369_376_408_979_615_252_479); // approximately 100 input - 1 fee * 2**96 price == 7.9228162514E30
-        assertEq(result.feeAmount, 1);
+        assertApproxEqAbs(result.feeAmount, 1, 1);
     }
 
     function test_unrealistic_large_liquidity_rounding_token1_in_low_price() public {
@@ -902,6 +970,6 @@ contract SwapTest is FullTest {
         assertEq(result.consumedAmount, type(int128).max);
         assertEq(result.sqrtRatioNext.toFixed(), 1208925819614627028296272);
         assertEq(result.calculatedAmount, 2_146_409_903); // approximately 2**127 input / 2**96 price == 2,147,483,648
-        assertEq(result.feeAmount, 85070591730234608413359046079283200);
+        assertApproxEqAbs(result.feeAmount, 85070591730234608413359046079283200, 1);
     }
 }

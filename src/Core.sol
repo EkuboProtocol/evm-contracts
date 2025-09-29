@@ -478,11 +478,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             if (amount != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
 
-                bool increasing = isPriceIncreasing(amount, isToken1);
+                bool isExactOut;
+                bool increasing;
+                assembly ("memory-safe") {
+                    isExactOut := slt(amount, 0)
+                    increasing := xor(isExactOut, isToken1)
+                }
+
                 if ((sqrtRatioLimit < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();
                 }
-                bool isExactOut = amount < 0;
 
                 int128 amountRemaining = amount;
                 uint256 calculatedAmount;

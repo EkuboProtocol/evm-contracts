@@ -21,6 +21,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 import {PoolId} from "./types/poolId.sol";
+import {Locker} from "./types/locker.sol";
 import {computeFee, amountBeforeFee} from "./math/fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./math/delta.sol";
@@ -349,8 +350,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         (uint256 id, address lockerAddr) = _requireLocker().parse();
 
-        address extension = poolKey.extension();
-        IExtension(extension).maybeCallBeforeUpdatePosition(lockerAddr, poolKey, positionId, liquidityDelta);
+        IExtension(poolKey.extension()).maybeCallBeforeUpdatePosition(lockerAddr, poolKey, positionId, liquidityDelta);
 
         PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
@@ -413,7 +413,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(lockerAddr, poolId, positionId, liquidityDelta, delta0, delta1, state);
         }
 
-        IExtension(extension).maybeCallAfterUpdatePosition(
+        IExtension(poolKey.extension()).maybeCallAfterUpdatePosition(
             lockerAddr, poolKey, positionId, liquidityDelta, delta0, delta1, state
         );
     }
@@ -425,8 +425,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     {
         (uint256 id, address lockerAddr) = _requireLocker().parse();
 
-        address extension = poolKey.extension();
-        IExtension(extension).maybeCallBeforeCollectFees(lockerAddr, poolKey, positionId);
+        IExtension(poolKey.extension()).maybeCallBeforeCollectFees(lockerAddr, poolKey, positionId);
 
         PoolId poolId = poolKey.toPoolId();
 
@@ -448,7 +447,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         emit PositionFeesCollected(lockerAddr, poolId, positionId, amount0, amount1);
 
-        IExtension(extension).maybeCallAfterCollectFees(lockerAddr, poolKey, positionId, amount0, amount1);
+        IExtension(poolKey.extension()).maybeCallAfterCollectFees(lockerAddr, poolKey, positionId, amount0, amount1);
     }
 
     /// @inheritdoc ICore
@@ -461,10 +460,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
-        (uint256 id, address lockerAddr) = _requireLocker().parse();
+        Locker locker = _requireLocker();
 
-        address extension = poolKey.extension();
-        IExtension(extension).maybeCallBeforeSwap(lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+        IExtension(poolKey.extension()).maybeCallBeforeSwap(
+            locker.addr(), poolKey, amount, isToken1, sqrtRatioLimit, skipAhead
+        );
 
         PoolId poolId = poolKey.toPoolId();
 
@@ -714,11 +714,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            _updatePairDebtWithNative(id, poolKey.token0, poolKey.token1, delta0, delta1);
+            _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
 
             assembly ("memory-safe") {
                 let o := mload(0x40)
-                mstore(o, shl(96, lockerAddr))
+                mstore(o, shl(96, locker))
                 mstore(add(o, 20), poolId)
                 mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
                 mstore(add(o, 84), stateAfter)
@@ -726,8 +726,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
         }
 
-        IExtension(extension).maybeCallAfterSwap(
-            lockerAddr, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
+        IExtension(poolKey.extension()).maybeCallAfterSwap(
+            locker.addr(), poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
         );
     }
 }

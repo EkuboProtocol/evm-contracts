@@ -2,13 +2,11 @@
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {SwapParameters, createSwapParameters, SkipAheadTooLarge} from "../../src/types/swapParameters.sol";
+import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 
 contract SwapParametersTest is Test {
     function test_conversionToAndFrom(SwapParameters params) public pure {
-        // Filter out cases where skipAhead is too large or unused bits are set
-        vm.assume(params.skipAhead() <= 0xFFFFFF);
         // Unused bits are bits 6-0, so mask them out
         vm.assume((uint256(SwapParameters.unwrap(params)) & 0x7F) == 0);
         assertEq(
@@ -24,10 +22,11 @@ contract SwapParametersTest is Test {
         );
     }
 
-    function test_conversionFromAndTo(SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint24 skipAhead)
+    function test_conversionFromAndTo(SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead)
         public
         pure
     {
+        skipAhead = bound(skipAhead, 0, type(uint32).max >> 1);
         SwapParameters params = createSwapParameters({
             _sqrtRatioLimit: sqrtRatioLimit,
             _amount: amount,
@@ -72,14 +71,8 @@ contract SwapParametersTest is Test {
         assertEq(params.skipAhead(), skipAhead, "skipAhead");
     }
 
-    /// forge-config: default.allow_internal_expect_revert = true
-    function test_skipAheadTooLarge(uint256 skipAhead) public {
-        vm.assume(skipAhead > 0xFFFFFF);
-        vm.expectRevert(SkipAheadTooLarge.selector);
-        createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _amount: 0, _isToken1: false, _skipAhead: skipAhead});
-    }
-
-    function test_parse(SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint24 skipAhead) public pure {
+    function test_parse(SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead) public pure {
+        skipAhead = bound(skipAhead, 0, type(uint32).max >> 1);
         SwapParameters params = createSwapParameters({
             _sqrtRatioLimit: sqrtRatioLimit,
             _amount: amount,

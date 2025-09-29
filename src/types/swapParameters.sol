@@ -15,8 +15,7 @@ function sqrtRatioLimit(SwapParameters params) pure returns (SqrtRatio r) {
 
 function amount(SwapParameters params) pure returns (int128 a) {
     assembly ("memory-safe") {
-        // Shift right by 32 to get amount at bottom, then mask to 128 bits before sign extending
-        a := signextend(15, and(shr(32, params), 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
+        a := signextend(15, shr(32, params))
     }
 }
 
@@ -28,7 +27,7 @@ function isToken1(SwapParameters params) pure returns (bool t) {
 
 function skipAhead(SwapParameters params) pure returns (uint256 s) {
     assembly ("memory-safe") {
-        s := and(shr(7, params), 0xFFFFFF)
+        s := and(params, 0x7fffffff)
     }
 }
 
@@ -37,7 +36,7 @@ function parse(SwapParameters params) pure returns (SqrtRatio r, int128 a, bool 
         r := shr(160, params)
         a := signextend(15, and(shr(32, params), 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
         t := and(shr(31, params), 1)
-        s := and(shr(7, params), 0xFFFFFF)
+        s := and(params, 0x7fffffff)
     }
 }
 
@@ -45,9 +44,8 @@ function createSwapParameters(SqrtRatio _sqrtRatioLimit, int128 _amount, bool _i
     pure
     returns (SwapParameters p)
 {
-    if (_skipAhead > 0xFFFFFF) revert SkipAheadTooLarge();
     assembly ("memory-safe") {
-        // p = (sqrtRatioLimit << 160) | (amount << 32) | (isToken1 << 31) | (skipAhead << 7)
+        // p = (sqrtRatioLimit << 160) | (amount << 32) | (isToken1 << 31) | skipAhead
         // Mask each field to ensure dirty bits don't interfere
         // For isToken1, use iszero(iszero()) to convert any non-zero value to 1
         p :=
@@ -55,10 +53,8 @@ function createSwapParameters(SqrtRatio _sqrtRatioLimit, int128 _amount, bool _i
                 shl(160, _sqrtRatioLimit),
                 or(
                     shl(32, and(_amount, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)),
-                    or(shl(31, iszero(iszero(_isToken1))), shl(7, and(_skipAhead, 0xFFFFFF)))
+                    or(shl(31, iszero(iszero(_isToken1))), and(_skipAhead, 0x7fffffff))
                 )
             )
     }
 }
-
-error SkipAheadTooLarge();

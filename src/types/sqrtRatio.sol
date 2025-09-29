@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-
 pragma solidity =0.8.30;
 
 // A dynamic fixed point number (a la floating point) that stores a shifting 94 bit view of the underlying fixed point value,

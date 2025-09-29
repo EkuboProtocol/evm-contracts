@@ -470,13 +470,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         if (sqrtRatio.isZero()) revert PoolNotInitialized();
 
-        // 0 swap amount is no-op
-        if (amount != 0) {
+        // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
+        if (amount != 0 && sqrtRatio != sqrtRatioLimit) {
             bool increasing = isPriceIncreasing(amount, isToken1);
-            if (increasing) {
-                if (sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
-            } else {
-                if (sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
+            if ((sqrtRatioLimit < sqrtRatio) == increasing) {
+                revert SqrtRatioLimitWrongDirection();
             }
 
             int128 amountRemaining = amount;
@@ -498,7 +496,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            while (amountRemaining != 0 && sqrtRatio != sqrtRatioLimit) {
+            while (true) {
                 int32 nextTick;
                 bool isInitialized;
                 SqrtRatio nextTickSqrtRatio;
@@ -585,6 +583,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 } else if (sqrtRatio != result.sqrtRatioNext) {
                     sqrtRatio = result.sqrtRatioNext;
                     tick = sqrtRatioToTick(sqrtRatio);
+                }
+
+                if (amountRemaining == 0 || sqrtRatio == sqrtRatioLimit) {
+                    break;
                 }
             }
 

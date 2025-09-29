@@ -182,8 +182,11 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
 
-    /// @notice Thrown when sqrt ratio limit is invalid for the swap direction
+    /// @notice Thrown when sqrt ratio limit parameter given to swap is not a valid sqrt ratio
     error InvalidSqrtRatioLimit();
+
+    /// @notice Thrown when the sqrt ratio limit is in the wrong direction of the current price
+    error SqrtRatioLimitWrongDirection();
 
     /// @notice Thrown when saved balance tokens are not properly sorted
     error SavedBalanceTokensNotSorted();

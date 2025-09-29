@@ -583,16 +583,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             sqrtRatioNext = limitedNextSqrtRatio;
                         } else if (sqrtRatioNextFromAmount == sqrtRatio) {
-                            // for an exact output swap, the price should always move because we have to round away from the current price
-                            // or else the pool can leak value
+                            // for an exact output swap, the price should always move since we have to round away from the current price
                             assert(!isExactOut);
 
-                            amountRemaining = 0;
-                            sqrtRatioNext = sqrtRatio;
                             // consume the entire input amount as fees since the price did not move
+                            amountRemaining = 0;
                             feeAmount = uint128(amountRemaining);
 
-                            sqrtRatioNext = sqrtRatioNextFromAmount;
+                            sqrtRatioNext = sqrtRatio;
                         } else {
                             uint128 calculatedAmountWithoutFee = isToken1
                                 ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)

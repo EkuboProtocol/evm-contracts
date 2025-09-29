@@ -25,6 +25,7 @@ import {Locker} from "./types/locker.sol";
 import {computeFee, amountBeforeFee} from "./math/fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./math/delta.sol";
+import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -473,18 +474,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (sqrtRatio.isZero()) revert PoolNotInitialized();
 
-            // 0 swap amount is no-op
+            // 0 swap amount is no-op and does not emit an event, but does trigger calls to the extension
             if (amount != 0) {
-                bool isExactOut;
-                bool increasing;
-                assembly ("memory-safe") {
-                    isExactOut := slt(amount, 0)
-                    // isToken1 is only 0 or 1 because of the abi decoder validation
-                    increasing := xor(isToken1, isExactOut)
+                bool increasing = isPriceIncreasing(amount, isToken1);
+                if (increasing) {
+                    if (sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
+                } else {
+                    if (sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
                 }
+                bool isExactOut = amount < 0;
 
                 int128 amountRemaining = amount;
-                uint128 calculatedAmount = 0;
+                uint128 calculatedAmount;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
                 bytes32 inputTokenFeesPerLiquiditySlot;
@@ -518,31 +519,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     } else {
                         // we never cross ticks in the full range version
-                        // isInitialized = false;
                         (nextTick, nextTickSqrtRatio) =
                             increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                     }
 
-                    // Clamp next tick to ensure it's always in the right direction
-                    // If nextTickSqrtRatio is on the wrong side, use sqrtRatioLimit instead
-                    SqrtRatio limitedNextSqrtRatio;
-                    if (increasing) {
-                        // For increasing swaps, next tick should be >= current price
-                        limitedNextSqrtRatio =
-                            (nextTickSqrtRatio <= sqrtRatio) ? sqrtRatioLimit : nextTickSqrtRatio.min(sqrtRatioLimit);
-                    } else {
-                        // For decreasing swaps, next tick should be <= current price
-                        limitedNextSqrtRatio =
-                            (nextTickSqrtRatio >= sqrtRatio) ? sqrtRatioLimit : nextTickSqrtRatio.max(sqrtRatioLimit);
-                    }
+                    SqrtRatio limitedNextSqrtRatio =
+                        increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
 
                     // Inlined swap calculation - optimized to reduce branching
-                    uint128 feeAmount;
                     SqrtRatio sqrtRatioNext;
 
                     if (liquidity == 0) {
                         // if the pool is empty, the swap will always move all the way to the limit price
-                        feeAmount = 0;
                         sqrtRatioNext = limitedNextSqrtRatio;
                     } else {
                         // this amount is what moves the price
@@ -569,21 +557,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             hitLimit := or(exceedsUp, exceedsDown)
                         }
 
-                        if (hitLimit) {
-                            uint128 specifiedAmountDelta;
-                            uint128 calculatedAmountDelta;
+                        uint128 feeAmount;
 
-                            if (isToken1) {
-                                specifiedAmountDelta =
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut);
-                                calculatedAmountDelta =
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut);
-                            } else {
-                                specifiedAmountDelta =
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut);
-                                calculatedAmountDelta =
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut);
-                            }
+                        if (hitLimit) {
+                            (uint128 specifiedAmountDelta, uint128 calculatedAmountDelta) = (isToken1)
+                                ? (
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                )
+                                : (
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                );
 
                             if (isExactOut) {
                                 uint128 beforeFee = amountBeforeFee(calculatedAmountDelta, poolKey.fee());
@@ -603,10 +588,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             // or else the pool can leak value
                             assert(!isExactOut);
 
-                            amountRemaining -= amountRemaining;
+                            amountRemaining = 0;
                             sqrtRatioNext = sqrtRatio;
                             // consume the entire input amount as fees since the price did not move
                             feeAmount = uint128(amountRemaining);
+
+                            sqrtRatioNext = sqrtRatioNextFromAmount;
                         } else {
                             uint128 calculatedAmountWithoutFee = isToken1
                                 ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
@@ -621,16 +608,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 feeAmount = uint128(amountRemaining - priceImpactAmount);
                             }
 
-                            amountRemaining -= amountRemaining;
+                            amountRemaining = 0;
                             sqrtRatioNext = sqrtRatioNextFromAmount;
                         }
-                    }
 
-                    // this accounts the fees into the feesPerLiquidity memory struct
-                    assembly ("memory-safe") {
-                        // div by 0 returns 0, so it's ok
-                        let v := div(shl(128, feeAmount), liquidity)
-                        inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
+                        // this accounts the fees into the feesPerLiquidity memory struct
+                        assembly ("memory-safe") {
+                            // div by 0 returns 0, so it's ok
+                            let v := div(shl(128, feeAmount), liquidity)
+                            inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
+                        }
                     }
 
                     if (sqrtRatioNext == nextTickSqrtRatio) {

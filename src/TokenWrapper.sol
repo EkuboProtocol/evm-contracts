@@ -91,6 +91,8 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
 
     /// @inheritdoc IERC20
     function transfer(address to, uint256 amount) external returns (bool) {
+        // note we do not need to check that core balance is sufficient as the sender
+        // even if the caller gets core to withdraw to itself, as part of a payment, it will net to 0 with the Core#withdraw call
         if (msg.sender != address(CORE)) {
             uint256 balance = _balanceOf[msg.sender];
             if (balance < amount) {

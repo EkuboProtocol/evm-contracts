@@ -269,7 +269,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @return delta0 Change in token0 balance of the pool
     /// @return delta1 Change in token1 balance of the pool
     /// @return stateAfter The pool state after the swap
-    function swap_611415377(PoolKey memory poolKey, SwapParameters params)
+    function swap_1773245541(PoolKey memory poolKey, SwapParameters params)
         external
         payable
         returns (int128 delta0, int128 delta1, PoolState stateAfter);

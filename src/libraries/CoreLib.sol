@@ -118,11 +118,27 @@ library CoreLib {
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
         SwapParameters params = createSwapParameters(sqrtRatioLimit, amount, isToken1, skipAhead);
+        (delta0, delta1, stateAfter) = swap(core, value, poolKey, params);
+    }
+
+    /// @notice Executes a swap against the core contract using assembly optimization
+    /// @dev Uses assembly to make direct call to core contract for gas efficiency
+    /// @param core The core contract instance
+    /// @param value Native token value to send with the swap
+    /// @param poolKey Pool key identifying the pool
+    /// @param params The swap parameters to use
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
+    /// @return stateAfter The pool state after the swap
+    function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params)
+        internal
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+    {
         assembly ("memory-safe") {
             let free := mload(0x40)
 
-            // the function selector of swap is 0x080370ac (changed from 0x00000000 after SwapParameters refactor)
-            mstore(free, shl(224, 0x080370ac))
+            // the function selector of swap is 0
+            mstore(free, 0)
 
             // Copy PoolKey
             mcopy(add(free, 4), poolKey, 96)

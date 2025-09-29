@@ -23,9 +23,7 @@ contract CoreTest is FullTest {
     }
 
     function test_swap_function_selector() public pure {
-        // After refactoring to use SwapParameters, the selector changed from 0x00000000 to 0x080370ac
-        // The function name swap_611415377 was originally mined for the old signature
-        assertEq(ICore.swap_611415377.selector, bytes4(0x080370ac));
+        assertEq(ICore.swap_1773245541.selector, bytes4(0));
     }
 
     function test_registerExtension(uint8 b) public {

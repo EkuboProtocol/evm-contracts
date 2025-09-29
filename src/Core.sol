@@ -455,7 +455,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function swap_611415377(PoolKey memory poolKey, SwapParameters params)
+    function swap_1773245541(PoolKey memory poolKey, SwapParameters params)
         external
         payable
         returns (int128 delta0, int128 delta1, PoolState stateAfter)

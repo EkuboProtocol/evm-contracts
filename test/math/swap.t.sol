@@ -13,23 +13,13 @@ import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
 import {FullTest} from "../FullTest.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 
-/// @notice Result of a swap calculation
-/// @dev Contains all the information needed to execute a swap
 struct SwapResult {
-    /// @notice Amount of the input token consumed by the swap
     int128 consumedAmount;
-    /// @notice Amount of the output token calculated from the swap
     uint128 calculatedAmount;
-    /// @notice The new sqrt price ratio after the swap
     SqrtRatio sqrtRatioNext;
-    /// @notice Amount of fees collected from the swap
     uint128 feeAmount;
 }
 
-/// @notice Creates a no-operation swap result
-/// @dev Used when a swap would have no effect (zero amount or already at limit price)
-/// @param sqrtRatioNext The sqrt price ratio to use in the result
-/// @return A SwapResult with zero amounts and the provided sqrt ratio
 function noOpSwapResult(SqrtRatio sqrtRatioNext) pure returns (SwapResult memory) {
     return SwapResult({consumedAmount: 0, calculatedAmount: 0, feeAmount: 0, sqrtRatioNext: sqrtRatioNext});
 }

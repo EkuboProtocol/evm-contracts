@@ -479,11 +479,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
 
+                bool isToken1 = params.isToken1();
+
                 bool isExactOut;
+                bool increasing;
                 assembly ("memory-safe") {
                     isExactOut := slt(amountRemaining, 0)
+                    increasing := xor(isToken1, isExactOut)
                 }
-                bool increasing = params.isPriceIncreasing();
 
                 if ((sqrtRatioLimit < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();
@@ -547,7 +550,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.fee()));
                         }
 
-                        SqrtRatio sqrtRatioNextFromAmount = params.isToken1()
+                        SqrtRatio sqrtRatioNextFromAmount = isToken1
                             ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
                             : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
 
@@ -563,7 +566,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         uint128 feeAmount;
 
                         if (hitLimit) {
-                            (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = params.isToken1()
+                            (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
                                 ? (
                                     amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
                                     amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
@@ -596,7 +599,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             sqrtRatioNext = sqrtRatio;
                         } else {
-                            uint128 calculatedAmountWithoutFee = params.isToken1()
+                            uint128 calculatedAmountWithoutFee = isToken1
                                 ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
 
@@ -679,7 +682,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );
 
-                (delta0, delta1) = params.isToken1()
+                (delta0, delta1) = isToken1
                     ? (calculatedAmountDelta, params.amount() - amountRemaining)
                     : (params.amount() - amountRemaining, calculatedAmountDelta);
 

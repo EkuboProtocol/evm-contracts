@@ -475,12 +475,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             if (sqrtRatio.isZero()) revert PoolNotInitialized();
 
             // 0 swap amount is no-op and does not emit an event, but does trigger calls to the extension
-            if (amount != 0) {
+            if (amount != 0 && sqrtRatio != sqrtRatioLimit) {
                 bool increasing = isPriceIncreasing(amount, isToken1);
-                if (increasing) {
-                    if (sqrtRatioLimit < sqrtRatio) revert SqrtRatioLimitWrongDirection();
-                } else {
-                    if (sqrtRatioLimit > sqrtRatio) revert SqrtRatioLimitWrongDirection();
+                if ((sqrtRatioLimit < sqrtRatio) == increasing) {
+                    revert SqrtRatioLimitWrongDirection();
                 }
                 bool isExactOut = amount < 0;
 

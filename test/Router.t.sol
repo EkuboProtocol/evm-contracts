@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {
@@ -42,6 +43,51 @@ contract RouterTest is FullTest {
         } else {
             assertEq(SqrtRatio.unwrap(result), SqrtRatio.unwrap(sqrtRatioLimit));
         }
+    }
+
+    function test_noop_sqrt_ratio_limit_equals_price_token0_out(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+
+        (int128 delta0, int128 delta1) = router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: type(int128).min}),
+            type(int256).min
+        );
+        assertEq(delta0, 0);
+        assertEq(delta1, 0);
+    }
+
+    function test_noop_sqrt_ratio_limit_equals_price_token1_out(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+
+        (int128 delta0, int128 delta1) = router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: type(int128).min}),
+            type(int256).min
+        );
+        assertEq(delta0, 0);
+        assertEq(delta1, 0);
+    }
+
+    function test_reverts_sqrtRatioLimit_wrong_direction(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK + 1, MAX_TICK - 1));
+        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+
+        vm.expectRevert(ICore.SqrtRatioLimitWrongDirection.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick - 1), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: type(int128).min}),
+            type(int256).min
+        );
+
+        vm.expectRevert(ICore.SqrtRatioLimitWrongDirection.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick + 1), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: type(int128).min}),
+            type(int256).min
+        );
     }
 
     function test_basicSwap_token0_in(CallPoints memory callPoints) public {

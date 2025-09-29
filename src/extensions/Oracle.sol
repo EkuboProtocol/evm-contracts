@@ -17,6 +17,7 @@ import {Counts, createCounts} from "../types/counts.sol";
 import {Observation, createObservation} from "../types/observation.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
 
 /// @notice Returns the call points configuration for the Oracle extension
@@ -193,12 +194,12 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @notice Called before a swap to capture price/liquidity snapshot
     /// @dev Inserts a new snapshot if a swap is occurring
-    function beforeSwap(Locker, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
+    function beforeSwap(Locker, PoolKey memory poolKey, SwapParameters params)
         external
         override(BaseExtension, IExtension)
         onlyCore
     {
-        if (amount != 0) {
+        if (params.amount() != 0) {
             maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token1);
         }
     }

@@ -20,6 +20,7 @@ import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
+import {SwapParameters} from "./types/swapParameters.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 import {PoolId} from "./types/poolId.sol";
 import {Locker} from "./types/locker.sol";
@@ -454,21 +455,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function swap_611415377(
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+    function swap_611415377(PoolKey memory poolKey, SwapParameters params)
+        external
+        payable
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+    {
         unchecked {
+            (SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead) = params.parse();
             if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
             Locker locker = _requireLocker();
 
-            IExtension(poolKey.extension()).maybeCallBeforeSwap(
-                locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead
-            );
+            IExtension(poolKey.extension()).maybeCallBeforeSwap(locker, poolKey, params);
 
             PoolId poolId = poolKey.toPoolId();
 
@@ -711,9 +709,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            IExtension(poolKey.extension()).maybeCallAfterSwap(
-                locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
-            );
+            IExtension(poolKey.extension()).maybeCallAfterSwap(locker, poolKey, params, delta0, delta1, stateAfter);
         }
     }
 }

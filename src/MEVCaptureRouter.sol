@@ -5,6 +5,7 @@ import {Router} from "./Router.sol";
 import {ICore, PoolKey, SqrtRatio} from "./interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {PoolState} from "./types/poolState.sol";
+import {SwapParameters, createSwapParameters} from "./types/swapParameters.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 
@@ -32,10 +33,9 @@ contract MEVCaptureRouter is Router {
         if (poolKey.extension() != MEV_CAPTURE) {
             (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
         } else {
-            (delta0, delta1, stateAfter) = abi.decode(
-                CORE.forward(MEV_CAPTURE, abi.encode(poolKey, amount, isToken1, sqrtRatioLimit, skipAhead)),
-                (int128, int128, PoolState)
-            );
+            SwapParameters params = createSwapParameters(sqrtRatioLimit, amount, isToken1, skipAhead);
+            (delta0, delta1, stateAfter) =
+                abi.decode(CORE.forward(MEV_CAPTURE, abi.encode(poolKey, params)), (int128, int128, PoolState));
             if (value != 0) {
                 SafeTransferLib.safeTransferETH(address(CORE), value);
             }

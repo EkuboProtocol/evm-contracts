@@ -11,6 +11,7 @@ import {PositionId} from "../types/positionId.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 
 /// @title Core Library
 /// @notice Library providing common storage getters for external contracts
@@ -116,22 +117,20 @@ library CoreLib {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+        SwapParameters params = createSwapParameters(sqrtRatioLimit, amount, isToken1, skipAhead);
         assembly ("memory-safe") {
             let free := mload(0x40)
 
-            // the function selector of swap is 0
-            mstore(free, 0)
+            // the function selector of swap is 0x080370ac (changed from 0x00000000 after SwapParameters refactor)
+            mstore(free, shl(224, 0x080370ac))
 
             // Copy PoolKey
             mcopy(add(free, 4), poolKey, 96)
 
-            // Add remaining parameters
-            mstore(add(free, 100), amount) // int128 amount
-            mstore(add(free, 132), isToken1) // bool isToken1
-            mstore(add(free, 164), sqrtRatioLimit) // SqrtRatio sqrtRatioLimit
-            mstore(add(free, 196), skipAhead) // uint256 skipAhead
+            // Add SwapParameters
+            mstore(add(free, 100), params)
 
-            if iszero(call(gas(), core, value, free, 228, free, 96)) {
+            if iszero(call(gas(), core, value, free, 132, free, 96)) {
                 returndatacopy(free, 0, returndatasize())
                 revert(free, returndatasize())
             }

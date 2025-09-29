@@ -27,6 +27,7 @@ import {
 } from "../math/twamm.sol";
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 import {PoolId} from "../types/poolId.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
 
 /// @notice Returns the call points configuration for the TWAMM extension
@@ -638,10 +639,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     // Since anyone can call the method `#lockAndExecuteVirtualOrders`, the method is not protected
-    function beforeSwap(Locker, PoolKey memory poolKey, int128, bool, SqrtRatio, uint256)
-        external
-        override(BaseExtension, IExtension)
-    {
+    function beforeSwap(Locker, PoolKey memory poolKey, SwapParameters) external override(BaseExtension, IExtension) {
         lockAndExecuteVirtualOrders(poolKey);
     }
 

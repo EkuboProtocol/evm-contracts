@@ -461,8 +461,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         returns (int128 delta0, int128 delta1, PoolState stateAfter)
     {
         unchecked {
-            (SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead) = params.parse();
-            if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
+            if (!params.sqrtRatioLimit().isValid()) revert InvalidSqrtRatioLimit();
 
             Locker locker = _requireLocker();
 
@@ -475,21 +474,21 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
-            if (amount != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
+            if (params.amount() != 0 && stateAfter.sqrtRatio() != params.sqrtRatioLimit()) {
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
 
                 bool isExactOut;
                 bool increasing;
                 assembly ("memory-safe") {
-                    isExactOut := slt(amount, 0)
-                    increasing := xor(isExactOut, isToken1)
+                    isExactOut := and(shr(159, params), 1)
+                    increasing := xor(isExactOut, and(shr(31, params), 1))
                 }
 
-                if ((sqrtRatioLimit < sqrtRatio) == increasing) {
+                if ((params.sqrtRatioLimit() < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();
                 }
 
-                int128 amountRemaining = amount;
+                int128 amountRemaining = params.amount();
                 uint256 calculatedAmount;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
@@ -515,10 +514,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
                             )
                             : findPrevInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
                             );
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
@@ -528,8 +527,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                     }
 
-                    SqrtRatio limitedNextSqrtRatio =
-                        increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
+                    SqrtRatio limitedNextSqrtRatio = increasing
+                        ? nextTickSqrtRatio.min(params.sqrtRatioLimit())
+                        : nextTickSqrtRatio.max(params.sqrtRatioLimit());
 
                     SqrtRatio sqrtRatioNext;
 
@@ -548,7 +548,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.fee()));
                         }
 
-                        SqrtRatio sqrtRatioNextFromAmount = isToken1
+                        SqrtRatio sqrtRatioNextFromAmount = params.isToken1()
                             ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
                             : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
 
@@ -564,7 +564,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         uint128 feeAmount;
 
                         if (hitLimit) {
-                            (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
+                            (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = params.isToken1()
                                 ? (
                                     amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
                                     amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
@@ -597,7 +597,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             sqrtRatioNext = sqrtRatio;
                         } else {
-                            uint128 calculatedAmountWithoutFee = isToken1
+                            uint128 calculatedAmountWithoutFee = params.isToken1()
                                 ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
 
@@ -670,7 +670,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         tick = sqrtRatioToTick(sqrtRatio);
                     }
 
-                    if (amountRemaining == 0 || sqrtRatio == sqrtRatioLimit) {
+                    if (amountRemaining == 0 || sqrtRatio == params.sqrtRatioLimit()) {
                         break;
                     }
                 }
@@ -680,9 +680,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );
 
-                (delta0, delta1) = isToken1
-                    ? (calculatedAmountDelta, amount - amountRemaining)
-                    : (amount - amountRemaining, calculatedAmountDelta);
+                (delta0, delta1) = params.isToken1()
+                    ? (calculatedAmountDelta, params.amount() - amountRemaining)
+                    : (params.amount() - amountRemaining, calculatedAmountDelta);
 
                 stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
 

@@ -587,8 +587,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             assert(!isExactOut);
 
                             // consume the entire input amount as fees since the price did not move
-                            amountRemaining = 0;
                             feeAmount = uint128(amountRemaining);
+                            amountRemaining = 0;
 
                             sqrtRatioNext = sqrtRatio;
                         } else {

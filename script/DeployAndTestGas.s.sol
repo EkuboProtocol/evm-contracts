@@ -107,6 +107,12 @@ contract DeployAndTestGas is Script {
         console2.log("Token0 deployed at:", address(token0));
         console2.log("Token1 deployed at:", address(token1));
 
+        console2.log("Approving all contracts...");
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
+
         console2.log("\n=== Creating Pools and Positions ===");
 
         // 6. Create ETH/token0 pool
@@ -144,8 +150,8 @@ contract DeployAndTestGas is Script {
 
         // 9. Add liquidity to ETH/token0 pool
         console2.log("Adding liquidity to ETH/token0 pool...");
-        token0.approve(address(positions), TOKEN_AMOUNT);
-        positions.mintAndDeposit{value: ETH_AMOUNT}(
+        positions.mintAndDepositWithSalt{value: ETH_AMOUNT}(
+            bytes32(uint256(0)),
             ethToken0Pool,
             -1000, // tickLower
             1000, // tickUpper
@@ -157,8 +163,8 @@ contract DeployAndTestGas is Script {
 
         // 10. Add liquidity to ETH/token1 pool
         console2.log("Adding liquidity to ETH/token1 pool...");
-        token1.approve(address(positions), TOKEN_AMOUNT);
-        positions.mintAndDeposit{value: ETH_AMOUNT}(
+        positions.mintAndDepositWithSalt{value: ETH_AMOUNT}(
+            bytes32(uint256(1)),
             ethToken1Pool,
             -1000, // tickLower
             1000, // tickUpper
@@ -170,10 +176,8 @@ contract DeployAndTestGas is Script {
 
         // 11. Add liquidity to token0/token1 pool
         console2.log("Adding liquidity to token0/token1 pool...");
-        // Approve both tokens regardless of order
-        token0.approve(address(positions), TOKEN_AMOUNT);
-        token1.approve(address(positions), TOKEN_AMOUNT);
-        positions.mintAndDeposit(
+        positions.mintAndDepositWithSalt(
+            bytes32(uint256(2)),
             token0Token1Pool,
             -1000, // tickLower
             1000, // tickUpper
@@ -214,7 +218,6 @@ contract DeployAndTestGas is Script {
         uint128 token0SwapAmount = uint128(-delta1_1) / 2; // Use half of received token0
         // Determine which token we're swapping and set isToken1 accordingly
         bool isToken1Swap = address(token0) == token0Token1Pool.token1;
-        token0.approve(address(router), token0SwapAmount);
         (int128 delta0_3, int128 delta1_3) = router.swap(
             token0Token1Pool, isToken1Swap, int128(token0SwapAmount), SqrtRatio.wrap(0), 0, type(int256).min
         );
@@ -247,7 +250,6 @@ contract DeployAndTestGas is Script {
         if (token0Balance > 0) {
             // Only swap back a portion to avoid running out of liquidity
             uint128 swapBackAmount = token0Balance / 2;
-            token0.approve(address(router), swapBackAmount);
             (int128 deltaEth,) = router.swap(
                 ethToken0Pool,
                 true, // isToken1 = true (swapping token1, which is token0)
@@ -265,7 +267,6 @@ contract DeployAndTestGas is Script {
         if (token1Balance > 0) {
             // Only swap back a portion to avoid running out of liquidity
             uint128 swapBackAmount = token1Balance / 2;
-            token1.approve(address(router), swapBackAmount);
             (int128 deltaEth,) = router.swap(
                 ethToken1Pool,
                 true, // isToken1 = true (swapping token1)

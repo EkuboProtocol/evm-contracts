@@ -192,8 +192,8 @@ abstract contract FlashAccountant is IFlashAccountant {
 
             let free := mload(0x40)
 
-            // Prepare call to forwarded(bytes32) -> selector 0xebf5e12c
-            mstore(free, shl(224, 0xebf5e12c))
+            // Prepare call to forwarded_3356479085(bytes32) -> selector 0
+            mstore(free, 0)
             mstore(add(free, 4), locker)
 
             calldatacopy(add(free, 36), 36, sub(calldatasize(), 36))

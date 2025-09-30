@@ -146,7 +146,7 @@ contract FlashAccountantTest is Test {
         vm.expectRevert(BaseLocker.BaseLockerAccountantOnly.selector);
         actor.locked(0);
         vm.expectRevert(BaseForwardee.BaseForwardeeAccountantOnly.selector);
-        actor.forwarded(Locker.wrap(bytes32(0)));
+        actor.forwarded_3356479085(Locker.wrap(bytes32(0)));
     }
 
     function test_assertIdStartsAtZero() public {

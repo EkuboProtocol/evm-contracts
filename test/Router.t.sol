@@ -597,12 +597,14 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -200, 200, 1000, 1000);
 
         coolAllContracts();
-        router.swap{value: 1500}(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 1500}),
+        router.swap{value: 30000}(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-250), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 30000}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), -250);
     }
 
     /// forge-config: default.isolate = true
@@ -611,15 +613,17 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
 
-        token1.approve(address(router), 1500);
+        token1.approve(address(router), type(uint256).max);
 
         coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 1500}),
+            TokenAmount({token: address(token1), amount: 3500}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), 149);
     }
 
     /// forge-config: default.isolate = true

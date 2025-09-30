@@ -13,6 +13,7 @@ import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {PoolState} from "../src/types/poolState.sol";
+import {SwapParameters} from "../src/types/swapParameters.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
@@ -73,15 +74,10 @@ contract MockExtension is IExtension, BaseLocker {
         Locker locker, PoolKey poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead
     );
 
-    function beforeSwap(
-        Locker locker,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external {
-        emit BeforeSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+    function beforeSwap(Locker locker, PoolKey memory poolKey, SwapParameters params) external {
+        emit BeforeSwapCalled(
+            locker, poolKey, params.amount(), params.isToken1(), params.sqrtRatioLimit(), params.skipAhead()
+        );
     }
 
     event AfterSwapCalled(
@@ -99,15 +95,22 @@ contract MockExtension is IExtension, BaseLocker {
     function afterSwap(
         Locker locker,
         PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead,
+        SwapParameters params,
         int128 delta0,
         int128 delta1,
         PoolState stateAfter
     ) external {
-        emit AfterSwapCalled(locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter);
+        emit AfterSwapCalled(
+            locker,
+            poolKey,
+            params.amount(),
+            params.isToken1(),
+            params.sqrtRatioLimit(),
+            params.skipAhead(),
+            delta0,
+            delta1,
+            stateAfter
+        );
     }
 
     event BeforeCollectFeesCalled(Locker locker, PoolKey poolKey, PositionId positionId);

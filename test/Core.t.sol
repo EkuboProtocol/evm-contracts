@@ -23,7 +23,7 @@ contract CoreTest is FullTest {
     }
 
     function test_swap_function_selector() public pure {
-        assertEq(ICore.swap_611415377.selector, bytes4(0));
+        assertEq(ICore.swap_1773245541.selector, bytes4(0));
     }
 
     function test_registerExtension(uint8 b) public {

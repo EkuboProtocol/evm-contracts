@@ -9,6 +9,7 @@ import {PoolKey, Config, toConfig} from "../../src/types/poolKey.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "../../src/types/poolState.sol";
+import {SwapParameters} from "../../src/types/swapParameters.sol";
 import {Locker} from "../../src/types/locker.sol";
 
 contract ExtensionCallPointsLibTest is Test {
@@ -280,14 +281,11 @@ contract MockExtension is IExtension {
         lastStateAfter = stateAfter;
     }
 
-    function beforeSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256) external pure {
+    function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure {
         revert("Not implemented");
     }
 
-    function afterSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
-        external
-        pure
-    {
+    function afterSwap(Locker, PoolKey memory, SwapParameters, int128, int128, PoolState) external pure {
         revert("Not implemented");
     }
 

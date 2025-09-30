@@ -6,6 +6,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
 
 /// @dev Contains methods for determining whether an extension should be called
@@ -86,29 +87,20 @@ library ExtensionCallPointsLib {
         }
     }
 
-    function maybeCallBeforeSwap(
-        IExtension extension,
-        Locker locker,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) internal {
+    function maybeCallBeforeSwap(IExtension extension, Locker locker, PoolKey memory poolKey, SwapParameters params)
+        internal
+    {
         bool needCall = shouldCallBeforeSwap(extension, locker);
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "beforeSwap(bytes32, (address,address,bytes32), int128, bool, uint96, uint256)"
-                mstore(freeMem, shl(224, 0x0a05ea4c))
+                // cast sig "beforeSwap(bytes32,(address,address,bytes32),bytes32)"
+                mstore(freeMem, shl(224, 0xca11dba7))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
-                mstore(add(freeMem, 132), amount)
-                mstore(add(freeMem, 164), isToken1)
-                mstore(add(freeMem, 196), sqrtRatioLimit)
-                mstore(add(freeMem, 228), skipAhead)
+                mstore(add(freeMem, 132), params)
                 // bubbles up the revert
-                if iszero(call(gas(), extension, 0, freeMem, 260, 0, 0)) {
+                if iszero(call(gas(), extension, 0, freeMem, 164, 0, 0)) {
                     returndatacopy(freeMem, 0, returndatasize())
                     revert(freeMem, returndatasize())
                 }
@@ -126,10 +118,7 @@ library ExtensionCallPointsLib {
         IExtension extension,
         Locker locker,
         PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead,
+        SwapParameters params,
         int128 delta0,
         int128 delta1,
         PoolState stateAfter
@@ -138,19 +127,16 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "afterSwap(bytes32, (address,address,bytes32), int128, bool, uint96, uint256, int128, int128, bytes32)"
-                mstore(freeMem, shl(224, 0x1ccbe15f))
+                // cast sig "afterSwap(bytes32,(address,address,bytes32),bytes32,int128,int128,bytes32)"
+                mstore(freeMem, shl(224, 0x3868afb7))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
-                mstore(add(freeMem, 132), amount)
-                mstore(add(freeMem, 164), isToken1)
-                mstore(add(freeMem, 196), sqrtRatioLimit)
-                mstore(add(freeMem, 228), skipAhead)
-                mstore(add(freeMem, 260), delta0)
-                mstore(add(freeMem, 292), delta1)
-                mstore(add(freeMem, 324), stateAfter)
+                mstore(add(freeMem, 132), params)
+                mstore(add(freeMem, 164), delta0)
+                mstore(add(freeMem, 196), delta1)
+                mstore(add(freeMem, 228), stateAfter)
                 // bubbles up the revert
-                if iszero(call(gas(), extension, 0, freeMem, 356, 0, 0)) {
+                if iszero(call(gas(), extension, 0, freeMem, 260, 0, 0)) {
                     returndatacopy(freeMem, 0, returndatasize())
                     revert(freeMem, returndatasize())
                 }

@@ -5,7 +5,6 @@ import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
-import {isPriceIncreasing} from "./math/isPriceIncreasing.sol";
 import {Position} from "./types/position.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
@@ -20,6 +19,7 @@ import {FlashAccountant} from "./base/FlashAccountant.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
+import {SwapParameters} from "./types/swapParameters.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
 import {PoolId} from "./types/poolId.sol";
 import {Locker} from "./types/locker.sol";
@@ -454,21 +454,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function swap_611415377(
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+    function swap_1773245541(PoolKey memory poolKey, SwapParameters params)
+        external
+        payable
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+    {
         unchecked {
+            SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
             if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
             Locker locker = _requireLocker();
 
-            IExtension(poolKey.extension()).maybeCallBeforeSwap(
-                locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead
-            );
+            IExtension(poolKey.extension()).maybeCallBeforeSwap(locker, poolKey, params);
 
             PoolId poolId = poolKey.toPoolId();
 
@@ -476,22 +473,25 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
+            int128 amountRemaining = params.amount();
+
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
-            if (amount != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
+            if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
                 (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
+
+                bool isToken1 = params.isToken1();
 
                 bool isExactOut;
                 bool increasing;
                 assembly ("memory-safe") {
-                    isExactOut := slt(amount, 0)
-                    increasing := xor(isExactOut, isToken1)
+                    isExactOut := slt(amountRemaining, 0)
+                    increasing := xor(isToken1, isExactOut)
                 }
 
                 if ((sqrtRatioLimit < sqrtRatio) == increasing) {
                     revert SqrtRatioLimitWrongDirection();
                 }
 
-                int128 amountRemaining = amount;
                 uint256 calculatedAmount;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
@@ -517,10 +517,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
                             )
                             : findPrevInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), skipAhead
+                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
                             );
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
@@ -683,8 +683,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 );
 
                 (delta0, delta1) = isToken1
-                    ? (calculatedAmountDelta, amount - amountRemaining)
-                    : (amount - amountRemaining, calculatedAmountDelta);
+                    ? (calculatedAmountDelta, params.amount() - amountRemaining)
+                    : (params.amount() - amountRemaining, calculatedAmountDelta);
 
                 stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
 
@@ -711,9 +711,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            IExtension(poolKey.extension()).maybeCallAfterSwap(
-                locker, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead, delta0, delta1, stateAfter
-            );
+            IExtension(poolKey.extension()).maybeCallAfterSwap(locker, poolKey, params, delta0, delta1, stateAfter);
         }
     }
 }

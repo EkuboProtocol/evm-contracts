@@ -621,38 +621,26 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
 
                     if (sqrtRatioNext == nextTickSqrtRatio) {
+                        sqrtRatio = sqrtRatioNext;
                         assembly ("memory-safe") {
-                            sqrtRatio := sqrtRatioNext
                             // no overflow danger because nextTick is always inside the valid tick bounds
                             tick := sub(nextTick, iszero(increasing))
                         }
 
                         if (isInitialized) {
+                            int128 liquidityDelta;
                             bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick);
-                            (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
-                                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
-
                             assembly ("memory-safe") {
-                                let liquidityDelta := signextend(15, sload(tickSlot))
-
-                                // we know this will never underflow
-                                liquidity :=
-                                    or(
-                                        mul(increasing, add(liquidity, liquidityDelta)),
-                                        mul(iszero(increasing), sub(liquidity, liquidityDelta))
-                                    )
-
-                                // but it can overflow, which blocks the swap from continuing.
-                                // in this case, liquidity has to be removed from the pool in order for the swap to happen.
-                                // special care should be taken for extensions that do swaps in before update to prevent user liquidity from getting stuck due to this error.
-                                if shr(128, liquidity) {
-                                    // cast sig "LiquidityDeltaOverflow()"
-                                    mstore(0, 0x6d862c50)
-                                    revert(0x1c, 0x04)
-                                }
+                                liquidityDelta := signextend(15, sload(tickSlot))
                             }
 
+                            liquidity = increasing
+                                ? addLiquidityDelta(liquidity, liquidityDelta)
+                                : subLiquidityDelta(liquidity, liquidityDelta);
+
                             FeesPerLiquidity memory tickFpl;
+                            (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
+                                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
                             assembly ("memory-safe") {
                                 mstore(tickFpl, sload(tickFplFirstSlot))
                                 mstore(add(tickFpl, 0x20), sload(tickFplSecondSlot))

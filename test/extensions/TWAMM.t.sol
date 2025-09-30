@@ -59,6 +59,7 @@ contract TWAMMTest is BaseTWAMMTest {
         assertEq(srt1, 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_createPool() public {
         coolAllContracts();
         createTwammPool(100, 0);

@@ -50,6 +50,7 @@ contract CoreTest is FullTest {
         MockExtension(actual).register(core, byteToCallPoints(b));
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_cost_registerExtension() public {
         address impl = address(new MockExtension(core));
         address actual = address((uint160(type(uint8).max) << 152) + 0xdeadbeef);
@@ -117,6 +118,7 @@ contract CoreTest is FullTest {
         core.initializePool(key, tick);
     }
 
+    /// forge-config: default.isolate = true
     function test_initializePool_gas() public {
         address impl = address(new MockExtension(core));
         address extension = address((uint160(type(uint8).max) << 152) + 0xdeadbeef);

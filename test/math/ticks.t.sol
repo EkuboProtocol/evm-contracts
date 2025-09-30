@@ -20,6 +20,7 @@ contract TicksTest is Test {
         return tickToSqrtRatio(tick);
     }
 
+    /// forge-config: default.isolate = true
     function test_tickToSqrtRatio_gas() public {
         this.ttsr(0);
         vm.snapshotGasLastCall("tickToSqrtRatio(0)");
@@ -131,6 +132,7 @@ contract TicksTest is Test {
         return sqrtRatioToTick(sqrtRatio);
     }
 
+    /// forge-config: default.isolate = true
     function test_sqrtRatioToTick_gas() public {
         this.srtt(ONE);
         vm.snapshotGasLastCall("sqrtRatioToTick(1)");

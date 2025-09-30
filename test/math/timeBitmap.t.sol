@@ -117,6 +117,7 @@ contract TimeBitmapTest is Test {
         vm.stopSnapshotGas();
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_flip() public {
         TimeBitmap tbm = new TimeBitmap();
         tbm.flip(0);
@@ -126,12 +127,14 @@ contract TimeBitmapTest is Test {
         vm.snapshotGasLastCall("flip(16) in same map");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_next() public {
         TimeBitmap tbm = new TimeBitmap();
         tbm.find(0);
         vm.snapshotGasLastCall("next(0)");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_next_set() public {
         TimeBitmap tbm = new TimeBitmap();
 

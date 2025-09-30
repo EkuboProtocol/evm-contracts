@@ -100,6 +100,7 @@ contract IncentivesTest is Test {
         }
     }
 
+    /// forge-config: default.isolate = true
     function test_claim_gas() public {
         t.approve(address(i), type(uint256).max);
         bytes32 root = ClaimKey({index: 0, account: address(this), amount: 100}).toClaimId();

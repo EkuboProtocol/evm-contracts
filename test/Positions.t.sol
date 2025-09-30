@@ -293,6 +293,7 @@ contract PositionsTest is FullTest {
         assertEq(f1, 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_fees_fullRange_max_price() public {
         PoolKey memory poolKey =
             createPool({tick: MAX_TICK - 1, fee: 1 << 63, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
@@ -321,6 +322,7 @@ contract PositionsTest is FullTest {
         assertEq(f1, ((uint128(delta1)) / 2) - 1);
     }
 
+    /// forge-config: default.isolate = true
     function test_fees_fullRange_min_price() public {
         PoolKey memory poolKey =
             createPool({tick: MIN_TICK + 1, fee: 1 << 63, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
@@ -398,6 +400,7 @@ contract PositionsTest is FullTest {
         assertEq(f1, 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_mintAndDeposit_gas() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
         token0.approve(address(positions), 100);
@@ -408,6 +411,7 @@ contract PositionsTest is FullTest {
         vm.snapshotGasLastCall("mintAndDeposit");
     }
 
+    /// forge-config: default.isolate = true
     function test_mintAndDeposit_eth_pool_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         token1.approve(address(positions), 100);
@@ -424,6 +428,7 @@ contract PositionsTest is FullTest {
         assertEq(id, id2);
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_full_range_mintAndDeposit() public {
         PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 63, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
         token0.approve(address(positions), type(uint256).max);

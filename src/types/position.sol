@@ -32,10 +32,18 @@ function fees(Position memory position, FeesPerLiquidity memory feesPerLiquidity
     pure
     returns (uint128, uint128)
 {
-    FeesPerLiquidity memory difference = feesPerLiquidityInside.sub(position.feesPerLiquidityInsideLast);
+    uint128 liquidity;
+    uint256 difference0;
+    uint256 difference1;
+    assembly ("memory-safe") {
+        liquidity := mload(position)
+        let positionFpl := mload(add(position, 0x20))
+        difference0 := sub(mload(feesPerLiquidityInside), mload(positionFpl))
+        difference1 := sub(mload(add(feesPerLiquidityInside, 0x20)), mload(add(positionFpl, 0x20)))
+    }
 
     return (
-        uint128(FixedPointMathLib.fullMulDivN(difference.value0, position.liquidity, 128)),
-        uint128(FixedPointMathLib.fullMulDivN(difference.value1, position.liquidity, 128))
+        uint128(FixedPointMathLib.fullMulDivN(difference0, liquidity, 128)),
+        uint128(FixedPointMathLib.fullMulDivN(difference1, liquidity, 128))
     );
 }

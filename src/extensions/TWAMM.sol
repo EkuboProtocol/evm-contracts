@@ -583,7 +583,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     // Executes virtual orders for the specified initialized pool key. Protected because it is only called by core.
-    function locked(uint256) external override onlyCore {
+    function locked_6416899205(uint256) external override onlyCore {
         PoolKey memory poolKey;
         assembly ("memory-safe") {
             poolKey := mload(0x40)

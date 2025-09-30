@@ -22,7 +22,7 @@ abstract contract BaseLocker is ILocker {
     /// CALLBACK HANDLERS
 
     /// @inheritdoc ILocker
-    function locked(uint256 id) external {
+    function locked_6416899205(uint256 id) external {
         if (msg.sender != address(ACCOUNTANT)) revert BaseLockerAccountantOnly();
 
         bytes memory data = msg.data[36:];

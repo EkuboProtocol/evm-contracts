@@ -638,29 +638,28 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 ? addLiquidityDelta(liquidity, liquidityDelta)
                                 : subLiquidityDelta(liquidity, liquidityDelta);
 
-                            FeesPerLiquidity memory tickFpl;
                             (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
                                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
+
                             assembly ("memory-safe") {
-                                mstore(tickFpl, sload(tickFplFirstSlot))
-                                mstore(add(tickFpl, 0x20), sload(tickFplSecondSlot))
-                            }
-
-                            FeesPerLiquidity memory totalFpl;
-
-                            // load only the slot we didn't load before into totalFpl
-                            assembly ("memory-safe") {
-                                mstore(add(totalFpl, mul(32, increasing)), inputTokenFeesPerLiquidity)
-
+                                // we do this sload every time because crossing more than one tick per swap is rare
                                 let outputTokenFeesPerLiquidity :=
                                     sload(add(sub(inputTokenFeesPerLiquiditySlot, increasing), iszero(increasing)))
-                                mstore(add(totalFpl, mul(32, iszero(increasing))), outputTokenFeesPerLiquidity)
-                            }
 
-                            totalFpl.subAssign(tickFpl);
-                            assembly ("memory-safe") {
-                                sstore(tickFplFirstSlot, mload(totalFpl))
-                                sstore(tickFplSecondSlot, mload(add(totalFpl, 0x20)))
+                                let globalFeesPerLiquidity0 :=
+                                    add(
+                                        mul(iszero(increasing), inputTokenFeesPerLiquidity),
+                                        mul(increasing, outputTokenFeesPerLiquidity)
+                                    )
+                                let globalFeesPerLiquidity1 :=
+                                    add(
+                                        mul(increasing, inputTokenFeesPerLiquidity),
+                                        mul(iszero(increasing), outputTokenFeesPerLiquidity)
+                                    )
+
+                                // store global - tick fpl on the crossed tick
+                                sstore(tickFplFirstSlot, sub(globalFeesPerLiquidity0, sload(tickFplFirstSlot)))
+                                sstore(tickFplSecondSlot, sub(globalFeesPerLiquidity1, sload(tickFplSecondSlot)))
                             }
                         }
                     } else if (sqrtRatio != sqrtRatioNext) {

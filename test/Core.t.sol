@@ -12,7 +12,6 @@ import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 
-/// forge-config: default.isolate = true
 contract CoreTest is FullTest {
     using CoreLib for *;
 
@@ -51,6 +50,7 @@ contract CoreTest is FullTest {
         MockExtension(actual).register(core, byteToCallPoints(b));
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_cost_registerExtension() public {
         address impl = address(new MockExtension(core));
         address actual = address((uint160(type(uint8).max) << 152) + 0xdeadbeef);
@@ -118,6 +118,7 @@ contract CoreTest is FullTest {
         core.initializePool(key, tick);
     }
 
+    /// forge-config: default.isolate = true
     function test_initializePool_gas() public {
         address impl = address(new MockExtension(core));
         address extension = address((uint160(type(uint8).max) << 152) + 0xdeadbeef);

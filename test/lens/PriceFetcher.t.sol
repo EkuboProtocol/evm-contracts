@@ -9,7 +9,6 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 
-/// forge-config: default.isolate = true
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;
 
@@ -48,6 +47,7 @@ contract PriceFetcherTest is BaseOracleTest {
         this._getTimestampsForPeriod({endTime: 100, numIntervals: 0, period: 5});
     }
 
+    /// forge-config: default.isolate = true
     function test_fetchPrices_gas_snapshot() public {
         createOraclePool(address(token0), 0);
         updateOraclePoolLiquidity(address(token0), 500);
@@ -131,6 +131,7 @@ contract PriceFetcherTest is BaseOracleTest {
         assertEq(results[3].liquidity, 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_getAverageMultihop() public {
         uint64 startTime = uint64(block.timestamp);
         // 0.5 token / o

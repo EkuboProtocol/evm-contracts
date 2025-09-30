@@ -72,7 +72,6 @@ contract TokenWrapperPeriphery is BaseLocker {
     }
 }
 
-/// forge-config: default.isolate = true
 contract TokenWrapperTest is FullTest {
     TokenWrapperFactory factory;
     TokenWrapperPeriphery periphery;
@@ -93,6 +92,7 @@ contract TokenWrapperTest is FullTest {
         vm.cool(address(periphery));
     }
 
+    /// forge-config: default.isolate = true
     function testDeployWrapperGas() public {
         factory.deployWrapper(IERC20(address(underlying)), 1756140269);
         vm.snapshotGasLastCall("deployWrapper");
@@ -123,6 +123,7 @@ contract TokenWrapperTest is FullTest {
         assertEq(underlying.balanceOf(address(core)), wrapAmount, "Didn't transfer underlying");
     }
 
+    /// forge-config: default.isolate = true
     function testWrapGas() public {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
         underlying.approve(address(periphery), 1);
@@ -159,6 +160,7 @@ contract TokenWrapperTest is FullTest {
         }
     }
 
+    /// forge-config: default.isolate = true
     function testUnwrapGas() public {
         TokenWrapper wrapper = factory.deployWrapper(IERC20(address(underlying)), 0);
 

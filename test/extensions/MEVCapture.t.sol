@@ -36,7 +36,6 @@ abstract contract BaseMEVCaptureTest is FullTest {
     }
 }
 
-/// forge-config: default.isolate = true
 contract MEVCaptureTest is BaseMEVCaptureTest {
     using CoreLib for *;
     using ExposedStorageLib for *;
@@ -93,6 +92,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         createMEVCapturePool({fee: 0, tickSpacing: 1, tick: 0});
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token0_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -134,6 +134,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(delta1, -98_049);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token0_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -158,6 +159,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 9777);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token1_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -182,6 +184,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 9633);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token1_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -208,6 +211,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
     /// now tests with movement more than one tick spacing
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -232,6 +236,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, -47710);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -256,6 +261,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 49375);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -280,6 +286,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 47709);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -304,6 +311,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, -49376);
     }
 
+    /// forge-config: default.isolate = true
     function test_extra_fees_are_accumulated_in_next_block() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -334,6 +342,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(amount1, 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_initial_tick_far_from_zero_no_additional_fees() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
@@ -358,6 +367,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 690_300);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_initial_tick_far_from_zero_no_additional_fees_output() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
@@ -382,6 +392,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 709_845);
     }
 
+    /// forge-config: default.isolate = true
     function test_second_swap_with_additional_fees_gas_price() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
@@ -415,6 +426,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 642_496);
     }
 
+    /// forge-config: default.isolate = true
     function test_second_swap_after_some_time_gas_price() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});

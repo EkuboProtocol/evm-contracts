@@ -29,7 +29,6 @@ import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolState} from "../src/types/poolState.sol";
 
-/// forge-config: default.isolate = true
 contract RouterTest is FullTest {
     using CoreLib for *;
 
@@ -579,6 +578,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, -99);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_gas() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -594,6 +594,7 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 token0 for token1");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_token_for_eth_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -609,6 +610,7 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 token0 for eth");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_cross_tick_eth_for_token1() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -623,6 +625,7 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_cross_tick_token1_for_eth() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -639,6 +642,7 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_eth_for_token_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -652,6 +656,7 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 wei of eth for token");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_eth_for_token_full_range_pool_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
@@ -665,6 +670,7 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_token_for_eth_full_range_pool_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);

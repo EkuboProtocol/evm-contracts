@@ -25,7 +25,6 @@ abstract contract BaseOrdersTest is BaseTWAMMTest {
     }
 }
 
-/// forge-config: default.isolate = true
 contract OrdersTest is BaseOrdersTest {
     using CoreLib for *;
     using TWAMMLib for *;
@@ -583,6 +582,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRateToken1, saleRateOrder0);
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_costs_no_orders() public {
         vm.warp(1);
 
@@ -602,6 +602,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.snapshotGasLastCall("swap and executeVirtualOrders no orders");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_costs_single_sided() public {
         vm.warp(1);
 
@@ -627,6 +628,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.snapshotGasLastCall("swap and executeVirtualOrders single sided");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_costs_double_sided() public {
         vm.warp(1);
 
@@ -656,6 +658,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_costs_double_sided_order_crossed() public {
         vm.warp(1);
 
@@ -682,6 +685,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided crossed");
     }
 
+    /// forge-config: default.isolate = true
     function test_lockAndExecuteVirtualOrders_maximum_gas_cost() public {
         vm.warp(1);
 

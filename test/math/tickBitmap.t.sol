@@ -135,7 +135,6 @@ contract TickBitmapInvariantTest is Test {
     }
 }
 
-/// forge-config: default.isolate = true
 contract TickBitmapTest is Test {
     function test_gas_tickToBitmapWordAndIndex() public returns (uint256 word, uint256 index) {
         vm.startSnapshotGas("tickToBitmapWordAndIndex(150,100)");
@@ -143,6 +142,7 @@ contract TickBitmapTest is Test {
         vm.stopSnapshotGas();
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_next_entire_map() public {
         TickBitmap tbm = new TickBitmap(100);
         // incurs about ~6930 sloads which is 14553000 gas minimum
@@ -152,6 +152,7 @@ contract TickBitmapTest is Test {
         assertFalse(i);
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_prev_entire_map() public {
         TickBitmap tbm = new TickBitmap(100);
         // incurs about ~6930 sloads which is 14553000 gas minimum
@@ -161,6 +162,7 @@ contract TickBitmapTest is Test {
         assertFalse(i);
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_flip() public {
         TickBitmap tbm = new TickBitmap(100);
 
@@ -168,6 +170,7 @@ contract TickBitmapTest is Test {
         vm.snapshotGasLastCall("flip(0)");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_next() public {
         TickBitmap tbm = new TickBitmap(100);
 
@@ -175,6 +178,7 @@ contract TickBitmapTest is Test {
         vm.snapshotGasLastCall("next(0)");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_next_set() public {
         TickBitmap tbm = new TickBitmap(100);
 
@@ -183,6 +187,7 @@ contract TickBitmapTest is Test {
         vm.snapshotGasLastCall("next(0) == 3000");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_prev() public {
         TickBitmap tbm = new TickBitmap(100);
 
@@ -190,6 +195,7 @@ contract TickBitmapTest is Test {
         vm.snapshotGasLastCall("prev(0)");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_prev_set() public {
         TickBitmap tbm = new TickBitmap(100);
 

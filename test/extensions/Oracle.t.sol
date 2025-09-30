@@ -103,7 +103,6 @@ abstract contract BaseOracleTest is FullTest {
     }
 }
 
-/// forge-config: default.isolate = true
 contract ManyObservationsOracleTest is BaseOracleTest {
     PoolKey poolKey;
 
@@ -143,6 +142,7 @@ contract ManyObservationsOracleTest is BaseOracleTest {
         advanceTime(8);
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_getSnapshots() public {
         uint256[] memory timestamps = new uint256[](6);
         timestamps[0] = startTime;
@@ -209,7 +209,6 @@ contract ManyObservationsOracleTest is BaseOracleTest {
     }
 }
 
-/// forge-config: default.isolate = true
 contract OracleTest is BaseOracleTest {
     using CoreLib for *;
     using OracleLib for *;
@@ -751,6 +750,7 @@ contract OracleTest is BaseOracleTest {
         assertEq(tickCumulative, (10 * 693147 * 2) + (6 * 693146 / 2) + (5 * 693147), "t=21");
     }
 
+    /// forge-config: default.isolate = true
     function test_getExtrapolatedSnapshots_gas() public {
         oracle.expandCapacity(address(token1), 5);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
@@ -774,6 +774,7 @@ contract OracleTest is BaseOracleTest {
         vm.snapshotGasLastCall("oracle#getExtrapolatedSnapshots");
     }
 
+    /// forge-config: default.isolate = true
     function test_getExtrapolatedSnapshots() public {
         uint64 poolCreationTime = uint64(advanceTime(5));
 
@@ -870,6 +871,7 @@ contract OracleTest is BaseOracleTest {
         oracle.beforeSwap(Locker.wrap(bytes32(0)), poolKey, 0, false, SqrtRatio.wrap(0), 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_swap_on_oracle_pool() public {
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
         updateOraclePoolLiquidity(address(token1), 1e18);

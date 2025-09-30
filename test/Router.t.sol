@@ -23,7 +23,7 @@ import {
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
-import {Router, defaultSqrtRatioLimit, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -31,19 +31,6 @@ import {PoolState} from "../src/types/poolState.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;
-
-    function test_defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 amount) public pure {
-        SqrtRatio result = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
-        if (SqrtRatio.unwrap(sqrtRatioLimit) == 0) {
-            if (isPriceIncreasing(amount, isToken1)) {
-                assertEq(SqrtRatio.unwrap(result), MAX_SQRT_RATIO_RAW);
-            } else {
-                assertEq(SqrtRatio.unwrap(result), MIN_SQRT_RATIO_RAW);
-            }
-        } else {
-            assertEq(SqrtRatio.unwrap(result), SqrtRatio.unwrap(sqrtRatioLimit));
-        }
-    }
 
     function test_noop_sqrt_ratio_limit_equals_price_token0_out(int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));

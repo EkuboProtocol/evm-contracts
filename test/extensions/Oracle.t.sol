@@ -21,6 +21,7 @@ import {OracleLib} from "../../src/libraries/OracleLib.sol";
 import {Observation} from "../../src/types/observation.sol";
 import {Snapshot} from "../../src/types/snapshot.sol";
 import {Counts} from "../../src/types/counts.sol";
+import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
@@ -868,7 +869,7 @@ contract OracleTest is BaseOracleTest {
         );
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeSwap(Locker.wrap(bytes32(0)), poolKey, 0, false, SqrtRatio.wrap(0), 0);
+        oracle.beforeSwap(Locker.wrap(bytes32(0)), poolKey, createSwapParameters(SqrtRatio.wrap(0), 0, false, 0));
     }
 
     /// forge-config: default.isolate = true

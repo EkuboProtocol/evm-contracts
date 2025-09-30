@@ -14,6 +14,7 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
 
@@ -76,11 +77,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     }
 
     /// @notice We only allow swapping via forward to this extension
-    function beforeSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256)
-        external
-        pure
-        override(BaseExtension, IExtension)
-    {
+    function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override(BaseExtension, IExtension) {
         revert SwapMustHappenThroughForward();
     }
 
@@ -186,8 +183,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
     function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
-            (PoolKey memory poolKey, int128 amount, bool isToken1, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
-                abi.decode(data, (PoolKey, int128, bool, SqrtRatio, uint256));
+            (PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (PoolKey, SwapParameters));
 
             PoolId poolId = poolKey.toPoolId();
             (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
@@ -212,8 +208,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
             }
 
-            (int128 delta0, int128 delta1, PoolState stateAfter) =
-                CORE.swap(0, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (int128 delta0, int128 delta1, PoolState stateAfter) = CORE.swap_1773245541(poolKey, params);
 
             // however many tick spacings were crossed is the fee multiplier
             uint256 feeMultiplierX64 =
@@ -222,7 +217,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
             if (additionalFee != 0) {
-                if (amount < 0) {
+                if (params.isExactOut()) {
                     // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
                     if (delta0 > 0) {
                         uint128 inputAmount = uint128(uint256(int256(delta0)));

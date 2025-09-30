@@ -14,6 +14,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolState} from "./types/poolState.sol";
+import {SwapParameters, createSwapParameters} from "./types/swapParameters.sol";
 
 /// @notice Represents a single hop in a multi-hop swap route
 /// @dev Contains pool information and swap parameters for one step
@@ -53,23 +54,6 @@ struct Delta {
     int128 amount1;
 }
 
-/// @notice Replaces a zero value of sqrtRatioLimit with the minimum or maximum depending on the swap direction
-/// @dev Provides default price limits to prevent reverts when no limit is specified
-/// @param sqrtRatioLimit The provided sqrt ratio limit (0 for default)
-/// @param isToken1 True if swapping token1, false if swapping token0
-/// @param amount Amount to swap (positive for exact input, negative for exact output)
-/// @return result The sqrt ratio limit to use (original or default)
-function defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 amount)
-    pure
-    returns (SqrtRatio result)
-{
-    assembly ("memory-safe") {
-        let increasing := xor(isToken1, slt(amount, 0))
-        let defaultValue := add(mul(increasing, MAX_SQRT_RATIO_RAW), mul(iszero(increasing), MIN_SQRT_RATIO_RAW))
-        result := add(sqrtRatioLimit, mul(iszero(sqrtRatioLimit), defaultValue))
-    }
-}
-
 /// @title Ekubo Protocol Router
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol
@@ -98,21 +82,15 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @dev Virtual function that can be overridden by derived contracts
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param params The parameters of the swap to make
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance
-    function _swap(
-        uint256 value,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) internal virtual returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+    function _swap(uint256 value, PoolKey memory poolKey, SwapParameters params)
+        internal
+        virtual
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+    {
+        (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, params.withDefaultSqrtRatioLimit());
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
@@ -124,26 +102,23 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 ,
                 address swapper,
                 PoolKey memory poolKey,
-                bool isToken1,
-                int128 amount,
-                SqrtRatio sqrtRatioLimit,
-                uint256 skipAhead,
+                SwapParameters params,
                 int256 calculatedAmountThreshold,
                 address recipient
-            ) = abi.decode(data, (bytes1, address, PoolKey, bool, int128, SqrtRatio, uint256, int256, address));
+            ) = abi.decode(data, (bytes1, address, PoolKey, SwapParameters, int256, address));
 
             unchecked {
                 uint256 value = FixedPointMathLib.ternary(
-                    !isToken1 && poolKey.token0 == NATIVE_TOKEN_ADDRESS && amount > 0, uint128(amount), 0
+                    !params.isToken1() && !params.isExactOut() && poolKey.token0 == NATIVE_TOKEN_ADDRESS,
+                    uint128(params.amount()),
+                    0
                 );
 
-                bool increasing = isPriceIncreasing(amount, isToken1);
+                bool increasing = params.isPriceIncreasing();
 
-                sqrtRatioLimit = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
+                (int128 delta0, int128 delta1,) = _swap(value, poolKey, params);
 
-                (int128 delta0, int128 delta1,) = _swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
-
-                int128 amountCalculated = isToken1 ? -delta0 : -delta1;
+                int128 amountCalculated = params.isToken1() ? -delta0 : -delta1;
                 if (amountCalculated < calculatedAmountThreshold) {
                     revert SlippageCheckFailed(calculatedAmountThreshold, amountCalculated);
                 }
@@ -216,11 +191,16 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                         bool isToken1 = tokenAmount.token == node.poolKey.token1;
                         require(isToken1 || tokenAmount.token == node.poolKey.token0);
 
-                        SqrtRatio sqrtRatioLimit =
-                            defaultSqrtRatioLimit(node.sqrtRatioLimit, isToken1, tokenAmount.amount);
-
-                        (int128 delta0, int128 delta1,) =
-                            _swap(0, node.poolKey, tokenAmount.amount, isToken1, sqrtRatioLimit, node.skipAhead);
+                        (int128 delta0, int128 delta1,) = _swap(
+                            0,
+                            node.poolKey,
+                            createSwapParameters({
+                                _amount: tokenAmount.amount,
+                                _isToken1: isToken1,
+                                _sqrtRatioLimit: node.sqrtRatioLimit,
+                                _skipAhead: node.skipAhead
+                            })
+                        );
                         results[i][j] = Delta(delta0, delta1);
 
                         if (isToken1) {
@@ -275,11 +255,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 result = abi.encode(results);
             }
         } else if (callType == bytes1(0x03)) {
-            (, PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead) =
-                abi.decode(data, (bytes1, PoolKey, bool, int128, SqrtRatio, uint256));
+            (, PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (bytes1, PoolKey, SwapParameters));
 
-            (int128 delta0, int128 delta1, PoolState stateAfter) =
-                _swap(0, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (int128 delta0, int128 delta1, PoolState stateAfter) = _swap(0, poolKey, params);
 
             revert QuoteReturnValue(delta0, delta1, stateAfter);
         }
@@ -310,10 +288,12 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                     bytes1(0x00),
                     msg.sender,
                     poolKey,
-                    isToken1,
-                    amount,
-                    sqrtRatioLimit,
-                    skipAhead,
+                    createSwapParameters({
+                        _isToken1: isToken1,
+                        _amount: amount,
+                        _sqrtRatioLimit: sqrtRatioLimit,
+                        _skipAhead: skipAhead
+                    }),
                     calculatedAmountThreshold,
                     recipient
                 )
@@ -424,10 +404,18 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         external
         returns (int128 delta0, int128 delta1, PoolState stateAfter)
     {
-        sqrtRatioLimit = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
-
-        bytes memory revertData =
-            lockAndExpectRevert(abi.encode(bytes1(0x03), poolKey, isToken1, amount, sqrtRatioLimit, skipAhead));
+        bytes memory revertData = lockAndExpectRevert(
+            abi.encode(
+                bytes1(0x03),
+                poolKey,
+                createSwapParameters({
+                    _isToken1: isToken1,
+                    _amount: amount,
+                    _sqrtRatioLimit: sqrtRatioLimit,
+                    _skipAhead: skipAhead
+                })
+            )
+        );
 
         // check that the sig matches the error data
 

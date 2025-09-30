@@ -7,6 +7,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {UsesCore} from "./UsesCore.sol";
 import {Locker} from "../types/locker.sol";
 
@@ -60,15 +61,12 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function beforeSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256) external virtual {
+    function beforeSwap(Locker, PoolKey memory, SwapParameters) external virtual {
         revert CallPointNotImplemented();
     }
 
     /// @inheritdoc IExtension
-    function afterSwap(Locker, PoolKey memory, int128, bool, SqrtRatio, uint256, int128, int128, PoolState)
-        external
-        virtual
-    {
+    function afterSwap(Locker, PoolKey memory, SwapParameters, int128, int128, PoolState) external virtual {
         revert CallPointNotImplemented();
     }
 

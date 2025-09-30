@@ -9,6 +9,7 @@ import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
 
@@ -57,35 +58,20 @@ interface IExtension {
     /// @notice Called before a swap is executed
     /// @param locker The current holder of the lock performing the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    function beforeSwap(
-        Locker locker,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external;
+    /// @param params Swap parameters containing amount, isToken1, sqrtRatioLimit, and skipAhead
+    function beforeSwap(Locker locker, PoolKey memory poolKey, SwapParameters params) external;
 
     /// @notice Called after a swap is executed
     /// @param locker The current holder of the lock performing the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param params Swap parameters containing amount, isToken1, sqrtRatioLimit, and skipAhead
     /// @param delta0 Change in token0 balance
     /// @param delta1 Change in token1 balance
+    /// @param stateAfter The pool state after the swap
     function afterSwap(
         Locker locker,
         PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead,
+        SwapParameters params,
         int128 delta0,
         int128 delta1,
         PoolState stateAfter
@@ -279,18 +265,12 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Executes a swap against a pool
     /// @dev Function name is mined to have a zero function selector for gas efficiency
     /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param params Swap parameters containing amount, isToken1, sqrtRatioLimit, and skipAhead
     /// @return delta0 Change in token0 balance of the pool
     /// @return delta1 Change in token1 balance of the pool
     /// @return stateAfter The pool state after the swap
-    function swap_611415377(
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter);
+    function swap_1773245541(PoolKey memory poolKey, SwapParameters params)
+        external
+        payable
+        returns (int128 delta0, int128 delta1, PoolState stateAfter);
 }

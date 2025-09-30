@@ -11,6 +11,7 @@ import {PositionId} from "../types/positionId.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 
 /// @title Core Library
 /// @notice Library providing common storage getters for external contracts
@@ -116,6 +117,23 @@ library CoreLib {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead
     ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+        SwapParameters params = createSwapParameters(sqrtRatioLimit, amount, isToken1, skipAhead);
+        (delta0, delta1, stateAfter) = swap(core, value, poolKey, params);
+    }
+
+    /// @notice Executes a swap against the core contract using assembly optimization
+    /// @dev Uses assembly to make direct call to core contract for gas efficiency
+    /// @param core The core contract instance
+    /// @param value Native token value to send with the swap
+    /// @param poolKey Pool key identifying the pool
+    /// @param params The swap parameters to use
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
+    /// @return stateAfter The pool state after the swap
+    function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params)
+        internal
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+    {
         assembly ("memory-safe") {
             let free := mload(0x40)
 
@@ -125,13 +143,10 @@ library CoreLib {
             // Copy PoolKey
             mcopy(add(free, 4), poolKey, 96)
 
-            // Add remaining parameters
-            mstore(add(free, 100), amount) // int128 amount
-            mstore(add(free, 132), isToken1) // bool isToken1
-            mstore(add(free, 164), sqrtRatioLimit) // SqrtRatio sqrtRatioLimit
-            mstore(add(free, 196), skipAhead) // uint256 skipAhead
+            // Add SwapParameters
+            mstore(add(free, 100), params)
 
-            if iszero(call(gas(), core, value, free, 228, free, 96)) {
+            if iszero(call(gas(), core, value, free, 132, free, 96)) {
                 returndatacopy(free, 0, returndatasize())
                 revert(free, returndatasize())
             }

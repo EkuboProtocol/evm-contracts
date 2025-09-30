@@ -4,7 +4,7 @@ pragma solidity =0.8.30;
 import {Locker} from "../types/locker.sol";
 
 interface ILocker {
-    function locked(uint256 id) external;
+    function locked_6416899205(uint256 id) external;
 }
 
 interface IForwardee {

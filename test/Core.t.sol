@@ -141,7 +141,7 @@ contract SavedBalancesTest is FullTest {
     using FlashAccountantLib for *;
     using CoreLib for *;
 
-    function locked(uint256) external {
+    function locked_6416899205(uint256) external {
         (address token0, address token1, bytes32 salt, int256 delta0, int256 delta1) =
             abi.decode(msg.data[36:], (address, address, bytes32, int256, int256));
 

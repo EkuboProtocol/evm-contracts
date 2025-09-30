@@ -148,8 +148,8 @@ abstract contract FlashAccountant is IFlashAccountant {
             tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), caller()))
 
             let free := mload(0x40)
-            // Prepare call to locked(uint256) -> selector 0xb45a3c0e
-            mstore(free, shl(224, 0xb45a3c0e))
+            // Prepare call to locked_(uint256) -> selector 0
+            mstore(free, 0)
             mstore(add(free, 4), id) // ID argument
 
             calldatacopy(add(free, 36), 4, sub(calldatasize(), 4))

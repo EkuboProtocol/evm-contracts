@@ -217,8 +217,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
             if (additionalFee != 0) {
-                int128 amount = params.amount();
-                if (amount < 0) {
+                if (params.isExactOut()) {
                     // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
                     if (delta0 > 0) {
                         uint128 inputAmount = uint128(uint256(int256(delta0)));

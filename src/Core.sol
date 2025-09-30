@@ -170,57 +170,53 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param tickLower Lower tick of the price range to get the snapshot of
     /// @param tickLower Upper tick of the price range to get the snapshot of
     /// @param tickSpacing Tick spacing for the pool
-    /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
+    /// @return feesPerLiquidityInside Accumulated fees per liquidity snapshot inside the bounds. Note this is a relative value.
     function _getPoolFeesPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper, uint32 tickSpacing)
         internal
         view
-        returns (FeesPerLiquidity memory)
+        returns (FeesPerLiquidity memory feesPerLiquidityInside)
     {
         if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
-            FeesPerLiquidity memory fpl;
             bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             assembly ("memory-safe") {
-                mstore(fpl, sload(fplFirstSlot))
-                mstore(add(fpl, 0x20), sload(add(fplFirstSlot, 1)))
+                mstore(feesPerLiquidityInside, sload(fplFirstSlot))
+                mstore(add(feesPerLiquidityInside, 0x20), sload(add(fplFirstSlot, 1)))
             }
-            return fpl;
-        }
-
-        int32 tick = readPoolState(poolId).tick();
-
-        FeesPerLiquidity memory lower;
-        FeesPerLiquidity memory upper;
-
-        (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
-            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
-        (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
-            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
-
-        assembly ("memory-safe") {
-            mstore(lower, sload(lowerFirstSlot))
-            mstore(add(lower, 0x20), sload(lowerSecondSlot))
-
-            mstore(upper, sload(upperFirstSlot))
-            mstore(add(upper, 0x20), sload(upperSecondSlot))
-        }
-
-        if (tick < tickLower) {
-            lower.subAssign(upper);
-            return lower;
-        } else if (tick < tickUpper) {
-            FeesPerLiquidity memory fees;
-            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-            assembly ("memory-safe") {
-                mstore(fees, sload(fplFirstSlot))
-                mstore(add(fees, 0x20), sload(add(fplFirstSlot, 1)))
-            }
-
-            fees.subAssign(lower);
-            fees.subAssign(upper);
-            return fees;
         } else {
-            upper.subAssign(lower);
-            return upper;
+            int32 tick = readPoolState(poolId).tick();
+
+            (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
+                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
+            (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
+                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
+
+            if (tick < tickLower) {
+                // lower - upper
+                assembly ("memory-safe") {
+                    mstore(feesPerLiquidityInside, sub(sload(lowerFirstSlot), sload(upperFirstSlot)))
+                    mstore(add(feesPerLiquidityInside, 0x20), sub(sload(lowerSecondSlot), sload(upperSecondSlot)))
+                }
+            } else if (tick < tickUpper) {
+                // global - lower - upper
+                bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+
+                assembly ("memory-safe") {
+                    mstore(
+                        feesPerLiquidityInside,
+                        sub(sub(sload(fplFirstSlot), sload(upperFirstSlot)), sload(lowerFirstSlot))
+                    )
+                    mstore(
+                        add(feesPerLiquidityInside, 0x20),
+                        sub(sub(sload(add(fplFirstSlot, 1)), sload(upperSecondSlot)), sload(lowerSecondSlot))
+                    )
+                }
+            } else {
+                // upper - lower
+                assembly ("memory-safe") {
+                    mstore(feesPerLiquidityInside, sub(sload(upperFirstSlot), sload(lowerFirstSlot)))
+                    mstore(add(feesPerLiquidityInside, 0x20), sub(sload(upperSecondSlot), sload(lowerSecondSlot)))
+                }
+            }
         }
     }
 

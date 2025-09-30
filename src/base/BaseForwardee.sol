@@ -28,7 +28,7 @@ abstract contract BaseForwardee is IForwardee {
     /// All remaining calldata is treated as the forwarded data
     /// Return data from handleForwardData is returned exactly as is, with no additional encoding or decoding
     /// Reverts are also bubbled up
-    function forwarded(Locker original) external {
+    function forwarded_2374103877(Locker original) external {
         if (msg.sender != address(ACCOUNTANT)) revert BaseForwardeeAccountantOnly();
 
         bytes memory data = msg.data[36:];

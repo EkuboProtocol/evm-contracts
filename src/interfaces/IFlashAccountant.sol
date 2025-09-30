@@ -8,7 +8,7 @@ interface ILocker {
 }
 
 interface IForwardee {
-    function forwarded(Locker original) external;
+    function forwarded_2374103877(Locker original) external;
 }
 
 /// @title IFlashAccountant

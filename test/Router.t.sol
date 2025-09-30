@@ -29,6 +29,7 @@ import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolState} from "../src/types/poolState.sol";
 
+/// forge-config: default.isolate = true
 contract RouterTest is FullTest {
     using CoreLib for *;
 

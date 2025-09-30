@@ -72,6 +72,7 @@ contract TokenWrapperPeriphery is BaseLocker {
     }
 }
 
+/// forge-config: default.isolate = true
 contract TokenWrapperTest is FullTest {
     TokenWrapperFactory factory;
     TokenWrapperPeriphery periphery;

@@ -9,6 +9,7 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 
+/// forge-config: default.isolate = true
 contract PriceFetcherTest is BaseOracleTest {
     PriceFetcher internal pf;
 

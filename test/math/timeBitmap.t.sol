@@ -110,6 +110,7 @@ contract TimeBitmapInvariantTest is Test {
     }
 }
 
+/// forge-config: default.isolate = true
 contract TimeBitmapTest is Test {
     function test_gas_timeToBitmapWordAndIndex() public returns (uint256 word, uint256 index) {
         vm.startSnapshotGas("timeToBitmapWordAndIndex(150)");

@@ -25,6 +25,7 @@ abstract contract BaseOrdersTest is BaseTWAMMTest {
     }
 }
 
+/// forge-config: default.isolate = true
 contract OrdersTest is BaseOrdersTest {
     using CoreLib for *;
     using TWAMMLib for *;

@@ -42,6 +42,7 @@ abstract contract BaseTWAMMTest is FullTest {
     }
 }
 
+/// forge-config: default.isolate = true
 contract TWAMMTest is BaseTWAMMTest {
     using TWAMMLib for *;
 

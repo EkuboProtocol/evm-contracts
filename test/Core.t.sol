@@ -12,6 +12,7 @@ import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 
+/// forge-config: default.isolate = true
 contract CoreTest is FullTest {
     using CoreLib for *;
 

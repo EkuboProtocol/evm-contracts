@@ -13,6 +13,7 @@ import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 
+/// forge-config: default.isolate = true
 contract PositionsTest is FullTest {
     using CoreLib for *;
 

@@ -135,6 +135,7 @@ contract TickBitmapInvariantTest is Test {
     }
 }
 
+/// forge-config: default.isolate = true
 contract TickBitmapTest is Test {
     function test_gas_tickToBitmapWordAndIndex() public returns (uint256 word, uint256 index) {
         vm.startSnapshotGas("tickToBitmapWordAndIndex(150,100)");

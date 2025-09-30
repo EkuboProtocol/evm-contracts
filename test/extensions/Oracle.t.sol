@@ -103,6 +103,7 @@ abstract contract BaseOracleTest is FullTest {
     }
 }
 
+/// forge-config: default.isolate = true
 contract ManyObservationsOracleTest is BaseOracleTest {
     PoolKey poolKey;
 
@@ -208,6 +209,7 @@ contract ManyObservationsOracleTest is BaseOracleTest {
     }
 }
 
+/// forge-config: default.isolate = true
 contract OracleTest is BaseOracleTest {
     using CoreLib for *;
     using OracleLib for *;

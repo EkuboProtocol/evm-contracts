@@ -36,6 +36,7 @@ abstract contract BaseMEVCaptureTest is FullTest {
     }
 }
 
+/// forge-config: default.isolate = true
 contract MEVCaptureTest is BaseMEVCaptureTest {
     using CoreLib for *;
     using ExposedStorageLib for *;

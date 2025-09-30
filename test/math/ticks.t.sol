@@ -7,6 +7,7 @@ import {sqrtRatioToTick, tickToSqrtRatio, InvalidTick, toSqrtRatio} from "../../
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, ONE} from "../../src/types/sqrtRatio.sol";
 
+/// forge-config: default.isolate = true
 contract TicksTest is Test {
     function boundTick(int32 tick) internal pure returns (int32) {
         return int32(bound(int256(tick), int256(MIN_TICK), int256(MAX_TICK)));

@@ -41,10 +41,10 @@ contract TestToken is ERC20 {
     string private _name;
     string private _symbol;
 
-    constructor(string memory __name, string memory __symbol) {
+    constructor(string memory __name, string memory __symbol, address recipient) {
         _name = __name;
         _symbol = __symbol;
-        _mint(msg.sender, type(uint128).max);
+        _mint(recipient, type(uint128).max);
     }
 
     function name() public view override returns (string memory) {
@@ -71,9 +71,10 @@ contract DeployAndTestGas is Script {
     TestToken public token1;
 
     function run() public {
-        address deployer = msg.sender;
-
         vm.startBroadcast();
+
+        // Get the broadcaster address after startBroadcast
+        address deployer = msg.sender;
 
         console2.log("=== Deploying Contracts ===");
 
@@ -102,8 +103,8 @@ contract DeployAndTestGas is Script {
 
         // 5. Deploy test tokens
         console2.log("Deploying test tokens...");
-        token0 = new TestToken("Test Token A", "TTA");
-        token1 = new TestToken("Test Token B", "TTB");
+        token0 = new TestToken("Test Token A", "TTA", deployer);
+        token1 = new TestToken("Test Token B", "TTB", deployer);
         console2.log("Token0 deployed at:", address(token0));
         console2.log("Token1 deployed at:", address(token1));
 
@@ -130,10 +131,13 @@ contract DeployAndTestGas is Script {
         console2.log("ETH/token1 pool initialized");
 
         // 8. Create token0/token1 pool
+        // Ensure tokens are sorted by address
         console2.log("Creating token0/token1 pool...");
+        (address sortedToken0, address sortedToken1) =
+            address(token0) < address(token1) ? (address(token0), address(token1)) : (address(token1), address(token0));
         PoolKey memory token0Token1Pool = PoolKey({
-            token0: address(token0),
-            token1: address(token1),
+            token0: sortedToken0,
+            token1: sortedToken1,
             config: toConfig(1 << 63, 100, address(0)) // 50% fee, tick spacing 100
         });
         core.initializePool(token0Token1Pool, 0);
@@ -167,6 +171,7 @@ contract DeployAndTestGas is Script {
 
         // 11. Add liquidity to token0/token1 pool
         console2.log("Adding liquidity to token0/token1 pool...");
+        // Approve both tokens regardless of order
         token0.approve(address(positions), TOKEN_AMOUNT);
         token1.approve(address(positions), TOKEN_AMOUNT);
         positions.mintAndDeposit(
@@ -208,14 +213,11 @@ contract DeployAndTestGas is Script {
         // 14. Swap token0 for token1
         console2.log("Swapping token0 for token1...");
         uint128 token0SwapAmount = uint128(-delta1_1) / 2; // Use half of received token0
+        // Determine which token we're swapping and set isToken1 accordingly
+        bool isToken1Swap = address(token0) == token0Token1Pool.token1;
         token0.approve(address(router), token0SwapAmount);
         (int128 delta0_3, int128 delta1_3) = router.swap(
-            token0Token1Pool,
-            false, // isToken1 = false (swapping token0)
-            int128(token0SwapAmount),
-            SqrtRatio.wrap(0),
-            0,
-            type(int256).min
+            token0Token1Pool, isToken1Swap, int128(token0SwapAmount), SqrtRatio.wrap(0), 0, type(int256).min
         );
         console2.log("Swap 3 - delta0:", uint128(delta0_3), "delta1:", uint128(-delta1_3));
 

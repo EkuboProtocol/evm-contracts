@@ -4,7 +4,6 @@ pragma solidity =0.8.30;
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, Config} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
-import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";

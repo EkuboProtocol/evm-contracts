@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {Router} from "./Router.sol";
-import {ICore, PoolKey, SqrtRatio} from "./interfaces/ICore.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+
+import {Router} from "./Router.sol";
+import {ICore, PoolKey} from "./interfaces/ICore.sol";
 import {PoolState} from "./types/poolState.sol";
-import {SwapParameters, createSwapParameters} from "./types/swapParameters.sol";
+import {SwapParameters} from "./types/swapParameters.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 

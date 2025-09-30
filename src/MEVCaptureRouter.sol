@@ -22,20 +22,18 @@ contract MEVCaptureRouter is Router {
         MEV_CAPTURE = _mevCapture;
     }
 
-    function _swap(
-        uint256 value,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) internal override returns (int128 delta0, int128 delta1, PoolState stateAfter) {
+    function _swap(uint256 value, PoolKey memory poolKey, SwapParameters params)
+        internal
+        override
+        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+    {
         if (poolKey.extension() != MEV_CAPTURE) {
-            (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, amount, isToken1, sqrtRatioLimit, skipAhead);
+            (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, params.withDefaultSqrtRatioLimit());
         } else {
-            SwapParameters params = createSwapParameters(sqrtRatioLimit, amount, isToken1, skipAhead);
-            (delta0, delta1, stateAfter) =
-                abi.decode(CORE.forward(MEV_CAPTURE, abi.encode(poolKey, params)), (int128, int128, PoolState));
+            (delta0, delta1, stateAfter) = abi.decode(
+                CORE.forward(MEV_CAPTURE, abi.encode(poolKey, params.withDefaultSqrtRatioLimit())),
+                (int128, int128, PoolState)
+            );
             if (value != 0) {
                 SafeTransferLib.safeTransferETH(address(CORE), value);
             }

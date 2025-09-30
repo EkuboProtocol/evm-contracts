@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {SqrtRatio} from "./sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./sqrtRatio.sol";
 
 type SwapParameters is bytes32;
 
-using {sqrtRatioLimit, amount, isToken1, skipAhead, isExactOut, isPriceIncreasing} for SwapParameters global;
+using {
+    sqrtRatioLimit,
+    amount,
+    isToken1,
+    skipAhead,
+    isExactOut,
+    isPriceIncreasing,
+    withDefaultSqrtRatioLimit
+} for SwapParameters global;
 
 function sqrtRatioLimit(SwapParameters params) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {
@@ -16,19 +24,6 @@ function sqrtRatioLimit(SwapParameters params) pure returns (SqrtRatio r) {
 function amount(SwapParameters params) pure returns (int128 a) {
     assembly ("memory-safe") {
         a := signextend(15, shr(32, params))
-    }
-}
-
-function isExactOut(SwapParameters params) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        yes := and(shr(159, params), 1)
-    }
-}
-
-function isPriceIncreasing(SwapParameters params) pure returns (bool yes) {
-    assembly ("memory-safe") {
-        let sign := and(shr(159, params), 1)
-        yes := xor(sign, and(shr(31, params), 1))
     }
 }
 
@@ -60,5 +55,28 @@ function createSwapParameters(SqrtRatio _sqrtRatioLimit, int128 _amount, bool _i
                     or(shl(31, iszero(iszero(_isToken1))), and(_skipAhead, 0x7fffffff))
                 )
             )
+    }
+}
+
+function isExactOut(SwapParameters params) pure returns (bool yes) {
+    assembly ("memory-safe") {
+        yes := and(shr(159, params), 1)
+    }
+}
+
+function isPriceIncreasing(SwapParameters params) pure returns (bool yes) {
+    assembly ("memory-safe") {
+        let sign := and(shr(159, params), 1)
+        yes := xor(sign, and(shr(31, params), 1))
+    }
+}
+
+function withDefaultSqrtRatioLimit(SwapParameters params) pure returns (SwapParameters updated) {
+    bool increasing = params.isPriceIncreasing();
+    assembly ("memory-safe") {
+        let replace := iszero(shr(160, params))
+        let orMask :=
+            shl(160, mul(replace, or(mul(increasing, MAX_SQRT_RATIO_RAW), mul(iszero(increasing), MIN_SQRT_RATIO_RAW))))
+        updated := or(orMask, params)
     }
 }

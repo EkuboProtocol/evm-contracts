@@ -5,14 +5,7 @@ import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
-import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
-import {
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
-    MIN_SQRT_RATIO_RAW,
-    MAX_SQRT_RATIO_RAW,
-    SqrtRatio
-} from "../src/types/sqrtRatio.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {
     FULL_RANGE_ONLY_TICK_SPACING,
     MIN_TICK,

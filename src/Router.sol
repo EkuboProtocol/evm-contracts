@@ -264,6 +264,24 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
 
     /// @notice Executes a single-hop swap with a specified recipient
     /// @param poolKey Pool key identifying the pool to swap against
+    /// @param params The swap parameters to execute
+    /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
+    /// @param recipient Address to receive the output tokens
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
+    function swap(PoolKey memory poolKey, SwapParameters params, int256 calculatedAmountThreshold, address recipient)
+        public
+        payable
+        returns (int128 delta0, int128 delta1)
+    {
+        (delta0, delta1) = abi.decode(
+            lock(abi.encode(bytes1(0x00), msg.sender, poolKey, params, calculatedAmountThreshold, recipient)),
+            (int128, int128)
+        );
+    }
+
+    /// @notice Executes a single-hop swap with a specified recipient
+    /// @param poolKey Pool key identifying the pool to swap against
     /// @param isToken1 True if swapping token1, false if swapping token0
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
@@ -281,23 +299,16 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         int256 calculatedAmountThreshold,
         address recipient
     ) public payable returns (int128 delta0, int128 delta1) {
-        (delta0, delta1) = abi.decode(
-            lock(
-                abi.encode(
-                    bytes1(0x00),
-                    msg.sender,
-                    poolKey,
-                    createSwapParameters({
-                        _isToken1: isToken1,
-                        _amount: amount,
-                        _sqrtRatioLimit: sqrtRatioLimit,
-                        _skipAhead: skipAhead
-                    }),
-                    calculatedAmountThreshold,
-                    recipient
-                )
-            ),
-            (int128, int128)
+        (delta0, delta1) = swap(
+            poolKey,
+            createSwapParameters({
+                _isToken1: isToken1,
+                _amount: amount,
+                _sqrtRatioLimit: sqrtRatioLimit,
+                _skipAhead: skipAhead
+            }),
+            calculatedAmountThreshold,
+            recipient
         );
     }
 

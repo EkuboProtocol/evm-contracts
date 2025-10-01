@@ -21,6 +21,7 @@ import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolState} from "../src/types/poolState.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;
@@ -591,7 +592,7 @@ contract RouterTest is FullTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_swap_cross_tick_eth_for_token1() public {
+    function test_swap_cross_two_ticks_eth_for_token1() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
@@ -599,7 +600,7 @@ contract RouterTest is FullTest {
         coolAllContracts();
         router.swap{value: 30000}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-250), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 30000}),
+            TokenAmount({token: poolKey.token0, amount: 30000}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
@@ -608,22 +609,58 @@ contract RouterTest is FullTest {
     }
 
     /// forge-config: default.isolate = true
+    function test_swap_cross_two_ticks_token1_for_eth() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+        createPosition(poolKey, -200, 200, 1000, 1000);
+
+        IERC20(poolKey.token1).approve(address(router), type(uint256).max);
+
+        coolAllContracts();
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(250), skipAhead: 0}),
+            TokenAmount({token: poolKey.token1, amount: 30000}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing two ticks token1 for eth");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), 250);
+    }
+
+    /// forge-config: default.isolate = true
     function test_swap_cross_tick_token1_for_eth() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
 
-        token1.approve(address(router), type(uint256).max);
+        IERC20(poolKey.token1).approve(address(router), type(uint256).max);
 
         coolAllContracts();
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 3500}),
+            TokenAmount({token: poolKey.token1, amount: 3500}),
             type(int256).min
         );
         vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
 
         assertEq(core.poolState(poolKey.toPoolId()).tick(), 149);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_cross_tick_eth_for_token1() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+        createPosition(poolKey, -200, 200, 1000, 1000);
+
+        coolAllContracts();
+        router.swap{value: 3500}(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: poolKey.token0, amount: 3500}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing one tick eth for token1");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), -150);
     }
 
     /// forge-config: default.isolate = true

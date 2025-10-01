@@ -34,6 +34,7 @@ import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol
 import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {createSwapParameters} from "../src/types/swapParameters.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {findExtensionSalt} from "./DeployCore.s.sol";
@@ -225,10 +226,12 @@ contract DeployAndTestGas is Script {
         console2.log("Swapping ETH for token0...");
         (int128 delta0_1, int128 delta1_1) = router.swap{value: SWAP_AMOUNT}(
             ethToken0Pool,
-            false, // isToken1 = false (swapping token0, which is ETH)
-            int128(SWAP_AMOUNT),
-            SqrtRatio.wrap(0),
-            0,
+            createSwapParameters({
+                _isToken1: false,
+                _amount: int128(SWAP_AMOUNT),
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             type(int256).min
         );
         console2.log("Swap 1 - delta0:", uint128(delta0_1), "delta1:", uint128(-delta1_1));
@@ -237,10 +240,12 @@ contract DeployAndTestGas is Script {
         console2.log("Swapping ETH for token1...");
         (int128 delta0_2, int128 delta1_2) = router.swap{value: SWAP_AMOUNT}(
             ethToken1Pool,
-            false, // isToken1 = false (swapping token0, which is ETH)
-            int128(SWAP_AMOUNT),
-            SqrtRatio.wrap(0),
-            0,
+            createSwapParameters({
+                _isToken1: false,
+                _amount: int128(SWAP_AMOUNT),
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             type(int256).min
         );
         console2.log("Swap 2 - delta0:", uint128(delta0_2), "delta1:", uint128(-delta1_2));
@@ -249,10 +254,12 @@ contract DeployAndTestGas is Script {
         console2.log("Swapping ETH for token0 through Oracle pool...");
         (int128 delta0_oracle, int128 delta1_oracle) = router.swap{value: SWAP_AMOUNT}(
             ethToken0OraclePool,
-            false, // isToken1 = false (swapping token0, which is ETH)
-            int128(SWAP_AMOUNT),
-            SqrtRatio.wrap(0),
-            0,
+            createSwapParameters({
+                _isToken1: false,
+                _amount: int128(SWAP_AMOUNT),
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             type(int256).min
         );
         console2.log("Oracle swap - delta0:", uint128(delta0_oracle), "delta1:", uint128(-delta1_oracle));
@@ -262,10 +269,12 @@ contract DeployAndTestGas is Script {
         uint128 oracleSwapBackAmount = uint128(-delta1_oracle) / 2;
         (int128 delta0_oracle_back, int128 delta1_oracle_back) = router.swap(
             ethToken0OraclePool,
-            true, // isToken1 = true (swapping token1, which is token0)
-            int128(oracleSwapBackAmount),
-            SqrtRatio.wrap(0),
-            0,
+            createSwapParameters({
+                _isToken1: true, // isToken1 = true (swapping token1, which is token0)
+                _amount: int128(oracleSwapBackAmount),
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             type(int256).min
         );
         console2.log("Oracle swap back - delta0:", uint128(-delta0_oracle_back), "delta1:", uint128(delta1_oracle_back));
@@ -276,7 +285,14 @@ contract DeployAndTestGas is Script {
         // Determine which token we're swapping and set isToken1 accordingly
         bool isToken1Swap = address(token0) == token0Token1Pool.token1;
         (int128 delta0_3, int128 delta1_3) = router.swap(
-            token0Token1Pool, isToken1Swap, int128(token0SwapAmount), SqrtRatio.wrap(0), 0, type(int256).min
+            token0Token1Pool,
+            createSwapParameters({
+                _isToken1: isToken1Swap,
+                _amount: int128(token0SwapAmount),
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
+            type(int256).min
         );
         console2.log("Swap 3 - delta0:", uint128(delta0_3), "delta1:", uint128(-delta1_3));
 
@@ -287,12 +303,26 @@ contract DeployAndTestGas is Script {
 
             // Swap ETH for token0
             router.swap{value: smallSwapAmount}(
-                ethToken0Pool, false, int128(smallSwapAmount), SqrtRatio.wrap(0), 0, type(int256).min
+                ethToken0Pool,
+                createSwapParameters({
+                    _isToken1: false,
+                    _amount: int128(smallSwapAmount),
+                    _sqrtRatioLimit: SqrtRatio.wrap(0),
+                    _skipAhead: 0
+                }),
+                type(int256).min
             );
 
             // Swap ETH for token1
             router.swap{value: smallSwapAmount}(
-                ethToken1Pool, false, int128(smallSwapAmount), SqrtRatio.wrap(0), 0, type(int256).min
+                ethToken1Pool,
+                createSwapParameters({
+                    _isToken1: false,
+                    _amount: int128(smallSwapAmount),
+                    _sqrtRatioLimit: SqrtRatio.wrap(0),
+                    _skipAhead: 0
+                }),
+                type(int256).min
             );
 
             console2.log("Completed swap iteration", i + 1);
@@ -309,10 +339,12 @@ contract DeployAndTestGas is Script {
             uint128 swapBackAmount = token0Balance / 2;
             (int128 deltaEth,) = router.swap(
                 ethToken0Pool,
-                true, // isToken1 = true (swapping token1, which is token0)
-                int128(swapBackAmount),
-                SqrtRatio.wrap(0),
-                0,
+                createSwapParameters({
+                    _isToken1: true,
+                    _amount: int128(swapBackAmount),
+                    _sqrtRatioLimit: SqrtRatio.wrap(0),
+                    _skipAhead: 0
+                }),
                 type(int256).min
             );
             console2.log("Swapped token0 for ETH - amount:", swapBackAmount);
@@ -326,10 +358,12 @@ contract DeployAndTestGas is Script {
             uint128 swapBackAmount = token1Balance / 2;
             (int128 deltaEth,) = router.swap(
                 ethToken1Pool,
-                true, // isToken1 = true (swapping token1)
-                int128(swapBackAmount),
-                SqrtRatio.wrap(0),
-                0,
+                createSwapParameters({
+                    _isToken1: true,
+                    _amount: int128(swapBackAmount),
+                    _sqrtRatioLimit: SqrtRatio.wrap(0),
+                    _skipAhead: 0
+                }),
                 type(int256).min
             );
             console2.log("Swapped token1 for ETH - amount:", swapBackAmount);

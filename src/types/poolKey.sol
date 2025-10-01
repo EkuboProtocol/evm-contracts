@@ -8,7 +8,7 @@ using {toPoolId, validatePoolKey, isFullRange, mustLoadFees, tickSpacing, fee, e
 
 /// @notice Pool configuration packed into a single bytes32
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
-type Config is bytes32;
+type PoolConfig is bytes32;
 
 /// @notice Extracts the tick spacing from a pool key
 /// @param pk The pool key
@@ -56,12 +56,12 @@ function isFullRange(PoolKey memory pk) pure returns (bool r) {
     r = pk.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
 }
 
-/// @notice Creates a Config from individual components
+/// @notice Creates a PoolConfig from individual components
 /// @param _fee The fee for the pool
 /// @param _tickSpacing The tick spacing for the pool
 /// @param _extension The extension address for the pool
 /// @return c The packed configuration
-function toConfig(uint64 _fee, uint32 _tickSpacing, address _extension) pure returns (Config c) {
+function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) pure returns (PoolConfig c) {
     assembly ("memory-safe") {
         c := add(add(shl(96, _extension), shl(32, _fee)), _tickSpacing)
     }
@@ -75,7 +75,7 @@ struct PoolKey {
     /// @notice Address of token1 (must be > token0)
     address token1;
     /// @notice Packed configuration containing extension, fee, and tick spacing
-    Config config;
+    PoolConfig config;
 }
 
 /// @notice Thrown when tokens are not properly sorted (token0 >= token1)

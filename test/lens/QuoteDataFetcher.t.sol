@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {FullTest} from "../FullTest.sol";
 import {QuoteData, QuoteDataFetcher} from "../../src/lens/QuoteDataFetcher.sol";
-import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../../src/types/poolKey.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
@@ -29,7 +29,8 @@ contract QuoteDataFetcherTest is FullTest {
         (, uint128 liqG) = createPosition(poolKeyFull, MIN_TICK, MAX_TICK, 7500, 7500);
 
         PoolKey memory poolKeyNoLiquidity = createPool({tick: -693147, fee: 0, tickSpacing: 100});
-        PoolKey memory poolKeyDoesNotExist = PoolKey(address(token0), address(token1), toConfig(1, 1, address(0)));
+        PoolKey memory poolKeyDoesNotExist =
+            PoolKey(address(token0), address(token1), createPoolConfig(1, 1, address(0)));
 
         PoolKey[] memory keys = new PoolKey[](4);
         keys[0] = poolKey;

@@ -5,7 +5,7 @@ import {BaseOrdersTest} from "./Orders.t.sol";
 import {PositionsOwner} from "../src/PositionsOwner.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
@@ -96,7 +96,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -123,7 +123,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token1),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -152,13 +152,13 @@ contract PositionsOwnerTest is BaseOrdersTest {
         PoolKey memory poolKey0 = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         PoolKey memory poolKey1 = PoolKey({
             token0: address(token1),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         positions.maybeInitializePool(poolKey0, 0);

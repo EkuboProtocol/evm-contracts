@@ -266,6 +266,20 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param poolKey Pool key identifying the pool to swap against
     /// @param params The swap parameters to execute
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
+    /// @return delta0 Change in token0 balance
+    /// @return delta1 Change in token1 balance
+    function swap(PoolKey memory poolKey, SwapParameters params, int256 calculatedAmountThreshold)
+        public
+        payable
+        returns (int128 delta0, int128 delta1)
+    {
+        (delta0, delta1) = swap(poolKey, params, calculatedAmountThreshold, msg.sender);
+    }
+
+    /// @notice Executes a single-hop swap with a specified recipient
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param params The swap parameters to execute
+    /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
     /// @param recipient Address to receive the output tokens
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance

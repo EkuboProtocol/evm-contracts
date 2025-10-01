@@ -74,10 +74,9 @@ contract DeployAndTestGas is Script {
     TestToken public token1;
 
     function run() public {
-        vm.startBroadcast();
+        address deployer = vm.getWallets()[0];
 
-        // Get the broadcaster address after startBroadcast
-        address deployer = msg.sender;
+        vm.startBroadcast();
 
         console2.log("=== Deploying Contracts ===");
 

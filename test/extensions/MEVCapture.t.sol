@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
+import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";

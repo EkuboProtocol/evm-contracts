@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {CallPoints, addressToCallPoints} from "../../src/types/callPoints.sol";
 import {ExtensionCallPointsLib} from "../../src/libraries/ExtensionCallPointsLib.sol";
 import {IExtension} from "../../src/interfaces/ICore.sol";
-import {PoolKey, Config, toConfig} from "../../src/types/poolKey.sol";
+import {PoolKey, PoolConfig, createPoolConfig} from "../../src/types/poolKey.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "../../src/types/poolState.sol";
@@ -36,8 +36,11 @@ contract ExtensionCallPointsLibTest is Test {
         extension = MockExtension(extensionAddr);
 
         Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
-        PoolKey memory poolKey =
-            PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
+        PoolKey memory poolKey = PoolKey({
+            token0: address(0x1111),
+            token1: address(0x2222),
+            config: createPoolConfig(100, 60, address(0x3333))
+        });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         int128 liquidityDelta = 1000;
 
@@ -48,7 +51,7 @@ contract ExtensionCallPointsLibTest is Test {
         assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
-        assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
+        assertEq(PoolConfig.unwrap(extension.lastPoolKey().config), PoolConfig.unwrap(poolKey.config));
         assertEq(PositionId.unwrap(extension.lastPositionId()), PositionId.unwrap(positionId));
         assertEq(extension.lastLiquidityDelta(), liquidityDelta);
 
@@ -68,8 +71,11 @@ contract ExtensionCallPointsLibTest is Test {
         extension = MockExtension(extensionAddr);
 
         Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
-        PoolKey memory poolKey =
-            PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
+        PoolKey memory poolKey = PoolKey({
+            token0: address(0x1111),
+            token1: address(0x2222),
+            config: createPoolConfig(100, 60, address(0x3333))
+        });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         int128 liquidityDelta = 1000;
         int128 delta0 = 500;
@@ -85,7 +91,7 @@ contract ExtensionCallPointsLibTest is Test {
         assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
-        assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
+        assertEq(PoolConfig.unwrap(extension.lastPoolKey().config), PoolConfig.unwrap(poolKey.config));
         assertEq(PositionId.unwrap(extension.lastPositionId()), PositionId.unwrap(positionId));
         assertEq(extension.lastLiquidityDelta(), liquidityDelta);
         assertEq(extension.lastDelta0(), delta0);
@@ -114,8 +120,11 @@ contract ExtensionCallPointsLibTest is Test {
         extension = MockExtension(extensionAddr);
 
         Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
-        PoolKey memory poolKey =
-            PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
+        PoolKey memory poolKey = PoolKey({
+            token0: address(0x1111),
+            token1: address(0x2222),
+            config: createPoolConfig(100, 60, address(0x3333))
+        });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
 
         // Test when extension should be called
@@ -125,7 +134,7 @@ contract ExtensionCallPointsLibTest is Test {
         assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
-        assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
+        assertEq(PoolConfig.unwrap(extension.lastPoolKey().config), PoolConfig.unwrap(poolKey.config));
         assertEq(PositionId.unwrap(extension.lastPositionId()), PositionId.unwrap(positionId));
 
         // Test when extension should not be called (locker == extension)
@@ -144,8 +153,11 @@ contract ExtensionCallPointsLibTest is Test {
         extension = MockExtension(extensionAddr);
 
         Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
-        PoolKey memory poolKey =
-            PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
+        PoolKey memory poolKey = PoolKey({
+            token0: address(0x1111),
+            token1: address(0x2222),
+            config: createPoolConfig(100, 60, address(0x3333))
+        });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         uint128 amount0 = 1000;
         uint128 amount1 = 2000;
@@ -157,7 +169,7 @@ contract ExtensionCallPointsLibTest is Test {
         assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
         assertEq(extension.lastPoolKey().token0, poolKey.token0);
         assertEq(extension.lastPoolKey().token1, poolKey.token1);
-        assertEq(Config.unwrap(extension.lastPoolKey().config), Config.unwrap(poolKey.config));
+        assertEq(PoolConfig.unwrap(extension.lastPoolKey().config), PoolConfig.unwrap(poolKey.config));
         assertEq(PositionId.unwrap(extension.lastPositionId()), PositionId.unwrap(positionId));
         assertEq(extension.lastAmount0(), amount0);
         assertEq(extension.lastAmount1(), amount1);
@@ -179,8 +191,11 @@ contract ExtensionCallPointsLibTest is Test {
 
         extension.setShouldRevert(true);
         Locker locker = Locker.wrap(bytes32(uint256(uint160(address(0x1234)))));
-        PoolKey memory poolKey =
-            PoolKey({token0: address(0x1111), token1: address(0x2222), config: toConfig(100, 60, address(0x3333))});
+        PoolKey memory poolKey = PoolKey({
+            token0: address(0x1111),
+            token1: address(0x2222),
+            config: createPoolConfig(100, 60, address(0x3333))
+        });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         PoolState stateAfter = createPoolState(SqrtRatio.wrap(100), 1, 1);
 

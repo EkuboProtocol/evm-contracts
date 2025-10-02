@@ -6,7 +6,7 @@ import {ICore, IExtension} from "../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
 import {PositionId} from "../src/types/positionId.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
@@ -223,7 +223,7 @@ abstract contract FullTest is Test {
         internal
         returns (PoolKey memory poolKey)
     {
-        poolKey = PoolKey({token0: _token0, token1: _token1, config: toConfig(fee, tickSpacing, extension)});
+        poolKey = PoolKey({token0: _token0, token1: _token1, config: createPoolConfig(fee, tickSpacing, extension)});
         core.initializePool(poolKey, tick);
     }
 

@@ -5,7 +5,7 @@ import {BaseOrdersTest} from "./Orders.t.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {IRevenueBuybacks} from "../src/interfaces/IRevenueBuybacks.sol";
 import {BuybacksState} from "../src/types/buybacksState.sol";
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {TestToken} from "./TestToken.sol";
 import {RevenueBuybacksLib} from "../src/libraries/RevenueBuybacksLib.sol";
@@ -136,7 +136,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -173,7 +173,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(0),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -235,7 +235,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: token,
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);

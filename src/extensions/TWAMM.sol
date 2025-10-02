@@ -31,6 +31,7 @@ import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 import {PoolId} from "../types/poolId.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 
 /// @notice Returns the call points configuration for the TWAMM extension
 /// @dev Specifies which hooks TWAMM needs to execute virtual orders and manage DCA functionality
@@ -83,11 +84,14 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     {
         if (block.timestamp >= endTime) {
             uint256 rewardRateStart = uint256(
-                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).addBool(isToken1).load(
-                )
+                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).add(
+                    LibBit.rawToUint(isToken1)
+                ).load()
             );
             uint256 rewardRateEnd = uint256(
-                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, endTime)).addBool(isToken1).load()
+                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, endTime)).add(
+                    LibBit.rawToUint(isToken1)
+                ).load()
             );
 
             unchecked {
@@ -97,11 +101,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
 
             uint256 rewardRateStart = uint256(
-                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).addBool(isToken1).load(
-                )
+                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).add(
+                    LibBit.rawToUint(isToken1)
+                ).load()
             );
-            uint256 rewardRateCurrent =
-                uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).addBool(isToken1).load());
+            uint256 rewardRateCurrent = uint256(
+                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).add(LibBit.rawToUint(isToken1)).load()
+            );
 
             unchecked {
                 result = rewardRateCurrent - rewardRateStart;
@@ -163,8 +169,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         // we assume `_updateTime` is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
         // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
         if (flip) {
-            bool zeroNumOrders = numOrders == 0;
-            StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time)).storeTwoBool(
+            bytes32 zeroNumOrders = bytes32(LibBit.rawToUint(numOrders == 0));
+
+            StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time)).storeTwo(
                 zeroNumOrders, zeroNumOrders
             );
 

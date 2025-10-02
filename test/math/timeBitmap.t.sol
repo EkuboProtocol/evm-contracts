@@ -22,7 +22,7 @@ contract TimeBitmap {
 
     function isInitialized(uint256 time) public view returns (bool) {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-        Bitmap bitmap = Bitmap.wrap(uint256(mapSlot.addUint(word).load()));
+        Bitmap bitmap = Bitmap.wrap(uint256(mapSlot.add(word).load()));
         return bitmap.isSet(uint8(index));
     }
 

@@ -25,7 +25,7 @@ function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uin
 // Flips the tick in the bitmap from true to false or vice versa
 function flipTime(StorageSlot slot, uint256 time) {
     (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-    StorageSlot wordSlot = slot.addUint(word);
+    StorageSlot wordSlot = slot.add(word);
     wordSlot.store(wordSlot.load() ^ bytes32(1 << index));
 }
 
@@ -40,7 +40,7 @@ function findNextInitializedTime(StorageSlot slot, uint256 fromTime)
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
 
         // find the index of the previous tick in that word
-        Bitmap bitmap = Bitmap.wrap(uint256(slot.addUint(word).load()));
+        Bitmap bitmap = Bitmap.wrap(uint256(slot.add(word).load()));
         uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
         assembly ("memory-safe") {

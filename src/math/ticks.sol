@@ -116,25 +116,112 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
 }
 
 /// @notice Converts a sqrt price ratio to its corresponding tick
-/// @dev Uses logarithmic calculation to find the tick that most closely represents the sqrt ratio.
+/// @dev Uses branched logarithmic calculation optimized based on sqrt ratio magnitude
 /// @dev Assumes the given SqrtRatio is valid, i.e. SqrtRatio#isValid is true
 /// @param sqrtRatio The valid sqrt price ratio to convert
 /// @return The tick corresponding to the sqrt ratio (rounded down)
 function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
     unchecked {
-        uint256 sqrtRatioFixed = sqrtRatio.toFixed();
+        uint256 sqrtRatioRaw = SqrtRatio.unwrap(sqrtRatio);
 
         bool negative;
         uint256 x;
+        uint256 msbHigh;
+
         assembly ("memory-safe") {
-            negative := iszero(shr(128, sqrtRatioFixed))
-            // negative ? (type(uint256).max / sqrtRatioFixed) : sqrtRatioFixed;
-            x := add(div(sub(0, negative), sqrtRatioFixed), mul(iszero(negative), sqrtRatioFixed))
+            // Branch on the top 2 bits to optimize the calculation
+            switch shr(94, sqrtRatioRaw)
+            case 0 {
+                // 0.126 format: shift by 2, value < 2^96
+                // High 128 bits are zero, need reciprocal
+                let sqrtRatioFixed := shl(2, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
+                negative := 1
+                x := div(sub(0, 1), sqrtRatioFixed)
+                // After reciprocal, x >= 2^160, so msbHigh >= 32
+                // Use Solady's log2 on high 128 bits
+                let hi := shr(128, x)
+                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
+                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
+                msbHigh :=
+                    or(
+                        msbHigh,
+                        byte(
+                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
+                            0x0706060506020504060203020504030106050205030304010505030400000000
+                        )
+                    )
+            }
+            case 1 {
+                // 0.94 format: shift by 34, value in [2^96, 2^128)
+                // High 128 bits are zero, need reciprocal
+                let sqrtRatioFixed := shl(34, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
+                negative := 1
+                x := div(sub(0, 1), sqrtRatioFixed)
+                // After reciprocal, x in [2^128, 2^160), so msbHigh in [0, 31]
+                let hi := shr(128, x)
+                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
+                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
+                msbHigh :=
+                    or(
+                        msbHigh,
+                        byte(
+                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
+                            0x0706060506020504060203020504030106050205030304010505030400000000
+                        )
+                    )
+            }
+            case 2 {
+                // 32.62 format: shift by 66, value in [2^128, 2^160)
+                // High 128 bits are non-zero, no reciprocal needed
+                let sqrtRatioFixed := shl(66, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
+                negative := 0
+                x := sqrtRatioFixed
+                // msbHigh in [0, 31]
+                let hi := shr(128, x)
+                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
+                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
+                msbHigh :=
+                    or(
+                        msbHigh,
+                        byte(
+                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
+                            0x0706060506020504060203020504030106050205030304010505030400000000
+                        )
+                    )
+            }
+            default {
+                // 64.30 format (case 3): shift by 98, value >= 2^160
+                // High 128 bits are non-zero, no reciprocal needed
+                let sqrtRatioFixed := shl(98, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
+                negative := 0
+                x := sqrtRatioFixed
+                // msbHigh >= 32
+                let hi := shr(128, x)
+                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
+                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
+                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
+                msbHigh :=
+                    or(
+                        msbHigh,
+                        byte(
+                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
+                            0x0706060506020504060203020504030106050205030304010505030400000000
+                        )
+                    )
+            }
         }
 
-        // we know x >> 128 is never zero because we check bounds above and then reciprocate sqrtRatio if the high 128 bits are zero
-        // so we don't need to handle the exceptional case of log2(0)
-        uint256 msbHigh = FixedPointMathLib.log2(x >> 128);
         x = x >> (msbHigh + 1);
         uint256 log2Unsigned = msbHigh * 0x10000000000000000;
 

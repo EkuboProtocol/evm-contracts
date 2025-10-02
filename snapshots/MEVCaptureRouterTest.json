@@ -1,11 +1,11 @@
 {
-  "swap 100 token0 for eth": "63783",
-  "swap 100 token0 for token1": "63536",
-  "swap 100 wei of eth for token": "57045",
-  "swap 100 wei of eth for token full range": "32186",
-  "swap 100 wei of token for eth full range": "38665",
-  "swap crossing one tick eth for token1": "90006",
-  "swap crossing one tick token1 for eth": "96567",
-  "swap crossing two ticks eth for token1": "128407",
-  "swap crossing two ticks token1 for eth": "125870"
+  "swap 100 token0 for eth": "63607",
+  "swap 100 token0 for token1": "63334",
+  "swap 100 wei of eth for token": "56849",
+  "swap 100 wei of eth for token full range": "31990",
+  "swap 100 wei of token for eth full range": "38489",
+  "swap crossing one tick eth for token1": "89810",
+  "swap crossing one tick token1 for eth": "96391",
+  "swap crossing two ticks eth for token1": "128211",
+  "swap crossing two ticks token1 for eth": "125694"
 }

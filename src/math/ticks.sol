@@ -123,11 +123,11 @@ uint256 constant ONE_Q127 = 1 << 127;
 // K = 53226052391377289966  (≈ 0x2e2a8eca5705fc2ee)
 uint256 constant K_2_OVER_LN2_X64 = 53226052391377289966;
 
-// 2^64 / log2(sqrt(1.000001)) in integer, as in your code
+// 2^64 / log2(sqrt(1.000001)) in integer
 int256 constant INV_LB_X64 = 25572630076711825471857579;
 
-// 0.5 in X128 scaled by INV_LB_X64: keep your exact constants
-int256 constant HALF_X128_INVLB = 112469616488610087266845472033458199637;
+// Error bounds of the tick computation ~= 0.5%
+int256 constant ERROR_BOUNDS_X128 = int256((uint256(1) << 128) / 200);
 
 /// @notice Converts a sqrt price ratio to its corresponding tick
 /// @dev Computes log2 via one normalization + atanh series (no per-bit squaring loop)
@@ -135,22 +135,23 @@ int256 constant HALF_X128_INVLB = 112469616488610087266845472033458199637;
 /// @return The tick corresponding to the sqrt ratio (rounded down)
 function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
     unchecked {
-        uint256 R = sqrtRatio.toFixed();
+        uint256 sqrtRatioFixed = sqrtRatio.toFixed();
 
         // Normalize sign via reciprocal if < 1. Keep this branch-free.
         bool negative;
         uint256 x;
+        uint256 hi;
         assembly ("memory-safe") {
-            negative := iszero(shr(128, R))
+            negative := iszero(shr(128, sqrtRatioFixed))
             // x = negative ? (type(uint256).max / R) : R
-            x := add(div(sub(0, negative), R), mul(iszero(negative), R))
+            x := add(div(sub(0, negative), sqrtRatioFixed), mul(iszero(negative), sqrtRatioFixed))
+            // We know (x >> 128) != 0 because we reciprocated sqrtRatioFixed
+            hi := shr(128, x)
         }
-
-        // We know (x >> 128) != 0 here.
-        uint256 hi = x >> 128;
 
         // Integer part of log2 via CLZ: floor(log2(hi)) = 255 - clz(hi)
         uint256 msbHigh;
+        // todo: replace with clz opcode
         uint256 clz_hi = LibBit.clz(hi);
         assembly ("memory-safe") {
             msbHigh := sub(255, clz_hi)
@@ -174,7 +175,7 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
         uint256 y13 = (y11 * y2) >> 127; // y^13
         uint256 y15 = (y13 * y2) >> 127; // y^15
 
-        // s = y + y^3/3 + y^5/5 + ... + y^17/17  (Q1.127)
+        // s = y + y^3/3 + y^5/5 + ... + y^15/15  (Q1.127)
         uint256 s = yQ + (y3 / 3) + (y5 / 5) + (y7 / 7) + (y9 / 9) + (y11 / 11) + (y13 / 13) + (y15 / 15);
 
         // fracX64 = ((2/ln2) * s) in Q64.64  =>  (s * K) >> 127
@@ -188,14 +189,11 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
 
         int256 logBaseTickSizeX128 = base * INV_LB_X64;
 
-        // Build a first tick guess using the same ±0.5 X128 window
-        int32 tickLow = int32((logBaseTickSizeX128 - HALF_X128_INVLB) >> 128);
-        int32 tickHigh = int32((logBaseTickSizeX128 + HALF_X128_INVLB) >> 128);
+        // Add error bounds to the computed logarithm
+        int32 tickLow = int32((logBaseTickSizeX128 - ERROR_BOUNDS_X128) >> 128);
+        int32 tickHigh = int32((logBaseTickSizeX128 + ERROR_BOUNDS_X128) >> 128);
 
-        // --- NEW: tight ±1 correction to guarantee inverse properties ---
-        // Because our approximation error is << 1 tick, at most one step is needed.
-        // Try adjusting downward or upward by a single tick to hit the exact boundary.
-        // (Bounds checks are cheap and keep us safe at the extremes.)
+        // iterate through the range to find the exact tick
         while (tickHigh > tickLow) {
             // If our current t overshoots, step down once.
             if (tickToSqrtRatio(tickHigh) <= sqrtRatio) {

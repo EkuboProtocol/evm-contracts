@@ -3,38 +3,29 @@ pragma solidity =0.8.30;
 
 import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {PoolId} from "./poolId.sol";
+import {PoolConfig, createPoolConfig} from "./poolConfig.sol";
 
 using {toPoolId, validatePoolKey, isFullRange, mustLoadFees, tickSpacing, fee, extension} for PoolKey global;
-
-/// @notice Pool configuration packed into a single bytes32
-/// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
-type PoolConfig is bytes32;
 
 /// @notice Extracts the tick spacing from a pool key
 /// @param pk The pool key
 /// @return r The tick spacing
 function tickSpacing(PoolKey memory pk) pure returns (uint32 r) {
-    assembly ("memory-safe") {
-        r := and(mload(add(64, pk)), 0xffffffff)
-    }
+    return pk.config.tickSpacing();
 }
 
 /// @notice Extracts the fee from a pool key
 /// @param pk The pool key
 /// @return r The fee
 function fee(PoolKey memory pk) pure returns (uint64 r) {
-    assembly ("memory-safe") {
-        r := and(mload(add(60, pk)), 0xffffffffffffffff)
-    }
+    return pk.config.fee();
 }
 
 /// @notice Extracts the extension address from a pool key
 /// @param pk The pool key
 /// @return r The extension address
 function extension(PoolKey memory pk) pure returns (address r) {
-    assembly ("memory-safe") {
-        r := and(mload(add(52, pk)), 0xffffffffffffffffffffffffffffffffffffffff)
-    }
+    return pk.config.extension();
 }
 
 /// @notice Determines if fees must be loaded for swaps in this pool
@@ -54,17 +45,6 @@ function mustLoadFees(PoolKey memory pk) pure returns (bool r) {
 /// @return r True if the pool uses full-range-only tick spacing
 function isFullRange(PoolKey memory pk) pure returns (bool r) {
     r = pk.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
-}
-
-/// @notice Creates a PoolConfig from individual components
-/// @param _fee The fee for the pool
-/// @param _tickSpacing The tick spacing for the pool
-/// @param _extension The extension address for the pool
-/// @return c The packed configuration
-function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) pure returns (PoolConfig c) {
-    assembly ("memory-safe") {
-        c := add(add(shl(96, _extension), shl(32, _fee)), _tickSpacing)
-    }
 }
 
 /// @notice Unique identifier for a pool containing token addresses and configuration

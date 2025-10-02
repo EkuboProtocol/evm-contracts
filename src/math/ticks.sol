@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {MAX_TICK_MAGNITUDE} from "./constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 
 // Tick Math Library
@@ -115,271 +116,101 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     }
 }
 
+// F = 1.0 in Q1.127
+uint256 constant F = 1 << 127;
+
+// Convert ln(m) series to log2(m):  log2(m) = (2 / ln 2) * s.
+// Precompute K = round((2 / ln 2) * 2^64) as a uint (Q64 scalar).
+// K = 53226052391377289966  (≈ 0x2e2a8eca5705fc2ee)
+uint256 constant K_2_OVER_LN2_X64 = 53226052391377289966;
+
 /// @notice Converts a sqrt price ratio to its corresponding tick
-/// @dev Uses branched logarithmic calculation optimized based on sqrt ratio magnitude
-/// @dev Assumes the given SqrtRatio is valid, i.e. SqrtRatio#isValid is true
+/// @dev Computes log2 via one normalization + atanh series (no per-bit squaring loop)
 /// @param sqrtRatio The valid sqrt price ratio to convert
 /// @return The tick corresponding to the sqrt ratio (rounded down)
+
 function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
     unchecked {
-        uint256 sqrtRatioRaw = SqrtRatio.unwrap(sqrtRatio);
+        uint256 R = sqrtRatio.toFixed();
 
+        // If high 128 bits are zero, sqrtRatio < 1 → take reciprocal and mark negative.
         bool negative;
         uint256 x;
+        assembly ("memory-safe") {
+            negative := iszero(shr(128, R))
+            // x = negative ? (type(uint256).max / R) : R
+            x := add(div(sub(0, negative), R), mul(iszero(negative), R))
+        }
+
+        // We know (x >> 128) != 0 here.
+        // Integer part: msbHigh = floor(log2(x >> 128)) using CLZ
+        uint256 hi = x >> 128;
+        uint256 hi_clz = LibBit.clz(hi);
         uint256 msbHigh;
-
         assembly ("memory-safe") {
-            // Branch on the top 2 bits to optimize the calculation
-            switch shr(94, sqrtRatioRaw)
-            case 0 {
-                // 0.126 format: shift by 2, value < 2^96
-                // High 128 bits are zero, need reciprocal
-                let sqrtRatioFixed := shl(2, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
-                negative := 1
-                x := div(sub(0, 1), sqrtRatioFixed)
-                // After reciprocal, x >= 2^160, so msbHigh >= 32
-                // Use Solady's log2 on high 128 bits
-                let hi := shr(128, x)
-                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
-                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
-                msbHigh :=
-                    or(
-                        msbHigh,
-                        byte(
-                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
-                            0x0706060506020504060203020504030106050205030304010505030400000000
-                        )
-                    )
-            }
-            case 1 {
-                // 0.94 format: shift by 34, value in [2^96, 2^128)
-                // High 128 bits are zero, need reciprocal
-                let sqrtRatioFixed := shl(34, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
-                negative := 1
-                x := div(sub(0, 1), sqrtRatioFixed)
-                // After reciprocal, x in [2^128, 2^160), so msbHigh in [0, 31]
-                let hi := shr(128, x)
-                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
-                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
-                msbHigh :=
-                    or(
-                        msbHigh,
-                        byte(
-                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
-                            0x0706060506020504060203020504030106050205030304010505030400000000
-                        )
-                    )
-            }
-            case 2 {
-                // 32.62 format: shift by 66, value in [2^128, 2^160)
-                // High 128 bits are non-zero, no reciprocal needed
-                let sqrtRatioFixed := shl(66, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
-                negative := 0
-                x := sqrtRatioFixed
-                // msbHigh in [0, 31]
-                let hi := shr(128, x)
-                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
-                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
-                msbHigh :=
-                    or(
-                        msbHigh,
-                        byte(
-                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
-                            0x0706060506020504060203020504030106050205030304010505030400000000
-                        )
-                    )
-            }
-            default {
-                // 64.30 format (case 3): shift by 98, value >= 2^160
-                // High 128 bits are non-zero, no reciprocal needed
-                let sqrtRatioFixed := shl(98, and(sqrtRatioRaw, not(0xc00000000000000000000000)))
-                negative := 0
-                x := sqrtRatioFixed
-                // msbHigh >= 32
-                let hi := shr(128, x)
-                msbHigh := shl(7, lt(0xffffffffffffffffffffffffffffffff, hi))
-                msbHigh := or(msbHigh, shl(6, lt(0xffffffffffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(5, lt(0xffffffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(4, lt(0xffff, shr(msbHigh, hi))))
-                msbHigh := or(msbHigh, shl(3, lt(0xff, shr(msbHigh, hi))))
-                msbHigh :=
-                    or(
-                        msbHigh,
-                        byte(
-                            and(0x1f, shr(shr(msbHigh, hi), 0x8421084210842108cc6318c6db6d54be)),
-                            0x0706060506020504060203020504030106050205030304010505030400000000
-                        )
-                    )
-            }
+            // Assume: clz(uint256) returns [0..256]; floor(log2(n)) = 255 - clz(n) for n>0
+            msbHigh := sub(255, hi_clz)
         }
 
+        // Normalize once so X ∈ [2^127, 2^128). This sets us up for a clean Q1.127 mantissa.
         x = x >> (msbHigh + 1);
-        uint256 log2Unsigned = msbHigh * 0x10000000000000000;
 
-        assembly ("memory-safe") {
-            // 63
-            x := shr(127, mul(x, x))
-            let is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x8000000000000000))
-            x := shr(is_high_nonzero, x)
+        // --- Fractional log2 via atanh series on mantissa m = X / 2^127 ∈ [1, 2) ---
+        // Let y = (m - 1) / (m + 1) ∈ [0, 1/3]; then:
+        // ln(m) = 2 * (y + y^3/3 + y^5/5 + ... + y^(2n+1)/(2n+1)) + R_n
+        // Using terms up to y^15 keeps |R_n| well below a half-tick in log2 units.
+        // We compute everything in Q1.127 (implicit binary point at bit 127).
 
-            // 62
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x4000000000000000))
-            x := shr(is_high_nonzero, x)
+        // yQ = ((x - F) / (x + F)) in Q1.127  ->  ( (x-F) * F ) / (x+F)
+        uint256 a = x - F;
+        uint256 b = x + F;
+        // (a << 127) cannot overflow: a < 2^128 ⇒ a<<127 < 2^255
+        uint256 yQ = (a << 127) / b;
 
-            // 61
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x2000000000000000))
-            x := shr(is_high_nonzero, x)
+        // Powers of y: build y^2, then odd powers by multiplying by y^2 each time.
+        uint256 y2 = (yQ * yQ) >> 127; // y^2
+        uint256 y3 = (yQ * y2) >> 127; // y^3
+        uint256 y5 = (y3 * y2) >> 127; // y^5
+        uint256 y7 = (y5 * y2) >> 127; // y^7
+        uint256 y9 = (y7 * y2) >> 127; // y^9
+        uint256 y11 = (y9 * y2) >> 127; // y^11
+        uint256 y13 = (y11 * y2) >> 127; // y^13
+        uint256 y15 = (y13 * y2) >> 127; // y^15
 
-            // 60
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x1000000000000000))
-            x := shr(is_high_nonzero, x)
+        // s = y + y^3/3 + y^5/5 + ... + y^15/15  (still Q1.127)
+        // DIV by tiny constants is cheap; using division here avoids storing reciprocals.
+        uint256 s = yQ + (y3 / 3) + (y5 / 5) + (y7 / 7) + (y9 / 9) + (y11 / 11) + (y13 / 13) + (y15 / 15);
 
-            // 59
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x800000000000000))
-            x := shr(is_high_nonzero, x)
+        // fracX64 = ((2/ln2) * s) in Q64.64  =>  (s * K) >> 127
+        uint256 fracX64 = (s * K_2_OVER_LN2_X64) >> 127;
 
-            // 58
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x400000000000000))
-            x := shr(is_high_nonzero, x)
+        // Compose full unsigned log2 in Q64.64: integer part | fractional part
+        uint256 log2Unsigned = (msbHigh << 64) + fracX64;
 
-            // 57
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x200000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 56
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x100000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 55
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x80000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 54
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x40000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 53
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x20000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 52
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x10000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 51
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x8000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 50
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x4000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 49
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x2000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 48
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x1000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 47
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x800000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 46
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x400000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 45
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x200000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 44
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x100000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 43
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x80000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 42
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x40000000000))
-        }
-
-        // 25572630076711825471857579 == 2**64/(log base 2 of sqrt tick size)
-        // https://www.wolframalpha.com/input?i=floor%28%281%2F+log+base+2+of+%28sqrt%281.000001%29%29%29*2**64%29
+        // Scale from log2 to "ticks" base: tick = log_{sqrt(1.000001)}(ratio)
+        // This matches your previous constant/scaling (X128).
+        // 25572630076711825471857579 == floor( 2^64 / log2(sqrt(1.000001)) )
         int256 logBaseTickSizeX128 =
             (negative ? -int256(log2Unsigned) : int256(log2Unsigned)) * 25572630076711825471857579;
 
+        // Convert to candidate ticks (floor vs ceil) with your existing ±0.5 in X128 window.
         int32 tickLow;
         int32 tickHigh;
 
         if (negative) {
+            // subtract 0.5 in X128 space before shifting for floor
             tickLow = int32((logBaseTickSizeX128 - 112469616488610087266845472033458199637) >> 128);
             tickHigh = int32((logBaseTickSizeX128) >> 128);
         } else {
             tickLow = int32((logBaseTickSizeX128) >> 128);
+            // add 0.5 in X128 space for potential ceil
             tickHigh = int32((logBaseTickSizeX128 + 112469616488610087266845472033458199637) >> 128);
         }
 
-        if (tickLow == tickHigh) {
-            return tickLow;
-        }
+        if (tickLow == tickHigh) return tickLow;
 
+        // Final guard to fix any residual approximation error.
         if (tickToSqrtRatio(tickHigh) <= sqrtRatio) return tickHigh;
-
         return tickLow;
     }
 }

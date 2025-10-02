@@ -132,8 +132,8 @@ int256 constant ERROR_BOUNDS_X128 = int256((uint256(1) << 128) / 200);
 /// @notice Converts a sqrt price ratio to its corresponding tick
 /// @dev Computes log2 via one normalization + atanh series (no per-bit squaring loop)
 /// @param sqrtRatio The valid sqrt price ratio to convert
-/// @return The tick corresponding to the sqrt ratio (rounded down)
-function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
+/// @return tick The tick corresponding to the sqrt ratio (rounded down)
+function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32 tick) {
     unchecked {
         uint256 sqrtRatioFixed = sqrtRatio.toFixed();
 
@@ -191,17 +191,13 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
 
         // Add error bounds to the computed logarithm
         int32 tickLow = int32((logBaseTickSizeX128 - ERROR_BOUNDS_X128) >> 128);
-        int32 tickHigh = int32((logBaseTickSizeX128 + ERROR_BOUNDS_X128) >> 128);
+        tick = int32((logBaseTickSizeX128 + ERROR_BOUNDS_X128) >> 128);
 
-        // iterate through the range to find the exact tick
-        while (tickHigh > tickLow) {
-            // If our current t overshoots, step down once.
-            if (tickToSqrtRatio(tickHigh) <= sqrtRatio) {
-                break;
+        if (tick != tickLow) {
+            // tickHigh overshoots
+            if (tickToSqrtRatio(tick) > sqrtRatio) {
+                tick = tickLow;
             }
-            tickHigh--;
         }
-
-        return tickHigh;
     }
 }

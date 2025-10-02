@@ -15,16 +15,14 @@ import {
 import {Bitmap} from "../../src/types/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
 
 contract TimeBitmap {
-    bytes32 public constant mapSlot = 0;
+    StorageSlot public constant mapSlot = StorageSlot.wrap(0);
 
     function isInitialized(uint256 time) public view returns (bool) {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-        Bitmap bitmap;
-        assembly ("memory-safe") {
-            bitmap := sload(add(mapSlot, word))
-        }
+        Bitmap bitmap = Bitmap.wrap(uint256(mapSlot.addUint(word).load()));
         return bitmap.isSet(uint8(index));
     }
 

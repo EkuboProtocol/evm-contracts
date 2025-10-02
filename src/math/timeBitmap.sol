@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {Bitmap} from "../types/bitmap.sol";
 import {nextValidTime} from "../math/time.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the time is initialized
 // Always rounds the time down
@@ -22,27 +23,24 @@ function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uin
 }
 
 // Flips the tick in the bitmap from true to false or vice versa
-function flipTime(bytes32 slot, uint256 time) {
+function flipTime(StorageSlot slot, uint256 time) {
     (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-    assembly ("memory-safe") {
-        let k := add(slot, word)
-        let v := sload(k)
-        sstore(k, xor(v, shl(index, 1)))
-    }
+    StorageSlot wordSlot = slot.addUint(word);
+    wordSlot.store(wordSlot.load() ^ bytes32(1 << index));
 }
 
 /// @dev Finds the smallest time that is equal to or greater than the given `fromTime`, initialized and stored in the next bitmap
 ///      If no initialized time is found, returns the greatest time in the bitmap
-function findNextInitializedTime(bytes32 slot, uint256 fromTime) view returns (uint256 nextTime, bool isInitialized) {
+function findNextInitializedTime(StorageSlot slot, uint256 fromTime)
+    view
+    returns (uint256 nextTime, bool isInitialized)
+{
     unchecked {
         // convert the given time to the bitmap position of the next nearest potential initialized time
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
 
         // find the index of the previous tick in that word
-        Bitmap bitmap;
-        assembly ("memory-safe") {
-            bitmap := sload(add(slot, word))
-        }
+        Bitmap bitmap = Bitmap.wrap(uint256(slot.addUint(word).load()));
         uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
         assembly ("memory-safe") {
@@ -60,7 +58,7 @@ function findNextInitializedTime(bytes32 slot, uint256 fromTime) view returns (u
 /// @param fromTime The time after which to start the search
 /// @param untilTime The time where to end the search, i.e. this function will return at most the value passed to `untilTime`
 function searchForNextInitializedTime(
-    bytes32 slot,
+    StorageSlot slot,
     uint256 lastVirtualOrderExecutionTime,
     uint256 fromTime,
     uint256 untilTime

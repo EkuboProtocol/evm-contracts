@@ -62,13 +62,18 @@ contract TicksTest is Test {
         tickToSqrtRatio(tick);
     }
 
-    function test_tickToSqrtRatio_always_increasing(int32 tick) public pure {
+    function check_tickToSqrtRatio_always_increasing(int32 tick) public pure {
         tick = boundTick(tick);
         vm.assume(tick != MAX_TICK);
         assertLt(SqrtRatio.unwrap(tickToSqrtRatio(tick)), SqrtRatio.unwrap(tickToSqrtRatio(tick + 1)));
     }
 
-    function test_tickToSqrtRatio_inverse_sqrtRatioToTick(int32 tick) public pure {
+    function check_tickToSqrtRatio_always_valid(int32 tick) public pure {
+        tick = boundTick(tick);
+        assertTrue(tickToSqrtRatio(tick).isValid());
+    }
+
+    function check_tickToSqrtRatio_inverse_sqrtRatioToTick(int32 tick) public pure {
         tick = boundTick(tick);
         SqrtRatio sqrtRatio = tickToSqrtRatio(tick);
         int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
@@ -87,7 +92,7 @@ contract TicksTest is Test {
         assertEq(sqrtRatioToTick(SqrtRatio.wrap(SqrtRatio.unwrap(MAX_SQRT_RATIO) - 1)), MAX_TICK - 1);
     }
 
-    function test_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(int32 tick) public pure {
+    function check_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(int32 tick) public pure {
         tick = boundTick(tick);
         vm.assume(tick < MAX_TICK);
         SqrtRatio sqrtRatio = SqrtRatio.wrap(SqrtRatio.unwrap(tickToSqrtRatio(tick)) + 1);
@@ -95,7 +100,7 @@ contract TicksTest is Test {
         assertEq(tickCalculated, tick);
     }
 
-    function test_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(int32 tick) public pure {
+    function check_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(int32 tick) public pure {
         tick = boundTick(tick);
         vm.assume(tick > MIN_TICK);
 
@@ -104,28 +109,21 @@ contract TicksTest is Test {
         assertEq(tickCalculated, tick - 1);
     }
 
-    function test_sqrtRatioToTick_within_bounds(uint256 _sqrtRatio) public pure {
+    function check_sqrtRatioToTick_within_bounds_lower(uint256 _sqrtRatio) public pure {
         _sqrtRatio = bound(_sqrtRatio, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1);
         SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio, false);
 
         int32 tick = sqrtRatioToTick(sqrtRatio);
-        assertGe(sqrtRatio.toFixed(), tickToSqrtRatio(tick).toFixed());
+        assertTrue(sqrtRatio >= tickToSqrtRatio(tick), "sqrt ratio gte tick to sqrt ratio");
         assertLt(sqrtRatio.toFixed(), tickToSqrtRatio(tick + 1).toFixed());
     }
 
-    // this takes about 1 hour to run
-    function skip_test_all_tick_values() public pure {
-        uint256 fmp;
-        assembly ("memory-safe") {
-            fmp := mload(0x40)
-        }
-        for (int32 i = MIN_TICK; i <= MAX_TICK; i++) {
-            if (i != MAX_TICK) test_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(i);
-            if (i != MIN_TICK) test_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(i);
-            assembly ("memory-safe") {
-                mstore(0x40, fmp)
-            }
-        }
+    function check_sqrtRatioToTick_within_bounds_upper(uint256 _sqrtRatio) public pure {
+        _sqrtRatio = bound(_sqrtRatio, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1);
+        SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio, false);
+
+        int32 tick = sqrtRatioToTick(sqrtRatio);
+        assertTrue(sqrtRatio < tickToSqrtRatio(tick + 1), "sqrt ratio lt next tick sqrt ratio");
     }
 
     function srtt(SqrtRatio sqrtRatio) external pure returns (int32) {

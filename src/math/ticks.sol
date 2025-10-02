@@ -116,16 +116,21 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
 }
 
 /// @notice Converts a sqrt price ratio to its corresponding tick
-/// @dev Uses logarithmic calculation to find the tick that most closely represents the sqrt ratio
-/// @param sqrtRatio The sqrt price ratio to convert
+/// @dev Uses logarithmic calculation to find the tick that most closely represents the sqrt ratio.
+/// @dev Assumes the given SqrtRatio is valid, i.e. SqrtRatio#isValid is true
+/// @param sqrtRatio The valid sqrt price ratio to convert
 /// @return The tick corresponding to the sqrt ratio (rounded down)
 function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
     unchecked {
         uint256 sqrtRatioFixed = sqrtRatio.toFixed();
 
-        bool negative = (sqrtRatioFixed >> 128) == 0;
-
-        uint256 x = negative ? (type(uint256).max / sqrtRatioFixed) : sqrtRatioFixed;
+        bool negative;
+        uint256 x;
+        assembly ("memory-safe") {
+            negative := iszero(shr(128, sqrtRatioFixed))
+            // negative ? (type(uint256).max / sqrtRatioFixed) : sqrtRatioFixed;
+            x := add(div(sub(0, negative), sqrtRatioFixed), mul(iszero(negative), sqrtRatioFixed))
+        }
 
         // we know x >> 128 is never zero because we check bounds above and then reciprocate sqrtRatio if the high 128 bits are zero
         // so we don't need to handle the exceptional case of log2(0)

@@ -2,9 +2,8 @@
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    PoolKey, createPoolConfig, PoolConfig, TokensMustBeSorted, InvalidTickSpacing
-} from "../../src/types/poolKey.sol";
+import {PoolKey, TokensMustBeSorted, InvalidTickSpacing} from "../../src/types/poolKey.sol";
+import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 

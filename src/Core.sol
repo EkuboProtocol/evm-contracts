@@ -670,7 +670,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
                 }
 
-                int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(isExactOut, 1, type(uint256).max));
+                int256 calculatedAmountSign;
+                assembly ("memory-safe") {
+                    calculatedAmountSign := sub(isExactOut, iszero(isExactOut))
+                }
                 int128 calculatedAmountDelta = SafeCastLib.toInt128(
                     FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );

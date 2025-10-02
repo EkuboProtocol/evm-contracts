@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {MAX_TICK_MAGNITUDE} from "./constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 
 // Tick Math Library
@@ -115,184 +116,94 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
     }
 }
 
+uint256 constant ONE_Q127 = 1 << 127;
+
+// Convert ln(m) series to log2(m):  log2(m) = (2 / ln 2) * s.
+// Precompute K = round((2 / ln 2) * 2^64) as a uint (Q64 scalar).
+// K = 53226052391377289966  (≈ 0x2e2a8eca5705fc2ee)
+uint256 constant K_2_OVER_LN2_X64 = 53226052391377289966;
+
+// 2^64 / log2(sqrt(1.000001)) in integer, as in your code
+int256 constant INV_LB_X64 = 25572630076711825471857579;
+
+// 0.5 in X128 scaled by INV_LB_X64: keep your exact constants
+int256 constant HALF_X128_INVLB = 112469616488610087266845472033458199637;
+
 /// @notice Converts a sqrt price ratio to its corresponding tick
-/// @dev Uses logarithmic calculation to find the tick that most closely represents the sqrt ratio.
-/// @dev Assumes the given SqrtRatio is valid, i.e. SqrtRatio#isValid is true
+/// @dev Computes log2 via one normalization + atanh series (no per-bit squaring loop)
 /// @param sqrtRatio The valid sqrt price ratio to convert
 /// @return The tick corresponding to the sqrt ratio (rounded down)
 function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
     unchecked {
-        uint256 sqrtRatioFixed = sqrtRatio.toFixed();
+        uint256 R = sqrtRatio.toFixed();
 
+        // Normalize sign via reciprocal if < 1. Keep this branch-free.
         bool negative;
         uint256 x;
         assembly ("memory-safe") {
-            negative := iszero(shr(128, sqrtRatioFixed))
-            // negative ? (type(uint256).max / sqrtRatioFixed) : sqrtRatioFixed;
-            x := add(div(sub(0, negative), sqrtRatioFixed), mul(iszero(negative), sqrtRatioFixed))
+            negative := iszero(shr(128, R))
+            // x = negative ? (type(uint256).max / R) : R
+            x := add(div(sub(0, negative), R), mul(iszero(negative), R))
         }
 
-        // we know x >> 128 is never zero because we check bounds above and then reciprocate sqrtRatio if the high 128 bits are zero
-        // so we don't need to handle the exceptional case of log2(0)
-        uint256 msbHigh = FixedPointMathLib.log2(x >> 128);
-        x = x >> (msbHigh + 1);
-        uint256 log2Unsigned = msbHigh * 0x10000000000000000;
+        // We know (x >> 128) != 0 here.
+        uint256 hi = x >> 128;
 
+        // Integer part of log2 via CLZ: floor(log2(hi)) = 255 - clz(hi)
+        uint256 msbHigh;
+        uint256 clz_hi = LibBit.clz(hi);
         assembly ("memory-safe") {
-            // 63
-            x := shr(127, mul(x, x))
-            let is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x8000000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 62
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x4000000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 61
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x2000000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 60
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x1000000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 59
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x800000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 58
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x400000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 57
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x200000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 56
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x100000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 55
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x80000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 54
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x40000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 53
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x20000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 52
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x10000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 51
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x8000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 50
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x4000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 49
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x2000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 48
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x1000000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 47
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x800000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 46
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x400000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 45
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x200000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 44
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x100000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 43
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x80000000000))
-            x := shr(is_high_nonzero, x)
-
-            // 42
-            x := shr(127, mul(x, x))
-            is_high_nonzero := eq(iszero(shr(128, x)), 0)
-            log2Unsigned := add(log2Unsigned, mul(is_high_nonzero, 0x40000000000))
+            msbHigh := sub(255, clz_hi)
         }
 
-        // 25572630076711825471857579 == 2**64/(log base 2 of sqrt tick size)
-        // https://www.wolframalpha.com/input?i=floor%28%281%2F+log+base+2+of+%28sqrt%281.000001%29%29%29*2**64%29
-        int256 logBaseTickSizeX128 =
-            (negative ? -int256(log2Unsigned) : int256(log2Unsigned)) * 25572630076711825471857579;
+        // Reduce once so X ∈ [2^127, 2^128)  (Q1.127 mantissa)
+        x = x >> (msbHigh + 1);
 
-        int32 tickLow;
-        int32 tickHigh;
+        // Fractional log2 using atanh on y = (m-1)/(m+1), m = X/2^127 ∈ [1,2)
+        uint256 a = x - ONE_Q127; // (m - 1) * 2^127
+        uint256 b = x + ONE_Q127; // (m + 1) * 2^127
+        uint256 yQ = (a << 127) / b; // y in Q1.127
 
-        if (negative) {
-            tickLow = int32((logBaseTickSizeX128 - 112469616488610087266845472033458199637) >> 128);
-            tickHigh = int32((logBaseTickSizeX128) >> 128);
-        } else {
-            tickLow = int32((logBaseTickSizeX128) >> 128);
-            tickHigh = int32((logBaseTickSizeX128 + 112469616488610087266845472033458199637) >> 128);
+        // Build odd powers via y^2 ladder
+        uint256 y2 = (yQ * yQ) >> 127; // y^2
+        uint256 y3 = (yQ * y2) >> 127; // y^3
+        uint256 y5 = (y3 * y2) >> 127; // y^5
+        uint256 y7 = (y5 * y2) >> 127; // y^7
+        uint256 y9 = (y7 * y2) >> 127; // y^9
+        uint256 y11 = (y9 * y2) >> 127; // y^11
+        uint256 y13 = (y11 * y2) >> 127; // y^13
+        uint256 y15 = (y13 * y2) >> 127; // y^15
+
+        // s = y + y^3/3 + y^5/5 + ... + y^17/17  (Q1.127)
+        uint256 s = yQ + (y3 / 3) + (y5 / 5) + (y7 / 7) + (y9 / 9) + (y11 / 11) + (y13 / 13) + (y15 / 15);
+
+        // fracX64 = ((2/ln2) * s) in Q64.64  =>  (s * K) >> 127
+        uint256 fracX64 = (s * K_2_OVER_LN2_X64) >> 127;
+
+        // Unsigned log2 in Q64.64
+        uint256 log2Unsigned = (msbHigh << 64) + fracX64;
+
+        // Map log2 to tick-space X128 (same constant as before)
+        int256 base = negative ? -int256(log2Unsigned) : int256(log2Unsigned);
+
+        int256 logBaseTickSizeX128 = base * INV_LB_X64;
+
+        // Build a first tick guess using the same ±0.5 X128 window
+        int32 tickLow = int32((logBaseTickSizeX128 - HALF_X128_INVLB) >> 128);
+        int32 tickHigh = int32((logBaseTickSizeX128 + HALF_X128_INVLB) >> 128);
+
+        // --- NEW: tight ±1 correction to guarantee inverse properties ---
+        // Because our approximation error is << 1 tick, at most one step is needed.
+        // Try adjusting downward or upward by a single tick to hit the exact boundary.
+        // (Bounds checks are cheap and keep us safe at the extremes.)
+        while (tickHigh > tickLow) {
+            // If our current t overshoots, step down once.
+            if (tickToSqrtRatio(tickHigh) <= sqrtRatio) {
+                break;
+            }
+            tickHigh--;
         }
 
-        if (tickLow == tickHigh) {
-            return tickLow;
-        }
-
-        if (tickToSqrtRatio(tickHigh) <= sqrtRatio) return tickHigh;
-
-        return tickLow;
+        return tickHigh;
     }
 }

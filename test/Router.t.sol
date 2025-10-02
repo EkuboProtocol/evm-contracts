@@ -22,6 +22,7 @@ import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolState} from "../src/types/poolState.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {createSwapParameters} from "../src/types/swapParameters.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;
@@ -682,12 +683,19 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
+        // do the swap one time first to set the fees slot
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
         coolAllContracts();
-        router.swap{value: 100}(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
-            type(int256).min
-        );
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
     }
 
@@ -696,13 +704,20 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
-        token1.approve(address(router), 100);
+        token1.approve(address(router), type(uint256).max);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
         coolAllContracts();
-        router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
-            type(int256).min
-        );
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
         vm.snapshotGasLastCall("swap 100 wei of token for eth full range");
     }
 

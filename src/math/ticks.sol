@@ -116,7 +116,7 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
 }
 
 /// @notice Converts a sqrt price ratio to its corresponding tick
-/// @dev Uses logarithmic calculation to find the tick that most closely represents the sqrt ratio.
+/// @dev Uses optimized logarithmic calculation with binary search for MSB
 /// @dev Assumes the given SqrtRatio is valid, i.e. SqrtRatio#isValid is true
 /// @param sqrtRatio The valid sqrt price ratio to convert
 /// @return The tick corresponding to the sqrt ratio (rounded down)
@@ -132,9 +132,51 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32) {
             x := add(div(sub(0, negative), sqrtRatioFixed), mul(iszero(negative), sqrtRatioFixed))
         }
 
-        // we know x >> 128 is never zero because we check bounds above and then reciprocate sqrtRatio if the high 128 bits are zero
-        // so we don't need to handle the exceptional case of log2(0)
-        uint256 msbHigh = FixedPointMathLib.log2(x >> 128);
+        // Replace FixedPointMathLib.log2 with optimized binary search for MSB
+        // We know x >> 128 is never zero because we check bounds and reciprocate if needed
+        uint256 hi = x >> 128;
+        uint256 msbHigh;
+        assembly ("memory-safe") {
+            // Binary search for MSB of hi (7 comparisons for 128-bit value)
+            let k := 0
+
+            // Check bit 64
+            let t := iszero(lt(hi, 0x10000000000000000))
+            hi := shr(mul(t, 64), hi)
+            k := add(k, mul(t, 64))
+
+            // Check bit 32
+            t := iszero(lt(hi, 0x100000000))
+            hi := shr(mul(t, 32), hi)
+            k := add(k, mul(t, 32))
+
+            // Check bit 16
+            t := iszero(lt(hi, 0x10000))
+            hi := shr(mul(t, 16), hi)
+            k := add(k, mul(t, 16))
+
+            // Check bit 8
+            t := iszero(lt(hi, 0x100))
+            hi := shr(mul(t, 8), hi)
+            k := add(k, mul(t, 8))
+
+            // Check bit 4
+            t := iszero(lt(hi, 0x10))
+            hi := shr(mul(t, 4), hi)
+            k := add(k, mul(t, 4))
+
+            // Check bit 2
+            t := iszero(lt(hi, 0x4))
+            hi := shr(mul(t, 2), hi)
+            k := add(k, mul(t, 2))
+
+            // Check bit 1
+            t := iszero(lt(hi, 0x2))
+            k := add(k, t)
+
+            msbHigh := k
+        }
+
         x = x >> (msbHigh + 1);
         uint256 log2Unsigned = msbHigh * 0x10000000000000000;
 

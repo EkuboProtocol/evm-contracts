@@ -56,7 +56,7 @@ library CoreStorageLayout {
         }
     }
 
-    /// @notice Computes the storage slot of the current state of a pool
+    /// @notice Computes the storage slots of the outside fees of a pool for a given tick
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
     /// @return firstSlot The first storage slot in the Core contract
@@ -81,7 +81,7 @@ library CoreStorageLayout {
         }
     }
 
-    /// @notice Computes the storage slot of the position data for a specific position in a pool
+    /// @notice Computes the first storage slot of the position data for a specific position in a pool
     /// @param poolId The unique identifier for the pool
     /// @param owner The position owner
     /// @param positionId The unique identifier for the position

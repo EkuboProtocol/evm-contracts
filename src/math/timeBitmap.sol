@@ -22,12 +22,10 @@ function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uin
 }
 
 // Flips the tick in the bitmap from true to false or vice versa
-function flipTime(mapping(uint256 word => Bitmap bitmap) storage map, uint256 time) {
+function flipTime(bytes32 slot, uint256 time) {
     (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
     assembly ("memory-safe") {
-        mstore(0, word)
-        mstore(32, map.slot)
-        let k := keccak256(0, 64)
+        let k := add(slot, word)
         let v := sload(k)
         sstore(k, xor(v, shl(index, 1)))
     }
@@ -35,16 +33,17 @@ function flipTime(mapping(uint256 word => Bitmap bitmap) storage map, uint256 ti
 
 /// @dev Finds the smallest time that is equal to or greater than the given `fromTime`, initialized and stored in the next bitmap
 ///      If no initialized time is found, returns the greatest time in the bitmap
-function findNextInitializedTime(mapping(uint256 word => Bitmap bitmap) storage map, uint256 fromTime)
-    view
-    returns (uint256 nextTime, bool isInitialized)
-{
+function findNextInitializedTime(bytes32 slot, uint256 fromTime) view returns (uint256 nextTime, bool isInitialized) {
     unchecked {
         // convert the given time to the bitmap position of the next nearest potential initialized time
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
 
         // find the index of the previous tick in that word
-        uint256 nextIndex = map[word].geSetBit(uint8(index));
+        Bitmap bitmap;
+        assembly ("memory-safe") {
+            bitmap := sload(add(slot, word))
+        }
+        uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
         assembly ("memory-safe") {
             let noBitsSet := shr(8, nextIndex)
@@ -61,7 +60,7 @@ function findNextInitializedTime(mapping(uint256 word => Bitmap bitmap) storage 
 /// @param fromTime The time after which to start the search
 /// @param untilTime The time where to end the search, i.e. this function will return at most the value passed to `untilTime`
 function searchForNextInitializedTime(
-    mapping(uint256 word => Bitmap bitmap) storage map,
+    bytes32 slot,
     uint256 lastVirtualOrderExecutionTime,
     uint256 fromTime,
     uint256 untilTime
@@ -76,7 +75,7 @@ function searchForNextInitializedTime(
                 isInitialized = false;
                 break;
             }
-            (nextTime, isInitialized) = findNextInitializedTime(map, nextValid);
+            (nextTime, isInitialized) = findNextInitializedTime(slot, nextValid);
             if (nextTime > untilTime) {
                 nextTime = untilTime;
                 isInitialized = false;

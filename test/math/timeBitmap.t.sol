@@ -17,19 +17,23 @@ import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TimeBitmap {
-    mapping(uint256 => Bitmap) public map;
+    bytes32 public constant mapSlot = 0;
 
     function isInitialized(uint256 time) public view returns (bool) {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-        return map[word].isSet(uint8(index));
+        Bitmap bitmap;
+        assembly ("memory-safe") {
+            bitmap := sload(add(mapSlot, word))
+        }
+        return bitmap.isSet(uint8(index));
     }
 
     function flip(uint256 time) public {
-        flipTime(map, time);
+        flipTime(mapSlot, time);
     }
 
     function find(uint256 fromTime) public view returns (uint256, bool) {
-        return findNextInitializedTime(map, fromTime);
+        return findNextInitializedTime(mapSlot, fromTime);
     }
 
     function search(uint256 fromTime, uint256 untilTime) public view returns (uint256, bool) {
@@ -41,7 +45,7 @@ contract TimeBitmap {
         view
         returns (uint256, bool)
     {
-        return searchForNextInitializedTime(map, lastVirtualOrderExecutionTime, fromTime, untilTime);
+        return searchForNextInitializedTime(mapSlot, lastVirtualOrderExecutionTime, fromTime, untilTime);
     }
 }
 

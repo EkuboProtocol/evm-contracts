@@ -10,6 +10,8 @@ import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
 import {TimeInfo, createTimeInfo} from "../types/timeInfo.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
+import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
@@ -51,22 +53,7 @@ function twammCallPoints() pure returns (CallPoints memory) {
 /// @notice Extension for Ekubo Protocol that enables creation of DCA (Dollar Cost Averaging) orders that are executed over time
 /// @dev Implements virtual order execution that spreads trades over time periods to reduce price impact and provide better execution
 contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
-    using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
     using CoreLib for *;
-
-    mapping(PoolId poolId => mapping(uint256 word => Bitmap bitmap)) internal poolInitializedTimesBitmap;
-    mapping(PoolId poolId => mapping(uint256 time => TimeInfo)) internal poolTimeInfos;
-
-    // The global reward rate and the reward rate before a given time are both used to
-    mapping(PoolId poolId => FeesPerLiquidity) internal poolRewardRates;
-    mapping(PoolId poolId => mapping(uint256 time => FeesPerLiquidity)) internal poolRewardRatesBefore;
-
-    // Current state of each individual order
-    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => OrderState))) internal orderState;
-
-    // Reward rate snapshot for each individual order
-    mapping(address owner => mapping(bytes32 salt => mapping(bytes32 orderId => uint256))) internal
-        orderRewardRateSnapshot;
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -94,47 +81,34 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         view
         returns (uint256 result)
     {
-        assembly ("memory-safe") {
-            // if block.timestamp >= endTime
-            switch lt(timestamp(), endTime)
-            case 0 {
-                mstore(0, poolId)
-                mstore(32, poolRewardRatesBefore.slot)
-                // hash poolId, poolRewardRatesBefore.slot and store at 32
-                mstore(32, keccak256(0, 64))
+        if (block.timestamp >= endTime) {
+            uint256 rewardRateStart = uint256(
+                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).addBool(isToken1).load(
+                )
+            );
+            uint256 rewardRateEnd = uint256(
+                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, endTime)).addBool(isToken1).load()
+            );
 
-                // now put start time at 0 for hashing
-                mstore(0, startTime)
-
-                let rewardRateStart := sload(add(keccak256(0, 64), isToken1))
-
-                mstore(0, endTime)
-                let rewardRateEnd := sload(add(keccak256(0, 64), isToken1))
-
-                result := sub(rewardRateEnd, rewardRateStart)
+            unchecked {
+                result = rewardRateEnd - rewardRateStart;
             }
-            default {
-                // else if block.timestamp > startTime
-                //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
-                switch gt(timestamp(), startTime)
-                case 1 {
-                    mstore(0, poolId)
-                    mstore(32, poolRewardRates.slot)
-                    let rewardRateCurrent := sload(add(keccak256(0, 64), isToken1))
+        } else if (block.timestamp > startTime) {
+            //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
 
-                    mstore(32, poolRewardRatesBefore.slot)
-                    // hash poolId, poolRewardRatesBefore.slot and store at 32
-                    mstore(32, keccak256(0, 64))
-                    // now put time at 0 for hashing
-                    mstore(0, startTime)
+            uint256 rewardRateStart = uint256(
+                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).addBool(isToken1).load(
+                )
+            );
+            uint256 rewardRateCurrent =
+                uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).addBool(isToken1).load());
 
-                    result := sub(rewardRateCurrent, sload(add(keccak256(0, 64), isToken1)))
-                }
-                default {
-                    // less than or equal to start time
-                    // returns 0
-                }
+            unchecked {
+                result = rewardRateCurrent - rewardRateStart;
             }
+        } else {
+            // less than or equal to start time
+            // returns 0
         }
     }
 
@@ -169,7 +143,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     function _updateTime(PoolId poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
     {
-        TimeInfo timeInfo = poolTimeInfos[poolId][time];
+        TimeInfo timeInfo = TimeInfo.wrap(StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time)).load());
         (uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
         // note we assume this will never overflow, since it would require 2**32 separate orders to be placed
@@ -189,20 +163,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         // we assume `_updateTime` is being called only for times that are greater than block.timestamp, i.e. have not been crossed yet
         // this reduces the cost of crossing that timestamp to a warm write instead of a cold write
         if (flip) {
+            bytes32 rewardRatesBeforeSlot = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time);
             assembly ("memory-safe") {
-                mstore(0, poolId)
-                mstore(32, poolRewardRatesBefore.slot)
-                // hash poolId, poolRewardRatesBefore.slot and store at 32
-                mstore(32, keccak256(0, 64))
-
-                // now put time at 0 for hashing
-                mstore(0, time)
-                let slot0 := keccak256(0, 64)
-
-                sstore(slot0, iszero(numOrders))
-                sstore(add(slot0, 1), iszero(numOrders))
+                sstore(rewardRatesBeforeSlot, iszero(numOrders))
+                sstore(add(rewardRatesBeforeSlot, 1), iszero(numOrders))
             }
-            poolInitializedTimesBitmap[poolId].flipTime(time);
+
+            flipTime(TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId), time);
         }
 
         if (isToken1) {
@@ -211,7 +178,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             saleRateDeltaToken0 = _addConstrainSaleRateDelta(saleRateDeltaToken0, saleRateDelta);
         }
 
-        poolTimeInfos[poolId][time] = createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1);
+        StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time)).store(
+            TimeInfo.unwrap(createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1))
+        );
     }
 
     /// @notice Returns the call points configuration for this extension
@@ -226,6 +195,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
             uint256 callType = abi.decode(data, (uint256));
+            address owner = original.addr();
 
             if (callType == 0) {
                 (, bytes32 salt, OrderKey memory orderKey, int112 saleRateDelta) =
@@ -245,8 +215,16 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
                 bytes32 orderId = orderKey.toOrderId();
-                OrderState order = orderState[original.addr()][salt][orderId];
-                uint256 rewardRateSnapshot = orderRewardRateSnapshot[original.addr()][salt][orderId];
+
+                OrderState order;
+                uint256 rewardRateSnapshot;
+                bytes32 orderSlot =
+                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
+
+                assembly ("memory-safe") {
+                    order := sload(orderSlot)
+                    rewardRateSnapshot := sload(add(orderSlot, 1))
+                }
 
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId, orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
@@ -279,7 +257,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
                 }
 
-                orderState[original.addr()][salt][orderId] = createOrderState({
+                order = createOrderState({
                     _lastUpdateTime: uint32(block.timestamp),
                     _saleRate: uint112(saleRateNext),
                     _amountSold: uint112(
@@ -293,7 +271,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             })
                     )
                 });
-                orderRewardRateSnapshot[original.addr()][salt][orderId] = rewardRateSnapshotAdjusted;
+
+                assembly ("memory-safe") {
+                    sstore(orderSlot, order)
+                    sstore(add(orderSlot, 1), rewardRateSnapshotAdjusted)
+                }
 
                 bool isToken1 = orderKey.sellToken > orderKey.buyToken;
 
@@ -304,8 +286,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     // we know block.timestamp < orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
                     TwammPoolState currentState;
+                    bytes32 currentStateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
                     assembly ("memory-safe") {
-                        currentState := sload(poolId)
+                        currentState := sload(currentStateSlot)
                     }
                     (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
 
@@ -324,7 +307,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     }
 
                     assembly ("memory-safe") {
-                        sstore(poolId, currentState)
+                        sstore(currentStateSlot, currentState)
                     }
 
                     // only update the end time
@@ -370,7 +353,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     }
                 }
 
-                emit OrderUpdated(original.addr(), salt, orderKey, saleRateDelta);
+                emit OrderUpdated(owner, salt, orderKey, saleRateDelta);
 
                 result = abi.encode(amountDelta);
             } else if (callType == 1) {
@@ -381,14 +364,26 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
                 bytes32 orderId = orderKey.toOrderId();
-                OrderState order = orderState[original.addr()][salt][orderId];
-                uint256 rewardRateSnapshot = orderRewardRateSnapshot[original.addr()][salt][orderId];
+
+                OrderState order;
+                uint256 rewardRateSnapshot;
+                bytes32 orderSlot =
+                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
+
+                assembly ("memory-safe") {
+                    order := sload(orderSlot)
+                    rewardRateSnapshot := sload(add(orderSlot, 1))
+                }
+
                 uint256 rewardRateInside = getRewardRateInside(
                     poolId, orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
                 );
 
                 uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, order.saleRate());
-                orderRewardRateSnapshot[original.addr()][salt][orderId] = rewardRateInside;
+
+                assembly ("memory-safe") {
+                    sstore(add(orderSlot, 1), rewardRateInside)
+                }
 
                 if (purchasedAmount != 0) {
                     if (orderKey.sellToken > orderKey.buyToken) {
@@ -414,8 +409,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, PoolId poolId) internal {
         unchecked {
             TwammPoolState state;
+            bytes32 stateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
             assembly ("memory-safe") {
-                state := sload(poolId)
+                state := sload(stateSlot)
             }
 
             // we only conditionally load this if the state is coincidentally zero,
@@ -442,8 +438,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
-                    (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId]
-                        .searchForNextInitializedTime({
+                    bytes32 initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
+
+                    (uint256 nextTime, bool initialized) = searchForNextInitializedTime({
+                        slot: initializedTimesBitmapSlot,
                         lastVirtualOrderExecutionTime: realLastVirtualOrderExecutionTime,
                         fromTime: time,
                         untilTime: block.timestamp
@@ -514,7 +512,12 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     if (rewardDelta0 < 0) {
                         if (!rewardRate0Updated) {
-                            rewardRates.value0 = poolRewardRates[poolId].value0;
+                            uint256 value0;
+                            bytes32 value0Slot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
+                            assembly ("memory-safe") {
+                                value0 := sload(value0Slot)
+                            }
+                            rewardRates.value0 = value0;
                             rewardRate0Updated = true;
                         }
                         rewardRates.value0 += (uint256(-rewardDelta0) << 128) / state.saleRateToken1();
@@ -522,7 +525,12 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     if (rewardDelta1 < 0) {
                         if (!rewardRate1Updated) {
-                            rewardRates.value1 = poolRewardRates[poolId].value1;
+                            uint256 value1;
+                            bytes32 value0Slot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
+                            assembly ("memory-safe") {
+                                value1 := sload(add(value0Slot, 1))
+                            }
+                            rewardRates.value1 = value1;
                             rewardRate1Updated = true;
                         }
                         rewardRates.value1 += (uint256(-rewardDelta1) << 128) / state.saleRateToken0();
@@ -530,15 +538,33 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     if (initialized) {
                         if (!rewardRate0Updated) {
-                            rewardRates.value0 = poolRewardRates[poolId].value0;
+                            uint256 value0;
+                            bytes32 value0Slot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
+                            assembly ("memory-safe") {
+                                value0 := sload(value0Slot)
+                            }
+                            rewardRates.value0 = value0;
                         }
                         if (!rewardRate1Updated) {
-                            rewardRates.value1 = poolRewardRates[poolId].value1;
+                            uint256 value1;
+                            bytes32 value0Slot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
+                            assembly ("memory-safe") {
+                                value1 := sload(add(value0Slot, 1))
+                            }
+                            rewardRates.value1 = value1;
                         }
 
-                        poolRewardRatesBefore[poolId][nextTime] = rewardRates;
+                        bytes32 rewardRatesBeforeSlot = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, nextTime);
+                        assembly ("memory-safe") {
+                            sstore(rewardRatesBeforeSlot, mload(rewardRates))
+                            sstore(add(rewardRatesBeforeSlot, 1), mload(add(rewardRates, 32)))
+                        }
 
-                        TimeInfo timeInfo = poolTimeInfos[poolId][nextTime];
+                        TimeInfo timeInfo;
+                        bytes32 timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, nextTime);
+                        assembly ("memory-safe") {
+                            timeInfo := sload(timeInfoSlot)
+                        }
                         (, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
                         state = createTwammPoolState({
@@ -549,8 +575,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.
                         // this helps reduce the cost of executing virtual orders.
-                        poolTimeInfos[poolId][nextTime] = TimeInfo.wrap(0);
-                        poolInitializedTimesBitmap[poolId].flipTime(nextTime);
+                        assembly ("memory-safe") {
+                            sstore(timeInfoSlot, 0)
+                        }
+                        flipTime(initializedTimesBitmapSlot, nextTime);
                     } else {
                         state = createTwammPoolState({
                             _lastVirtualOrderExecutionTime: uint32(nextTime),
@@ -567,14 +595,22 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 }
 
                 if (rewardRate0Updated) {
-                    poolRewardRates[poolId].value0 = rewardRates.value0;
+                    uint256 value0 = rewardRates.value0;
+                    bytes32 value0Slot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
+                    assembly ("memory-safe") {
+                        sstore(value0Slot, value0)
+                    }
                 }
                 if (rewardRate1Updated) {
-                    poolRewardRates[poolId].value1 = rewardRates.value1;
+                    uint256 value1 = rewardRates.value1;
+                    bytes32 value0Slot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
+                    assembly ("memory-safe") {
+                        sstore(add(value0Slot, 1), value1)
+                    }
                 }
 
                 assembly ("memory-safe") {
-                    sstore(poolId, state)
+                    sstore(stateSlot, state)
                 }
 
                 _emitVirtualOrdersExecuted(poolId, state.saleRateToken0(), state.saleRateToken1());

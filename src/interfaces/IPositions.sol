@@ -183,4 +183,14 @@ interface IPositions is IBaseNonfungibleToken {
     /// @return amount0 Amount of token0 protocol fees
     /// @return amount1 Amount of token1 protocol fees
     function getProtocolFees(address token0, address token1) external view returns (uint128 amount0, uint128 amount1);
+
+    /// @notice Sets extra data for a position
+    /// @param id The NFT token ID representing the position
+    /// @param poolKey Pool key identifying the pool
+    /// @param tickLower Lower tick of the price range of the position
+    /// @param tickUpper Upper tick of the price range of the position
+    /// @param extraData The extra data to store (16 bytes)
+    function setExtraData(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, bytes16 extraData)
+        external
+        payable;
 }

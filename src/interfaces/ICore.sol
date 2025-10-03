@@ -268,6 +268,12 @@ interface ICore is IFlashAccountant, IExposedStorage {
         external
         returns (uint128 amount0, uint128 amount1);
 
+    /// @notice Sets the extra data for a position
+    /// @param poolKey Pool key identifying the pool
+    /// @param positionId The key of the position to update
+    /// @param extraData The extra data to store (16 bytes)
+    function setPositionExtraData(PoolKey memory poolKey, PositionId positionId, bytes16 extraData) external payable;
+
     /// @notice Executes a swap against a pool
     /// @dev Function name is mined to have a zero function selector for gas efficiency
     /// @param poolKey Pool key identifying the pool

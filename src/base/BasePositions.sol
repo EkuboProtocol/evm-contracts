@@ -187,6 +187,15 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         (amount0, amount1) = CORE.savedBalances(address(this), token0, token1, bytes32(0));
     }
 
+    /// @inheritdoc IPositions
+    function setExtraData(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, bytes16 extraData)
+        external
+        payable
+        authorizedForNft(id)
+    {
+        lock(abi.encode(bytes1(0xaa), id, poolKey, tickLower, tickUpper, extraData));
+    }
+
     /// @notice Handles protocol fee collection during fee collection
     /// @dev Abstract method that must be implemented by concrete contracts
     /// @param poolKey The pool key for the position
@@ -220,7 +229,16 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         bytes1 callType = data[0];
 
-        if (callType == 0xee) {
+        if (callType == 0xaa) {
+            (, uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, bytes16 extraData) =
+                abi.decode(data, (bytes1, uint256, PoolKey, int32, int32, bytes16));
+
+            CORE.setPositionExtraData(
+                poolKey,
+                createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
+                extraData
+            );
+        } else if (callType == 0xee) {
             (, address token0, address token1, uint128 amount0, uint128 amount1, address recipient) =
                 abi.decode(data, (bytes1, address, address, uint128, uint128, address));
 

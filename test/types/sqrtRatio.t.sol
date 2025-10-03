@@ -55,6 +55,12 @@ contract SqrtRatioTypeTest is Test {
         assertEq(SqrtRatio.unwrap(toSqrtRatio(sqrtRatio.toFixed(), true)), SqrtRatio.unwrap(sqrtRatio), "rounding up");
     }
 
+    function check_toSqrtRatio_always_valid(uint256 sqrtRatioFixed, bool roundUp) public pure {
+        sqrtRatioFixed = bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
+        SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, roundUp);
+        assertTrue(sqrtRatio.isValid());
+    }
+
     function test_toFixed_toSqrtRatio_examples() public pure {
         assertEq(SqrtRatio.wrap(0x3ffffffffffffffff9ba1f6d).toFixed(), 79228162514264337593122979252);
         assertEq(SqrtRatio.unwrap(toSqrtRatio(79228162514264337593122979252, true)), 0x3ffffffffffffffff9ba1f6d);

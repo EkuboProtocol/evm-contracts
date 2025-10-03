@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey, Config} from "../types/poolKey.sol";
+import {PoolKey, PoolConfig} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {IOracle} from "../interfaces/extensions/IOracle.sol";
@@ -74,7 +74,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @inheritdoc IOracle
     function getPoolKey(address token) public view returns (PoolKey memory) {
-        Config config;
+        PoolConfig config;
         assembly ("memory-safe") {
             config := shl(96, address())
         }

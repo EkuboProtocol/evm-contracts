@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
@@ -85,7 +85,9 @@ contract Handler is StdUtils, StdAssertions {
         tickSpacing = uint32(bound(tickSpacing, 0, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
-            address(token0), address(token1), toConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+            address(token0),
+            address(token1),
+            createPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
@@ -136,6 +138,7 @@ contract Handler is StdUtils, StdAssertions {
             if (
                 sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
+                    && sig != ICore.MaxLiquidityPerTickExceeded.selector
             ) {
                 revert UnexpectedError(err);
             }

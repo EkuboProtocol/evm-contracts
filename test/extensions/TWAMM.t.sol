@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
@@ -83,7 +83,7 @@ contract TWAMMTest is BaseTWAMMTest {
         PoolKey memory key = PoolKey({
             token0: address(token0),
             token1: address(token1),
-            config: toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(twamm))
+            config: createPoolConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(twamm))
         });
         vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         twamm.lockAndExecuteVirtualOrders(key);

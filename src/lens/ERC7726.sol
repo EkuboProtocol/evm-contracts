@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -39,27 +39,16 @@ interface IERC7726 {
 ///      tokens paired with ETH, and cross-pair calculations for other token pairs.
 /// @author Ekubo Protocol
 contract ERC7726 is IERC7726 {
-    /// @notice Thrown when an invalid oracle address is provided
-    error InvalidOracle();
-
-    /// @notice Thrown when an invalid proxy token address is provided
-    error InvalidProxyToken();
-
     /// @notice Thrown when an invalid TWAP duration is provided
     error InvalidTwapDuration();
 
-    /// @notice Thrown when a zero base amount is provided to getQuote
-    error ZeroBaseAmount();
-
-    /// @notice Thrown when insufficient price history exists for the requested TWAP duration
-    error InsufficientPriceHistory();
-
     /// @notice The Ekubo Oracle extension contract used for price data
-    /// @dev This oracle records price and liquidity snapshots for manipulation-resistant TWAP calculations
     IOracle public immutable ORACLE;
 
+    /// @notice The address of the token to represent ETH, or NATIVE_TOKEN_ADDRESS if ETH is the native token on the chain
+    address public immutable ETH_PROXY_TOKEN;
+
     /// @notice The ERC-20 token used as a proxy to represent USD in price calculations
-    /// @dev Since the oracle only tracks token pairs with ETH, we use a USD-pegged token (e.g., USDC) as a proxy
     address public immutable USD_PROXY_TOKEN;
 
     /// @notice The ERC-20 token used as a proxy to represent BTC in price calculations
@@ -76,15 +65,19 @@ contract ERC7726 is IERC7726 {
     /// @param usdProxyToken The token address to use as a USD proxy (e.g., USDC)
     /// @param btcProxyToken The token address to use as a BTC proxy (e.g., WBTC)
     /// @param twapDuration The time window in seconds for TWAP calculations (must be > 0)
-    constructor(IOracle oracle, address usdProxyToken, address btcProxyToken, uint32 twapDuration) {
-        if (address(oracle) == address(0)) revert InvalidOracle();
-        if (usdProxyToken == address(0)) revert InvalidProxyToken();
-        if (btcProxyToken == address(0)) revert InvalidProxyToken();
+    constructor(
+        IOracle oracle,
+        address usdProxyToken,
+        address btcProxyToken,
+        address ethProxyToken,
+        uint32 twapDuration
+    ) {
         if (twapDuration == 0) revert InvalidTwapDuration();
 
         ORACLE = oracle;
         USD_PROXY_TOKEN = usdProxyToken;
         BTC_PROXY_TOKEN = btcProxyToken;
+        ETH_PROXY_TOKEN = ethProxyToken;
         TWAP_DURATION = twapDuration;
     }
 
@@ -102,11 +95,6 @@ contract ERC7726 is IERC7726 {
                 (int32 tickSign, address otherToken) =
                     baseIsOracleToken ? (int32(1), quoteToken) : (int32(-1), baseToken);
 
-                // Prevent timestamp underflow by checking if sufficient time has passed
-                if (block.timestamp < TWAP_DURATION) {
-                    revert InsufficientPriceHistory();
-                }
-
                 (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
                 (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
 
@@ -123,9 +111,9 @@ contract ERC7726 is IERC7726 {
     }
 
     /// @notice Converts ERC-7726 standard addresses to their corresponding token addresses
-    /// @dev The Ekubo Oracle only tracks token pairs with ETH (represented as address(0) internally).
+    /// @dev The Ekubo Oracle only tracks token pairs with the native token (represented as address(0) internally).
     ///      This function maps standard ERC-7726 addresses to actual token addresses:
-    ///      - ETH address maps to NATIVE_TOKEN_ADDRESS (address(0))
+    ///      - ETH address maps to ETH_PROXY_TOKEN (e.g. NATIVE_TOKEN_ADDRESS)
     ///      - BTC address maps to BTC_PROXY_TOKEN (e.g., WBTC)
     ///      - USD address maps to USD_PROXY_TOKEN (e.g., USDC)
     ///      - All other addresses pass through unchanged
@@ -133,7 +121,7 @@ contract ERC7726 is IERC7726 {
     /// @return The normalized token address for use with the Ekubo Oracle
     function normalizeAddress(address addr) private view returns (address) {
         if (addr == IERC7726_ETH_ADDRESS) {
-            return NATIVE_TOKEN_ADDRESS;
+            return ETH_PROXY_TOKEN;
         }
         if (addr == IERC7726_BTC_ADDRESS) {
             return BTC_PROXY_TOKEN;
@@ -146,20 +134,7 @@ contract ERC7726 is IERC7726 {
     }
 
     /// @inheritdoc IERC7726
-    /// @dev Calculates the quote using time-weighted average price data from the Ekubo Oracle.
-    ///      The calculation process:
-    ///      1. Normalize ERC-7726 standard addresses to actual token addresses
-    ///      2. Calculate the average tick (log price) over the TWAP duration
-    ///      3. Convert tick to sqrt price ratio
-    ///      4. Square the sqrt ratio to get the actual price ratio
-    ///      5. Apply the price ratio to the base amount
-    /// @param baseAmount The amount of base asset to convert (must be > 0)
-    /// @param base The base asset address (supports ERC-7726 standard addresses)
-    /// @param quote The quote asset address (supports ERC-7726 standard addresses)
-    /// @return quoteAmount The equivalent amount in the quote asset
     function getQuote(uint256 baseAmount, address base, address quote) external view returns (uint256 quoteAmount) {
-        if (baseAmount == 0) revert ZeroBaseAmount();
-
         address normalizedBase = normalizeAddress(base);
         address normalizedQuote = normalizeAddress(quote);
 

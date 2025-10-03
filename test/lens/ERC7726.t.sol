@@ -6,6 +6,7 @@ import {ERC7726, IERC7726_ETH_ADDRESS, IERC7726_BTC_ADDRESS, IERC7726_USD_ADDRES
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";
 import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 
 contract ERC7726Test is BaseOracleTest {
     ERC7726 internal erc;
@@ -16,48 +17,34 @@ contract ERC7726Test is BaseOracleTest {
         BaseOracleTest.setUp();
         usdc = new TestToken(address(this));
         wbtc = new TestToken(address(this));
-        erc = new ERC7726(oracle, address(usdc), address(wbtc), 60);
+        erc = new ERC7726(oracle, address(usdc), address(wbtc), NATIVE_TOKEN_ADDRESS, 60);
     }
 
-    function test_constructor_validation() public {
-        // Test invalid oracle
-        vm.expectRevert(ERC7726.InvalidOracle.selector);
-        new ERC7726(IOracle(address(0)), address(usdc), address(wbtc), 60);
-
-        // Test invalid USD proxy token
-        vm.expectRevert(ERC7726.InvalidProxyToken.selector);
-        new ERC7726(oracle, address(0), address(wbtc), 60);
-
-        // Test invalid BTC proxy token
-        vm.expectRevert(ERC7726.InvalidProxyToken.selector);
-        new ERC7726(oracle, address(usdc), address(0), 60);
-
-        // Test invalid TWAP duration
-        vm.expectRevert(ERC7726.InvalidTwapDuration.selector);
-        new ERC7726(oracle, address(usdc), address(wbtc), 0);
-
-        // Test valid construction
-        ERC7726 validOracle = new ERC7726(oracle, address(usdc), address(wbtc), 60);
-        assertEq(address(validOracle.ORACLE()), address(oracle));
-        assertEq(validOracle.USD_PROXY_TOKEN(), address(usdc));
-        assertEq(validOracle.BTC_PROXY_TOKEN(), address(wbtc));
-        assertEq(validOracle.TWAP_DURATION(), 60);
+    function test_constructor_sets_immutables(
+        IOracle oracleContract,
+        address usdcProxy,
+        address btcProxy,
+        address ethProxy,
+        uint32 twapDuration
+    ) public {
+        vm.assume(twapDuration != 0);
+        ERC7726 deployed = new ERC7726(oracleContract, usdcProxy, btcProxy, ethProxy, twapDuration);
+        assertEq(address(deployed.ORACLE()), address(oracleContract));
+        assertEq(deployed.USD_PROXY_TOKEN(), usdcProxy);
+        assertEq(deployed.BTC_PROXY_TOKEN(), btcProxy);
+        assertEq(deployed.ETH_PROXY_TOKEN(), ethProxy);
+        assertEq(deployed.TWAP_DURATION(), twapDuration);
     }
 
-    function test_getQuote_zero_amount() public {
-        vm.expectRevert(ERC7726.ZeroBaseAmount.selector);
-        erc.getQuote(0, address(usdc), address(wbtc));
-    }
-
-    function test_getQuote_insufficient_history() public {
-        // Create a new oracle with a very long TWAP duration that exceeds block.timestamp
-        ERC7726 longTwapOracle = new ERC7726(oracle, address(usdc), address(wbtc), uint32(block.timestamp + 1));
+    function test_getQuote_insufficient_history(uint32 time) public {
+        time = uint32(bound(time, 0, type(uint32).max - 1));
+        ERC7726 longTwapOracle =
+            new ERC7726(oracle, address(usdc), address(wbtc), NATIVE_TOKEN_ADDRESS, uint32(time + 1));
 
         oracle.expandCapacity(address(usdc), 10);
         createOraclePool(address(usdc), 0);
 
-        // Should revert due to insufficient price history
-        vm.expectRevert(ERC7726.InsufficientPriceHistory.selector);
+        vm.expectRevert();
         longTwapOracle.getQuote(1e18, address(usdc), address(0)); // ETH quote requires oracle call
     }
 
@@ -119,15 +106,8 @@ contract ERC7726Test is BaseOracleTest {
         );
     }
 
-    function test_getQuote_same_token() public {
-        // Same token should return the same amount without needing oracle setup
-        assertEq(erc.getQuote(1e18, address(usdc), address(usdc)), 1e18, "same token quote");
-        assertEq(erc.getQuote(5e17, address(wbtc), address(wbtc)), 5e17, "same token quote different amount");
-
-        // Test with standard addresses
-        assertEq(erc.getQuote(2e18, IERC7726_ETH_ADDRESS, IERC7726_ETH_ADDRESS), 2e18, "ETH to ETH");
-        assertEq(erc.getQuote(3e18, IERC7726_USD_ADDRESS, IERC7726_USD_ADDRESS), 3e18, "USD to USD");
-        assertEq(erc.getQuote(4e18, IERC7726_BTC_ADDRESS, IERC7726_BTC_ADDRESS), 4e18, "BTC to BTC");
+    function test_getQuote_same_token(uint128 baseAmount, address token) public view {
+        assertEq(erc.getQuote(baseAmount, token, token), baseAmount, "same token quote");
     }
 
     function test_getQuote_standard_addresses() public {
@@ -177,13 +157,5 @@ contract ERC7726Test is BaseOracleTest {
         // Reverse pairs should be approximately inverse (within rounding)
         uint256 product = (usdcToWbtc * wbtcToUsdc) / 1e18;
         assertApproxEqRel(product, 1e18, 1e15); // Within 0.1% due to rounding
-    }
-
-    function test_immutable_values() public view {
-        // Test that immutable values are set correctly
-        assertEq(address(erc.ORACLE()), address(oracle));
-        assertEq(erc.USD_PROXY_TOKEN(), address(usdc));
-        assertEq(erc.BTC_PROXY_TOKEN(), address(wbtc));
-        assertEq(erc.TWAP_DURATION(), 60);
     }
 }

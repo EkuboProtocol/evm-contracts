@@ -74,7 +74,7 @@ contract IncentivesTest is Test {
         assertFalse(fetcher.isAvailable(key, index, amount));
         assertTrue(fetcher.isClaimed(key, index));
 
-        if (account != address(i)) assertEq(afterClaim - beforeClaim, amount);
+        if (account != address(core)) assertEq(afterClaim - beforeClaim, amount);
         else assertEq(afterClaim - beforeClaim, 0);
     }
 

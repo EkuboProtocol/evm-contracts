@@ -13,7 +13,6 @@ import {BaseForwardee} from "./base/BaseForwardee.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {Locker} from "./types/locker.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
@@ -134,6 +133,9 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, B
     /// @dev This address is always greater than any real token address
     address private constant SENTINEL = address(type(uint160).max);
 
+    /// @notice Thrown when an unexpected call type is received
+    error UnexpectedCallType();
+
     /// @notice Handles lock callback data for incentives operations
     /// @dev Internal function that processes different types of incentives operations
     /// @param data Encoded operation data
@@ -159,6 +161,8 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, B
             // Load the tokens from Core (negative delta reduces debt)
             CORE.updateSavedBalances(token, SENTINEL, bytes32(0), -int256(uint256(amount)), 0);
             ACCOUNTANT.withdraw(token, recipient, amount);
+        } else {
+            revert UnexpectedCallType();
         }
     }
 

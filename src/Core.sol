@@ -637,15 +637,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         if (isInitialized) {
-                            int128 liquidityDelta;
                             bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick);
                             assembly ("memory-safe") {
-                                liquidityDelta := signextend(15, sload(tickSlot))
+                                // if increasing, we add the liquidity delta, otherwise we subtract it
+                                let liquidityDelta :=
+                                    mul(signextend(15, sload(tickSlot)), sub(increasing, iszero(increasing)))
+                                liquidity := add(liquidity, liquidityDelta)
                             }
-
-                            liquidity = increasing
-                                ? addLiquidityDelta(liquidity, liquidityDelta)
-                                : subLiquidityDelta(liquidity, liquidityDelta);
 
                             (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
                                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);

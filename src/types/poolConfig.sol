@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
+import {MAX_TICK} from "../math/constants.sol";
+
 /// @notice Pool configuration packed into a single bytes32
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
 type PoolConfig is bytes32;
@@ -56,7 +58,7 @@ function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) 
 /// @notice Computes the maximum liquidity per tick for a given pool configuration
 /// @dev Calculated as type(uint128).max / (1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2)
 /// @param config The pool configuration
-/// @return maxLiquidity The maximum liquidity allowed per tick
+/// @return maxLiquidity The maximum liquidity allowed to reference each tick
 function maxLiquidityPerTick(PoolConfig config) pure returns (uint128 maxLiquidity) {
     uint32 _tickSpacing = config.tickSpacing();
 
@@ -70,12 +72,12 @@ function maxLiquidityPerTick(PoolConfig config) pure returns (uint128 maxLiquidi
     // This represents all ticks from -MAX_TICK_MAGNITUDE to +MAX_TICK_MAGNITUDE, plus tick 0
     uint256 numTicks;
     assembly ("memory-safe") {
-        // Import MAX_TICK_MAGNITUDE constant
-        let MAX_TICK_MAGNITUDE := 88722835
         // numTicks = 1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2
-        numTicks := add(1, mul(div(MAX_TICK_MAGNITUDE, _tickSpacing), 2))
+        numTicks := add(1, mul(div(MAX_TICK, _tickSpacing), 2))
     }
 
-    // maxLiquidity = type(uint128).max / numTicks
-    maxLiquidity = uint128(type(uint128).max / numTicks);
+    unchecked {
+        // maxLiquidity = type(uint128).max / numTicks
+        maxLiquidity = uint128(type(uint128).max / numTicks);
+    }
 }

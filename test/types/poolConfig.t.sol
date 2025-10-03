@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {MAX_TICK} from "../../src/math/constants.sol";
 
 contract PoolConfigTest is Test {
     function test_conversionToAndFrom(PoolConfig config) public pure {

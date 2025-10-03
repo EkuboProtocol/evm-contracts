@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
+import {MAX_TICK} from "../math/constants.sol";
+
 /// @notice Pool configuration packed into a single bytes32
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
 type PoolConfig is bytes32;

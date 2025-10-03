@@ -11,6 +11,8 @@ import {
 } from "../../src/math/liquidity.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 
 int32 constant TICKS_IN_ONE_PERCENT = 9950;
 

@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
+import {PoolConfig} from "./types/poolConfig.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
@@ -313,19 +314,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @dev Private function that handles tick initialization and liquidity tracking
     /// @param poolId Unique identifier for the pool
     /// @param tick Tick to update
-    /// @param tickSpacing Tick spacing for the pool
+    /// @param tickSpacing The tick spacing of the pool
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
-    /// @param currentPositionLiquidity The position's liquidity before the update
-    /// @param nextPositionLiquidity The position's liquidity after the update
+    /// @param positionCountChange The change in the count of positions for this tick
     function _updateTick(
         PoolId poolId,
         int32 tick,
         uint32 tickSpacing,
         int128 liquidityDelta,
         bool isUpper,
-        uint128 currentPositionLiquidity,
-        uint128 nextPositionLiquidity
+        int256 positionCountChange
     ) private {
         bytes32 slot = CoreStorageLayout.poolTicksSlot(poolId, tick);
         TickInfo ti;
@@ -337,24 +336,20 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         // Calculate position count change: +1 if going from 0 to non-zero, -1 if going from non-zero to 0, 0 otherwise
         uint64 positionCountNext;
-        if (currentPositionLiquidity == 0 && nextPositionLiquidity != 0) {
-            // Position being added
-            positionCountNext = currentPositionCount + 1;
-        } else if (currentPositionLiquidity != 0 && nextPositionLiquidity == 0) {
-            // Position being removed
-            unchecked {
-                positionCountNext = currentPositionCount - 1;
-            }
-        } else {
-            // Position liquidity changing but not crossing zero
-            positionCountNext = currentPositionCount;
+        assembly ("memory-safe") {
+            positionCountNext := add(positionCountChange, positionCountNext)
         }
 
         // this is checked math
         int128 liquidityDeltaNext =
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
-        if ((currentPositionCount == 0) != (positionCountNext == 0)) {
+        bool flip;
+        assembly ("memory-safe") {
+            flip := iszero(eq(iszero(positionCountNext), iszero(currentPositionCount)))
+        }
+
+        if (flip) {
             flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, tickSpacing);
         }
 
@@ -459,23 +454,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
 
             if (!poolKey.isFullRange()) {
+                int256 positionCountChange;
+                assembly ("memory-safe") {
+                    positionCountChange := sub(iszero(currentLiquidity), iszero(liquidityNext))
+                }
+
                 _updateTick(
-                    poolId,
-                    positionId.tickLower(),
-                    poolKey.tickSpacing(),
-                    liquidityDelta,
-                    false,
-                    currentLiquidity,
-                    liquidityNext
+                    poolId, positionId.tickLower(), poolKey.tickSpacing(), liquidityDelta, false, positionCountChange
                 );
                 _updateTick(
-                    poolId,
-                    positionId.tickUpper(),
-                    poolKey.tickSpacing(),
-                    liquidityDelta,
-                    true,
-                    currentLiquidity,
-                    liquidityNext
+                    poolId, positionId.tickUpper(), poolKey.tickSpacing(), liquidityDelta, true, positionCountChange
                 );
 
                 if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
@@ -722,22 +710,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         if (isInitialized) {
-                            int128 liquidityDelta;
                             bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick);
-                            TickInfo tickInfo;
-                            assembly ("memory-safe") {
-                                tickInfo := sload(tickSlot)
-                                liquidityDelta := signextend(15, tickInfo)
-                            }
-
-                            liquidity = increasing
-                                ? addLiquidityDelta(liquidity, liquidityDelta)
-                                : subLiquidityDelta(liquidity, liquidityDelta);
-
                             (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
                                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
 
                             assembly ("memory-safe") {
+                                let tickInfo := sload(tickSlot)
+
+                                liquidity :=
+                                    add(liquidity, mul(sub(increasing, iszero(increasing)), signextend(15, tickInfo)))
+
                                 // assume input token is token0
                                 let globalFeesPerLiquidity0 := inputTokenFeesPerLiquidity
                                 // load the output token fees per liquidity
@@ -758,16 +740,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 // update secondsOutside: secondsOutside = block.timestamp - secondsOutside
                                 let currentSecondsOutside := shr(192, tickInfo)
                                 let newSecondsOutside :=
-                                    and(sub(timestamp(), currentSecondsOutside), 0xFFFFFFFFFFFFFFFF)
+                                    sub(and(timestamp(), 0xFFFFFFFFFFFFFFFF), currentSecondsOutside)
                                 // Preserve lower 192 bits (liquidityDelta + positionCount), update upper 64 bits (secondsOutside)
-                                tickInfo :=
-                                    or(
-                                        and(
-                                            tickInfo,
-                                            0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-                                        ),
-                                        shl(192, newSecondsOutside)
-                                    )
+                                tickInfo := or(shr(64, shl(64, tickInfo)), shl(192, newSecondsOutside))
                                 sstore(tickSlot, tickInfo)
                             }
                         }

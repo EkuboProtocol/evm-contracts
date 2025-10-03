@@ -8,13 +8,25 @@ import {DropState} from "./types/dropState.sol";
 import {IIncentives} from "./interfaces/IIncentives.sol";
 import {IncentivesLib} from "./libraries/IncentivesLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
+import {BaseLocker} from "./base/BaseLocker.sol";
+import {BaseForwardee} from "./base/BaseForwardee.sol";
+import {UsesCore} from "./base/UsesCore.sol";
+import {ICore} from "./interfaces/ICore.sol";
+import {Locker} from "./types/locker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 
 /// @author Moody Salem
 /// @notice A singleton contract for making many airdrops
-contract Incentives is IIncentives, ExposedStorage, Multicallable {
+contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, BaseForwardee, UsesCore {
+    using FlashAccountantLib for *;
+
+    /// @notice Constructs the Incentives contract
+    /// @param core The core contract instance
+    constructor(ICore core) BaseLocker(core) BaseForwardee(core) UsesCore(core) {}
+
     /// @inheritdoc IIncentives
     function fund(DropKey memory key, uint128 minimum) external override returns (uint128 fundedAmount) {
         bytes32 id = key.toDropId();
@@ -35,7 +47,7 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
                 sstore(id, dropState)
             }
 
-            SafeTransferLib.safeTransferFrom(key.token, msg.sender, address(this), fundedAmount);
+            lock(abi.encode(bytes1(0x01), msg.sender, key.token, fundedAmount));
             emit Funded(key, minimum);
         }
     }
@@ -64,7 +76,7 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
                 sstore(id, dropState)
             }
 
-            SafeTransferLib.safeTransfer(key.token, key.owner, refundAmount);
+            lock(abi.encode(bytes1(0x02), key.token, key.owner, refundAmount));
         }
         emit Refunded(key, refundAmount);
     }
@@ -115,6 +127,44 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
             sstore(bitmapSlot, bitmap)
         }
 
-        SafeTransferLib.safeTransfer(key.token, c.account, c.amount);
+        lock(abi.encode(bytes1(0x03), key.token, c.account, c.amount));
+    }
+
+    /// @notice Sentinel address used as the second token in saved balances
+    /// @dev This address is always greater than any real token address
+    address private constant SENTINEL = address(type(uint160).max);
+
+    /// @notice Handles lock callback data for incentives operations
+    /// @dev Internal function that processes different types of incentives operations
+    /// @param data Encoded operation data
+    /// @return result Encoded result data
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
+        bytes1 callType = data[0];
+
+        if (callType == bytes1(0x01)) {
+            // fund: accept payment from funder, then save in Core
+            (, address funder, address token, uint128 amount) = abi.decode(data, (bytes1, address, address, uint128));
+            ACCOUNTANT.payFrom(funder, token, amount);
+            // Save the tokens in Core (positive delta increases debt back to zero)
+            CORE.updateSavedBalances(token, SENTINEL, bytes32(0), int256(uint256(amount)), 0);
+        } else if (callType == bytes1(0x02)) {
+            // refund: load from Core, then withdraw to owner
+            (, address token, address recipient, uint128 amount) = abi.decode(data, (bytes1, address, address, uint128));
+            // Load the tokens from Core (negative delta reduces debt)
+            CORE.updateSavedBalances(token, SENTINEL, bytes32(0), -int256(uint256(amount)), 0);
+            ACCOUNTANT.withdraw(token, recipient, amount);
+        } else if (callType == bytes1(0x03)) {
+            // claim: load from Core, then withdraw to claimant
+            (, address token, address recipient, uint128 amount) = abi.decode(data, (bytes1, address, address, uint128));
+            // Load the tokens from Core (negative delta reduces debt)
+            CORE.updateSavedBalances(token, SENTINEL, bytes32(0), -int256(uint256(amount)), 0);
+            ACCOUNTANT.withdraw(token, recipient, amount);
+        }
+    }
+
+    /// @notice Handles forwarded data (not used in this contract)
+    /// @dev Required by BaseForwardee but not needed for Incentives
+    function handleForwardData(Locker, bytes memory) internal pure override returns (bytes memory) {
+        revert("Incentives: forward not supported");
     }
 }

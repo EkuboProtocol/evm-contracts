@@ -3,14 +3,16 @@ pragma solidity =0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {Incentives} from "../src/Incentives.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 
 contract DeployIncentives is Script {
     function run() public {
         bytes32 salt = vm.envOr("SALT", bytes32(0x0));
+        address payable coreAddress = payable(vm.envAddress("CORE_ADDRESS"));
 
         vm.startBroadcast();
 
-        new Incentives{salt: salt}();
+        new Incentives{salt: salt}(ICore(coreAddress));
 
         vm.stopBroadcast();
     }

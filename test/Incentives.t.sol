@@ -8,14 +8,17 @@ import {DropKey} from "../src/types/dropKey.sol";
 import {ClaimKey, IIncentives} from "../src/interfaces/IIncentives.sol";
 import {TestToken} from "./TestToken.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
+import {Core} from "../src/Core.sol";
 
 contract IncentivesTest is Test {
+    Core core;
     Incentives i;
     IncentivesDataFetcher fetcher;
     TestToken t;
 
     function setUp() public {
-        i = new Incentives();
+        core = new Core();
+        i = new Incentives(core);
         fetcher = new IncentivesDataFetcher(IIncentives(address(i)));
         t = new TestToken(address(this));
     }
@@ -31,7 +34,7 @@ contract IncentivesTest is Test {
         t.approve(address(i), type(uint256).max);
 
         assertEq(t.balanceOf(address(this)), type(uint256).max);
-        assertEq(t.balanceOf(address(i)), 0);
+        assertEq(t.balanceOf(address(core)), 0);
 
         if (amount > 0) {
             vm.expectEmit(address(i));
@@ -42,7 +45,7 @@ contract IncentivesTest is Test {
         assertEq(i.fund(key, amount), 0);
 
         assertEq(t.balanceOf(address(this)), type(uint256).max - amount);
-        assertEq(t.balanceOf(address(i)), amount);
+        assertEq(t.balanceOf(address(core)), amount);
         assertEq(fetcher.getRemaining(key), amount);
     }
 

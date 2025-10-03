@@ -178,6 +178,12 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when saved balance tokens are not properly sorted
     error SavedBalanceTokensNotSorted();
 
+    /// @notice Thrown when a position update would cause liquidityNet on a tick to exceed the maximum allowed
+    /// @param tick The tick that would exceed the limit
+    /// @param liquidityNet The resulting liquidityNet that exceeds the limit
+    /// @param maxLiquidityPerTick The maximum allowed liquidity per tick
+    error MaxLiquidityPerTickExceeded(int32 tick, uint128 liquidityNet, uint128 maxLiquidityPerTick);
+
     /// @notice Registers an extension with the core contract
     /// @dev Extensions must call this function to become registered. The call points are validated against the caller address
     /// @param expectedCallPoints Call points configuration for the extension

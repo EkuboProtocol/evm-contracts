@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
+import {PoolConfig} from "./types/poolConfig.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
@@ -271,10 +272,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @dev Private function that handles tick initialization and liquidity tracking
     /// @param poolId Unique identifier for the pool
     /// @param tick Tick to update
-    /// @param tickSpacing Tick spacing for the pool
+    /// @param poolConfig Pool configuration containing tick spacing
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
-    function _updateTick(PoolId poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
+    function _updateTick(PoolId poolId, int32 tick, PoolConfig poolConfig, int128 liquidityDelta, bool isUpper)
+        private
+    {
         bytes32 slot = CoreStorageLayout.poolTicksSlot(poolId, tick);
         TickInfo ti;
         assembly ("memory-safe") {
@@ -287,8 +290,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         int128 liquidityDeltaNext =
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
+        // Check that liquidityNet doesn't exceed max liquidity per tick
+        uint128 maxLiquidity = poolConfig.maxLiquidityPerTick();
+        if (liquidityNetNext > maxLiquidity) {
+            revert MaxLiquidityPerTickExceeded(tick, liquidityNetNext, maxLiquidity);
+        }
+
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, tickSpacing);
+            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.tickSpacing());
         }
 
         ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
@@ -385,8 +394,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             }
 
             if (!poolKey.isFullRange()) {
-                _updateTick(poolId, positionId.tickLower(), poolKey.tickSpacing(), liquidityDelta, false);
-                _updateTick(poolId, positionId.tickUpper(), poolKey.tickSpacing(), liquidityDelta, true);
+                _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
+                _updateTick(poolId, positionId.tickUpper(), poolKey.config, liquidityDelta, true);
 
                 if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
                     state = createPoolState({

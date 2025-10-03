@@ -5,7 +5,7 @@ pragma solidity =0.8.30;
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
 type PoolConfig is bytes32;
 
-using {tickSpacing, fee, extension} for PoolConfig global;
+using {tickSpacing, fee, extension, maxLiquidityPerTick} for PoolConfig global;
 
 /// @notice Extracts the tick spacing from a pool config
 /// @param config The pool config
@@ -51,4 +51,31 @@ function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) 
                 and(_tickSpacing, 0xffffffff)
             )
     }
+}
+
+/// @notice Computes the maximum liquidity per tick for a given pool configuration
+/// @dev Calculated as type(uint128).max / (1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2)
+/// @param config The pool configuration
+/// @return maxLiquidity The maximum liquidity allowed per tick
+function maxLiquidityPerTick(PoolConfig config) pure returns (uint128 maxLiquidity) {
+    uint32 _tickSpacing = config.tickSpacing();
+
+    // For full-range-only pools (tickSpacing == 0), there are no individual ticks to limit
+    // Return max uint128 as there's effectively no per-tick limit
+    if (_tickSpacing == 0) {
+        return type(uint128).max;
+    }
+
+    // Calculate total number of usable ticks: 1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2
+    // This represents all ticks from -MAX_TICK_MAGNITUDE to +MAX_TICK_MAGNITUDE, plus tick 0
+    uint256 numTicks;
+    assembly ("memory-safe") {
+        // Import MAX_TICK_MAGNITUDE constant
+        let MAX_TICK_MAGNITUDE := 88722835
+        // numTicks = 1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2
+        numTicks := add(1, mul(div(MAX_TICK_MAGNITUDE, _tickSpacing), 2))
+    }
+
+    // maxLiquidity = type(uint128).max / numTicks
+    maxLiquidity = uint128(type(uint128).max / numTicks);
 }

@@ -440,18 +440,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         PoolState state = readPoolState(poolId);
         if (!state.isInitialized()) revert PoolNotInitialized();
 
+        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
+        Position storage position;
+        assembly ("memory-safe") {
+            position.slot := positionSlot
+        }
+
         if (liquidityDelta != 0) {
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
                 (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
 
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
-
-            bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
-            Position storage position;
-            assembly ("memory-safe") {
-                position.slot := positionSlot
-            }
 
             FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
                 poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
@@ -470,12 +470,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 position.liquidity = 0;
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
             }
-
-            // Set extraData - must be zero if liquidity is zero
-            if (liquidityNext == 0 && extraData != 0) {
-                revert ExtraDataMustBeZeroForZeroLiquidity();
-            }
-            position.extraData = extraData;
 
             if (!poolKey.isFullRange()) {
                 _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
@@ -502,6 +496,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, delta0, delta1, state);
         }
+
+        // Set extraData - must be zero if liquidity is zero
+        uint128 currentLiquidity = position.liquidity;
+        if (currentLiquidity == 0 && extraData != 0) {
+            revert ExtraDataMustBeZeroForZeroLiquidity();
+        }
+        position.extraData = extraData;
 
         IExtension(poolKey.extension()).maybeCallAfterUpdatePosition(
             locker, poolKey, positionId, liquidityDelta, delta0, delta1, state

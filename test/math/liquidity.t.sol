@@ -280,7 +280,7 @@ contract LiquidityTest is Test {
         // At mid price (tick 0), liquidity is split between both tokens
         // Calculate the token amounts needed for max liquidity on a single tick
         (int128 amount0, int128 amount1) =
-            liquidityDeltaToAmountDelta(ONE, int128(maxLiquidityPerTick), tickToSqrtRatio(-1), tickToSqrtRatio(0));
+            liquidityDeltaToAmountDelta(ONE, int128(maxLiquidityPerTick), tickToSqrtRatio(-1), tickToSqrtRatio(1));
 
         // Assert the exact amounts for tick spacing 1 at mid price
         assertEq(amount0, 958_834_638_770_483_234_182_726, "amount0 at mid price");

@@ -428,14 +428,15 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @inheritdoc ICore
     function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external {
         bytes32 firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, msg.sender, positionId);
-        Position storage position;
         assembly ("memory-safe") {
-            position.slot := firstSlot
+            let v := sload(firstSlot)
+            if iszero(v) {
+                // cast sig "PositionDoesNotExist()"
+                mstore(0x00, 0xf7b3b391)
+                revert(0x1c, 0x04)
+            }
+            sstore(firstSlot, or(shl(128, shr(128, v)), shr(128, extraData)))
         }
-        if (position.liquidity == 0) {
-            revert PositionDoesNotExist();
-        }
-        position.extraData = extraData;
     }
 
     /// @inheritdoc ICore

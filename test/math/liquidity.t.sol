@@ -290,14 +290,8 @@ contract LiquidityTest is Test {
         (int128 amount0, int128 amount1) =
             liquidityDeltaToAmountDelta(ONE, int128(maxLiquidityPerTick), tickToSqrtRatio(-1), tickToSqrtRatio(1));
 
-        // At mid price, we expect both amounts to be positive
-        assertGt(amount0, 0, "amount0 should be positive at mid price");
-        assertGt(amount1, 0, "amount1 should be positive at mid price");
-
-        // Log the actual amounts for documentation
-        // These represent the maximum tokens that can be deposited in a single tick at mid price
-        emit log_named_uint("maxLiquidityPerTick (tickSpacing=1)", maxLiquidityPerTick);
-        emit log_named_int("amount0 at mid price (tick 0)", amount0);
-        emit log_named_int("amount1 at mid price (tick 0)", amount1);
+        // Assert the exact amounts for tick spacing 1 at mid price
+        assertEq(amount0, 958_834_638_770_483_234_182_726, "amount0 at mid price");
+        assertEq(amount1, 958_834_638_770_578_824_244_093, "amount1 at mid price");
     }
 }

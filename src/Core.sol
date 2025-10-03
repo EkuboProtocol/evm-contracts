@@ -460,6 +460,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
     /// @inheritdoc ICore
     function setPositionExtraData(PoolKey memory poolKey, PositionId positionId, bytes16 extraData) external payable {
+        positionId.validateBounds(poolKey.tickSpacing());
+
         Locker locker = _requireLocker();
         PoolId poolId = poolKey.toPoolId();
 
@@ -470,6 +472,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         position.extraData = extraData;
+
+        emit PositionExtraDataUpdated(locker.addr(), poolId, positionId, extraData);
     }
 
     /// @inheritdoc ICore

@@ -145,6 +145,13 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @dev Note locker is ommitted because it's always the extension of the pool associated with poolId
     event FeesAccumulated(PoolId poolId, uint128 amount0, uint128 amount1);
 
+    /// @notice Emitted when position extra data is updated
+    /// @param locker The locker that updated the position
+    /// @param poolId Unique identifier for the pool
+    /// @param positionId Identifier of the position
+    /// @param extraData The new extra data value
+    event PositionExtraDataUpdated(address locker, PoolId poolId, PositionId positionId, bytes16 extraData);
+
     /// @notice Thrown when extension registration fails due to invalid call points
     error FailedRegisterInvalidCallPoints();
 

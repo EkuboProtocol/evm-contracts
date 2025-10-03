@@ -156,9 +156,15 @@ contract TicksTest is Test {
             assertTrue(sqrtRatio < tickToSqrtRatio(tick + 1), "sqrt ratio lt next tick sqrt ratio");
         }
     }
+}
 
+contract SlowTestAllTicksTest is Test {
     // to run this test, update foundry.toml to uncomment the gas_limit, memory_limit lines and remove the skip_ prefix
-    function skip_test_all_tick_values() public pure {
+    function try_all_tick_values_in_range(uint32 sliceIndex, uint32 totalSlices) private pure {
+        uint32 size = uint32(MAX_TICK - MIN_TICK) / totalSlices;
+        int32 startingTick = MIN_TICK + int32(sliceIndex * size);
+        int32 endingTick = startingTick + int32(size);
+
         uint256 fmp;
 
         assembly ("memory-safe") {
@@ -166,18 +172,91 @@ contract TicksTest is Test {
         }
 
         SqrtRatio sqrtRatioLast;
-        for (int32 i = MIN_TICK; i <= MAX_TICK; i++) {
+        for (int32 i = startingTick; i <= endingTick; i++) {
             // price is always increasing
             SqrtRatio sqrtRatio = tickToSqrtRatio(i);
             assertTrue(sqrtRatio > sqrtRatioLast);
             sqrtRatioLast = sqrtRatio;
 
-            if (i != MAX_TICK) test_check_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(i);
-            if (i != MIN_TICK) test_check_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(i);
+            if (i != MIN_TICK) {
+                SqrtRatio sqrtRatioOneLess = toSqrtRatio(sqrtRatio.toFixed() - 1, false);
+                int32 tickCalculated = sqrtRatioToTick(sqrtRatioOneLess);
+                assertEq(tickCalculated, i - 1);
+            }
+
+            if (i != MAX_TICK) {
+                SqrtRatio sqrtRatioOneMore = SqrtRatio.wrap(SqrtRatio.unwrap(sqrtRatio) + 1);
+                int32 tickCalculated = sqrtRatioToTick(sqrtRatioOneMore);
+                assertEq(tickCalculated, i);
+            }
 
             assembly ("memory-safe") {
                 mstore(0x40, fmp)
             }
         }
+    }
+
+    function test_all_tick_values_0() public pure {
+        try_all_tick_values_in_range(0, 16);
+    }
+
+    function test_all_tick_values_1() public pure {
+        try_all_tick_values_in_range(1, 16);
+    }
+
+    function test_all_tick_values_2() public pure {
+        try_all_tick_values_in_range(2, 16);
+    }
+
+    function test_all_tick_values_3() public pure {
+        try_all_tick_values_in_range(3, 16);
+    }
+
+    function test_all_tick_values_4() public pure {
+        try_all_tick_values_in_range(4, 16);
+    }
+
+    function test_all_tick_values_5() public pure {
+        try_all_tick_values_in_range(5, 16);
+    }
+
+    function test_all_tick_values_6() public pure {
+        try_all_tick_values_in_range(6, 16);
+    }
+
+    function test_all_tick_values_7() public pure {
+        try_all_tick_values_in_range(7, 16);
+    }
+
+    function test_all_tick_values_8() public pure {
+        try_all_tick_values_in_range(8, 16);
+    }
+
+    function test_all_tick_values_9() public pure {
+        try_all_tick_values_in_range(9, 16);
+    }
+
+    function test_all_tick_values_10() public pure {
+        try_all_tick_values_in_range(10, 16);
+    }
+
+    function test_all_tick_values_11() public pure {
+        try_all_tick_values_in_range(11, 16);
+    }
+
+    function test_all_tick_values_12() public pure {
+        try_all_tick_values_in_range(12, 16);
+    }
+
+    function test_all_tick_values_13() public pure {
+        try_all_tick_values_in_range(13, 16);
+    }
+
+    function test_all_tick_values_14() public pure {
+        try_all_tick_values_in_range(14, 16);
+    }
+
+    function test_all_tick_values_15() public pure {
+        try_all_tick_values_in_range(15, 16);
     }
 }

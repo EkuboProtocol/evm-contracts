@@ -391,6 +391,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
                 position.liquidity = 0;
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
+                // Clear extraData when liquidity becomes zero
+                position.extraData = bytes16(0);
             }
 
             if (!poolKey.isFullRange()) {
@@ -554,7 +556,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             let liquidity := and(v0, 0xffffffffffffffffffffffffffffffff)
 
             // Require liquidity is nonzero
-            if iszero(liquidity) { revert(0x00, 0x00) }
+            if iszero(liquidity) {
+                mstore(0x00, 0x517ac306) // ExtraDataMustBeZeroForZeroLiquidity()
+                revert(0x1c, 0x04)
+            }
 
             // extraData is bytes16, which is right-padded to 32 bytes in the EVM
             // So it's already in the upper 16 bytes of the word

@@ -149,7 +149,7 @@ contract PositionExtraDataTest is Test {
         // Try to set extraData on a position that doesn't exist (liquidity = 0)
         bytes16 extraData = bytes16(uint128(0x123));
 
-        vm.expectRevert();
+        vm.expectRevert(ICore.ExtraDataMustBeZeroForZeroLiquidity.selector);
         locker.doLock(abi.encode(bytes1(0x02), poolId, positionId, extraData));
     }
 

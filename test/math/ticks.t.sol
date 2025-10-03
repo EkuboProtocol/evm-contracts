@@ -156,4 +156,28 @@ contract TicksTest is Test {
             assertTrue(sqrtRatio < tickToSqrtRatio(tick + 1), "sqrt ratio lt next tick sqrt ratio");
         }
     }
+
+    // to run this test, update foundry.toml to uncomment the gas_limit, memory_limit lines and remove the skip_ prefix
+    function skip_test_all_tick_values() public pure {
+        uint256 fmp;
+
+        assembly ("memory-safe") {
+            fmp := mload(0x40)
+        }
+
+        SqrtRatio sqrtRatioLast;
+        for (int32 i = MIN_TICK; i <= MAX_TICK; i++) {
+            // price is always increasing
+            SqrtRatio sqrtRatio = tickToSqrtRatio(i);
+            assertTrue(sqrtRatio > sqrtRatioLast);
+            sqrtRatioLast = sqrtRatio;
+
+            if (i != MAX_TICK) test_check_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(i);
+            if (i != MIN_TICK) test_check_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(i);
+
+            assembly ("memory-safe") {
+                mstore(0x40, fmp)
+            }
+        }
+    }
 }

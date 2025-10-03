@@ -459,7 +459,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function setPositionExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external payable {
+    function setPositionExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external {
         Locker locker = _requireLocker();
 
         bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
@@ -469,13 +469,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             let liquidity := and(v0, 0xffffffffffffffffffffffffffffffff)
 
             // Require liquidity is nonzero
-            if iszero(liquidity) {
-                mstore(0x00, 0x00) // revert with empty message
-                revert(0x00, 0x00)
-            }
+            if iszero(liquidity) { revert(0x00, 0x00) }
 
-            // Clear upper 16 bytes and set new extraData
-            v0 := or(and(v0, 0xffffffffffffffffffffffffffffffff), shl(128, extraData))
+            // extraData is bytes16, which is right-padded to 32 bytes in the EVM
+            // So it's already in the upper 16 bytes of the word
+            // Clear upper 16 bytes of v0 and OR with extraData
+            v0 := or(and(v0, 0xffffffffffffffffffffffffffffffff), extraData)
             sstore(positionSlot, v0)
         }
     }

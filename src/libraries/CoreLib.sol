@@ -42,7 +42,7 @@ library CoreLib {
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
     /// @param positionId The unique identifier for the position
-    /// @return position The position data including liquidity and fees
+    /// @return position The position data including liquidity, time tracking, and fees
     function poolPositions(ICore core, PoolId poolId, address owner, PositionId positionId)
         internal
         view
@@ -52,8 +52,13 @@ library CoreLib {
         (bytes32 v0, bytes32 v1, bytes32 v2) =
             core.sload(firstSlot, bytes32(uint256(firstSlot) + 1), bytes32(uint256(firstSlot) + 2));
 
-        position.liquidity = uint128(uint256(v0));
-        position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
+        // In memory, struct fields are NOT packed - each gets its own 32-byte slot
+        assembly ("memory-safe") {
+            mstore(position, and(v0, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
+            mstore(add(position, 0x20), and(shr(128, v0), 0xFFFFFFFFFFFFFFFF))
+            mstore(add(position, 0x40), v1)
+            mstore(add(position, 0x60), v2)
+        }
     }
 
     /// @notice Gets saved balances for a specific owner and token pair
@@ -82,18 +87,20 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
     /// @return liquidityDelta The liquidity change when crossing this tick
-    /// @return liquidityNet The net liquidity above this tick
+    /// @return positionCount The number of non-zero liquidity positions at this tick
+    /// @return secondsOutside The seconds this tick has been outside the current price
     function poolTicks(ICore core, PoolId poolId, int32 tick)
         internal
         view
-        returns (int128 liquidityDelta, uint128 liquidityNet)
+        returns (int128 liquidityDelta, uint64 positionCount, uint64 secondsOutside)
     {
         bytes32 data = core.sload(CoreStorageLayout.poolTicksSlot(poolId, tick));
 
-        // takes only least significant 128 bits
-        liquidityDelta = int128(uint128(uint256(data)));
-        // takes only most significant 128 bits
-        liquidityNet = uint128(bytes16(data));
+        assembly ("memory-safe") {
+            liquidityDelta := signextend(15, data)
+            positionCount := and(shr(128, data), 0xFFFFFFFFFFFFFFFF)
+            secondsOutside := shr(192, data)
+        }
     }
 
     /// @notice Executes a swap against the core contract using assembly optimization

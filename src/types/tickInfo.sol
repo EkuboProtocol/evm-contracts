@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 type TickInfo is bytes32;
 
-using {liquidityDelta, liquidityNet, parse} for TickInfo global;
+using {liquidityDelta, positionCount, secondsOutside, parse} for TickInfo global;
 
 function liquidityDelta(TickInfo info) pure returns (int128 delta) {
     assembly ("memory-safe") {
@@ -11,22 +11,32 @@ function liquidityDelta(TickInfo info) pure returns (int128 delta) {
     }
 }
 
-function liquidityNet(TickInfo info) pure returns (uint128 net) {
+function positionCount(TickInfo info) pure returns (uint64 count) {
     assembly ("memory-safe") {
-        net := shr(128, info)
+        count := and(shr(128, info), 0xFFFFFFFFFFFFFFFF)
     }
 }
 
-function parse(TickInfo info) pure returns (int128 delta, uint128 net) {
+function secondsOutside(TickInfo info) pure returns (uint64 seconds_) {
+    assembly ("memory-safe") {
+        seconds_ := shr(192, info)
+    }
+}
+
+function parse(TickInfo info) pure returns (int128 delta, uint64 count, uint64 seconds_) {
     assembly ("memory-safe") {
         delta := signextend(15, info)
-        net := shr(128, info)
+        count := and(shr(128, info), 0xFFFFFFFFFFFFFFFF)
+        seconds_ := shr(192, info)
     }
 }
 
-function createTickInfo(int128 _liquidityDelta, uint128 _liquidityNet) pure returns (TickInfo info) {
+function createTickInfo(int128 _liquidityDelta, uint64 _positionCount, uint64 _secondsOutside)
+    pure
+    returns (TickInfo info)
+{
     assembly ("memory-safe") {
-        // info = (liquidityNet << 128) | liquidityDelta
-        info := or(shl(128, _liquidityNet), shr(128, shl(128, _liquidityDelta)))
+        // info = (secondsOutside << 192) | (positionCount << 128) | liquidityDelta
+        info := or(or(shl(192, _secondsOutside), shl(128, _positionCount)), shr(128, shl(128, _liquidityDelta)))
     }
 }

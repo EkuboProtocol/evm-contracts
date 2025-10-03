@@ -229,6 +229,48 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), tickLower, tickUpper, poolKey.tickSpacing());
     }
 
+    /// @notice Returns the seconds inside the given bounds
+    /// @dev Internal function that calculates seconds inside position bounds
+    /// @param poolId Unique identifier for the pool
+    /// @param tickLower Lower tick of the price range
+    /// @param tickUpper Upper tick of the price range
+    /// @param tickSpacing Tick spacing for the pool
+    /// @return secondsInside Accumulated seconds inside the bounds
+    function _getSecondsInside(PoolId poolId, int32 tickLower, int32 tickUpper, uint32 tickSpacing)
+        internal
+        view
+        returns (uint64 secondsInside)
+    {
+        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+            // For full range positions, secondsInside is always the current timestamp
+            return uint64(block.timestamp);
+        } else {
+            int32 tick = readPoolState(poolId).tick();
+
+            bytes32 lowerSlot = CoreStorageLayout.poolTicksSlot(poolId, tickLower);
+            bytes32 upperSlot = CoreStorageLayout.poolTicksSlot(poolId, tickUpper);
+
+            uint64 lowerSecondsOutside;
+            uint64 upperSecondsOutside;
+
+            assembly ("memory-safe") {
+                lowerSecondsOutside := shr(192, sload(lowerSlot))
+                upperSecondsOutside := shr(192, sload(upperSlot))
+            }
+
+            if (tick < tickLower) {
+                // below range: secondsInside = lowerSecondsOutside - upperSecondsOutside
+                secondsInside = lowerSecondsOutside - upperSecondsOutside;
+            } else if (tick < tickUpper) {
+                // inside range: secondsInside = block.timestamp - lowerSecondsOutside - upperSecondsOutside
+                secondsInside = uint64(block.timestamp) - lowerSecondsOutside - upperSecondsOutside;
+            } else {
+                // above range: secondsInside = upperSecondsOutside - lowerSecondsOutside
+                secondsInside = upperSecondsOutside - lowerSecondsOutside;
+            }
+        }
+    }
+
     /// @inheritdoc ICore
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
         (uint256 id, address lockerAddr) = _requireLocker().parse();
@@ -274,24 +316,42 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @param tickSpacing Tick spacing for the pool
     /// @param liquidityDelta Change in liquidity
     /// @param isUpper Whether this is the upper bound of a position
-    function _updateTick(PoolId poolId, int32 tick, uint32 tickSpacing, int128 liquidityDelta, bool isUpper) private {
+    /// @param currentPositionLiquidity The position's liquidity before the update
+    /// @param nextPositionLiquidity The position's liquidity after the update
+    function _updateTick(
+        PoolId poolId,
+        int32 tick,
+        uint32 tickSpacing,
+        int128 liquidityDelta,
+        bool isUpper,
+        uint128 currentPositionLiquidity,
+        uint128 nextPositionLiquidity
+    ) private {
         bytes32 slot = CoreStorageLayout.poolTicksSlot(poolId, tick);
         TickInfo ti;
         assembly ("memory-safe") {
             ti := sload(slot)
         }
 
-        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = ti.parse();
-        uint128 liquidityNetNext = addLiquidityDelta(currentLiquidityNet, liquidityDelta);
+        (int128 currentLiquidityDelta, uint64 currentPositionCount, uint64 currentSecondsOutside) = ti.parse();
+
+        // Calculate position count change: +1 if going from 0 to non-zero, -1 if going from non-zero to 0, 0 otherwise
+        int256 positionCountDelta;
+        assembly ("memory-safe") {
+            positionCountDelta := sub(iszero(currentPositionLiquidity), iszero(nextPositionLiquidity))
+        }
+
+        uint64 positionCountNext = uint64(int64(currentPositionCount) + int64(positionCountDelta));
+
         // this is checked math
         int128 liquidityDeltaNext =
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
-        if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
+        if ((currentPositionCount == 0) != (positionCountNext == 0)) {
             flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, tickSpacing);
         }
 
-        ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
+        ti = createTickInfo(liquidityDeltaNext, positionCountNext, currentSecondsOutside);
 
         assembly ("memory-safe") {
             sstore(slot, ti)
@@ -372,21 +432,42 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
 
+            uint64 secondsInside =
+                _getSecondsInside(poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing());
+
             uint128 liquidityNext = addLiquidityDelta(position.liquidity, liquidityDelta);
 
             if (liquidityNext != 0) {
                 position.liquidity = liquidityNext;
+                position.secondsInsideLast = secondsInside;
                 position.feesPerLiquidityInsideLast =
                     feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
             } else {
                 if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
                 position.liquidity = 0;
+                position.secondsInsideLast = 0;
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
             }
 
             if (!poolKey.isFullRange()) {
-                _updateTick(poolId, positionId.tickLower(), poolKey.tickSpacing(), liquidityDelta, false);
-                _updateTick(poolId, positionId.tickUpper(), poolKey.tickSpacing(), liquidityDelta, true);
+                _updateTick(
+                    poolId,
+                    positionId.tickLower(),
+                    poolKey.tickSpacing(),
+                    liquidityDelta,
+                    false,
+                    position.liquidity,
+                    liquidityNext
+                );
+                _updateTick(
+                    poolId,
+                    positionId.tickUpper(),
+                    poolKey.tickSpacing(),
+                    liquidityDelta,
+                    true,
+                    position.liquidity,
+                    liquidityNext
+                );
 
                 if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
                     state = createPoolState({
@@ -630,8 +711,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         if (isInitialized) {
                             int128 liquidityDelta;
                             bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick);
+                            TickInfo tickInfo;
                             assembly ("memory-safe") {
-                                liquidityDelta := signextend(15, sload(tickSlot))
+                                tickInfo := sload(tickSlot)
+                                liquidityDelta := signextend(15, tickInfo)
                             }
 
                             liquidity = increasing
@@ -658,6 +741,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 // store global - tick fpl on the crossed tick
                                 sstore(tickFplFirstSlot, sub(globalFeesPerLiquidity0, sload(tickFplFirstSlot)))
                                 sstore(tickFplSecondSlot, sub(globalFeesPerLiquidity1, sload(tickFplSecondSlot)))
+
+                                // update secondsOutside: secondsOutside = block.timestamp - secondsOutside
+                                let currentSecondsOutside := shr(192, tickInfo)
+                                let newSecondsOutside := sub(timestamp(), currentSecondsOutside)
+                                // update the tick info with new secondsOutside
+                                tickInfo := or(and(tickInfo, 0xFFFFFFFFFFFFFFFF), shl(192, newSecondsOutside))
+                                sstore(tickSlot, tickInfo)
                             }
                         }
                     } else if (sqrtRatio != sqrtRatioNext) {

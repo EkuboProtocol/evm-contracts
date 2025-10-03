@@ -47,11 +47,11 @@ contract PositionsTest is FullTest {
         assertEq(token0.balanceOf(address(core)), 100);
         assertEq(token1.balanceOf(address(core)), 100);
 
-        (int128 liquidityDeltaLower, uint128 liquidityNetLower) = core.poolTicks(poolKey.toPoolId(), -100);
+        (int128 liquidityDeltaLower, uint64 positionCountLower,) = core.poolTicks(poolKey.toPoolId(), -100);
         assertEq(liquidityDeltaLower, int128(liquidity), "lower.liquidityDelta");
-        assertEq(liquidityNetLower, liquidity, "lower.liquidityNet");
-        (int128 liquidityDeltaUpper, uint128 liquidityNetUpper) = core.poolTicks(poolKey.toPoolId(), 100);
-        assertEq(liquidityNetUpper, liquidity, "upper.liquidityNet");
+        assertEq(positionCountLower, 1, "lower.positionCount");
+        (int128 liquidityDeltaUpper, uint64 positionCountUpper,) = core.poolTicks(poolKey.toPoolId(), 100);
+        assertEq(positionCountUpper, 1, "upper.positionCount");
         assertEq(liquidityDeltaUpper, -int128(liquidity), "upper.liquidityDelta");
 
         (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity);
@@ -70,17 +70,17 @@ contract PositionsTest is FullTest {
         (, uint128 liquidityA,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
         (, uint128 liquidityB,,) = positions.mintAndDeposit(poolKey, -300, -100, 100, 100, 0);
 
-        (int128 liquidityDelta, uint128 liquidityNet) = core.poolTicks(poolKey.toPoolId(), -300);
+        (int128 liquidityDelta, uint64 positionCount,) = core.poolTicks(poolKey.toPoolId(), -300);
         assertEq(liquidityDelta, int128(liquidityB));
-        assertEq(liquidityNet, liquidityB);
+        assertEq(positionCount, 1);
 
-        (liquidityDelta, liquidityNet) = core.poolTicks(poolKey.toPoolId(), -100);
+        (liquidityDelta, positionCount,) = core.poolTicks(poolKey.toPoolId(), -100);
         assertEq(liquidityDelta, int128(liquidityA) - int128(liquidityB));
-        assertEq(liquidityNet, liquidityB + liquidityA);
+        assertEq(positionCount, 2);
 
-        (liquidityDelta, liquidityNet) = core.poolTicks(poolKey.toPoolId(), 100);
+        (liquidityDelta, positionCount,) = core.poolTicks(poolKey.toPoolId(), 100);
         assertEq(liquidityDelta, -int128(liquidityA));
-        assertEq(liquidityNet, liquidityA);
+        assertEq(positionCount, 1);
     }
 
     function test_collectFees_amount0(CallPoints memory callPoints) public {

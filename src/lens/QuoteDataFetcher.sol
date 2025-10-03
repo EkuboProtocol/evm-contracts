@@ -108,7 +108,7 @@ contract QuoteDataFetcher is UsesCore {
                 );
 
                 if (initialized && tick >= fromTick) {
-                    (int128 liquidityDelta,) = CORE.poolTicks(poolId, tick);
+                    (int128 liquidityDelta,,) = CORE.poolTicks(poolId, tick);
                     uint256 v;
                     assembly ("memory-safe") {
                         v := or(shl(128, tick), and(liquidityDelta, 0xffffffffffffffffffffffffffffffff))

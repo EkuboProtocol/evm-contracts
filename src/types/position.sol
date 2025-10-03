@@ -6,13 +6,16 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 // Position Type
 // Represents a liquidity position in a pool
-// Contains the position's liquidity amount and fee tracking information
+// Contains the position's liquidity amount, time tracking, and fee tracking information
 
 /// @notice A liquidity position in a pool
-/// @dev Tracks both the liquidity amount and the last known fees per liquidity for fee calculation
+/// @dev Tracks liquidity amount, time inside, and fees per liquidity for fee calculation
 struct Position {
     /// @notice Amount of liquidity in the position
     uint128 liquidity;
+    /// @notice Timestamp when the position was last inside the price range
+    /// @dev Used to calculate how long the position has been active
+    uint64 secondsInsideLast;
     /// @notice Snapshot of fees per liquidity when the position was last updated
     /// @dev Used to calculate fees owed to the position holder
     FeesPerLiquidity feesPerLiquidityInsideLast;
@@ -36,10 +39,16 @@ function fees(Position memory position, FeesPerLiquidity memory feesPerLiquidity
     uint256 difference0;
     uint256 difference1;
     assembly ("memory-safe") {
+        // In memory, struct members are NOT packed - each starts at a 32-byte boundary
+        // Offset 0x00: liquidity (uint128)
+        // Offset 0x20: secondsInsideLast (uint64)
+        // Offset 0x40: feesPerLiquidityInsideLast.value0 (uint256)
+        // Offset 0x60: feesPerLiquidityInsideLast.value1 (uint256)
         liquidity := mload(position)
-        let positionFpl := mload(add(position, 0x20))
-        difference0 := sub(mload(feesPerLiquidityInside), mload(positionFpl))
-        difference1 := sub(mload(add(feesPerLiquidityInside, 0x20)), mload(add(positionFpl, 0x20)))
+        let positionFpl0 := mload(add(position, 0x40))
+        let positionFpl1 := mload(add(position, 0x60))
+        difference0 := sub(mload(feesPerLiquidityInside), positionFpl0)
+        difference1 := sub(mload(add(feesPerLiquidityInside, 0x20)), positionFpl1)
     }
 
     return (

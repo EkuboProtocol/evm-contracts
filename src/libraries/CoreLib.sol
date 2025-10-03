@@ -53,7 +53,7 @@ library CoreLib {
             core.sload(firstSlot, bytes32(uint256(firstSlot) + 1), bytes32(uint256(firstSlot) + 2));
 
         position.liquidity = uint128(uint256(v0));
-        position.extraData = bytes16(v0 << 128);
+        position.extraData = bytes16(v0);
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 

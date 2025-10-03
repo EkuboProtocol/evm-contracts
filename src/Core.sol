@@ -459,21 +459,25 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function setPositionExtraData(PoolKey memory poolKey, PositionId positionId, bytes16 extraData) external payable {
-        positionId.validateBounds(poolKey.tickSpacing());
-
+    function setPositionExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external payable {
         Locker locker = _requireLocker();
-        PoolId poolId = poolKey.toPoolId();
 
-        Position storage position;
         bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
+
         assembly ("memory-safe") {
-            position.slot := positionSlot
+            let v0 := sload(positionSlot)
+            let liquidity := and(v0, 0xffffffffffffffffffffffffffffffff)
+
+            // Require liquidity is nonzero
+            if iszero(liquidity) {
+                mstore(0x00, 0x00) // revert with empty message
+                revert(0x00, 0x00)
+            }
+
+            // Clear upper 16 bytes and set new extraData
+            v0 := or(and(v0, 0xffffffffffffffffffffffffffffffff), shl(128, extraData))
+            sstore(positionSlot, v0)
         }
-
-        position.extraData = extraData;
-
-        emit PositionExtraDataUpdated(locker.addr(), poolId, positionId, extraData);
     }
 
     /// @inheritdoc ICore

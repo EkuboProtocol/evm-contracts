@@ -145,13 +145,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @dev Note locker is ommitted because it's always the extension of the pool associated with poolId
     event FeesAccumulated(PoolId poolId, uint128 amount0, uint128 amount1);
 
-    /// @notice Emitted when position extra data is updated
-    /// @param locker The locker that updated the position
-    /// @param poolId Unique identifier for the pool
-    /// @param positionId Identifier of the position
-    /// @param extraData The new extra data value
-    event PositionExtraDataUpdated(address locker, PoolId poolId, PositionId positionId, bytes16 extraData);
-
     /// @notice Thrown when extension registration fails due to invalid call points
     error FailedRegisterInvalidCallPoints();
 
@@ -276,10 +269,10 @@ interface ICore is IFlashAccountant, IExposedStorage {
         returns (uint128 amount0, uint128 amount1);
 
     /// @notice Sets the extra data for a position
-    /// @param poolKey Pool key identifying the pool
+    /// @param poolId Unique identifier for the pool
     /// @param positionId The key of the position to update
     /// @param extraData The extra data to store (16 bytes)
-    function setPositionExtraData(PoolKey memory poolKey, PositionId positionId, bytes16 extraData) external payable;
+    function setPositionExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external payable;
 
     /// @notice Executes a swap against a pool
     /// @dev Function name is mined to have a zero function selector for gas efficiency

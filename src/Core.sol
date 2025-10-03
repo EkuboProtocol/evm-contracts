@@ -435,7 +435,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             uint64 secondsInside =
                 _getSecondsInside(poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing());
 
-            uint128 liquidityNext = addLiquidityDelta(position.liquidity, liquidityDelta);
+            // Cache current liquidity before updating
+            uint128 currentLiquidity = position.liquidity;
+            uint128 liquidityNext = addLiquidityDelta(currentLiquidity, liquidityDelta);
 
             if (liquidityNext != 0) {
                 position.liquidity = liquidityNext;
@@ -456,7 +458,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     poolKey.tickSpacing(),
                     liquidityDelta,
                     false,
-                    position.liquidity,
+                    currentLiquidity,
                     liquidityNext
                 );
                 _updateTick(
@@ -465,7 +467,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     poolKey.tickSpacing(),
                     liquidityDelta,
                     true,
-                    position.liquidity,
+                    currentLiquidity,
                     liquidityNext
                 );
 
@@ -519,7 +521,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 
+        uint64 secondsInside =
+            _getSecondsInside(poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing());
+
         position.feesPerLiquidityInsideLast = feesPerLiquidityInside;
+        position.secondsInsideLast = secondsInside;
 
         _updatePairDebt(
             locker.id(), poolKey.token0, poolKey.token1, -int256(uint256(amount0)), -int256(uint256(amount1))
@@ -744,9 +750,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                                 // update secondsOutside: secondsOutside = block.timestamp - secondsOutside
                                 let currentSecondsOutside := shr(192, tickInfo)
-                                let newSecondsOutside := sub(timestamp(), currentSecondsOutside)
-                                // update the tick info with new secondsOutside
-                                tickInfo := or(and(tickInfo, 0xFFFFFFFFFFFFFFFF), shl(192, newSecondsOutside))
+                                let newSecondsOutside :=
+                                    and(sub(timestamp(), currentSecondsOutside), 0xFFFFFFFFFFFFFFFF)
+                                // Preserve lower 192 bits (liquidityDelta + positionCount), update upper 64 bits (secondsOutside)
+                                tickInfo :=
+                                    or(
+                                        and(
+                                            tickInfo,
+                                            0x000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+                                        ),
+                                        shl(192, newSecondsOutside)
+                                    )
                                 sstore(tickSlot, tickInfo)
                             }
                         }

@@ -347,7 +347,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
+    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta, bytes16 extraData)
         external
         payable
         returns (int128 delta0, int128 delta1)
@@ -385,10 +385,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (liquidityNext != 0) {
                 position.liquidity = liquidityNext;
+                position.extraData = extraData;
                 position.feesPerLiquidityInsideLast =
                     feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
             } else {
                 if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
+                if (extraData != bytes16(0)) revert ExtraDataMustBeEmpty();
                 position.liquidity = 0;
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
                 // Clear extraData when liquidity becomes zero
@@ -427,91 +429,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta, bytes16 extraData)
-        external
-        payable
-        returns (int128 delta0, int128 delta1)
-    {
-        positionId.validateBounds(poolKey.tickSpacing());
-
-        Locker locker = _requireLocker();
-
-        IExtension(poolKey.extension()).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
-
-        PoolId poolId = poolKey.toPoolId();
-        PoolState state = readPoolState(poolId);
-        if (!state.isInitialized()) revert PoolNotInitialized();
-
-        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
-        Position storage position;
-        assembly ("memory-safe") {
-            position.slot := positionSlot
-        }
-
-        if (liquidityDelta != 0) {
-            (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
-                (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
-
-            (delta0, delta1) =
-                liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
-
-            FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
-            );
-
-            (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
-
-            uint128 liquidityNext = addLiquidityDelta(position.liquidity, liquidityDelta);
-
-            if (liquidityNext != 0) {
-                position.liquidity = liquidityNext;
-                position.feesPerLiquidityInsideLast =
-                    feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
-            } else {
-                if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
-                position.liquidity = 0;
-                position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
-            }
-
-            if (!poolKey.isFullRange()) {
-                _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
-                _updateTick(poolId, positionId.tickUpper(), poolKey.config, liquidityDelta, true);
-
-                if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
-                    state = createPoolState({
-                        _sqrtRatio: state.sqrtRatio(),
-                        _tick: state.tick(),
-                        _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
-                    });
-                    writePoolState(poolId, state);
-                }
-            } else {
-                state = createPoolState({
-                    _sqrtRatio: state.sqrtRatio(),
-                    _tick: state.tick(),
-                    _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
-                });
-                writePoolState(poolId, state);
-            }
-
-            _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
-
-            emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, delta0, delta1, state);
-        }
-
-        // Set extraData - must be zero if liquidity is zero
-        uint128 currentLiquidity = position.liquidity;
-        if (currentLiquidity == 0 && extraData != 0) {
-            revert ExtraDataMustBeZeroForZeroLiquidity();
-        }
-        position.extraData = extraData;
-
-        IExtension(poolKey.extension()).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
-        );
-    }
-
-    /// @inheritdoc ICore
     function collectFees(PoolKey memory poolKey, PositionId positionId)
         external
         returns (uint128 amount0, uint128 amount1)
@@ -543,30 +460,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         emit PositionFeesCollected(locker.addr(), poolId, positionId, amount0, amount1);
 
         IExtension(poolKey.extension()).maybeCallAfterCollectFees(locker, poolKey, positionId, amount0, amount1);
-    }
-
-    /// @inheritdoc ICore
-    function setPositionExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external {
-        Locker locker = _requireLocker();
-
-        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
-
-        assembly ("memory-safe") {
-            let v0 := sload(positionSlot)
-            let liquidity := and(v0, 0xffffffffffffffffffffffffffffffff)
-
-            // Require liquidity is nonzero
-            if iszero(liquidity) {
-                mstore(0x00, 0x517ac306) // ExtraDataMustBeZeroForZeroLiquidity()
-                revert(0x1c, 0x04)
-            }
-
-            // extraData is bytes16, which is right-padded to 32 bytes in the EVM
-            // So it's already in the upper 16 bytes of the word
-            // Clear upper 16 bytes of v0 and OR with extraData
-            v0 := or(and(v0, 0xffffffffffffffffffffffffffffffff), extraData)
-            sstore(positionSlot, v0)
-        }
     }
 
     /// @inheritdoc ICore

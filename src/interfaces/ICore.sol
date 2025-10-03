@@ -166,8 +166,8 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when trying to withdraw all liquidity without collecting fees first
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
 
-    /// @notice Thrown when trying to set non-zero extraData on a position with zero liquidity
-    error ExtraDataMustBeZeroForZeroLiquidity();
+    /// @notice When withdrawing all liquidity, extraData must be empty
+    error ExtraDataMustBeEmpty();
 
     /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
@@ -252,21 +252,11 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param amount1 Amount of token1 to accumulate as fees
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable;
 
-    /// @notice Updates a liquidity position
-    /// @param poolKey Pool key identifying the pool
-    /// @param positionId The key of the position to update
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
-    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
-        external
-        payable
-        returns (int128 delta0, int128 delta1);
-
     /// @notice Updates a liquidity position and sets extra data
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position to update
     /// @param liquidityDelta The change in liquidity
-    /// @param extraData The extra data to set (must be zero if liquidity after update is zero)
+    /// @param extraData The extra data to set (must be zero if the liquidity after update is zero)
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance
     function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta, bytes16 extraData)
@@ -282,12 +272,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     function collectFees(PoolKey memory poolKey, PositionId positionId)
         external
         returns (uint128 amount0, uint128 amount1);
-
-    /// @notice Sets the extra data for a position
-    /// @param poolId Unique identifier for the pool
-    /// @param positionId The key of the position to update
-    /// @param extraData The extra data to store (16 bytes)
-    function setPositionExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external;
 
     /// @notice Executes a swap against a pool
     /// @dev Function name is mined to have a zero function selector for gas efficiency

@@ -52,8 +52,10 @@ library CoreLib {
         (bytes32 v0, bytes32 v1, bytes32 v2) =
             core.sload(firstSlot, bytes32(uint256(firstSlot) + 1), bytes32(uint256(firstSlot) + 2));
 
-        position.liquidity = uint128(uint256(v0));
-        position.extraData = bytes16(v0);
+        assembly ("memory-safe") {
+            mstore(position, shr(128, shl(128, v0)))
+            mstore(add(position, 0x20), shl(128, shr(128, v0)))
+        }
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 

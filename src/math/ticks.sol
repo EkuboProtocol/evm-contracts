@@ -123,16 +123,16 @@ uint256 constant ONE_Q127 = 1 << 127;
 // K = 53226052391377289966  (≈ 0x2e2a8eca5705fc2ee)
 uint256 constant K_2_OVER_LN2_X64 = 53226052391377289966;
 
-// 2^64 / log2(sqrt(1.000001)) in integer
+// 2^64 / log2(sqrt(1.000001)) for converting from log base 2 in X64 to log base tick
 int256 constant INV_LB_X64 = 25572630076711825471857579;
 
-// Error bounds of the tick computation ~= 0.5%
+// Error bounds of the tick computation based on the number of iterations
 int256 constant ERROR_BOUNDS_X128 = int256((uint256(1) << 128) / 200);
 
 /// @notice Converts a sqrt price ratio to its corresponding tick
 /// @dev Computes log2 via one normalization + atanh series (no per-bit squaring loop)
 /// @param sqrtRatio The valid sqrt price ratio to convert
-/// @return tick The tick corresponding to the sqrt ratio (rounded down)
+/// @return tick The tick corresponding to the sqrt ratio
 function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32 tick) {
     unchecked {
         uint256 sqrtRatioFixed = sqrtRatio.toFixed();
@@ -184,7 +184,7 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32 tick) {
         // Unsigned log2 in Q64.64
         uint256 log2Unsigned = (msbHigh << 64) + fracX64;
 
-        // Map log2 to tick-space X128 (same constant as before)
+        // Map log2 to tick-space X128
         int256 base = negative ? -int256(log2Unsigned) : int256(log2Unsigned);
 
         int256 logBaseTickSizeX128 = base * INV_LB_X64;

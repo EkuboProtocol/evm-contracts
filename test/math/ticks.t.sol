@@ -89,6 +89,14 @@ contract TicksTest is Test {
 
         this.srtt(SqrtRatio.wrap(SqrtRatio.unwrap(MAX_SQRT_RATIO) - 1));
         vm.snapshotGasLastCall("sqrtRatioToTick(MAX_SQRT_RATIO)");
+
+        // 1.01
+        this.srtt(toSqrtRatio(ONE.toFixed() * 101 / 100, false));
+        vm.snapshotGasLastCall("sqrtRatioToTick(1.01)");
+
+        // 0.99
+        this.srtt(toSqrtRatio(ONE.toFixed() * 99 / 100, false));
+        vm.snapshotGasLastCall("sqrtRatioToTick(0.99)");
     }
 
     // these should be checked by halmos but they take a long time to run

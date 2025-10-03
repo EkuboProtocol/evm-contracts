@@ -246,10 +246,6 @@ contract LiquidityTest is Test {
             tickToSqrtRatio(lowTick),
             tickToSqrtRatio(lowTick + 1)
         );
-
-        // Log for documentation
-        emit log_named_uint("maxLiquidityPerTick (tickSpacing=1)", maxLiquidityPerTick);
-        emit log_string("Note: Token amounts overflow at extreme low prices");
     }
 
     function test_maxLiquidityPerTick_at_max_price_tickSpacing1_overflows() public {
@@ -274,13 +270,9 @@ contract LiquidityTest is Test {
             tickToSqrtRatio(highTick - 1),
             tickToSqrtRatio(highTick)
         );
-
-        // Log for documentation
-        emit log_named_uint("maxLiquidityPerTick (tickSpacing=1)", maxLiquidityPerTick);
-        emit log_string("Note: Token amounts overflow at extreme high prices");
     }
 
-    function test_maxLiquidityPerTick_at_mid_price_tickSpacing1() public {
+    function test_maxLiquidityPerTick_at_mid_price_tickSpacing1() public pure {
         // For tick spacing 1, calculate max liquidity per tick
         PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
         uint128 maxLiquidityPerTick = config.maxLiquidityPerTick();
@@ -288,7 +280,7 @@ contract LiquidityTest is Test {
         // At mid price (tick 0), liquidity is split between both tokens
         // Calculate the token amounts needed for max liquidity on a single tick
         (int128 amount0, int128 amount1) =
-            liquidityDeltaToAmountDelta(ONE, int128(maxLiquidityPerTick), tickToSqrtRatio(-1), tickToSqrtRatio(1));
+            liquidityDeltaToAmountDelta(ONE, int128(maxLiquidityPerTick), tickToSqrtRatio(-1), tickToSqrtRatio(0));
 
         // Assert the exact amounts for tick spacing 1 at mid price
         assertEq(amount0, 958_834_638_770_483_234_182_726, "amount0 at mid price");

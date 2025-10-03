@@ -98,7 +98,7 @@ contract IncentivesTest is Test {
         emit IIncentives.Refunded(DropKey({owner: owner, token: address(t), root: root}), (funded - amount));
         i.refund(DropKey({owner: owner, token: address(t), root: root}));
         uint256 afterRefund = t.balanceOf(owner);
-        if (owner != address(i)) {} else {
+        if (owner != address(core)) {} else {
             assertEq(afterRefund - beforeRefund, 0);
         }
     }

@@ -27,7 +27,7 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, U
     constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
     /// @inheritdoc IIncentives
-    function fund(DropKey memory key, uint128 minimum) external override returns (uint128 fundedAmount) {
+    function fund(DropKey memory key, uint128 minimum) external payable override returns (uint128 fundedAmount) {
         bytes32 id = key.toDropId();
 
         // Load drop state from storage slot: drop id
@@ -39,6 +39,18 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, U
         uint128 currentFunded = dropState.funded();
         if (currentFunded < minimum) {
             fundedAmount = minimum - currentFunded;
+
+            // Validate ETH payment for native token drops
+            if (key.token == NATIVE_TOKEN_ADDRESS) {
+                if (msg.value != fundedAmount) {
+                    revert InvalidETHAmount();
+                }
+            } else {
+                if (msg.value != 0) {
+                    revert UnexpectedETHPayment();
+                }
+            }
+
             dropState = dropState.setFunded(minimum);
 
             // Store updated drop state
@@ -48,6 +60,11 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, U
 
             lock(abi.encode(bytes1(0x01), msg.sender, key.token, fundedAmount));
             emit Funded(key, minimum);
+        } else {
+            // No funding needed, reject any ETH sent
+            if (msg.value != 0) {
+                revert UnexpectedETHPayment();
+            }
         }
     }
 
@@ -135,6 +152,12 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, U
 
     /// @notice Thrown when an unexpected call type is received
     error UnexpectedCallType();
+
+    /// @notice Thrown when ETH payment amount doesn't match expected amount
+    error InvalidETHAmount();
+
+    /// @notice Thrown when ETH is sent for a non-native token drop
+    error UnexpectedETHPayment();
 
     /// @notice Handles lock callback data for incentives operations
     /// @dev Internal function that processes different types of incentives operations

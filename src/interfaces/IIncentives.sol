@@ -35,7 +35,7 @@ interface IIncentives is IExposedStorage {
     /// @param key The drop key to fund
     /// @param minimum The minimum amount to fund to
     /// @return fundedAmount The amount that was actually funded
-    function fund(DropKey memory key, uint128 minimum) external returns (uint128 fundedAmount);
+    function fund(DropKey memory key, uint128 minimum) external payable returns (uint128 fundedAmount);
 
     /// @notice Refunds the remaining amount from a drop to the owner
     /// @param key The drop key to refund

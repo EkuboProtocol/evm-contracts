@@ -764,7 +764,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                     or(
                                         and(
                                             tickInfo,
-                                            0x000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+                                            0x0000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
                                         ),
                                         shl(192, newSecondsOutside)
                                     )

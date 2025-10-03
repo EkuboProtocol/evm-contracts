@@ -59,6 +59,26 @@ contract TestLocker is BaseLocker, UsesCore {
                 abi.decode(data, (bytes1, PoolId, PositionId, bytes16));
 
             CORE.setPositionExtraData(_poolId, _positionId, _extraData);
+        } else if (callType == 0x03) {
+            // Update position with extraData
+            (, PoolKey memory _poolKey, PositionId _positionId, int128 liquidityDelta, bytes16 _extraData) =
+                abi.decode(data, (bytes1, PoolKey, PositionId, int128, bytes16));
+
+            (int128 delta0, int128 delta1) = CORE.updatePosition(_poolKey, _positionId, liquidityDelta, _extraData);
+
+            // Handle debt settlement
+            if (liquidityDelta > 0) {
+                // Adding liquidity - pay tokens
+                token0.transfer(address(ACCOUNTANT), uint128(delta0));
+                token1.transfer(address(ACCOUNTANT), uint128(delta1));
+
+                ACCOUNTANT.pay(_poolKey.token0, uint128(delta0));
+                ACCOUNTANT.pay(_poolKey.token1, uint128(delta1));
+            } else if (liquidityDelta < 0) {
+                // Removing liquidity - withdraw tokens
+                FlashAccountantLib.withdraw(ACCOUNTANT, _poolKey.token0, address(this), uint128(-delta0));
+                FlashAccountantLib.withdraw(ACCOUNTANT, _poolKey.token1, address(this), uint128(-delta1));
+            }
         }
 
         return "";
@@ -131,5 +151,48 @@ contract PositionExtraDataTest is Test {
 
         vm.expectRevert();
         locker.doLock(abi.encode(bytes1(0x02), poolId, positionId, extraData));
+    }
+
+    function test_updatePosition_with_extraData() public {
+        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+        bytes16 extraData = 0xabcdef0123456789abcdef0123456789;
+
+        // Create a position with extraData in one call
+        locker.doLock(abi.encode(bytes1(0x03), poolKey, positionId, int128(1000e18), extraData));
+
+        // Read position via CoreLib
+        Position memory position = core.poolPositions(poolId, address(locker), positionId);
+
+        // Verify extraData was set correctly
+        assertEq(position.extraData, extraData, "extraData should match");
+        assertGt(position.liquidity, 0, "liquidity should be nonzero");
+    }
+
+    function test_updatePosition_extraData_must_be_zero_when_withdrawing_all() public {
+        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+
+        // Create a position
+        locker.doLock(abi.encode(bytes1(0x01), poolKey, positionId, int128(1000e18)));
+
+        // Try to withdraw all liquidity with non-zero extraData - should revert
+        bytes16 extraData = 0xabcdef0123456789abcdef0123456789;
+        vm.expectRevert(ICore.ExtraDataMustBeZeroForZeroLiquidity.selector);
+        locker.doLock(abi.encode(bytes1(0x03), poolKey, positionId, int128(-1000e18), extraData));
+    }
+
+    function test_updatePosition_can_set_extraData_to_zero_when_withdrawing_all() public {
+        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+
+        // Create a position with extraData
+        bytes16 extraData = 0xabcdef0123456789abcdef0123456789;
+        locker.doLock(abi.encode(bytes1(0x03), poolKey, positionId, int128(1000e18), extraData));
+
+        // Withdraw all liquidity with zero extraData - should succeed
+        locker.doLock(abi.encode(bytes1(0x03), poolKey, positionId, int128(-1000e18), bytes16(0)));
+
+        // Verify position has zero liquidity and zero extraData
+        Position memory position = core.poolPositions(poolId, address(locker), positionId);
+        assertEq(position.liquidity, 0, "liquidity should be zero");
+        assertEq(position.extraData, bytes16(0), "extraData should be zero");
     }
 }

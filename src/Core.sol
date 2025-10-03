@@ -425,6 +425,90 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
+    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta, bytes16 extraData)
+        external
+        payable
+        returns (int128 delta0, int128 delta1)
+    {
+        positionId.validateBounds(poolKey.tickSpacing());
+
+        Locker locker = _requireLocker();
+
+        IExtension(poolKey.extension()).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
+
+        PoolId poolId = poolKey.toPoolId();
+        PoolState state = readPoolState(poolId);
+        if (!state.isInitialized()) revert PoolNotInitialized();
+
+        if (liquidityDelta != 0) {
+            (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
+                (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
+
+            (delta0, delta1) =
+                liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
+
+            bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
+            Position storage position;
+            assembly ("memory-safe") {
+                position.slot := positionSlot
+            }
+
+            FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
+                poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
+            );
+
+            (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
+
+            uint128 liquidityNext = addLiquidityDelta(position.liquidity, liquidityDelta);
+
+            if (liquidityNext != 0) {
+                position.liquidity = liquidityNext;
+                position.feesPerLiquidityInsideLast =
+                    feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
+            } else {
+                if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
+                position.liquidity = 0;
+                position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
+            }
+
+            // Set extraData - must be zero if liquidity is zero
+            if (liquidityNext == 0 && extraData != 0) {
+                revert ExtraDataMustBeZeroForZeroLiquidity();
+            }
+            position.extraData = extraData;
+
+            if (!poolKey.isFullRange()) {
+                _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
+                _updateTick(poolId, positionId.tickUpper(), poolKey.config, liquidityDelta, true);
+
+                if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
+                    state = createPoolState({
+                        _sqrtRatio: state.sqrtRatio(),
+                        _tick: state.tick(),
+                        _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                    });
+                    writePoolState(poolId, state);
+                }
+            } else {
+                state = createPoolState({
+                    _sqrtRatio: state.sqrtRatio(),
+                    _tick: state.tick(),
+                    _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                });
+                writePoolState(poolId, state);
+            }
+
+            _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
+
+            emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, delta0, delta1, state);
+        }
+
+        IExtension(poolKey.extension()).maybeCallAfterUpdatePosition(
+            locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
+        );
+    }
+
+    /// @inheritdoc ICore
     function collectFees(PoolKey memory poolKey, PositionId positionId)
         external
         returns (uint128 amount0, uint128 amount1)

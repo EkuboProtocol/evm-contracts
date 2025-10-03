@@ -11,6 +11,8 @@ import {
 } from "../../src/math/liquidity.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 
 int32 constant TICKS_IN_ONE_PERCENT = 9950;
 
@@ -220,5 +222,68 @@ contract LiquidityTest is Test {
             assertLe(uint128(a), amount0);
             assertLe(uint128(b), amount1);
         }
+    }
+
+    function test_maxLiquidityPerTick_at_min_price_tickSpacing1_overflows() public {
+        // For tick spacing 1, calculate max liquidity per tick
+        PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        uint128 maxLiquidityPerTick = config.maxLiquidityPerTick();
+
+        // IMPORTANT: At extreme prices (near MIN_TICK), attempting to calculate the token amounts
+        // for maxLiquidityPerTick causes overflow. This demonstrates that while maxLiquidityPerTick
+        // is the theoretical maximum, in practice you cannot deposit that much liquidity at extreme
+        // prices because the required token amounts exceed int128.max.
+
+        // This test documents that overflow occurs at low prices
+        int32 lowTick = MIN_TICK + 1000;
+
+        // Expect Amount0DeltaOverflow when trying to calculate amounts for max liquidity
+        // Use the external wrapper to make vm.expectRevert work
+        vm.expectRevert();
+        this.amountDeltas(
+            tickToSqrtRatio(lowTick),
+            int128(maxLiquidityPerTick),
+            tickToSqrtRatio(lowTick),
+            tickToSqrtRatio(lowTick + 1)
+        );
+    }
+
+    function test_maxLiquidityPerTick_at_max_price_tickSpacing1_overflows() public {
+        // For tick spacing 1, calculate max liquidity per tick
+        PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        uint128 maxLiquidityPerTick = config.maxLiquidityPerTick();
+
+        // IMPORTANT: At extreme prices (near MAX_TICK), attempting to calculate the token amounts
+        // for maxLiquidityPerTick causes overflow. This demonstrates that while maxLiquidityPerTick
+        // is the theoretical maximum, in practice you cannot deposit that much liquidity at extreme
+        // prices because the required token amounts exceed int128.max.
+
+        // This test documents that overflow occurs at high prices
+        int32 highTick = MAX_TICK - 1000;
+
+        // Expect Amount1DeltaOverflow when trying to calculate amounts for max liquidity
+        // Use the external wrapper to make vm.expectRevert work
+        vm.expectRevert();
+        this.amountDeltas(
+            tickToSqrtRatio(highTick),
+            int128(maxLiquidityPerTick),
+            tickToSqrtRatio(highTick - 1),
+            tickToSqrtRatio(highTick)
+        );
+    }
+
+    function test_maxLiquidityPerTick_at_mid_price_tickSpacing1() public pure {
+        // For tick spacing 1, calculate max liquidity per tick
+        PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        uint128 maxLiquidityPerTick = config.maxLiquidityPerTick();
+
+        // At mid price (tick 0), liquidity is split between both tokens
+        // Calculate the token amounts needed for max liquidity on a single tick
+        (int128 amount0, int128 amount1) =
+            liquidityDeltaToAmountDelta(ONE, int128(maxLiquidityPerTick), tickToSqrtRatio(-1), tickToSqrtRatio(0));
+
+        // Assert the exact amounts for tick spacing 1 at mid price
+        assertEq(amount0, 958_834_638_770_483_234_182_726, "amount0 at mid price");
+        assertEq(amount1, 958_834_638_770_578_824_244_093, "amount1 at mid price");
     }
 }

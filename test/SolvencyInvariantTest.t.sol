@@ -138,6 +138,7 @@ contract Handler is StdUtils, StdAssertions {
             if (
                 sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
+                    && sig != ICore.MaxLiquidityPerTickExceeded.selector
             ) {
                 revert UnexpectedError(err);
             }

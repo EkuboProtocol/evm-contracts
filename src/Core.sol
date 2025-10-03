@@ -336,12 +336,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         (int128 currentLiquidityDelta, uint64 currentPositionCount, uint64 currentSecondsOutside) = ti.parse();
 
         // Calculate position count change: +1 if going from 0 to non-zero, -1 if going from non-zero to 0, 0 otherwise
-        int256 positionCountDelta;
-        assembly ("memory-safe") {
-            positionCountDelta := sub(iszero(currentPositionLiquidity), iszero(nextPositionLiquidity))
+        uint64 positionCountNext;
+        if (currentPositionLiquidity == 0 && nextPositionLiquidity != 0) {
+            // Position being added
+            positionCountNext = currentPositionCount + 1;
+        } else if (currentPositionLiquidity != 0 && nextPositionLiquidity == 0) {
+            // Position being removed
+            unchecked {
+                positionCountNext = currentPositionCount - 1;
+            }
+        } else {
+            // Position liquidity changing but not crossing zero
+            positionCountNext = currentPositionCount;
         }
-
-        uint64 positionCountNext = uint64(int64(currentPositionCount) + int64(positionCountDelta));
 
         // this is checked math
         int128 liquidityDeltaNext =

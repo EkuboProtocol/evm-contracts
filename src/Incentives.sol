@@ -9,22 +9,22 @@ import {IIncentives} from "./interfaces/IIncentives.sol";
 import {IncentivesLib} from "./libraries/IncentivesLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
-import {BaseForwardee} from "./base/BaseForwardee.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
-import {Locker} from "./types/locker.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 
 /// @author Moody Salem
 /// @notice A singleton contract for making many airdrops
-contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, BaseForwardee, UsesCore {
+contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, UsesCore {
     using FlashAccountantLib for *;
 
     /// @notice Constructs the Incentives contract
     /// @param core The core contract instance
-    constructor(ICore core) BaseLocker(core) BaseForwardee(core) UsesCore(core) {}
+    constructor(ICore core) BaseLocker(core) UsesCore(core) {}
 
     /// @inheritdoc IIncentives
     function fund(DropKey memory key, uint128 minimum) external override returns (uint128 fundedAmount) {
@@ -146,7 +146,14 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, B
         if (callType == bytes1(0x01)) {
             // fund: accept payment from funder, then save in Core
             (, address funder, address token, uint128 amount) = abi.decode(data, (bytes1, address, address, uint128));
-            ACCOUNTANT.payFrom(funder, token, amount);
+
+            // Handle native token differently
+            if (token == NATIVE_TOKEN_ADDRESS) {
+                SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
+            } else {
+                ACCOUNTANT.payFrom(funder, token, amount);
+            }
+
             // Save the tokens in Core (positive delta increases debt back to zero)
             CORE.updateSavedBalances(token, SENTINEL, bytes32(0), int256(uint256(amount)), 0);
         } else if (callType == bytes1(0x02)) {
@@ -164,11 +171,5 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable, BaseLocker, B
         } else {
             revert UnexpectedCallType();
         }
-    }
-
-    /// @notice Handles forwarded data (not used in this contract)
-    /// @dev Required by BaseForwardee but not needed for Incentives
-    function handleForwardData(Locker, bytes memory) internal pure override returns (bytes memory) {
-        revert("Incentives: forward not supported");
     }
 }

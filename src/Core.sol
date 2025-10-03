@@ -347,7 +347,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta, bytes16 extraData)
+    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
         payable
         returns (int128 delta0, int128 delta1)
@@ -385,16 +385,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (liquidityNext != 0) {
                 position.liquidity = liquidityNext;
-                position.extraData = extraData;
                 position.feesPerLiquidityInsideLast =
                     feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
             } else {
                 if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
-                if (extraData != bytes16(0)) revert ExtraDataMustBeEmpty();
+                if (position.extraData != bytes16(0)) revert ExtraDataMustBeEmpty();
                 position.liquidity = 0;
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
-                // Clear extraData when liquidity becomes zero
-                position.extraData = bytes16(0);
             }
 
             if (!poolKey.isFullRange()) {
@@ -426,6 +423,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(poolKey.extension()).maybeCallAfterUpdatePosition(
             locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
         );
+    }
+
+    /// @inheritdoc ICore
+    function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external {
+        bytes32 firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, msg.sender, positionId);
+        Position storage position;
+        assembly ("memory-safe") {
+            position.slot := firstSlot
+        }
+        if (position.liquidity == 0) {
+            revert PositionDoesNotExist();
+        }
+        position.extraData = extraData;
     }
 
     /// @inheritdoc ICore

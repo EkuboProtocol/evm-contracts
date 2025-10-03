@@ -11,11 +11,10 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @notice A liquidity position in a pool
 /// @dev Tracks both the liquidity amount and the last known fees per liquidity for fee calculation
 struct Position {
+    /// @notice Extra data that can be set by the owner of a position
+    bytes16 extraData;
     /// @notice Amount of liquidity in the position
     uint128 liquidity;
-    /// @notice Extra data that can be set by the position owner
-    /// @dev Uses the 16 free bytes in the storage slot next to liquidity
-    bytes16 extraData;
     /// @notice Snapshot of fees per liquidity when the position was last updated
     /// @dev Used to calculate fees owed to the position holder
     FeesPerLiquidity feesPerLiquidityInsideLast;
@@ -39,7 +38,7 @@ function fees(Position memory position, FeesPerLiquidity memory feesPerLiquidity
     uint256 difference0;
     uint256 difference1;
     assembly ("memory-safe") {
-        liquidity := mload(position)
+        liquidity := mload(add(position, 0x20))
         // feesPerLiquidityInsideLast is now at offset 0x40 due to extraData field
         let positionFpl := mload(add(position, 0x40))
         difference0 := sub(mload(feesPerLiquidityInside), mload(positionFpl))

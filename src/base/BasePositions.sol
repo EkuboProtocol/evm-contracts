@@ -233,8 +233,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
             (int128 delta0, int128 delta1) = CORE.updatePosition(
                 poolKey,
                 createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
-                int128(liquidity),
-                bytes16(0)
+                int128(liquidity)
             );
 
             uint128 amount0 = uint128(delta0);
@@ -293,8 +292,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
                 (int128 delta0, int128 delta1) = CORE.updatePosition(
                     poolKey,
                     createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
-                    -int128(liquidity),
-                    bytes16(0)
+                    -int128(liquidity)
                 );
 
                 uint128 withdrawnAmount0 = uint128(-delta0);

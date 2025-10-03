@@ -166,6 +166,12 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when trying to withdraw all liquidity without collecting fees first
     error MustCollectFeesBeforeWithdrawingAllLiquidity();
 
+    /// @notice Thrown when trying to set the extra data on a position that does not exist
+    error PositionDoesNotExist();
+
+    /// @notice When withdrawing all liquidity, extraData must be empty
+    error ExtraDataMustBeEmpty();
+
     /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
 
@@ -249,15 +255,22 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param amount1 Amount of token1 to accumulate as fees
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable;
 
-    /// @notice Updates a liquidity position
+    /// @notice Updates a liquidity position and sets extra data
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position to update
+    /// @param liquidityDelta The change in liquidity
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance
     function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
         payable
         returns (int128 delta0, int128 delta1);
+
+    /// @notice Sets extra data for the position
+    /// @param poolId ID of the pool for which the position exists
+    /// @param positionId The key of the position to set extra data at
+    /// @param extraData The data to set on the position
+    function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external;
 
     /// @notice Collects accumulated fees from a position
     /// @param poolKey Pool key identifying the pool

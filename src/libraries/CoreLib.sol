@@ -42,7 +42,7 @@ library CoreLib {
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
     /// @param positionId The unique identifier for the position
-    /// @return position The position data including liquidity and fees
+    /// @return position The position data including liquidity, extraData, and fees
     function poolPositions(ICore core, PoolId poolId, address owner, PositionId positionId)
         internal
         view
@@ -52,7 +52,11 @@ library CoreLib {
         (bytes32 v0, bytes32 v1, bytes32 v2) =
             core.sload(firstSlot, bytes32(uint256(firstSlot) + 1), bytes32(uint256(firstSlot) + 2));
 
-        position.liquidity = uint128(uint256(v0));
+        assembly ("memory-safe") {
+            mstore(position, shl(128, v0))
+            mstore(add(position, 0x20), shr(128, v0))
+        }
+
         position.feesPerLiquidityInsideLast = FeesPerLiquidity(uint256(v1), uint256(v2));
     }
 

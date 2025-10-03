@@ -389,6 +389,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
             } else {
                 if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
+                if (position.extraData != bytes16(0)) revert ExtraDataMustBeEmpty();
                 position.liquidity = 0;
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
             }
@@ -422,6 +423,20 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         IExtension(poolKey.extension()).maybeCallAfterUpdatePosition(
             locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
         );
+    }
+
+    /// @inheritdoc ICore
+    function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external {
+        bytes32 firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, msg.sender, positionId);
+        assembly ("memory-safe") {
+            let v := sload(firstSlot)
+            if iszero(v) {
+                // cast sig "PositionDoesNotExist()"
+                mstore(0x00, 0xf7b3b391)
+                revert(0x1c, 0x04)
+            }
+            sstore(firstSlot, or(shl(128, shr(128, v)), shr(128, extraData)))
+        }
     }
 
     /// @inheritdoc ICore

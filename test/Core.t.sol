@@ -6,7 +6,7 @@ import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
@@ -93,7 +93,8 @@ contract CoreTest is FullTest {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
 
         address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
-        PoolKey memory key = PoolKey({token0: token0, token1: token1, config: toConfig(fee, tickSpacing, extension)});
+        PoolKey memory key =
+            PoolKey({token0: token0, token1: token1, config: createPoolConfig(fee, tickSpacing, extension)});
 
         if (callPoints.beforeInitializePool) {
             vm.expectEmit(extension);
@@ -126,14 +127,20 @@ contract CoreTest is FullTest {
 
         MockExtension(extension).register(core, byteToCallPoints(type(uint8).max));
 
-        PoolKey memory key =
-            PoolKey({token0: address(0), token1: address(1), config: toConfig(type(uint64).max / 100, 100, extension)});
+        PoolKey memory key = PoolKey({
+            token0: address(0),
+            token1: address(1),
+            config: createPoolConfig(type(uint64).max / 100, 100, extension)
+        });
 
         core.initializePool(key, 150);
         vm.snapshotGasLastCall("initializePool w/ extension");
 
-        key =
-            PoolKey({token0: address(0), token1: address(1), config: toConfig(type(uint64).max / 100, 100, address(0))});
+        key = PoolKey({
+            token0: address(0),
+            token1: address(1),
+            config: createPoolConfig(type(uint64).max / 100, 100, address(0))
+        });
         core.initializePool(key, 300);
         vm.snapshotGasLastCall("initializePool w/o extension");
     }

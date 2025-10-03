@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../../src/types/poolKey.sol";
 import {createPositionId} from "../../src/types/positionId.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
@@ -77,7 +77,7 @@ abstract contract BaseOracleTest is FullTest {
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128 liquidity) {
         PoolKey memory pk =
-            PoolKey(NATIVE_TOKEN_ADDRESS, token, toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
+            PoolKey(NATIVE_TOKEN_ADDRESS, token, createPoolConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
         {
             (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, MIN_TICK, MAX_TICK);
         }

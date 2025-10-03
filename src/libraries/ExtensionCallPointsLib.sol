@@ -150,24 +150,6 @@ library ExtensionCallPointsLib {
         }
     }
 
-    function shouldCallAfterUpdatePosition(IExtension extension, Locker locker) internal pure returns (bool yes) {
-        assembly ("memory-safe") {
-            yes := and(shr(155, extension), iszero(eq(shl(96, locker), shl(96, extension))))
-        }
-    }
-
-    function shouldCallBeforeCollectFees(IExtension extension, Locker locker) internal pure returns (bool yes) {
-        assembly ("memory-safe") {
-            yes := and(shr(154, extension), iszero(eq(shl(96, locker), shl(96, extension))))
-        }
-    }
-
-    function shouldCallAfterCollectFees(IExtension extension, Locker locker) internal pure returns (bool yes) {
-        assembly ("memory-safe") {
-            yes := and(shr(153, extension), iszero(eq(shl(96, locker), shl(96, extension))))
-        }
-    }
-
     function maybeCallBeforeUpdatePosition(
         IExtension extension,
         Locker locker,
@@ -191,6 +173,12 @@ library ExtensionCallPointsLib {
                     revert(freeMem, returndatasize())
                 }
             }
+        }
+    }
+
+    function shouldCallAfterUpdatePosition(IExtension extension, Locker locker) internal pure returns (bool yes) {
+        assembly ("memory-safe") {
+            yes := and(shr(155, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 
@@ -226,6 +214,12 @@ library ExtensionCallPointsLib {
         }
     }
 
+    function shouldCallBeforeCollectFees(IExtension extension, Locker locker) internal pure returns (bool yes) {
+        assembly ("memory-safe") {
+            yes := and(shr(154, extension), iszero(eq(shl(96, locker), shl(96, extension))))
+        }
+    }
+
     function maybeCallBeforeCollectFees(
         IExtension extension,
         Locker locker,
@@ -247,6 +241,12 @@ library ExtensionCallPointsLib {
                     revert(freeMem, returndatasize())
                 }
             }
+        }
+    }
+
+    function shouldCallAfterCollectFees(IExtension extension, Locker locker) internal pure returns (bool yes) {
+        assembly ("memory-safe") {
+            yes := and(shr(153, extension), iszero(eq(shl(96, locker), shl(96, extension))))
         }
     }
 

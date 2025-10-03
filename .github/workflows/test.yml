@@ -47,3 +47,14 @@ jobs:
         run: |
           forge test -vvv
         id: test
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install halmos
+        run: |
+          # install the latest version of halmos for the current user and add it to PATH
+          uv tool install --python 3.12 halmos
+
+      - name: Run halmos
+        run: halmos --match-test '^check_'

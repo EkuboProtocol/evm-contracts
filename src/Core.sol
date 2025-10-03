@@ -642,20 +642,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
 
                             assembly ("memory-safe") {
-                                // we do this sload every time because crossing more than one tick per swap is rare
-                                let outputTokenFeesPerLiquidity :=
+                                // assume input token is token0
+                                let globalFeesPerLiquidity0 := inputTokenFeesPerLiquidity
+                                // load the output token fees per liquidity
+                                let globalFeesPerLiquidity1 :=
                                     sload(add(sub(inputTokenFeesPerLiquiditySlot, increasing), iszero(increasing)))
 
-                                let globalFeesPerLiquidity0 :=
-                                    add(
-                                        mul(iszero(increasing), inputTokenFeesPerLiquidity),
-                                        mul(increasing, outputTokenFeesPerLiquidity)
-                                    )
-                                let globalFeesPerLiquidity1 :=
-                                    add(
-                                        mul(increasing, inputTokenFeesPerLiquidity),
-                                        mul(iszero(increasing), outputTokenFeesPerLiquidity)
-                                    )
+                                // if increasing, flip the values
+                                if increasing {
+                                    let tmp := globalFeesPerLiquidity0
+                                    globalFeesPerLiquidity0 := globalFeesPerLiquidity1
+                                    globalFeesPerLiquidity1 := tmp
+                                }
 
                                 // store global - tick fpl on the crossed tick
                                 sstore(tickFplFirstSlot, sub(globalFeesPerLiquidity0, sload(tickFplFirstSlot)))
@@ -672,7 +670,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
                 }
 
-                int256 calculatedAmountSign = int256(FixedPointMathLib.ternary(isExactOut, 1, type(uint256).max));
+                int256 calculatedAmountSign;
+                assembly ("memory-safe") {
+                    calculatedAmountSign := sub(isExactOut, iszero(isExactOut))
+                }
                 int128 calculatedAmountDelta = SafeCastLib.toInt128(
                     FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );

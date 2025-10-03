@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -486,7 +486,7 @@ contract OrdersTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(token1),
-            config: toConfig({_extension: address(twamm), _fee: 6969, _tickSpacing: 0})
+            config: createPoolConfig({_extension: address(twamm), _fee: 6969, _tickSpacing: 0})
         });
         PoolId poolId = poolKey.toPoolId();
         positions.maybeInitializePool(poolKey, -18135370); // 0.000000013301874 token1/token0

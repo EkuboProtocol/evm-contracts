@@ -30,36 +30,41 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
             // bit 0 is handled with a single conditional subtract from 2^128
             ratio := sub(0x100000000000000000000000000000000, mul(and(t, 0x1), 0x8637b66cd638344daef276cd7c5))
 
-            // Table of constants for bits 1-26 (indexed by bit position)
-            // Each constant represents sqrt(1.000001^(2^i)) in Q128 format
-            function tableLoad(idx) -> c {
-                switch idx
-                case 1 { c := 0xffffef390978c398134b4ff3764fe410 }
-                case 2 { c := 0xffffde72140b00a354bd3dc828e976c9 }
-                case 3 { c := 0xffffbce42c7be6c998ad6318193c0b18 }
-                case 4 { c := 0xffff79c86a8f6150a32d9778eceef97c }
-                case 5 { c := 0xfffef3911b7cff24ba1b3dbb5f8f5974 }
-                case 6 { c := 0xfffde72350725cc4ea8feece3b5f13c8 }
-                case 7 { c := 0xfffbce4b06c196e9247ac87695d53c60 }
-                case 8 { c := 0xfff79ca7a4d1bf1ee8556cea23cdbaa5 }
-                case 9 { c := 0xffef3995a5b6a6267530f207142a5764 }
-                case 10 { c := 0xffde7444b28145508125d10077ba83b8 }
-                case 11 { c := 0xffbceceeb791747f10df216f2e53ec57 }
-                case 12 { c := 0xff79eb706b9a64c6431d76e63531e929 }
-                case 13 { c := 0xfef41d1a5f2ae3a20676bec6f7f9459a }
-                case 14 { c := 0xfde95287d26d81bea159c37073122c73 }
-                case 15 { c := 0xfbd701c7cbc4c8a6bb81efd232d1e4e7 }
-                case 16 { c := 0xf7bf5211c72f5185f372aeb1d48f937e }
-                case 17 { c := 0xefc2bf59df33ecc28125cf78ec4f167f }
-                case 18 { c := 0xe08d35706200796273f0b3a981d90cfd }
-                case 19 { c := 0xc4f76b68947482dc198a48a54348c4ed }
-                case 20 { c := 0x978bcb9894317807e5fa4498eee7c0fa }
-                case 21 { c := 0x59b63684b86e9f486ec54727371ba6ca }
-                case 22 { c := 0x1f703399d88f6aa83a28b22d4a1f56e3 }
-                case 23 { c := 0x3dc5dac7376e20fc8679758d1bcdcfc }
-                case 24 { c := 0xee7e32d61fdb0a5e622b820f681d0 }
-                case 25 { c := 0xde2ee4bc381afa7089aa84bb66 }
-                case 26 { c := 0xc0d55d4d7152c25fb139 }
+            // Allocate memory for the constant table and store all 26 constants once
+            // Each constant represents sqrt(1.000001^(2^i)) in Q128 format for bits 1-26
+            let tablePtr := mload(0x40)
+            mstore(0x40, add(tablePtr, 0x340)) // Reserve 26 * 32 bytes = 832 bytes (0x340)
+
+            mstore(add(tablePtr, 0x00), 0xffffef390978c398134b4ff3764fe410)
+            mstore(add(tablePtr, 0x20), 0xffffde72140b00a354bd3dc828e976c9)
+            mstore(add(tablePtr, 0x40), 0xffffbce42c7be6c998ad6318193c0b18)
+            mstore(add(tablePtr, 0x60), 0xffff79c86a8f6150a32d9778eceef97c)
+            mstore(add(tablePtr, 0x80), 0xfffef3911b7cff24ba1b3dbb5f8f5974)
+            mstore(add(tablePtr, 0xa0), 0xfffde72350725cc4ea8feece3b5f13c8)
+            mstore(add(tablePtr, 0xc0), 0xfffbce4b06c196e9247ac87695d53c60)
+            mstore(add(tablePtr, 0xe0), 0xfff79ca7a4d1bf1ee8556cea23cdbaa5)
+            mstore(add(tablePtr, 0x100), 0xffef3995a5b6a6267530f207142a5764)
+            mstore(add(tablePtr, 0x120), 0xffde7444b28145508125d10077ba83b8)
+            mstore(add(tablePtr, 0x140), 0xffbceceeb791747f10df216f2e53ec57)
+            mstore(add(tablePtr, 0x160), 0xff79eb706b9a64c6431d76e63531e929)
+            mstore(add(tablePtr, 0x180), 0xfef41d1a5f2ae3a20676bec6f7f9459a)
+            mstore(add(tablePtr, 0x1a0), 0xfde95287d26d81bea159c37073122c73)
+            mstore(add(tablePtr, 0x1c0), 0xfbd701c7cbc4c8a6bb81efd232d1e4e7)
+            mstore(add(tablePtr, 0x1e0), 0xf7bf5211c72f5185f372aeb1d48f937e)
+            mstore(add(tablePtr, 0x200), 0xefc2bf59df33ecc28125cf78ec4f167f)
+            mstore(add(tablePtr, 0x220), 0xe08d35706200796273f0b3a981d90cfd)
+            mstore(add(tablePtr, 0x240), 0xc4f76b68947482dc198a48a54348c4ed)
+            mstore(add(tablePtr, 0x260), 0x978bcb9894317807e5fa4498eee7c0fa)
+            mstore(add(tablePtr, 0x280), 0x59b63684b86e9f486ec54727371ba6ca)
+            mstore(add(tablePtr, 0x2a0), 0x1f703399d88f6aa83a28b22d4a1f56e3)
+            mstore(add(tablePtr, 0x2c0), 0x3dc5dac7376e20fc8679758d1bcdcfc)
+            mstore(add(tablePtr, 0x2e0), 0xee7e32d61fdb0a5e622b820f681d0)
+            mstore(add(tablePtr, 0x300), 0xde2ee4bc381afa7089aa84bb66)
+            mstore(add(tablePtr, 0x320), 0xc0d55d4d7152c25fb139)
+
+            // Load constant from table at given index (1-based, so subtract 1)
+            function tableLoad(tblPtr, idx) -> c {
+                c := mload(add(tblPtr, mul(sub(idx, 1), 0x20)))
             }
 
             // Count trailing zeros for a single isolated bit
@@ -107,7 +112,7 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
             for {} t {} {
                 let lsb := and(t, sub(0, t)) // Isolate least significant bit
                 let idx := ctz(lsb) // Find bit position (0-25 after shift)
-                let c := tableLoad(add(idx, 1)) // Load constant (table is indexed 1-26)
+                let c := tableLoad(tablePtr, add(idx, 1)) // Load constant (table is indexed 1-26)
                 ratio := mulShift128(ratio, c) // Multiply and shift
                 t := sub(t, lsb) // Clear the processed bit
             }

@@ -16,18 +16,18 @@ import {PositionId} from "../types/positionId.sol";
 ///        [FPL_OUTSIDE_OFFSET_VALUE0 + FPL_OUTSIDE_OFFSET_VALUE1 + MIN_TICK, FPL_OUTSIDE_OFFSET_VALUE0 + FPL_OUTSIDE_OFFSET_VALUE1 + MAX_TICK]: fees per liquidity outside (value1)
 ///        [BITMAPS_OFFSET + FIRST_BITMAP_WORD, BITMAPS_OFFSET + LAST_BITMAP_WORD]: tick bitmaps
 library CoreStorageLayout {
-    /// @dev Generated using: cast keccak "TWAMMStorageLayout#FPL_OFFSET"
-    uint256 internal constant FPL_OFFSET = 0x48ed53dbfefe9728fce02ee791b95497bc6a2145a1e35f74f2764c959e0a5dc7;
-    /// @dev Generated using: cast keccak "TWAMMStorageLayout#TICKS_OFFSET"
-    uint256 internal constant TICKS_OFFSET = 0x307e36e3ff015b5b6fb70d03c03496fc324779dad7c9b54607b7ee976404dd49;
-    /// @dev Generated using: cast keccak "TWAMMStorageLayout#FPL_OUTSIDE_OFFSET_VALUE0"
+    /// @dev Generated using: cast keccak "CoreStorageLayout#FPL_OFFSET"
+    uint256 internal constant FPL_OFFSET = 0xb09b03866d96933565a9435bfb511c8ac5b2be454285ca331201452704799f72;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#TICKS_OFFSET"
+    uint256 internal constant TICKS_OFFSET = 0x435a5eb89a296820174331cf5a3902d9fca683928d56726d8e7acd6efb28c568;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#FPL_OUTSIDE_OFFSET_VALUE0"
     uint256 internal constant FPL_OUTSIDE_OFFSET_VALUE0 =
-        0xb1a8425715766b889dad6ccf988bb924d91462fef123f57ce146305570eb0952;
-    /// @dev Generated using: cast keccak "TWAMMStorageLayout#FPL_OUTSIDE_OFFSET_VALUE1"
+        0x5695060fdb9cfea656f872ae4887221aff7dbfefc45eaf753e4e70cdfb5cd19c;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#FPL_OUTSIDE_OFFSET_VALUE1"
     uint256 internal constant FPL_OUTSIDE_OFFSET_VALUE1 =
-        0xc777bb055b17730cca67e002e0fe1e9dd7f1a0a826671806a02ee8478998ce9d;
-    /// @dev Generated using: cast keccak "TWAMMStorageLayout#BITMAPS_OFFSET"
-    uint256 internal constant BITMAPS_OFFSET = 0x9ea4c5985e5123cf340a963f6e6e616537bf85b21e4f341bee18afd5d22512a0;
+        0x7a2a03fc08af3dae7869678617dc8abe8f15a3b719b37ba108dba879571f8b02;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#BITMAPS_OFFSET"
+    uint256 internal constant BITMAPS_OFFSET = 0x3def450d0010a2fef515ce5eba4b363b5a0f42fdd4c53e1c737975db05a2e3a5;
 
     /// @notice Computes the storage slot containing information on whether an extension is registered
     /// @param extension The extension address to check

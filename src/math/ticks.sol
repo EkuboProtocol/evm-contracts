@@ -126,8 +126,8 @@ uint256 constant K_2_OVER_LN2_X64 = 53226052391377289966;
 // 2^64 / log2(sqrt(1.000001)) for converting from log base 2 in X64 to log base tick
 int256 constant INV_LB_X64 = 25572630076711825471857579;
 
-// Error bounds of the tick computation based on the number of iterations
-int256 constant ERROR_BOUNDS_X128 = int256((uint256(1) << 128) / 200);
+// Error bounds of the tick computation based on the number of iterations ~= +-0.002 ticks
+int256 constant ERROR_BOUNDS_X128 = int256((uint256(1) << 128) / 485);
 
 /// @notice Converts a sqrt price ratio to its corresponding tick
 /// @dev Computes log2 via one normalization + atanh series (no per-bit squaring loop)

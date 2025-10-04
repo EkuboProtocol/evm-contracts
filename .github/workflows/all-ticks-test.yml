@@ -1,0 +1,29 @@
+name: All Ticks Test
+
+on:
+  workflow_dispatch:
+
+env:
+  FOUNDRY_PROFILE: all_ticks
+
+jobs:
+  all-ticks-test:
+    name: Run All Ticks Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show Forge version
+        run: |
+          forge --version
+
+      - name: Run All Ticks Test
+        run: |
+          forge test

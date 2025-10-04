@@ -171,11 +171,7 @@ contract SlowTestAllTicksTest is Test {
             fmp := mload(0x40)
         }
 
-        // Initialize to the sqrt ratio just below startingTick to validate monotonic increase
-        // For MIN_TICK, use toSqrtRatio to avoid int32 underflow on (startingTick - 1)
-        SqrtRatio sqrtRatioLast = startingTick > MIN_TICK
-            ? tickToSqrtRatio(startingTick - 1)
-            : toSqrtRatio(tickToSqrtRatio(startingTick).toFixed() - 1, false);
+        SqrtRatio sqrtRatioLast;
         for (int32 i = startingTick; i <= endingTick; i++) {
             // price is always increasing
             SqrtRatio sqrtRatio = tickToSqrtRatio(i);

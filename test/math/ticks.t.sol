@@ -171,7 +171,9 @@ contract SlowTestAllTicksTest is Test {
             fmp := mload(0x40)
         }
 
-        SqrtRatio sqrtRatioLast = tickToSqrtRatio(startingTick - 1);
+        SqrtRatio sqrtRatioLast = startingTick > MIN_TICK
+            ? tickToSqrtRatio(startingTick - 1)
+            : toSqrtRatio(tickToSqrtRatio(startingTick).toFixed() - 1, false);
         for (int32 i = startingTick; i <= endingTick; i++) {
             // price is always increasing
             SqrtRatio sqrtRatio = tickToSqrtRatio(i);

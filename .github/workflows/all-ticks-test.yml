@@ -26,4 +26,4 @@ jobs:
 
       - name: Run All Ticks Test
         run: |
-          forge test --match-contract SlowTestAllTicksTest --match-test test_all_tick_values -vv
+          forge test -vv

@@ -17,7 +17,7 @@ error InvalidTick(int32 tick);
 
 /// @notice Converts a tick to its corresponding sqrt price ratio
 /// @dev Uses bit manipulation and precomputed constants for gas efficiency
-/// @dev Optimized to only multiply for set bits using CLZ-based indexing
+/// @dev Optimized to only multiply for set bits using CTZ-based indexing
 /// @param tick The tick to convert (must be within MIN_TICK and MAX_TICK)
 /// @return r The sqrt price ratio corresponding to the tick
 function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {

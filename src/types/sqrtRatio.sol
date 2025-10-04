@@ -59,35 +59,43 @@ uint256 constant MAX_FIXED_VALUE_ROUND_UP =
 // Converts a 64.128 value into the compact SqrtRatio representation
 function toSqrtRatio(uint256 sqrtRatio, bool roundUp) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {
-        let addend := mul(roundUp, 0x3)
+        function compute(sr, ru) -> v {
+            // rup = 0x00...00 when false, 0xff...ff when true
+            let rup := sub(0, ru)
 
-        // lt 2**96 after rounding up
-        switch lt(sqrtRatio, sub(0x1000000000000000000000000, addend))
-        case 1 { r := shr(2, add(sqrtRatio, addend)) }
-        default {
-            // 2**34 - 1
-            addend := mul(roundUp, 0x3ffffffff)
-            // lt 2**128 after rounding up
-            switch lt(sqrtRatio, sub(0x100000000000000000000000000000000, addend))
-            case 1 { r := or(TWO_POW_94, shr(34, add(sqrtRatio, addend))) }
-            default {
-                addend := mul(roundUp, 0x3ffffffffffffffff)
-                // lt 2**160 after rounding up
-                switch lt(sqrtRatio, sub(0x10000000000000000000000000000000000000000, addend))
-                case 1 { r := or(TWO_POW_95, shr(66, add(sqrtRatio, addend))) }
-                default {
-                    // 2**98 - 1
-                    addend := mul(roundUp, 0x3ffffffffffffffffffffffff)
-                    switch lt(sqrtRatio, sub(0x1000000000000000000000000000000000000000000000000, addend))
-                    case 1 { r := or(BIT_MASK, shr(98, add(sqrtRatio, addend))) }
-                    default {
-                        // cast sig "ValueOverflowsSqrtRatioContainer()"
-                        mstore(0, shl(224, 0xa10459f4))
-                        revert(0, 4)
-                    }
-                }
+            // Region: < 2**96  (shift = 2)
+            let addmask := and(0x3, rup) // (1<<s)-1 if ru
+            if lt(add(sr, addmask), shl(96, 1)) {
+                v := shr(2, add(sr, addmask))
+                leave
             }
+
+            // Region: < 2**128 (shift = 34)  + set bit 94
+            addmask := and(0x3ffffffff, rup)
+            if lt(add(sr, addmask), shl(128, 1)) {
+                v := or(shl(94, 1), shr(34, add(sr, addmask)))
+                leave
+            }
+
+            // Region: < 2**160 (shift = 66)  + set bit 95
+            addmask := and(0x3ffffffffffffffff, rup)
+            if lt(add(sr, addmask), shl(160, 1)) {
+                v := or(shl(95, 1), shr(66, add(sr, addmask)))
+                leave
+            }
+
+            // Region: < 2**192 (shift = 98)  + set bits 95|94
+            addmask := and(0x3ffffffffffffffffffffffff, rup)
+            if lt(add(sr, addmask), shl(192, 1)) {
+                v := or(shl(94, 3), shr(98, add(sr, addmask))) // 3<<94 == bit95|bit94
+                leave
+            }
+
+            // cast sig "ValueOverflowsSqrtRatioContainer()"
+            mstore(0, shl(224, 0xa10459f4))
+            revert(0, 4)
         }
+        r := compute(sqrtRatio, roundUp)
     }
 }
 

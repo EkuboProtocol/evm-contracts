@@ -3,13 +3,7 @@ src = "src"
 out = "out"
 libs = ["lib"]
 verbosity = 3
-
-# cbor_metadata = false
-# bytecode_hash = "none"
-
-# to run the test that checks the ticks invariant for all possible tick values, uncomment these two lines
-# gas_limit = "18446744073709551615"
-# memory_limit = 10000000000
+no_match_contract = "SlowTest"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
@@ -42,3 +36,10 @@ max_test_rejects = 1000000
 
 [profile.superfuzz.invariant]
 runs = 1024
+
+[profile.all_ticks]
+no_match_contract = "n/a"
+verbosity = 0
+gas_limit = "18446744073709551615"
+match_test = "test_all_tick_values"
+match_contract = "SlowTestAllTicksTest"

@@ -15,6 +15,11 @@ import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
 /// @param tick The invalid tick value
 error InvalidTick(int32 tick);
 
+// Table of constants for tickToSqrtRatio, bits 1-26
+// Each 32-byte word represents sqrt(1.000001^(2^i)) in Q128 format
+bytes constant TICK_CONSTANTS =
+    hex"00000000000000000000000000000000ffffef390978c398134b4ff3764fe41000000000000000000000000000000000ffffde72140b00a354bd3dc828e976c900000000000000000000000000000000ffffbce42c7be6c998ad6318193c0b1800000000000000000000000000000000ffff79c86a8f6150a32d9778eceef97c00000000000000000000000000000000fffef3911b7cff24ba1b3dbb5f8f597400000000000000000000000000000000fffde72350725cc4ea8feece3b5f13c800000000000000000000000000000000fffbce4b06c196e9247ac87695d53c6000000000000000000000000000000000fff79ca7a4d1bf1ee8556cea23cdbaa500000000000000000000000000000000ffef3995a5b6a6267530f207142a576400000000000000000000000000000000ffde7444b28145508125d10077ba83b800000000000000000000000000000000ffbceceeb791747f10df216f2e53ec5700000000000000000000000000000000ff79eb706b9a64c6431d76e63531e92900000000000000000000000000000000fef41d1a5f2ae3a20676bec6f7f9459a00000000000000000000000000000000fde95287d26d81bea159c37073122c7300000000000000000000000000000000fbd701c7cbc4c8a6bb81efd232d1e4e700000000000000000000000000000000f7bf5211c72f5185f372aeb1d48f937e00000000000000000000000000000000efc2bf59df33ecc28125cf78ec4f167f00000000000000000000000000000000e08d35706200796273f0b3a981d90cfd00000000000000000000000000000000c4f76b68947482dc198a48a54348c4ed00000000000000000000000000000000978bcb9894317807e5fa4498eee7c0fa0000000000000000000000000000000059b63684b86e9f486ec54727371ba6ca000000000000000000000000000000001f703399d88f6aa83a28b22d4a1f56e30000000000000000000000000000000003dc5dac7376e20fc8679758d1bcdcfc00000000000000000000000000000000000ee7e32d61fdb0a5e622b820f681d000000000000000000000000000000000000000de2ee4bc381afa7089aa84bb6600000000000000000000000000000000000000000000c0d55d4d7152c25fb139";
+
 /// @notice Converts a tick to its corresponding sqrt price ratio
 /// @dev Uses bit manipulation and precomputed constants for gas efficiency
 /// @dev Optimized to only multiply for set bits using CTZ-based indexing
@@ -25,42 +30,16 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
         uint256 t = FixedPointMathLib.abs(tick);
         if (t > MAX_TICK_MAGNITUDE) revert InvalidTick(tick);
 
+        // Load the constant table into memory
+        bytes memory constants = TICK_CONSTANTS;
+
         uint256 ratio;
         assembly ("memory-safe") {
             // bit 0 is handled with a single conditional subtract from 2^128
             ratio := sub(0x100000000000000000000000000000000, mul(and(t, 0x1), 0x8637b66cd638344daef276cd7c5))
 
-            // Allocate memory for the constant table and store all 26 constants once
-            // Each constant represents sqrt(1.000001^(2^i)) in Q128 format for bits 1-26
-            let tablePtr := mload(0x40)
-            mstore(0x40, add(tablePtr, 0x340)) // Reserve 26 * 32 bytes = 832 bytes (0x340)
-
-            mstore(add(tablePtr, 0x00), 0xffffef390978c398134b4ff3764fe410)
-            mstore(add(tablePtr, 0x20), 0xffffde72140b00a354bd3dc828e976c9)
-            mstore(add(tablePtr, 0x40), 0xffffbce42c7be6c998ad6318193c0b18)
-            mstore(add(tablePtr, 0x60), 0xffff79c86a8f6150a32d9778eceef97c)
-            mstore(add(tablePtr, 0x80), 0xfffef3911b7cff24ba1b3dbb5f8f5974)
-            mstore(add(tablePtr, 0xa0), 0xfffde72350725cc4ea8feece3b5f13c8)
-            mstore(add(tablePtr, 0xc0), 0xfffbce4b06c196e9247ac87695d53c60)
-            mstore(add(tablePtr, 0xe0), 0xfff79ca7a4d1bf1ee8556cea23cdbaa5)
-            mstore(add(tablePtr, 0x100), 0xffef3995a5b6a6267530f207142a5764)
-            mstore(add(tablePtr, 0x120), 0xffde7444b28145508125d10077ba83b8)
-            mstore(add(tablePtr, 0x140), 0xffbceceeb791747f10df216f2e53ec57)
-            mstore(add(tablePtr, 0x160), 0xff79eb706b9a64c6431d76e63531e929)
-            mstore(add(tablePtr, 0x180), 0xfef41d1a5f2ae3a20676bec6f7f9459a)
-            mstore(add(tablePtr, 0x1a0), 0xfde95287d26d81bea159c37073122c73)
-            mstore(add(tablePtr, 0x1c0), 0xfbd701c7cbc4c8a6bb81efd232d1e4e7)
-            mstore(add(tablePtr, 0x1e0), 0xf7bf5211c72f5185f372aeb1d48f937e)
-            mstore(add(tablePtr, 0x200), 0xefc2bf59df33ecc28125cf78ec4f167f)
-            mstore(add(tablePtr, 0x220), 0xe08d35706200796273f0b3a981d90cfd)
-            mstore(add(tablePtr, 0x240), 0xc4f76b68947482dc198a48a54348c4ed)
-            mstore(add(tablePtr, 0x260), 0x978bcb9894317807e5fa4498eee7c0fa)
-            mstore(add(tablePtr, 0x280), 0x59b63684b86e9f486ec54727371ba6ca)
-            mstore(add(tablePtr, 0x2a0), 0x1f703399d88f6aa83a28b22d4a1f56e3)
-            mstore(add(tablePtr, 0x2c0), 0x3dc5dac7376e20fc8679758d1bcdcfc)
-            mstore(add(tablePtr, 0x2e0), 0xee7e32d61fdb0a5e622b820f681d0)
-            mstore(add(tablePtr, 0x300), 0xde2ee4bc381afa7089aa84bb66)
-            mstore(add(tablePtr, 0x320), 0xc0d55d4d7152c25fb139)
+            // Get pointer to the constants data (skip the length prefix)
+            let tablePtr := add(constants, 0x20)
 
             // Load constant from table at given index (1-based, so subtract 1)
             function tableLoad(tblPtr, idx) -> c {

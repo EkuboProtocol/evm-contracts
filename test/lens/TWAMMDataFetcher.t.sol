@@ -5,9 +5,10 @@ import {BaseOrdersTest} from "../Orders.t.sol";
 import {PoolState, TWAMMDataFetcher, getAllValidFutureTimes} from "../../src/lens/TWAMMDataFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
-import {isTimeValid, nextValidTime} from "../../src/math/time.sol";
+import {isTimeValid, nextValidTime, MAX_NUM_VALID_TIMES} from "../../src/math/time.sol";
 import {OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {createOrderConfig} from "../../src/types/orderConfig.sol";
 
 contract TWAMMDataFetcherTest is BaseOrdersTest {
     TWAMMDataFetcher internal tdf;
@@ -17,9 +18,9 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         tdf = new TWAMMDataFetcher(core, twamm);
     }
 
-    function test_getAllValidFutureTimes_invariants(uint256 currentTime) public pure {
-        currentTime = bound(currentTime, 0, type(uint256).max - type(uint32).max);
-        uint256[] memory times = getAllValidFutureTimes(currentTime);
+    function test_getAllValidFutureTimes_invariants(uint64 currentTime) public pure {
+        currentTime = uint64(bound(currentTime, 0, type(uint64).max - type(uint32).max));
+        uint64[] memory times = getAllValidFutureTimes(currentTime);
 
         assertGt(times[0], currentTime);
         assertLe(times[0], currentTime + 16);
@@ -31,11 +32,11 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             assertTrue(isTimeValid(currentTime, times[i]), "valid");
         }
 
-        assertTrue(times.length == 105 || times.length == 106);
+        assertTrue(times.length == MAX_NUM_VALID_TIMES - 1 || times.length == MAX_NUM_VALID_TIMES);
     }
 
     function test_getAllValidFutureTimes_example() public pure {
-        uint256[] memory times = getAllValidFutureTimes(1);
+        uint64[] memory times = getAllValidFutureTimes(1);
         assertEq(times[0], 16);
         assertEq(times[1], 32);
         assertEq(times[14], 240);
@@ -78,7 +79,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         uint256 lastTime;
         while (true) {
             uint256 endTime = nextValidTime(time, startTime);
-            if (endTime == 0) break;
+            if (endTime == 0 || endTime > type(uint64).max) break;
             lastTime = FixedPointMathLib.max(endTime, lastTime);
 
             orders.mintAndIncreaseSellAmount(
@@ -86,16 +87,12 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
                     ? OrderKey({
                         sellToken: address(token0),
                         buyToken: address(token1),
-                        fee: fee,
-                        startTime: startTime,
-                        endTime: endTime
+                        config: createOrderConfig({_fee: fee, _startTime: uint64(startTime), _endTime: uint64(endTime)})
                     })
                     : OrderKey({
                         sellToken: address(token1),
                         buyToken: address(token0),
-                        fee: fee,
-                        startTime: startTime,
-                        endTime: endTime
+                        config: createOrderConfig({_fee: fee, _startTime: uint64(startTime), _endTime: uint64(endTime)})
                     }),
                 10000,
                 type(uint112).max
@@ -104,15 +101,15 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             ordersPlaced++;
 
             startTime = nextValidTime(time, endTime);
-            if (startTime == 0) break;
+            if (startTime == 0 || startTime > type(uint64).max) break;
 
             lastTime = FixedPointMathLib.max(startTime, lastTime);
         }
 
         PoolState memory result = tdf.getPoolState(poolKey);
-        assertEq(result.saleRateDeltas.length, 106);
+        assertEq(result.saleRateDeltas.length, MAX_NUM_VALID_TIMES);
         assertEq(result.liquidity, 0);
-        assertEq(result.saleRateDeltas[105].time, lastTime);
+        assertEq(result.saleRateDeltas[MAX_NUM_VALID_TIMES - 1].time, lastTime);
 
         for (uint256 i = 1; i < result.saleRateDeltas.length; i += 2) {
             int256 delta;
@@ -139,7 +136,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         assertEq(result.saleRateDeltas.length, 0);
     }
 
-    function test_getPoolState_pool_with_orders_no_time_advance(uint256 time) public {
+    function test_getPoolState_pool_with_orders_no_time_advance(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -150,9 +147,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             OrderKey({
                 sellToken: address(token0),
                 buyToken: address(token1),
-                fee: 1000,
-                startTime: 0,
-                endTime: time + 15
+                config: createOrderConfig({_fee: 1000, _startTime: 0, _endTime: time + 15})
             }),
             10000,
             type(uint112).max
@@ -162,9 +157,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             OrderKey({
                 sellToken: address(token1),
                 buyToken: address(token0),
-                fee: 1000,
-                startTime: time + 31,
-                endTime: time + 255
+                config: createOrderConfig({_fee: 1000, _startTime: time + 31, _endTime: time + 255})
             }),
             25000,
             type(uint112).max

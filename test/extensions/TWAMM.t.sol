@@ -31,8 +31,8 @@ abstract contract BaseTWAMMTest is FullTest {
         twamm = TWAMM(deployAddress);
     }
 
-    function boundTime(uint256 time, uint32 offset) internal pure returns (uint256) {
-        return ((bound(time, offset, type(uint256).max - type(uint32).max - (2 * uint256(offset))) / 16) * 16) + offset;
+    function boundTime(uint256 time, uint32 offset) internal pure returns (uint64) {
+        return uint64(((bound(time, offset, type(uint64).max - type(uint32).max - 2 * offset) / 16) * 16) + offset);
     }
 
     function createTwammPool(uint64 fee, int32 tick) internal returns (PoolKey memory poolKey) {
@@ -113,7 +113,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
             assertEq(pk.token0, orderKey.sellToken);
             assertEq(pk.token1, orderKey.buyToken);
         }
-        assertEq(pk.fee(), orderKey.fee);
+        assertEq(pk.fee(), orderKey.fee());
         assertEq(pk.tickSpacing(), 0);
         assertEq(pk.extension(), twamm);
     }

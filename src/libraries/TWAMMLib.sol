@@ -65,20 +65,22 @@ library TWAMMLib {
             uint256 _rewardRateSnapshot = rewardRateSnapshot(twamm, owner, salt, orderId);
 
             if (saleRate != 0) {
+                (uint64 startTime, uint64 endTime) = (orderKey.startTime(), orderKey.endTime());
+
                 uint256 rewardRateInside = twamm.getRewardRateInside(
-                    poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
+                    poolKey.toPoolId(), startTime, endTime, orderKey.sellToken < orderKey.buyToken
                 );
 
                 purchasedAmount = computeRewardAmount(rewardRateInside - _rewardRateSnapshot, saleRate);
 
-                if (block.timestamp > orderKey.startTime) {
+                if (block.timestamp > startTime) {
                     uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
 
-                    uint32 secondsSinceOrderStart = uint32(block.timestamp - orderKey.startTime);
+                    uint32 secondsSinceOrderStart = uint32(block.timestamp - startTime);
 
-                    uint32 totalOrderDuration = uint32(orderKey.endTime - orderKey.startTime);
+                    uint32 totalOrderDuration = uint32(endTime - startTime);
 
-                    uint32 remainingTimeSinceLastUpdate = uint32(orderKey.endTime) - lastUpdateTime;
+                    uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
 
                     uint32 saleDuration = uint32(
                         FixedPointMathLib.min(
@@ -93,10 +95,10 @@ library TWAMMLib {
                     amountSold +=
                         computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false});
                 }
-                if (block.timestamp < orderKey.endTime) {
+                if (block.timestamp < endTime) {
                     remainingSellAmount = computeAmountFromSaleRate({
                         saleRate: saleRate,
-                        duration: uint32(orderKey.endTime - FixedPointMathLib.max(orderKey.startTime, block.timestamp)),
+                        duration: uint32(endTime - FixedPointMathLib.max(startTime, block.timestamp)),
                         roundUp: true
                     });
                 }

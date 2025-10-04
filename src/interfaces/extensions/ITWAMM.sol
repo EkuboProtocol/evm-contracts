@@ -54,7 +54,7 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @param endTime End time of the range
     /// @param isToken1 True if calculating for token1, false for token0
     /// @return result The reward rate inside the specified range
-    function getRewardRateInside(PoolId poolId, uint256 startTime, uint256 endTime, bool isToken1)
+    function getRewardRateInside(PoolId poolId, uint64 startTime, uint64 endTime, bool isToken1)
         external
         view
         returns (uint256 result);

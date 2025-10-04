@@ -146,7 +146,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         rb.approveMax(address(token0));
 
-        (uint256 endTime, uint112 saleRate) = rb.roll(address(token0));
+        (uint64 endTime, uint112 saleRate) = rb.roll(address(token0));
         assertEq(endTime, 3840);
         assertEq(saleRate, 1118772413649387861422245);
 
@@ -180,7 +180,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         buybacksToken.approve(address(positions), 1e18);
         positions.mintAndDeposit{value: 1e18}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
-        (uint256 endTime, uint112 saleRate) = rb.roll(address(0));
+        (uint64 endTime, uint112 saleRate) = rb.roll(address(0));
         assertEq(endTime, 3840);
         assertEq(saleRate, 1118772413649387861422245);
 
@@ -207,12 +207,12 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
     function test_roll_timing(
         bool isEth,
-        uint256 startTime,
+        uint64 startTime,
         uint32 targetOrderDuration,
         uint32 minOrderDuration,
         uint64 poolFee
     ) public {
-        startTime = bound(startTime, 0, type(uint256).max - type(uint64).max);
+        startTime = uint64(bound(startTime, 0, type(uint64).max / 2));
         targetOrderDuration = uint32(bound(targetOrderDuration, 1, type(uint16).max));
         minOrderDuration = uint32(bound(minOrderDuration, 1, targetOrderDuration));
 
@@ -243,27 +243,27 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         buybacksToken.approve(address(positions), 1e18);
         positions.mintAndDeposit{value: isEth ? 1e18 : 0}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
-        (uint256 endTime,) = rb.roll(token);
+        (uint64 endTime,) = rb.roll(token);
         assertGt(endTime, startTime, "end time gt");
         assertGe(endTime - startTime, minOrderDuration, "min order duration 2");
         assertGe(endTime - startTime, targetOrderDuration, "target order duration 2");
 
-        uint256 timeSameRoll = endTime - minOrderDuration;
+        uint64 timeSameRoll = endTime - minOrderDuration;
         assertGe(timeSameRoll, startTime, "time for same roll is g.t.e than start time");
 
         vm.warp(timeSameRoll);
         donate(token, 1e18);
 
-        (uint256 endTime2,) = rb.roll(token);
+        (uint64 endTime2,) = rb.roll(token);
         assertEq(endTime2, endTime, "end time eq");
 
-        uint256 timeNext = timeSameRoll + 1;
+        uint64 timeNext = timeSameRoll + 1;
         assertGt(timeNext, startTime, "time next is greater than start");
 
         vm.warp(timeNext);
         donate(token, 1e18);
 
-        (uint256 endTime3,) = rb.roll(token);
+        (uint64 endTime3,) = rb.roll(token);
         assertGt(endTime3, endTime, "end time gt 3");
         assertGe(endTime3 - timeNext, minOrderDuration, "min order duration 3");
         assertGe(endTime3 - timeNext, targetOrderDuration, "target order duration 3");
@@ -271,7 +271,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         timeNext = endTime3 + 1;
         vm.warp(timeNext);
         donate(token, 1e18);
-        (uint256 endTime4,) = rb.roll(token);
+        (uint64 endTime4,) = rb.roll(token);
         assertGt(endTime4, endTime3);
         assertGe(endTime4 - timeNext, minOrderDuration, "min order duration 4");
         assertGe(endTime4 - timeNext, targetOrderDuration, "target order duration 4");
@@ -279,7 +279,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         timeNext = endTime4 + type(uint32).max + 1;
         vm.warp(timeNext);
         donate(token, 1e18);
-        (uint256 endTime5,) = rb.roll(token);
+        (uint64 endTime5,) = rb.roll(token);
         assertGt(endTime5, endTime4);
         assertGe(endTime5 - timeNext, minOrderDuration, "min order duration 4");
         assertGe(endTime5 - timeNext, targetOrderDuration, "target order duration 4");

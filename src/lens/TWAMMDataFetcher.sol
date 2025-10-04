@@ -14,15 +14,17 @@ import {PoolId} from "../types/poolId.sol";
 import {TimeInfo} from "../types/timeInfo.sol";
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 
-function getAllValidFutureTimes(uint256 currentTime) pure returns (uint256[] memory times) {
+function getAllValidFutureTimes(uint64 currentTime) pure returns (uint64[] memory times) {
     unchecked {
-        times = new uint256[](MAX_NUM_VALID_TIMES);
+        times = new uint64[](MAX_NUM_VALID_TIMES);
         uint256 count = 0;
-        uint256 t = currentTime;
+        uint64 t = currentTime;
 
         while (true) {
-            t = nextValidTime(currentTime, t);
-            if (t == 0) break;
+            uint256 nextTime = nextValidTime(currentTime, t);
+            if (nextTime == 0 || nextTime > type(uint64).max) break;
+
+            t = uint64(nextTime);
             times[count++] = t;
         }
 
@@ -33,7 +35,7 @@ function getAllValidFutureTimes(uint256 currentTime) pure returns (uint256[] mem
 }
 
 struct TimeSaleRateInfo {
-    uint256 time;
+    uint64 time;
     int112 saleRateDelta0;
     int112 saleRateDelta1;
 }
@@ -42,7 +44,7 @@ struct PoolState {
     SqrtRatio sqrtRatio;
     int32 tick;
     uint128 liquidity;
-    uint256 lastVirtualOrderExecutionTime;
+    uint64 lastVirtualOrderExecutionTime;
     uint112 saleRateToken0;
     uint112 saleRateToken1;
     TimeSaleRateInfo[] saleRateDeltas;
@@ -64,9 +66,9 @@ contract TWAMMDataFetcher is UsesCore {
             (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
                 TWAMM_EXTENSION.poolState(poolKey.toPoolId()).parse();
 
-            uint256 lastTimeReal = block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime);
+            uint64 lastTimeReal = uint64(block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime));
 
-            uint256[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
+            uint64[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
 
             PoolId poolId = poolKey.toPoolId();
             bytes32[] memory timeInfoSlots = new bytes32[](allValidTimes.length);

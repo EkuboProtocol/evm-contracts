@@ -77,7 +77,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     /// @inheritdoc ITWAMM
-    function getRewardRateInside(PoolId poolId, uint256 startTime, uint256 endTime, bool isToken1)
+    function getRewardRateInside(PoolId poolId, uint64 startTime, uint64 endTime, bool isToken1)
         public
         view
         returns (uint256 result)
@@ -207,11 +207,13 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 (, bytes32 salt, OrderKey memory orderKey, int112 saleRateDelta) =
                     abi.decode(data, (uint256, bytes32, OrderKey, int112));
 
-                if (orderKey.endTime <= block.timestamp) revert OrderAlreadyEnded();
+                (uint64 startTime, uint64 endTime) = (orderKey.startTime(), orderKey.endTime());
+
+                if (endTime <= block.timestamp) revert OrderAlreadyEnded();
 
                 if (
-                    !isTimeValid(block.timestamp, orderKey.startTime) || !isTimeValid(block.timestamp, orderKey.endTime)
-                        || orderKey.startTime >= orderKey.endTime
+                    !isTimeValid(block.timestamp, startTime) || !isTimeValid(block.timestamp, endTime)
+                        || startTime >= endTime
                 ) {
                     revert InvalidTimestamps();
                 }
@@ -230,9 +232,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 OrderState order = OrderState.wrap(orderStateSlot.load());
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
-                uint256 rewardRateInside = getRewardRateInside(
-                    poolId, orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
-                );
+                uint256 rewardRateInside =
+                    getRewardRateInside(poolId, startTime, endTime, orderKey.sellToken < orderKey.buyToken);
 
                 (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
 
@@ -270,10 +271,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                 amountSold
                                     + computeAmountFromSaleRate({
                                         saleRate: saleRate,
-                                        // Factor out block.timestamp
                                         duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime,
-                                            uint32(block.timestamp) - uint32(orderKey.startTime)
+                                            uint32(block.timestamp) - lastUpdateTime, uint32(block.timestamp) - uint32(startTime)
                                         ),
                                         roundUp: false
                                     })
@@ -285,9 +284,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 bool isToken1 = orderKey.sellToken > orderKey.buyToken;
 
-                if (block.timestamp < orderKey.startTime) {
-                    _updateTime(poolId, orderKey.startTime, saleRateDelta, isToken1, numOrdersChange);
-                    _updateTime(poolId, orderKey.endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
+                if (block.timestamp < startTime) {
+                    _updateTime(poolId, startTime, saleRateDelta, isToken1, numOrdersChange);
+                    _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
                 } else {
                     // we know block.timestamp < orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
@@ -312,12 +311,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     currentStateSlot.store(TwammPoolState.unwrap(currentState));
 
                     // only update the end time
-                    _updateTime(poolId, orderKey.endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
+                    _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
                 }
 
                 // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
-                uint256 durationRemaining =
-                    orderKey.endTime - FixedPointMathLib.max(block.timestamp, orderKey.startTime);
+                uint256 durationRemaining = endTime - FixedPointMathLib.max(block.timestamp, startTime);
 
                 // the amount required for executing at the next sale rate for the remaining duration of the order
                 uint256 amountRequired =
@@ -375,7 +373,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
                 uint256 rewardRateInside = getRewardRateInside(
-                    poolId, orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
+                    poolId, orderKey.startTime(), orderKey.endTime(), orderKey.sellToken < orderKey.buyToken
                 );
 
                 uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, order.saleRate());

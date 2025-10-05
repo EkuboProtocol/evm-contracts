@@ -168,66 +168,55 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @notice Returns the pool fees per liquidity inside the given bounds
     /// @dev Internal function that calculates fees per liquidity within position bounds
     /// @param poolId Unique identifier for the pool
+    /// @param tick Current tick of the pool
     /// @param tickLower Lower tick of the price range to get the snapshot of
     /// @param tickLower Upper tick of the price range to get the snapshot of
-    /// @param tickSpacing Tick spacing for the pool
     /// @return feesPerLiquidityInside Accumulated fees per liquidity snapshot inside the bounds. Note this is a relative value.
-    function _getPoolFeesPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper, uint32 tickSpacing)
+    function _getPoolFeesPerLiquidityInside(PoolId poolId, int32 tick, int32 tickLower, int32 tickUpper)
         internal
         view
         returns (FeesPerLiquidity memory feesPerLiquidityInside)
     {
-        if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
-            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+        (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
+            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
+        (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
+            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
+
+        if (tick < tickLower) {
+            // lower - upper
             assembly ("memory-safe") {
-                mstore(feesPerLiquidityInside, sload(fplFirstSlot))
-                mstore(add(feesPerLiquidityInside, 0x20), sload(add(fplFirstSlot, 1)))
+                mstore(feesPerLiquidityInside, sub(sload(lowerFirstSlot), sload(upperFirstSlot)))
+                mstore(add(feesPerLiquidityInside, 0x20), sub(sload(lowerSecondSlot), sload(upperSecondSlot)))
+            }
+        } else if (tick < tickUpper) {
+            // global - lower - upper
+            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+
+            assembly ("memory-safe") {
+                mstore(
+                    feesPerLiquidityInside, sub(sub(sload(fplFirstSlot), sload(upperFirstSlot)), sload(lowerFirstSlot))
+                )
+                mstore(
+                    add(feesPerLiquidityInside, 0x20),
+                    sub(sub(sload(add(fplFirstSlot, 1)), sload(upperSecondSlot)), sload(lowerSecondSlot))
+                )
             }
         } else {
-            int32 tick = readPoolState(poolId).tick();
-
-            (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
-                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
-            (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
-                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
-
-            if (tick < tickLower) {
-                // lower - upper
-                assembly ("memory-safe") {
-                    mstore(feesPerLiquidityInside, sub(sload(lowerFirstSlot), sload(upperFirstSlot)))
-                    mstore(add(feesPerLiquidityInside, 0x20), sub(sload(lowerSecondSlot), sload(upperSecondSlot)))
-                }
-            } else if (tick < tickUpper) {
-                // global - lower - upper
-                bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-
-                assembly ("memory-safe") {
-                    mstore(
-                        feesPerLiquidityInside,
-                        sub(sub(sload(fplFirstSlot), sload(upperFirstSlot)), sload(lowerFirstSlot))
-                    )
-                    mstore(
-                        add(feesPerLiquidityInside, 0x20),
-                        sub(sub(sload(add(fplFirstSlot, 1)), sload(upperSecondSlot)), sload(lowerSecondSlot))
-                    )
-                }
-            } else {
-                // upper - lower
-                assembly ("memory-safe") {
-                    mstore(feesPerLiquidityInside, sub(sload(upperFirstSlot), sload(lowerFirstSlot)))
-                    mstore(add(feesPerLiquidityInside, 0x20), sub(sload(upperSecondSlot), sload(lowerSecondSlot)))
-                }
+            // upper - lower
+            assembly ("memory-safe") {
+                mstore(feesPerLiquidityInside, sub(sload(upperFirstSlot), sload(lowerFirstSlot)))
+                mstore(add(feesPerLiquidityInside, 0x20), sub(sload(upperSecondSlot), sload(lowerSecondSlot)))
             }
         }
     }
 
     /// @inheritdoc ICore
-    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
+    function getPoolFeesPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper)
         external
         view
         returns (FeesPerLiquidity memory)
     {
-        return _getPoolFeesPerLiquidityInside(poolKey.toPoolId(), tickLower, tickUpper, poolKey.tickSpacing());
+        return _getPoolFeesPerLiquidityInside(poolId, readPoolState(poolId).tick(), tickLower, tickUpper);
     }
 
     /// @inheritdoc ICore
@@ -298,6 +287,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
             flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.tickSpacing());
+
+            (bytes32 fplSlot0, bytes32 fplSlot1) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+            assembly ("memory-safe") {
+                // initialize the storage slots for the fees per liquidity outside to non-zero so tick crossing is cheaper
+                sstore(fplSlot0, gt(liquidityNetNext, 0))
+                sstore(fplSlot1, gt(liquidityNetNext, 0))
+            }
         }
 
         ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
@@ -375,28 +371,27 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 position.slot := positionSlot
             }
 
-            FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
-            );
-
-            (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
-
             uint128 liquidityNext = addLiquidityDelta(position.liquidity, liquidityDelta);
 
-            if (liquidityNext != 0) {
-                position.liquidity = liquidityNext;
-                position.feesPerLiquidityInsideLast =
-                    feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
-            } else {
-                if (fees0 != 0 || fees1 != 0) revert MustCollectFeesBeforeWithdrawingAllLiquidity();
-                if (position.extraData != bytes16(0)) revert ExtraDataMustBeEmpty();
-                position.liquidity = 0;
-                position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
-            }
+            FeesPerLiquidity memory feesPerLiquidityInside;
 
             if (!poolKey.isFullRange()) {
+                // the position is fully withdrawn
+                if (liquidityNext == 0) {
+                    // we need to fetch it before the tick fees per liquidity outside is deleted
+                    feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
+                        poolId, state.tick(), positionId.tickLower(), positionId.tickUpper()
+                    );
+                }
+
                 _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
                 _updateTick(poolId, positionId.tickUpper(), poolKey.config, liquidityDelta, true);
+
+                if (liquidityNext != 0) {
+                    feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
+                        poolId, state.tick(), positionId.tickLower(), positionId.tickUpper()
+                    );
+                }
 
                 if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
                     state = createPoolState({
@@ -413,6 +408,21 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
                 });
                 writePoolState(poolId, state);
+                bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+                assembly ("memory-safe") {
+                    mstore(feesPerLiquidityInside, sload(fplFirstSlot))
+                    mstore(add(feesPerLiquidityInside, 0x20), sload(add(fplFirstSlot, 1)))
+                }
+            }
+
+            (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
+
+            position.liquidity = liquidityNext;
+            if (liquidityNext == 0) {
+                position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
+            } else {
+                position.feesPerLiquidityInsideLast =
+                    feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
             }
 
             _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
@@ -456,9 +466,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             position.slot := positionSlot
         }
 
-        FeesPerLiquidity memory feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-            poolId, positionId.tickLower(), positionId.tickUpper(), poolKey.tickSpacing()
-        );
+        FeesPerLiquidity memory feesPerLiquidityInside;
+        if (poolKey.isFullRange()) {
+            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+            assembly ("memory-safe") {
+                mstore(feesPerLiquidityInside, sload(fplFirstSlot))
+                mstore(add(feesPerLiquidityInside, 0x20), sload(add(fplFirstSlot, 1)))
+            }
+        } else {
+            feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
+                poolId, readPoolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
+            );
+        }
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 

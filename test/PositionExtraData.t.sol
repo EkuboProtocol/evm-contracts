@@ -103,11 +103,10 @@ contract PositionExtraDataTest is Test {
         assertEq(position.liquidity, liquidity, "liquidity should still equal what we set");
     }
 
-    function test_updatePosition_extraData_must_be_zero_when_withdrawing_all(
+    function test_updatePosition_extraData_stays_when_position_liquidity_is_set_to_zero(
         uint128 liquidity,
         bytes16 extraDataNonZero
     ) public {
-        vm.assume(extraDataNonZero != bytes16(0));
         liquidity = uint128(bound(liquidity, 1, type(uint64).max));
 
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
@@ -116,8 +115,13 @@ contract PositionExtraDataTest is Test {
 
         locker.setExtraData(poolKey.toPoolId(), positionId, extraDataNonZero);
 
-        vm.expectRevert(ICore.ExtraDataMustBeEmpty.selector);
         locker.doLock(abi.encode(poolKey, positionId, -int128(liquidity)));
+
+        Position memory position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
+        assertEq(position.liquidity, 0);
+        assertEq(position.extraData, extraDataNonZero);
+        assertEq(position.feesPerLiquidityInsideLast.value0, 0);
+        assertEq(position.feesPerLiquidityInsideLast.value1, 0);
     }
 
     /// forge-config: default.isolate = true

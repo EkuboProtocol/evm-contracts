@@ -7,6 +7,8 @@ import {FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {ITWAMM, TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {OrderKey} from "../../src/interfaces/extensions/ITWAMM.sol";
+import {TWAMMStorageLayout} from "../../src/libraries/TWAMMStorageLayout.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {Core} from "../../src/Core.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
@@ -17,6 +19,7 @@ import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {createTimeInfo} from "../../src/types/timeInfo.sol";
 import {TwammPoolState} from "../../src/types/twammPoolState.sol";
+import {TimeInfo} from "../../src/types/timeInfo.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -28,8 +31,8 @@ abstract contract BaseTWAMMTest is FullTest {
         twamm = TWAMM(deployAddress);
     }
 
-    function boundTime(uint256 time, uint32 offset) internal pure returns (uint256) {
-        return ((bound(time, offset, type(uint256).max - type(uint32).max - (2 * uint256(offset))) / 16) * 16) + offset;
+    function boundTime(uint256 time, uint32 offset) internal pure returns (uint64) {
+        return uint64(((bound(time, offset, type(uint64).max - type(uint32).max - 2 * offset) / 16) * 16) + offset);
     }
 
     function createTwammPool(uint64 fee, int32 tick) internal returns (PoolKey memory poolKey) {
@@ -95,8 +98,6 @@ contract TWAMMTest is BaseTWAMMTest {
 
 // Note the inheritance order matters because Test contains storage variables
 contract TWAMMInternalMethodsTests is TWAMM, Test {
-    using {searchForNextInitializedTime, flipTime} for mapping(uint256 word => Bitmap bitmap);
-
     constructor() TWAMM(new Core()) {}
 
     function _registerInConstructor() internal pure override returns (bool) {
@@ -112,7 +113,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
             assertEq(pk.token0, orderKey.sellToken);
             assertEq(pk.token1, orderKey.buyToken);
         }
-        assertEq(pk.fee(), orderKey.fee);
+        assertEq(pk.fee(), orderKey.fee());
         assertEq(pk.tickSpacing(), 0);
         assertEq(pk.extension(), twamm);
     }
@@ -152,23 +153,33 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         vm.warp(150);
         assertEq(getRewardRateInside(poolId, 100, 200, false), 0);
 
-        poolRewardRates[poolId] = FeesPerLiquidity(100, 75);
+        StorageSlot rewardRatesSlot = StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId));
+
+        rewardRatesSlot.storeTwo(bytes32(uint256(100)), bytes32(uint256(75)));
         assertEq(getRewardRateInside(poolId, 100, 200, false), 100);
 
-        poolRewardRates[poolId] = FeesPerLiquidity(300, 450);
-        poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(150, 150);
+        rewardRatesSlot.storeTwo(bytes32(uint256(300)), bytes32(uint256(450)));
+        StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, 200)).storeTwo(
+            bytes32(uint256(150)), bytes32(uint256(150))
+        );
         vm.warp(250);
         assertEq(getRewardRateInside(poolId, 100, 200, false), 150);
 
-        poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(50, 100);
+        StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, 100)).storeTwo(
+            bytes32(uint256(50)), bytes32(uint256(100))
+        );
         assertEq(getRewardRateInside(poolId, 100, 200, false), 100);
     }
 
     function testgetRewardRateInside_at_end_time() public {
         PoolId poolId = PoolId.wrap(bytes32(0));
 
-        poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(25, 30);
-        poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(50, 75);
+        StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, 100)).storeTwo(
+            bytes32(uint256(25)), bytes32(uint256(30))
+        );
+        StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, 200)).storeTwo(
+            bytes32(uint256(50)), bytes32(uint256(75))
+        );
         vm.warp(200);
         assertEq(getRewardRateInside(poolId, 100, 200, false), 25);
         assertEq(getRewardRateInside(poolId, 100, 200, true), 45);
@@ -183,15 +194,21 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         vm.warp(150);
         assertEq(getRewardRateInside(poolId, 100, 200, true), 0);
 
-        poolRewardRates[poolId] = FeesPerLiquidity(100, 75);
+        StorageSlot rewardRatesSlot = StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId));
+
+        rewardRatesSlot.storeTwo(bytes32(uint256(100)), bytes32(uint256(75)));
         assertEq(getRewardRateInside(poolId, 100, 200, true), 75);
 
-        poolRewardRates[poolId] = FeesPerLiquidity(300, 450);
-        poolRewardRatesBefore[poolId][200] = FeesPerLiquidity(150, 160);
+        rewardRatesSlot.storeTwo(bytes32(uint256(300)), bytes32(uint256(450)));
+        StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, 200)).storeTwo(
+            bytes32(uint256(150)), bytes32(uint256(160))
+        );
         vm.warp(250);
         assertEq(getRewardRateInside(poolId, 100, 200, true), 160);
 
-        poolRewardRatesBefore[poolId][100] = FeesPerLiquidity(50, 100);
+        StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, 100)).storeTwo(
+            bytes32(uint256(50)), bytes32(uint256(100))
+        );
         assertEq(getRewardRateInside(poolId, 100, 200, true), 60);
     }
 
@@ -200,11 +217,19 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
 
-        assertEq(poolTimeInfos[poolId][96].numOrders(), 1);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0(), 100);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1(), 0);
+        {
+            (uint32 numOrders, int112 delta0, int112 delta1) =
+                TimeInfo.wrap(StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 96)).load()).parse();
 
-        (uint256 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+            assertEq(numOrders, 1);
+            assertEq(delta0, 100);
+            assertEq(delta1, 0);
+        }
+
+        StorageSlot initializedTimesBitmap = StorageSlot.wrap(TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId));
+
+        (uint256 time, bool initialized) = searchForNextInitializedTime({
+            slot: initializedTimesBitmap,
             lastVirtualOrderExecutionTime: 0,
             fromTime: 30,
             untilTime: 1000
@@ -214,7 +239,8 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
-        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+        (time, initialized) = searchForNextInitializedTime({
+            slot: initializedTimesBitmap,
             lastVirtualOrderExecutionTime: 0,
             fromTime: 30,
             untilTime: 1000
@@ -229,11 +255,19 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 55, isToken1: true, numOrdersChange: 1});
 
-        assertEq(poolTimeInfos[poolId][96].numOrders(), 2);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken0(), 100);
-        assertEq(poolTimeInfos[poolId][96].saleRateDeltaToken1(), 55);
+        {
+            (uint32 numOrders, int112 delta0, int112 delta1) =
+                TimeInfo.wrap(StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 96)).load()).parse();
 
-        (uint256 time, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+            assertEq(numOrders, 2);
+            assertEq(delta0, 100);
+            assertEq(delta1, 55);
+        }
+
+        StorageSlot initializedTimesBitmap = StorageSlot.wrap(TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId));
+
+        (uint256 time, bool initialized) = searchForNextInitializedTime({
+            slot: initializedTimesBitmap,
             lastVirtualOrderExecutionTime: 0,
             fromTime: 30,
             untilTime: 1000
@@ -243,7 +277,8 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
-        (time, initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+        (time, initialized) = searchForNextInitializedTime({
+            slot: initializedTimesBitmap,
             lastVirtualOrderExecutionTime: 0,
             fromTime: 30,
             untilTime: 1000
@@ -256,7 +291,9 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     function test_updateTime_reverts_if_max_num_orders_exceeded() public {
         PoolId poolId = PoolId.wrap(bytes32(0));
 
-        poolTimeInfos[poolId][96] = createTimeInfo(type(uint32).max, 0, 0);
+        StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 96)).store(
+            TimeInfo.unwrap(createTimeInfo(type(uint32).max, 0, 0))
+        );
         vm.expectRevert(ITWAMM.TimeNumOrdersOverflow.selector);
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
     }
@@ -272,20 +309,21 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     /// forge-config: default.allow_internal_expect_revert = true
     function test_updateTime_reverts_if_max_sale_rate_delta_exceeded() public {
         PoolId poolId = PoolId.wrap(bytes32(0));
+        StorageSlot slot = StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 96));
 
-        poolTimeInfos[poolId][96] = createTimeInfo(0, type(int112).max, 0);
+        slot.store(TimeInfo.unwrap(createTimeInfo(0, type(int112).max, 0)));
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 1, isToken1: false, numOrdersChange: 0});
 
-        poolTimeInfos[poolId][96] = createTimeInfo(0, 0, type(int112).max);
+        slot.store(TimeInfo.unwrap(createTimeInfo(0, 0, type(int112).max)));
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: 1, isToken1: true, numOrdersChange: 0});
 
-        poolTimeInfos[poolId][96] = createTimeInfo(0, type(int112).min, 0);
+        slot.store(TimeInfo.unwrap(createTimeInfo(0, type(int112).min, 0)));
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -1, isToken1: false, numOrdersChange: 0});
 
-        poolTimeInfos[poolId][96] = createTimeInfo(0, 0, type(int112).min);
+        slot.store(TimeInfo.unwrap(createTimeInfo(0, 0, type(int112).min)));
         vm.expectRevert();
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -1, isToken1: true, numOrdersChange: 0});
     }
@@ -298,7 +336,8 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
         _updateTime({poolId: poolId, time: time, saleRateDelta: 1, isToken1: false, numOrdersChange: 1});
 
-        (uint256 nextTime, bool initialized) = poolInitializedTimesBitmap[poolId].searchForNextInitializedTime({
+        (uint256 nextTime, bool initialized) = searchForNextInitializedTime({
+            slot: StorageSlot.wrap(TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId)),
             lastVirtualOrderExecutionTime: time,
             fromTime: time - 15,
             untilTime: time + 15

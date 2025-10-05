@@ -26,6 +26,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {createOrderConfig} from "../src/types/orderConfig.sol";
 
 contract Handler is StdUtils, StdAssertions {
     using CoreLib for *;
@@ -244,15 +245,17 @@ contract Handler is StdUtils, StdAssertions {
             endTime = nextValidTime(vm.getBlockTimestamp(), startTime + approximateDuration);
         }
 
+        if (startTime > type(uint64).max || endTime > type(uint64).max) {
+            return;
+        }
+
         (address sellToken, address buyToken) =
             isToken1 ? (poolKey.token1, poolKey.token0) : (poolKey.token0, poolKey.token1);
 
         OrderKey memory orderKey = OrderKey({
             sellToken: sellToken,
             buyToken: buyToken,
-            fee: poolKey.fee(),
-            startTime: startTime,
-            endTime: endTime
+            config: createOrderConfig({_fee: poolKey.fee(), _startTime: uint64(startTime), _endTime: uint64(endTime)})
         });
 
         try orders.increaseSellAmount(ordersId, orderKey, amount, type(uint112).max) returns (uint112 saleRate) {

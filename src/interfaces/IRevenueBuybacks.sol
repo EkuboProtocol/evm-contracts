@@ -54,7 +54,7 @@ interface IRevenueBuybacks is IExposedStorage {
     /// @param fee The fee tier of the pool where the order was executed
     /// @param endTime The end time of the order to collect proceeds from
     /// @return proceeds The amount of buyToken received from the completed order
-    function collect(address token, uint64 fee, uint256 endTime) external returns (uint128 proceeds);
+    function collect(address token, uint64 fee, uint64 endTime) external returns (uint128 proceeds);
 
     /// @notice Creates a new buyback order or extends an existing one with available revenue
     /// @dev Can be called by anyone to trigger the creation of buyback orders using collected revenue
@@ -62,7 +62,7 @@ interface IRevenueBuybacks is IExposedStorage {
     /// @param token The revenue token to use for creating the buyback order
     /// @return endTime The end time of the order that was created or extended
     /// @return saleRate The sale rate of the order (amount of token sold per second)
-    function roll(address token) external returns (uint256 endTime, uint112 saleRate);
+    function roll(address token) external returns (uint64 endTime, uint112 saleRate);
 
     /// @notice Configures buyback parameters for a revenue token (only callable by owner)
     /// @dev Sets the timing and fee parameters for automated buyback order creation

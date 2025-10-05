@@ -10,14 +10,24 @@ import {PositionId} from "../types/positionId.sol";
 ///      For certain storage values, the pool id is used as a base offset and
 ///      we allocate the following relative offsets (starting from the pool id) as:
 ///        0: pool state
-///        1 + 2: fees per liquidity
+///        [FPL_OFFSET, FPL_OFFSET + 1]: fees per liquidity
 ///        [TICKS_OFFSET + MIN_TICK, TICKS_OFFSET + MAX_TICK]: tick info
-///        [FPL_OUTSIDE_OFFSET + MIN_TICK, 2 * FPL_OUTSIDE_OFFSET + MAX_TICK]: fees per liquidity outside
+///        [FPL_OUTSIDE_OFFSET_VALUE0 + MIN_TICK, FPL_OUTSIDE_OFFSET_VALUE0 + MAX_TICK]: fees per liquidity outside (value0)
+///        [FPL_OUTSIDE_OFFSET_VALUE0 + FPL_OUTSIDE_OFFSET_VALUE1 + MIN_TICK, FPL_OUTSIDE_OFFSET_VALUE0 + FPL_OUTSIDE_OFFSET_VALUE1 + MAX_TICK]: fees per liquidity outside (value1)
 ///        [BITMAPS_OFFSET + FIRST_BITMAP_WORD, BITMAPS_OFFSET + LAST_BITMAP_WORD]: tick bitmaps
 library CoreStorageLayout {
-    uint256 internal constant TICKS_OFFSET = 0xffffffff;
-    uint256 internal constant FPL_OUTSIDE_OFFSET = 0xffffffffff;
-    uint256 internal constant BITMAPS_OFFSET = 0xffffffffffff;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#FPL_OFFSET"
+    uint256 internal constant FPL_OFFSET = 0xb09b03866d96933565a9435bfb511c8ac5b2be454285ca331201452704799f72;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#TICKS_OFFSET"
+    uint256 internal constant TICKS_OFFSET = 0x435a5eb89a296820174331cf5a3902d9fca683928d56726d8e7acd6efb28c568;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#FPL_OUTSIDE_OFFSET_VALUE0"
+    uint256 internal constant FPL_OUTSIDE_OFFSET_VALUE0 =
+        0x5695060fdb9cfea656f872ae4887221aff7dbfefc45eaf753e4e70cdfb5cd19c;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#FPL_OUTSIDE_OFFSET_VALUE1"
+    uint256 internal constant FPL_OUTSIDE_OFFSET_VALUE1 =
+        0x7a2a03fc08af3dae7869678617dc8abe8f15a3b719b37ba108dba879571f8b02;
+    /// @dev Generated using: cast keccak "CoreStorageLayout#BITMAPS_OFFSET"
+    uint256 internal constant BITMAPS_OFFSET = 0x3def450d0010a2fef515ce5eba4b363b5a0f42fdd4c53e1c737975db05a2e3a5;
 
     /// @notice Computes the storage slot containing information on whether an extension is registered
     /// @param extension The extension address to check
@@ -42,7 +52,7 @@ library CoreStorageLayout {
     /// @return firstSlot The first of two consecutive storage slots in the Core contract
     function poolFeesPerLiquiditySlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
         assembly ("memory-safe") {
-            firstSlot := add(poolId, 1)
+            firstSlot := add(poolId, FPL_OFFSET)
         }
     }
 
@@ -56,7 +66,7 @@ library CoreStorageLayout {
         }
     }
 
-    /// @notice Computes the storage slot of the current state of a pool
+    /// @notice Computes the storage slots of the outside fees of a pool for a given tick
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
     /// @return firstSlot The first storage slot in the Core contract
@@ -67,8 +77,8 @@ library CoreStorageLayout {
         returns (bytes32 firstSlot, bytes32 secondSlot)
     {
         assembly ("memory-safe") {
-            firstSlot := add(poolId, add(FPL_OUTSIDE_OFFSET, tick))
-            secondSlot := add(firstSlot, FPL_OUTSIDE_OFFSET)
+            firstSlot := add(poolId, add(FPL_OUTSIDE_OFFSET_VALUE0, tick))
+            secondSlot := add(firstSlot, FPL_OUTSIDE_OFFSET_VALUE1)
         }
     }
 
@@ -81,7 +91,7 @@ library CoreStorageLayout {
         }
     }
 
-    /// @notice Computes the storage slot of the position data for a specific position in a pool
+    /// @notice Computes the first storage slot of the position data for a specific position in a pool
     /// @param poolId The unique identifier for the pool
     /// @param owner The position owner
     /// @param positionId The unique identifier for the position
@@ -92,9 +102,8 @@ library CoreStorageLayout {
         returns (bytes32 firstSlot)
     {
         assembly ("memory-safe") {
-            mstore(0, poolId)
-            mstore(32, positionId)
-            firstSlot := add(keccak256(0, 64), owner)
+            mstore(0, positionId)
+            firstSlot := add(keccak256(0, 32), add(poolId, owner))
         }
     }
 

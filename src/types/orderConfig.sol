@@ -21,7 +21,7 @@ function fee(OrderConfig config) pure returns (uint64 r) {
 /// @return r Whether the order is selling token1
 function isToken1(OrderConfig config) pure returns (bool r) {
     assembly ("memory-safe") {
-        r := byte(8, config)
+        r := iszero(iszero(byte(8, config)))
     }
 }
 
@@ -56,7 +56,7 @@ function createOrderConfig(uint64 _fee, bool _isToken1, uint64 _startTime, uint6
         // Mask inputs to ensure only relevant bits are used
         c :=
             add(
-                add(shl(192, _fee), add(shl(184, byte(31, _isToken1)), shl(64, and(_startTime, 0xffffffffffffffff)))),
+                add(shl(192, _fee), add(shl(184, iszero(iszero(_isToken1))), shl(64, and(_startTime, 0xffffffffffffffff)))),
                 and(_endTime, 0xffffffffffffffff)
             )
     }

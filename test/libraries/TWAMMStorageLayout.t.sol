@@ -91,7 +91,6 @@ contract TWAMMStorageLayoutTest is Test {
     // Test poolTimeInfosSlot uniqueness with different times
     function test_noStorageLayoutCollisions_poolTimeInfosSlot_uniqueness_time(PoolId poolId, uint64 time0, uint64 time1)
         public
-        pure
     {
         vm.assume(time0 != time1);
         bytes32 slot0 = TWAMMStorageLayout.poolTimeInfosSlot(poolId, time0);
@@ -104,7 +103,7 @@ contract TWAMMStorageLayoutTest is Test {
         PoolId poolId0,
         PoolId poolId1,
         uint64 time
-    ) public pure {
+    ) public {
         vm.assume(PoolId.unwrap(poolId0) != PoolId.unwrap(poolId1));
         bytes32 slot0 = TWAMMStorageLayout.poolTimeInfosSlot(poolId0, time);
         bytes32 slot1 = TWAMMStorageLayout.poolTimeInfosSlot(poolId1, time);
@@ -155,7 +154,7 @@ contract TWAMMStorageLayoutTest is Test {
         PoolId poolId,
         uint64 time0,
         uint64 time1
-    ) public pure {
+    ) public {
         vm.assume(time0 != time1);
         bytes32 slot0 = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time0);
         bytes32 slot1 = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time1);
@@ -191,7 +190,7 @@ contract TWAMMStorageLayoutTest is Test {
         PoolId poolId0,
         PoolId poolId1,
         uint64 time
-    ) public pure {
+    ) public {
         vm.assume(PoolId.unwrap(poolId0) != PoolId.unwrap(poolId1));
         bytes32 slot0 = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId0, time);
         bytes32 slot1 = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId1, time);
@@ -261,7 +260,7 @@ contract TWAMMStorageLayoutTest is Test {
         address owner1,
         bytes32 salt,
         bytes32 orderId
-    ) public pure {
+    ) public {
         vm.assume(owner0 != owner1);
         bytes32 slot0 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner0, salt, orderId);
         bytes32 slot1 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner1, salt, orderId);
@@ -277,7 +276,7 @@ contract TWAMMStorageLayoutTest is Test {
         bytes32 salt0,
         bytes32 salt1,
         bytes32 orderId
-    ) public pure {
+    ) public {
         vm.assume(salt0 != salt1);
         bytes32 slot0 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt0, orderId);
         bytes32 slot1 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt1, orderId);
@@ -292,7 +291,7 @@ contract TWAMMStorageLayoutTest is Test {
         bytes32 salt,
         bytes32 orderId0,
         bytes32 orderId1
-    ) public pure {
+    ) public {
         vm.assume(orderId0 != orderId1);
         bytes32 slot0 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId0);
         bytes32 slot1 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId1);
@@ -439,7 +438,7 @@ contract TWAMMStorageLayoutTest is Test {
         address owner,
         bytes32 salt,
         bytes32 orderId
-    ) public pure {
+    ) public {
         vm.assume(time0 != time1);
 
         // Get all the different storage slots

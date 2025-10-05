@@ -28,27 +28,27 @@ import {
 contract CleanedTypesTest is Test {
     // ============ CleanedUint128 Tests ============
 
-    function test_cleanedUint128_castFromNarrow(uint128 value) public pure {
+    function test_cleanedUint128_castFromNarrow(uint128 value) public {
         CleanedUint128 cleaned = castCleanedUint128(value);
         assertEq(cleaned.cleanedUint128(), value);
         assertEq(cleaned.wordUint128(), uint256(value));
     }
 
-    function test_cleanedUint128_castToNarrow(uint128 value) public pure {
+    function test_cleanedUint128_castToNarrow(uint128 value) public {
         // Simulate extracting a uint128 from storage (upper bits are zero)
         uint256 word = uint256(value);
         uint128 narrow = castBoundedUint128(word);
         assertEq(narrow, value);
     }
 
-    function test_cleanedUint128_roundTrip(uint128 value) public pure {
+    function test_cleanedUint128_roundTrip(uint128 value) public {
         CleanedUint128 cleaned = castCleanedUint128(value);
         uint256 word = cleaned.wordUint128();
         uint128 result = castBoundedUint128(word);
         assertEq(result, value);
     }
 
-    function test_cleanedUint128_maxValue() public pure {
+    function test_cleanedUint128_maxValue() public {
         uint128 maxValue = type(uint128).max;
         CleanedUint128 cleaned = castCleanedUint128(maxValue);
         assertEq(cleaned.cleanedUint128(), maxValue);
@@ -57,12 +57,12 @@ contract CleanedTypesTest is Test {
 
     // ============ CleanedInt128 Tests ============
 
-    function test_cleanedInt128_castFromNarrow(int128 value) public pure {
+    function test_cleanedInt128_castFromNarrow(int128 value) public {
         CleanedInt128 cleaned = castCleanedInt128(value);
         assertEq(cleaned.cleanedInt128(), value);
     }
 
-    function test_cleanedInt128_castToNarrow(int128 value) public pure {
+    function test_cleanedInt128_castToNarrow(int128 value) public {
         // Simulate extracting an int128 from storage
         uint256 word;
         assembly {
@@ -72,14 +72,14 @@ contract CleanedTypesTest is Test {
         assertEq(narrow, value);
     }
 
-    function test_cleanedInt128_roundTrip(int128 value) public pure {
+    function test_cleanedInt128_roundTrip(int128 value) public {
         CleanedInt128 cleaned = castCleanedInt128(value);
         uint256 word = cleaned.wordInt128();
         int128 result = castBoundedInt128(word);
         assertEq(result, value);
     }
 
-    function test_cleanedInt128_negativeValues(int128 value) public pure {
+    function test_cleanedInt128_negativeValues(int128 value) public {
         vm.assume(value < 0);
         CleanedInt128 cleaned = castCleanedInt128(value);
         assertEq(cleaned.cleanedInt128(), value);
@@ -87,19 +87,19 @@ contract CleanedTypesTest is Test {
 
     // ============ CleanedUint64 Tests ============
 
-    function test_cleanedUint64_castFromNarrow(uint64 value) public pure {
+    function test_cleanedUint64_castFromNarrow(uint64 value) public {
         CleanedUint64 cleaned = castCleanedUint64(value);
         assertEq(cleaned.cleanedUint64(), value);
         assertEq(cleaned.wordUint64(), uint256(value));
     }
 
-    function test_cleanedUint64_castToNarrow(uint64 value) public pure {
+    function test_cleanedUint64_castToNarrow(uint64 value) public {
         uint256 word = uint256(value);
         uint64 narrow = castBoundedUint64(word);
         assertEq(narrow, value);
     }
 
-    function test_cleanedUint64_roundTrip(uint64 value) public pure {
+    function test_cleanedUint64_roundTrip(uint64 value) public {
         CleanedUint64 cleaned = castCleanedUint64(value);
         uint256 word = cleaned.wordUint64();
         uint64 result = castBoundedUint64(word);
@@ -108,12 +108,12 @@ contract CleanedTypesTest is Test {
 
     // ============ CleanedInt32 Tests ============
 
-    function test_cleanedInt32_castFromNarrow(int32 value) public pure {
+    function test_cleanedInt32_castFromNarrow(int32 value) public {
         CleanedInt32 cleaned = castCleanedInt32(value);
         assertEq(cleaned.cleanedInt32(), value);
     }
 
-    function test_cleanedInt32_castToNarrow(int32 value) public pure {
+    function test_cleanedInt32_castToNarrow(int32 value) public {
         uint256 word;
         assembly {
             word := value
@@ -122,14 +122,14 @@ contract CleanedTypesTest is Test {
         assertEq(narrow, value);
     }
 
-    function test_cleanedInt32_roundTrip(int32 value) public pure {
+    function test_cleanedInt32_roundTrip(int32 value) public {
         CleanedInt32 cleaned = castCleanedInt32(value);
         uint256 word = cleaned.wordInt32();
         int32 result = castBoundedInt32(word);
         assertEq(result, value);
     }
 
-    function test_cleanedInt32_tickRange() public pure {
+    function test_cleanedInt32_tickRange() public {
         // Test with typical tick values used in the protocol
         int32 minTick = -887272;
         int32 maxTick = 887272;
@@ -143,7 +143,7 @@ contract CleanedTypesTest is Test {
 
     // ============ Integration Tests ============
 
-    function test_cleanedTypes_simulatePoolStateParse() public pure {
+    function test_cleanedTypes_simulatePoolStateParse() public {
         // Simulate extracting values from a packed PoolState
         uint128 liquidity = 1000000000000000000;
         int32 tick = 100;
@@ -167,7 +167,7 @@ contract CleanedTypesTest is Test {
         assertEq(extractedLiquidity.cleanedUint128(), liquidity);
     }
 
-    function test_cleanedTypes_arithmeticOperations() public pure {
+    function test_cleanedTypes_arithmeticOperations() public {
         // Demonstrate that cleaned types can be used in arithmetic
         CleanedUint128 a = castCleanedUint128(100);
         CleanedUint128 b = castCleanedUint128(200);

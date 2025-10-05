@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {SqrtRatio} from "./sqrtRatio.sol";
-import {CleanedUint128, CleanedInt32, castBoundedUint128, castBoundedInt32} from "./cleaned.sol";
+import {CleanedUint128, CleanedInt32} from "./cleaned.sol";
 
 type PoolState is bytes32;
 

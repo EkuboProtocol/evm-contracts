@@ -12,12 +12,9 @@ import {
     CleanedInt32,
     castCleanedUint128,
     castCleanedInt32,
-    castBoundedUint128,
-    castBoundedInt32,
     cleanedUint128,
     cleanedInt32,
-    wordUint128,
-    wordInt32
+    wordUint128
 } from "./types/cleaned.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
@@ -591,7 +588,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                     SqrtRatio sqrtRatioNext;
 
-                    if (liquidity.wordUint128() == 0) {
+                    if (liquidity.cleanedUint128() == 0) {
                         // if the pool is empty, the swap will always move all the way to the limit price
                         sqrtRatioNext = limitedNextSqrtRatio;
                     } else {

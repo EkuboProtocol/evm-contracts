@@ -401,9 +401,10 @@ contract TWAMMStorageLayoutTest is Test {
         assertEq(minRewardRatesBeforeSlot, wrapAdd(poolStateSlot, TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET));
 
         uint256 rewardRatesBeforeOffset = TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET;
+        uint256 maxTime = type(uint64).max;
         uint256 maxRewardRatesBeforeOffset;
         assembly ("memory-safe") {
-            maxRewardRatesBeforeOffset := add(rewardRatesBeforeOffset, mul(0xffffffffffffffff, 2))
+            maxRewardRatesBeforeOffset := add(rewardRatesBeforeOffset, mul(maxTime, 2))
         }
         assertEq(maxRewardRatesBeforeSlot, wrapAdd(poolStateSlot, maxRewardRatesBeforeOffset));
 

@@ -231,8 +231,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 OrderState order = OrderState.wrap(orderStateSlot.load());
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
-                uint256 rewardRateInside =
-                    getRewardRateInside(poolId, startTime, endTime, orderKey.sellToken < orderKey.buyToken);
+                uint256 rewardRateInside = getRewardRateInside(poolId, startTime, endTime, !orderKey.isToken1());
 
                 (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
 
@@ -281,7 +280,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 );
                 orderRewardRateSnapshotSlot.store(bytes32(rewardRateSnapshotAdjusted));
 
-                bool isToken1 = orderKey.sellToken > orderKey.buyToken;
+                bool isToken1 = orderKey.isToken1();
 
                 if (block.timestamp < startTime) {
                     _updateTime(poolId, startTime, saleRateDelta, isToken1, numOrdersChange);
@@ -371,16 +370,15 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 OrderState order = OrderState.wrap(orderStateSlot.load());
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
-                uint256 rewardRateInside = getRewardRateInside(
-                    poolId, orderKey.startTime(), orderKey.endTime(), orderKey.sellToken < orderKey.buyToken
-                );
+                uint256 rewardRateInside =
+                    getRewardRateInside(poolId, orderKey.startTime(), orderKey.endTime(), !orderKey.isToken1());
 
                 uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, order.saleRate());
 
                 orderRewardRateSnapshotSlot.store(bytes32(rewardRateInside));
 
                 if (purchasedAmount != 0) {
-                    if (orderKey.sellToken > orderKey.buyToken) {
+                    if (orderKey.isToken1()) {
                         CORE.updateSavedBalances(
                             poolKey.token0, poolKey.token1, bytes32(0), -int256(purchasedAmount), 0
                         );

@@ -74,15 +74,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     /// @param endTime The end time of the order to collect proceeds from
     /// @return proceeds The amount of buyToken received from the completed order
     function collect(address token, uint64 fee, uint64 endTime) external returns (uint128 proceeds) {
-        proceeds = ORDERS.collectProceeds(
-            NFT_ID,
-            OrderKey({
-                sellToken: token,
-                buyToken: BUY_TOKEN,
-                config: createOrderConfig({_fee: fee, _startTime: 0, _endTime: endTime})
-            }),
-            owner()
-        );
+        proceeds = ORDERS.collectProceeds(NFT_ID, _createOrderKey(token, fee, 0, endTime), owner());
     }
 
     /// @notice Allows the contract to receive ETH revenue
@@ -140,14 +132,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
 
             if (amountToSpend != 0) {
                 saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
-                    NFT_ID,
-                    OrderKey({
-                        sellToken: token,
-                        buyToken: BUY_TOKEN,
-                        config: createOrderConfig({_fee: state.fee(), _startTime: 0, _endTime: endTime})
-                    }),
-                    uint128(amountToSpend),
-                    type(uint112).max
+                    NFT_ID, _createOrderKey(token, state.fee(), 0, endTime), uint128(amountToSpend), type(uint112).max
                 );
             }
         }
@@ -185,5 +170,20 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
         }
 
         emit Configured(token, state);
+    }
+
+    function _createOrderKey(address token, uint64 fee, uint64 startTime, uint64 endTime)
+        internal
+        view
+        returns (OrderKey memory key)
+    {
+        (address token0, address token1, bool isToken1) =
+            token > BUY_TOKEN ? (BUY_TOKEN, token, true) : (token, BUY_TOKEN, false);
+
+        key = OrderKey({
+            token0: token0,
+            token1: token1,
+            config: createOrderConfig({_fee: fee, _isToken1: isToken1, _startTime: startTime, _endTime: endTime})
+        });
     }
 }

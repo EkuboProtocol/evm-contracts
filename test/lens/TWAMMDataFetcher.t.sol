@@ -85,14 +85,24 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             orders.mintAndIncreaseSellAmount(
                 ordersPlaced % 2 == 0
                     ? OrderKey({
-                        sellToken: address(token0),
-                        buyToken: address(token1),
-                        config: createOrderConfig({_fee: fee, _startTime: uint64(startTime), _endTime: uint64(endTime)})
+                        token0: address(token0),
+                        token1: address(token1),
+                        config: createOrderConfig({
+                            _fee: fee,
+                            _isToken1: false,
+                            _startTime: uint64(startTime),
+                            _endTime: uint64(endTime)
+                        })
                     })
                     : OrderKey({
-                        sellToken: address(token1),
-                        buyToken: address(token0),
-                        config: createOrderConfig({_fee: fee, _startTime: uint64(startTime), _endTime: uint64(endTime)})
+                        token0: address(token0),
+                        token1: address(token1),
+                        config: createOrderConfig({
+                            _fee: fee,
+                            _isToken1: true,
+                            _startTime: uint64(startTime),
+                            _endTime: uint64(endTime)
+                        })
                     }),
                 10000,
                 type(uint112).max
@@ -145,9 +155,9 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         token1.approve(address(orders), type(uint256).max);
         orders.mintAndIncreaseSellAmount(
             OrderKey({
-                sellToken: address(token0),
-                buyToken: address(token1),
-                config: createOrderConfig({_fee: 1000, _startTime: 0, _endTime: time + 15})
+                token0: address(token0),
+                token1: address(token1),
+                config: createOrderConfig({_fee: 1000, _isToken1: false, _startTime: 0, _endTime: time + 15})
             }),
             10000,
             type(uint112).max
@@ -155,9 +165,9 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
 
         orders.mintAndIncreaseSellAmount(
             OrderKey({
-                sellToken: address(token1),
-                buyToken: address(token0),
-                config: createOrderConfig({_fee: 1000, _startTime: time + 31, _endTime: time + 255})
+                token0: address(token0),
+                token1: address(token1),
+                config: createOrderConfig({_fee: 1000, _isToken1: true, _startTime: time + 31, _endTime: time + 255})
             }),
             25000,
             type(uint112).max

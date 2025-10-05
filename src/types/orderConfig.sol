@@ -2,10 +2,10 @@
 pragma solidity =0.8.30;
 
 /// @notice Order configuration packed into a single bytes32
-/// @dev Contains fee (8 bytes), padding (8 bytes), start time (8 bytes), and end time (8 bytes)
+/// @dev Contains fee (8 bytes), isToken1 (1 byte), padding (7 bytes), start time (8 bytes), and end time (8 bytes)
 type OrderConfig is bytes32;
 
-using {fee, startTime, endTime} for OrderConfig global;
+using {fee, isToken1, startTime, endTime} for OrderConfig global;
 
 /// @notice Extracts the fee from an order config
 /// @param config The order config
@@ -13,6 +13,15 @@ using {fee, startTime, endTime} for OrderConfig global;
 function fee(OrderConfig config) pure returns (uint64 r) {
     assembly ("memory-safe") {
         r := shr(192, config)
+    }
+}
+
+/// @notice Extracts isToken1 from an order config
+/// @param config The order config
+/// @return r Whether the order is selling token1
+function isToken1(OrderConfig config) pure returns (bool r) {
+    assembly ("memory-safe") {
+        r := byte(8, config)
     }
 }
 
@@ -39,9 +48,16 @@ function endTime(OrderConfig config) pure returns (uint64 r) {
 /// @param _startTime The start time of the order
 /// @param _endTime The end time of the order
 /// @return c The packed configuration
-function createOrderConfig(uint64 _fee, uint64 _startTime, uint64 _endTime) pure returns (OrderConfig c) {
+function createOrderConfig(uint64 _fee, bool _isToken1, uint64 _startTime, uint64 _endTime)
+    pure
+    returns (OrderConfig c)
+{
     assembly ("memory-safe") {
         // Mask inputs to ensure only relevant bits are used
-        c := add(add(shl(192, _fee), shl(64, and(_startTime, 0xffffffffffffffff))), and(_endTime, 0xffffffffffffffff))
+        c :=
+            add(
+                add(shl(192, _fee), add(shl(184, byte(31, _isToken1)), shl(64, and(_startTime, 0xffffffffffffffff)))),
+                and(_endTime, 0xffffffffffffffff)
+            )
     }
 }

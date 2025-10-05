@@ -107,13 +107,9 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
     function test_orderKeyToPoolKey(OrderKey memory orderKey, address twamm) public pure {
         PoolKey memory pk = orderKey.toPoolKey(twamm);
-        if (orderKey.sellToken > orderKey.buyToken) {
-            assertEq(pk.token0, orderKey.buyToken);
-            assertEq(pk.token1, orderKey.sellToken);
-        } else {
-            assertEq(pk.token0, orderKey.sellToken);
-            assertEq(pk.token1, orderKey.buyToken);
-        }
+
+        assertEq(pk.token0, orderKey.token0);
+        assertEq(pk.token1, orderKey.token1);
         assertEq(pk.fee(), orderKey.fee());
         assertEq(pk.tickSpacing(), 0);
         assertEq(pk.extension(), twamm);

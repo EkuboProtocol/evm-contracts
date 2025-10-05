@@ -306,7 +306,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             sstore(slot, ti)
         }
 
-        // Delete fees per liquidity outside storage when liquidityNet becomes zero
+        // Delete fees per liquidity outside storage when liquidityNet becomes zero.
+        // When liquidityNet is zero, no positions reference this tick, so the fees per liquidity
+        // outside values are no longer needed and can be safely cleared to save gas on future operations.
         if (liquidityNetNext == 0 && currentLiquidityNet != 0) {
             (bytes32 fplFirstSlot, bytes32 fplSecondSlot) =
                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);

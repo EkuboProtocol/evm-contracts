@@ -12,9 +12,14 @@ import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
+import {PoolId} from "../src/types/poolId.sol";
+import {ExposedStorageLib} from "../src/libraries/ExposedStorageLib.sol";
+import {IExposedStorage} from "../src/interfaces/IExposedStorage.sol";
 
 contract PositionsTest is FullTest {
     using CoreLib for *;
+    using ExposedStorageLib for IExposedStorage;
 
     function test_metadata() public {
         vm.prank(owner);
@@ -521,5 +526,54 @@ contract PositionsTest is FullTest {
         assertApproxEqAbs(
             finalProtocolFees1, expectedSwapProtocolFee1 + expectedWithdrawalFee1, 2, "Final protocol fees0"
         );
+    }
+
+    function test_feesPerLiquidityOutsideDeletedWhenLiquidityNetBecomesZero() public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+
+        // Create a position
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
+
+        // Perform swaps to cross ticks and accumulate fees per liquidity outside
+        token0.approve(address(router), 200);
+        token1.approve(address(router), 200);
+
+        // Swap token0 to move price up and cross the upper tick
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
+        );
+
+        // Swap token1 to move price down and cross the lower tick
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 100}),
+            type(int256).min
+        );
+
+        // Get the storage slots for fees per liquidity outside
+        PoolId poolId = poolKey.toPoolId();
+        (bytes32 lowerFplFirstSlot, bytes32 lowerFplSecondSlot) =
+            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, -100);
+        (bytes32 upperFplFirstSlot, bytes32 upperFplSecondSlot) =
+            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, 100);
+
+        // Collect fees first (required before withdrawing all liquidity)
+        positions.collectFees(id, poolKey, -100, 100);
+
+        // Remove all liquidity from the position
+        positions.withdraw(id, poolKey, -100, 100, liquidity);
+
+        // Verify that fees per liquidity outside storage is cleared
+        (bytes32 lowerFpl0After, bytes32 lowerFpl1After) =
+            IExposedStorage(address(core)).sload(lowerFplFirstSlot, lowerFplSecondSlot);
+        (bytes32 upperFpl0After, bytes32 upperFpl1After) =
+            IExposedStorage(address(core)).sload(upperFplFirstSlot, upperFplSecondSlot);
+
+        assertEq(lowerFpl0After, bytes32(0), "Lower tick fpl0 should be cleared");
+        assertEq(lowerFpl1After, bytes32(0), "Lower tick fpl1 should be cleared");
+        assertEq(upperFpl0After, bytes32(0), "Upper tick fpl0 should be cleared");
+        assertEq(upperFpl1After, bytes32(0), "Upper tick fpl1 should be cleared");
     }
 }

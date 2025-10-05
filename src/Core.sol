@@ -305,6 +305,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         assembly ("memory-safe") {
             sstore(slot, ti)
         }
+
+        // Delete fees per liquidity outside storage when liquidityNet becomes zero
+        if (liquidityNetNext == 0 && currentLiquidityNet != 0) {
+            (bytes32 fplFirstSlot, bytes32 fplSecondSlot) =
+                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+            assembly ("memory-safe") {
+                sstore(fplFirstSlot, 0)
+                sstore(fplSecondSlot, 0)
+            }
+        }
     }
 
     /// @notice Updates debt for a token pair, handling native token payments for token0

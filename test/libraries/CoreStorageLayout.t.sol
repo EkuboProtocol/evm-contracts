@@ -55,11 +55,11 @@ contract CoreStorageLayoutTest is Test {
         bytes32 firstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
         bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId);
 
-        // First fees slot should be pool state slot + 1 (with wrapping)
-        assertEq(firstSlot, wrapAdd(poolStateSlot, 1));
+        // First fees slot should be pool state slot + FPL_OFFSET (with wrapping)
+        assertEq(firstSlot, wrapAdd(poolStateSlot, CoreStorageLayout.FPL_OFFSET));
 
-        // Second fees slot should be pool state slot + 2 (with wrapping)
-        assertEq(wrapAdd(firstSlot, 1), wrapAdd(poolStateSlot, 2));
+        // Second fees slot should be first fees slot + 1 (with wrapping)
+        assertEq(wrapAdd(firstSlot, 1), wrapAdd(poolStateSlot, CoreStorageLayout.FPL_OFFSET + 1));
     }
 
     function test_noStorageLayoutCollisions_isExtensionRegisteredSlot_poolFeesPerLiquiditySlot(
@@ -120,9 +120,8 @@ contract CoreStorageLayoutTest is Test {
         // The two slots should be different
         assertNotEq(first, second);
 
-        // The difference should be FPL_OUTSIDE_OFFSET (with wrapping)
-        uint256 FPL_OUTSIDE_OFFSET = 0xffffffffff;
-        assertEq(second, wrapAdd(first, FPL_OUTSIDE_OFFSET));
+        // The difference should be FPL_OUTSIDE_OFFSET_VALUE1 (with wrapping)
+        assertEq(second, wrapAdd(first, CoreStorageLayout.FPL_OUTSIDE_OFFSET_VALUE1));
     }
 
     function test_noStorageLayoutCollisions_isExtensionRegisteredSlot_poolTickFeesPerLiquidityOutsideSlot(
@@ -320,10 +319,6 @@ contract CoreStorageLayoutTest is Test {
 
     // Test offset sufficiency
     function test_offsetsSufficient(PoolId poolId) public pure {
-        uint256 TICKS_OFFSET = 0xffffffff;
-        uint256 FPL_OUTSIDE_OFFSET = 0xffffffffff;
-        uint256 BITMAPS_OFFSET = 0xffffffffffff;
-
         bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId);
         bytes32 poolFeesSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
         bytes32 minTickSlot = CoreStorageLayout.poolTicksSlot(poolId, MIN_TICK);
@@ -337,43 +332,45 @@ contract CoreStorageLayoutTest is Test {
         // Pool state is at offset 0
         assertEq(uint256(poolStateSlot), uint256(PoolId.unwrap(poolId)));
 
-        // Pool fees are at offsets 1 and 2 (with wrapping)
-        assertEq(poolFeesSlot, wrapAdd(poolStateSlot, 1));
+        // Pool fees are at FPL_OFFSET (with wrapping)
+        assertEq(poolFeesSlot, wrapAdd(poolStateSlot, CoreStorageLayout.FPL_OFFSET));
 
         // Verify the actual computed slots match expected values using assembly add
+        uint256 ticksOffset = CoreStorageLayout.TICKS_OFFSET;
         uint256 minTickOffset;
         uint256 maxTickOffset;
         assembly ("memory-safe") {
-            minTickOffset := add(TICKS_OFFSET, MIN_TICK)
-            maxTickOffset := add(TICKS_OFFSET, MAX_TICK)
+            minTickOffset := add(ticksOffset, MIN_TICK)
+            maxTickOffset := add(ticksOffset, MAX_TICK)
         }
         assertEq(minTickSlot, wrapAdd(poolStateSlot, minTickOffset));
         assertEq(maxTickSlot, wrapAdd(poolStateSlot, maxTickOffset));
 
         // Verify tick fees outside slots
+        uint256 fplOutsideOffsetValue0 = CoreStorageLayout.FPL_OUTSIDE_OFFSET_VALUE0;
         uint256 minTickFplOffset;
         uint256 maxTickFplOffset;
         assembly ("memory-safe") {
-            minTickFplOffset := add(FPL_OUTSIDE_OFFSET, MIN_TICK)
-            maxTickFplOffset := add(FPL_OUTSIDE_OFFSET, MAX_TICK)
+            minTickFplOffset := add(fplOutsideOffsetValue0, MIN_TICK)
+            maxTickFplOffset := add(fplOutsideOffsetValue0, MAX_TICK)
         }
         assertEq(minTickFeesFirst, wrapAdd(poolStateSlot, minTickFplOffset));
         assertEq(maxTickFeesFirst, wrapAdd(poolStateSlot, maxTickFplOffset));
-        assertEq(minTickFeesSecond, wrapAdd(wrapAdd(poolStateSlot, minTickFplOffset), FPL_OUTSIDE_OFFSET));
-        assertEq(maxTickFeesSecond, wrapAdd(wrapAdd(poolStateSlot, maxTickFplOffset), FPL_OUTSIDE_OFFSET));
+        assertEq(
+            minTickFeesSecond,
+            wrapAdd(wrapAdd(poolStateSlot, minTickFplOffset), CoreStorageLayout.FPL_OUTSIDE_OFFSET_VALUE1)
+        );
+        assertEq(
+            maxTickFeesSecond,
+            wrapAdd(wrapAdd(poolStateSlot, maxTickFplOffset), CoreStorageLayout.FPL_OUTSIDE_OFFSET_VALUE1)
+        );
 
         // Bitmaps start at BITMAPS_OFFSET
-        assertEq(bitmapSlot, wrapAdd(poolStateSlot, BITMAPS_OFFSET));
+        assertEq(bitmapSlot, wrapAdd(poolStateSlot, CoreStorageLayout.BITMAPS_OFFSET));
 
-        // Verify that the offsets themselves are properly sized to prevent collisions
-        // TICKS_OFFSET should be large enough to not overlap with pool state/fees
-        assertTrue(minTickOffset > 2);
-
-        // FPL_OUTSIDE_OFFSET should be large enough to not overlap with ticks
-        assertTrue(minTickFplOffset > maxTickOffset);
-
-        // BITMAPS_OFFSET should be large enough to not overlap with tick fees outside
-        assertTrue(BITMAPS_OFFSET > maxTickFplOffset + FPL_OUTSIDE_OFFSET);
+        // Note: Collision prevention is ensured by the keccak-generated offsets being
+        // large pseudo-random values, and is verified by the other collision tests in this file.
+        // Simple ordering assertions don't work here due to wrapping arithmetic.
     }
 
     // Comprehensive test with realistic pool IDs

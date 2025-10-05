@@ -39,9 +39,7 @@ function liquidityDeltaToAmountDelta(
             delta0 = SafeCastLib.toInt128(
                 sign
                     * int256(
-                        uint256(
-                            amount0Delta(sqrtRatioLower, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive)
-                                .cleanedUint128()
+                        amount0Delta(sqrtRatioLower, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive).wordUint128(
                         )
                     )
             );
@@ -49,28 +47,20 @@ function liquidityDeltaToAmountDelta(
             delta0 = SafeCastLib.toInt128(
                 sign
                     * int256(
-                        uint256(
-                            amount0Delta(sqrtRatio, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive)
-                                .cleanedUint128()
-                        )
+                        amount0Delta(sqrtRatio, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive).wordUint128()
                     )
             );
             delta1 = SafeCastLib.toInt128(
                 sign
                     * int256(
-                        uint256(
-                            amount1Delta(sqrtRatioLower, sqrtRatio, castCleanedUint128(magnitude), isPositive)
-                                .cleanedUint128()
-                        )
+                        amount1Delta(sqrtRatioLower, sqrtRatio, castCleanedUint128(magnitude), isPositive).wordUint128()
                     )
             );
         } else {
             delta1 = SafeCastLib.toInt128(
                 sign
                     * int256(
-                        uint256(
-                            amount1Delta(sqrtRatioLower, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive)
-                                .cleanedUint128()
+                        amount1Delta(sqrtRatioLower, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive).wordUint128(
                         )
                     )
             );

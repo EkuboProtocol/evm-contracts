@@ -261,9 +261,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 }
 
                 // Calculate the duration for amountSold update, capping by endTime
-                // Only count time after the order has started
+                // Only count time after the order has started and before it ended
                 uint32 saleDuration = 0;
-                if (block.timestamp > startTime) {
+                if (block.timestamp > startTime && lastUpdateTime < endTime) {
                     uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
                     uint32 secondsSinceOrderStart = uint32(block.timestamp) - uint32(startTime);
                     uint32 totalOrderDuration = uint32(endTime - startTime);

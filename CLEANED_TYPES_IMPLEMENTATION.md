@@ -72,7 +72,7 @@ CleanedUint128 feeAmount = castCleanedUint128(beforeFee - calculatedAmount);
 
 ## Testing
 
-All 581 existing tests pass, plus 17 new tests specifically for cleaned types.
+All 598 tests pass (581 existing + 17 new tests specifically for cleaned types).
 
 ```bash
 forge test --match-contract CleanedTypesTest  # Run cleaned types tests

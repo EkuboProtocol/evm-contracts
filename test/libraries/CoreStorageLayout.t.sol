@@ -10,6 +10,20 @@ import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 
 contract CoreStorageLayoutTest is Test {
+    // Constants matching those in CoreStorageLayout.sol
+    // Generated using: cast keccak "CoreStorageLayout#FPL_OFFSET"
+    uint256 internal constant FPL_OFFSET = 0xb09b03866d96933565a9435bfb511c8ac5b2be454285ca331201452704799f72;
+    // Generated using: cast keccak "CoreStorageLayout#TICKS_OFFSET"
+    uint256 internal constant TICKS_OFFSET = 0x435a5eb89a296820174331cf5a3902d9fca683928d56726d8e7acd6efb28c568;
+    // Generated using: cast keccak "CoreStorageLayout#FPL_OUTSIDE_OFFSET_VALUE0"
+    uint256 internal constant FPL_OUTSIDE_OFFSET_VALUE0 =
+        0x5695060fdb9cfea656f872ae4887221aff7dbfefc45eaf753e4e70cdfb5cd19c;
+    // Generated using: cast keccak "CoreStorageLayout#FPL_OUTSIDE_OFFSET_VALUE1"
+    uint256 internal constant FPL_OUTSIDE_OFFSET_VALUE1 =
+        0x7a2a03fc08af3dae7869678617dc8abe8f15a3b719b37ba108dba879571f8b02;
+    // Generated using: cast keccak "CoreStorageLayout#BITMAPS_OFFSET"
+    uint256 internal constant BITMAPS_OFFSET = 0x3def450d0010a2fef515ce5eba4b363b5a0f42fdd4c53e1c737975db05a2e3a5;
+
     // Helper function for wrapping addition to match assembly behavior
     function wrapAdd(bytes32 x, uint256 y) internal pure returns (bytes32 r) {
         assembly ("memory-safe") {
@@ -56,10 +70,10 @@ contract CoreStorageLayoutTest is Test {
         bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId);
 
         // First fees slot should be pool state slot + FPL_OFFSET (with wrapping)
-        assertEq(firstSlot, wrapAdd(poolStateSlot, CoreStorageLayout.FPL_OFFSET));
+        assertEq(firstSlot, wrapAdd(poolStateSlot, FPL_OFFSET));
 
         // Second fees slot should be first fees slot + 1 (with wrapping)
-        assertEq(wrapAdd(firstSlot, 1), wrapAdd(poolStateSlot, CoreStorageLayout.FPL_OFFSET + 1));
+        assertEq(wrapAdd(firstSlot, 1), wrapAdd(poolStateSlot, FPL_OFFSET + 1));
     }
 
     function test_noStorageLayoutCollisions_isExtensionRegisteredSlot_poolFeesPerLiquiditySlot(
@@ -121,7 +135,7 @@ contract CoreStorageLayoutTest is Test {
         assertNotEq(first, second);
 
         // The difference should be FPL_OUTSIDE_OFFSET_VALUE1 (with wrapping)
-        assertEq(second, wrapAdd(first, CoreStorageLayout.FPL_OUTSIDE_OFFSET_VALUE1));
+        assertEq(second, wrapAdd(first, FPL_OUTSIDE_OFFSET_VALUE1));
     }
 
     function test_noStorageLayoutCollisions_isExtensionRegisteredSlot_poolTickFeesPerLiquidityOutsideSlot(
@@ -319,11 +333,6 @@ contract CoreStorageLayoutTest is Test {
 
     // Test offset sufficiency
     function test_offsetsSufficient(PoolId poolId) public pure {
-        uint256 TICKS_OFFSET = CoreStorageLayout.TICKS_OFFSET;
-        uint256 FPL_OUTSIDE_OFFSET_VALUE0 = CoreStorageLayout.FPL_OUTSIDE_OFFSET_VALUE0;
-        uint256 FPL_OUTSIDE_OFFSET_VALUE1 = CoreStorageLayout.FPL_OUTSIDE_OFFSET_VALUE1;
-        uint256 BITMAPS_OFFSET = CoreStorageLayout.BITMAPS_OFFSET;
-
         bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId);
         bytes32 poolFeesSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
         bytes32 minTickSlot = CoreStorageLayout.poolTicksSlot(poolId, MIN_TICK);
@@ -338,7 +347,7 @@ contract CoreStorageLayoutTest is Test {
         assertEq(uint256(poolStateSlot), uint256(PoolId.unwrap(poolId)));
 
         // Pool fees are at FPL_OFFSET (with wrapping)
-        assertEq(poolFeesSlot, wrapAdd(poolStateSlot, CoreStorageLayout.FPL_OFFSET));
+        assertEq(poolFeesSlot, wrapAdd(poolStateSlot, FPL_OFFSET));
 
         // Verify the actual computed slots match expected values using assembly add
         uint256 minTickOffset;

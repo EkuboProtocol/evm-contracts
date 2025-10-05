@@ -32,9 +32,6 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @notice Thrown when tick spacing is not the maximum allowed value
     error TickSpacingMustBeMaximum();
 
-    /// @notice Thrown when trying to modify an order that has already ended
-    error OrderAlreadyEnded();
-
     /// @notice Thrown when order timestamps are invalid
     error InvalidTimestamps();
 

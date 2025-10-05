@@ -109,11 +109,12 @@ contract PriceFetcher {
                 PeriodAverage memory base = getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, baseToken, startTime, endTime);
                 PeriodAverage memory quote = getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, quoteToken, startTime, endTime);
 
-                uint128 amountBase =
-                    amount1Delta(tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, castCleanedUint128(base.liquidity), false);
+                uint128 amountBase = amount1Delta(
+                    tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, castCleanedUint128(base.liquidity), false
+                ).cleanedUint128();
                 uint128 amountQuote = amount1Delta(
                     tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, castCleanedUint128(quote.liquidity), false
-                );
+                ).cleanedUint128();
 
                 return PeriodAverage(
                     uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote))), quote.tick - base.tick
@@ -176,10 +177,10 @@ contract PriceFetcher {
 
                     uint128 amountBase = amount1Delta(
                         tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, castCleanedUint128(base.liquidity), false
-                    );
+                    ).cleanedUint128();
                     uint128 amountQuote = amount1Delta(
                         tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, castCleanedUint128(quote.liquidity), false
-                    );
+                    ).cleanedUint128();
 
                     averages[i] = PeriodAverage(
                         uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote))),

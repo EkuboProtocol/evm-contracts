@@ -59,8 +59,9 @@ contract SqrtRatioTest is Test {
                     // if we overflowed, the amount in the pool is not enough to support the trade
                     uint256 amountAvailable = (uint256(liquidity) << 128) / sqrtRatioFixed;
                     if (amountAvailable > uint128(-amount)) {
-                        uint256 roundedAmountAvailable =
-                            amount0Delta(sqrtRatio, MAX_SQRT_RATIO, castCleanedUint128(liquidity), false);
+                        uint256 roundedAmountAvailable = amount0Delta(
+                            sqrtRatio, MAX_SQRT_RATIO, castCleanedUint128(liquidity), false
+                        ).cleanedUint128();
                         assertLe(
                             roundedAmountAvailable,
                             uint128(-amount),
@@ -81,7 +82,7 @@ contract SqrtRatioTest is Test {
                 assertLe(SqrtRatio.unwrap(sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio), "sqrt ratio decreased");
                 assertGe(
                     uint128(amount),
-                    amount0Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), true),
+                    amount0Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), true).cleanedUint128(),
                     "the amount is g.e. the delta"
                 );
             } else {
@@ -140,7 +141,7 @@ contract SqrtRatioTest is Test {
                 } else {
                     assertLe(
                         uint128(-amount),
-                        amount1Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), false),
+                        amount1Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), false).cleanedUint128(),
                         "amount taken out is less than the delta"
                     );
                 }
@@ -148,7 +149,7 @@ contract SqrtRatioTest is Test {
                 assertGe(SqrtRatio.unwrap(sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio), "ratio increases for token1 > 0");
                 assertGe(
                     uint128(amount),
-                    amount1Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), true),
+                    amount1Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), true).cleanedUint128(),
                     "sqrt ratio increase is rounded down"
                 );
             } else {

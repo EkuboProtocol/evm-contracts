@@ -620,12 +620,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         if (hitLimit) {
                             (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
                                 ? (
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut).cleanedUint128(),
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut).cleanedUint128()
                                 )
                                 : (
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut).cleanedUint128(),
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut).cleanedUint128()
                                 );
 
                             if (isExactOut) {
@@ -652,8 +652,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             sqrtRatioNext = sqrtRatio;
                         } else {
                             uint128 calculatedAmountWithoutFee = isToken1
-                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
-                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut).cleanedUint128()
+                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut).cleanedUint128();
 
                             if (isExactOut) {
                                 uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.fee());

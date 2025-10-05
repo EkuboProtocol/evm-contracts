@@ -63,7 +63,10 @@ abstract contract BaseOracleTest is FullTest {
             router.swap(poolKey, false, type(int128).min, targetRatio, 0);
         } else if (tick > targetTick) {
             SqrtRatio targetRatio = toSqrtRatio(tickToSqrtRatio(targetTick).toFixed() + 1, true);
-            vm.deal(address(router), amount0Delta(sqrtRatio, targetRatio, castCleanedUint128(liquidity), true));
+            vm.deal(
+                address(router),
+                amount0Delta(sqrtRatio, targetRatio, castCleanedUint128(liquidity), true).cleanedUint128()
+            );
             router.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }
 

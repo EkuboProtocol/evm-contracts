@@ -362,6 +362,75 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id, key, address(this)), 18);
     }
 
+    function test_createOrder_stop_ended_order(uint64 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
+
+        // Advance past the end time
+        advanceTime(16);
+
+        // Collect all proceeds first
+        uint128 proceeds = orders.collectProceeds(id, key, address(this));
+        assertGt(proceeds, 0);
+
+        // Now stop the order - this should succeed and clear storage
+        uint112 refund = orders.decreaseSaleRate(id, key, saleRate, address(this));
+        assertEq(refund, 0); // No refund since order has ended
+
+        // Verify order state is cleared
+        (uint112 currentSaleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount) =
+            orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(currentSaleRate, 0);
+        assertEq(remainingSellAmount, 0);
+        assertEq(purchasedAmount, 0);
+    }
+
+    function test_createOrder_cannot_stop_ended_order_with_uncollected_proceeds(uint64 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        // 5% fee pool
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
+
+        // Advance past the end time
+        advanceTime(16);
+
+        // Try to stop the order without collecting proceeds first - should fail
+        vm.expectRevert(ITWAMM.MustCollectProceedsBeforeCanceling.selector);
+        orders.decreaseSaleRate(id, key, saleRate, address(this));
+    }
+
     function test_createOrder_non_existent_pool(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);

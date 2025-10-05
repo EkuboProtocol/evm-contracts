@@ -209,8 +209,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 (uint64 startTime, uint64 endTime) = (orderKey.startTime(), orderKey.endTime());
 
-                if (endTime <= block.timestamp) revert OrderAlreadyEnded();
-
                 if (
                     !isTimeValid(block.timestamp, startTime) || !isTimeValid(block.timestamp, endTime)
                         || startTime >= endTime
@@ -284,11 +282,22 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 bool isToken1 = orderKey.sellToken > orderKey.buyToken;
 
-                if (block.timestamp < startTime) {
+                // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
+                uint256 durationRemaining;
+                int256 amountDelta;
+
+                if (block.timestamp >= endTime) {
+                    // Order has ended - no need to update time points or pool state
+                    // durationRemaining is 0, so amountDelta is 0
+                    durationRemaining = 0;
+                    amountDelta = 0;
+                } else if (block.timestamp < startTime) {
                     _updateTime(poolId, startTime, saleRateDelta, isToken1, numOrdersChange);
                     _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
+
+                    durationRemaining = endTime - startTime;
                 } else {
-                    // we know block.timestamp < orderKey.endTime because we validate that first
+                    // we know block.timestamp < orderKey.endTime because of the check above
                     // and we know the order is active, so we have to apply its delta to the current pool state
                     StorageSlot currentStateSlot = StorageSlot.wrap(TWAMMStorageLayout.twammPoolStateSlot(poolId));
                     TwammPoolState currentState = TwammPoolState.wrap(currentStateSlot.load());
@@ -312,43 +321,41 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     // only update the end time
                     _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
+
+                    durationRemaining = endTime - block.timestamp;
                 }
 
-                // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
-                uint256 durationRemaining = endTime - FixedPointMathLib.max(block.timestamp, startTime);
+                if (durationRemaining > 0) {
+                    // the amount required for executing at the next sale rate for the remaining duration of the order
+                    uint256 amountRequired =
+                        computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
 
-                // the amount required for executing at the next sale rate for the remaining duration of the order
-                uint256 amountRequired =
-                    computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
+                    uint256 remainingSellAmount =
+                        computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
 
-                // subtract the remaining sell amount to get the delta
-                int256 amountDelta;
-
-                uint256 remainingSellAmount =
-                    computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
-
-                assembly ("memory-safe") {
-                    amountDelta := sub(amountRequired, remainingSellAmount)
-                }
-
-                // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
-                if (amountDelta < 0) {
-                    // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
-                    if (isToken1) {
-                        CORE.accumulateAsFees(poolKey, 0, fee);
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
-                    } else {
-                        CORE.accumulateAsFees(poolKey, fee, 0);
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                    assembly ("memory-safe") {
+                        amountDelta := sub(amountRequired, remainingSellAmount)
                     }
 
-                    amountDelta += int128(fee);
-                } else {
-                    if (isToken1) {
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                    // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
+                    if (amountDelta < 0) {
+                        // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
+                        uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
+                        if (isToken1) {
+                            CORE.accumulateAsFees(poolKey, 0, fee);
+                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                        } else {
+                            CORE.accumulateAsFees(poolKey, fee, 0);
+                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                        }
+
+                        amountDelta += int128(fee);
                     } else {
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                        if (isToken1) {
+                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                        } else {
+                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                        }
                     }
                 }
 

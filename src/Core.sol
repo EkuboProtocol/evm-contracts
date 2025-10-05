@@ -13,8 +13,7 @@ import {
     castCleanedUint128,
     castCleanedInt32,
     cleanedUint128,
-    cleanedInt32,
-    wordUint128
+    cleanedInt32
 } from "./types/cleaned.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";

@@ -59,7 +59,7 @@ User-defined types wrapping `uint256` that encode the promise that upper bits ar
 (SqrtRatio sqrtRatio, CleanedInt32 tick, CleanedUint128 liquidity) = state.parseCleaned();
 
 // Use cleaned types in calculations
-if (liquidity.wordUint128() == 0) {
+if (liquidity.cleanedUint128() == 0) {
     // ...
 }
 

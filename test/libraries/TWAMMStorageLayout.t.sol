@@ -28,13 +28,11 @@ contract TWAMMStorageLayoutTest is Test {
         bytes32 firstSlot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
         bytes32 poolStateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
 
-        uint256 REWARD_RATES_OFFSET = 0x6536a49ed1752ddb42ba94b6b00660382279a8d99d650d701d5d127e7a3bbd95;
-
         // First reward rates slot should be pool state slot + REWARD_RATES_OFFSET
-        assertEq(firstSlot, wrapAdd(poolStateSlot, REWARD_RATES_OFFSET));
+        assertEq(firstSlot, wrapAdd(poolStateSlot, TWAMMStorageLayout.REWARD_RATES_OFFSET));
 
         // Second reward rates slot should be first + 1
-        assertEq(wrapAdd(firstSlot, 1), wrapAdd(poolStateSlot, REWARD_RATES_OFFSET + 1));
+        assertEq(wrapAdd(firstSlot, 1), wrapAdd(poolStateSlot, TWAMMStorageLayout.REWARD_RATES_OFFSET + 1));
     }
 
     function test_noStorageLayoutCollisions_poolRewardRatesSlot_poolRewardRatesSlot(PoolId poolId0, PoolId poolId1)
@@ -172,12 +170,11 @@ contract TWAMMStorageLayoutTest is Test {
         bytes32 firstSlot = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time);
         bytes32 poolStateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
 
-        uint256 REWARD_RATES_BEFORE_OFFSET = 0x6a7cb7181a18ced052a38531ee9ccb088f76cd0fb0c4475d55c480aebfae7b2b;
-
         // First slot should be pool state slot + REWARD_RATES_BEFORE_OFFSET + time * 2
+        uint256 rewardRatesBeforeOffset = TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET;
         uint256 expectedOffset;
         assembly ("memory-safe") {
-            expectedOffset := add(REWARD_RATES_BEFORE_OFFSET, mul(time, 2))
+            expectedOffset := add(rewardRatesBeforeOffset, mul(time, 2))
         }
         assertEq(firstSlot, wrapAdd(poolStateSlot, expectedOffset));
 
@@ -379,11 +376,6 @@ contract TWAMMStorageLayoutTest is Test {
 
     // Test offset sufficiency
     function test_offsetsSufficient(PoolId poolId) public pure {
-        uint256 REWARD_RATES_OFFSET = 0x6536a49ed1752ddb42ba94b6b00660382279a8d99d650d701d5d127e7a3bbd95;
-        uint256 TIME_BITMAPS_OFFSET = 0x07f3f693b68a1a1b1b3315d4b74217931d60e9dc7f1af4989f50e7ab31c8820e;
-        uint256 TIME_INFOS_OFFSET = 0x70db18ef1c685b7aa06d1ac5ea2d101c7261974df22a15951f768f92187043fb;
-        uint256 REWARD_RATES_BEFORE_OFFSET = 0x6a7cb7181a18ced052a38531ee9ccb088f76cd0fb0c4475d55c480aebfae7b2b;
-
         bytes32 poolStateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
         bytes32 rewardRatesSlot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
         bytes32 bitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
@@ -396,39 +388,40 @@ contract TWAMMStorageLayoutTest is Test {
         assertEq(uint256(poolStateSlot), uint256(PoolId.unwrap(poolId)));
 
         // Reward rates are at REWARD_RATES_OFFSET and REWARD_RATES_OFFSET + 1
-        assertEq(rewardRatesSlot, wrapAdd(poolStateSlot, REWARD_RATES_OFFSET));
+        assertEq(rewardRatesSlot, wrapAdd(poolStateSlot, TWAMMStorageLayout.REWARD_RATES_OFFSET));
 
         // Time bitmaps start at TIME_BITMAPS_OFFSET
-        assertEq(bitmapSlot, wrapAdd(poolStateSlot, TIME_BITMAPS_OFFSET));
+        assertEq(bitmapSlot, wrapAdd(poolStateSlot, TWAMMStorageLayout.TIME_BITMAPS_OFFSET));
 
         // Time infos start at TIME_INFOS_OFFSET
-        assertEq(minTimeInfoSlot, wrapAdd(poolStateSlot, TIME_INFOS_OFFSET));
-        assertEq(maxTimeInfoSlot, wrapAdd(poolStateSlot, TIME_INFOS_OFFSET + type(uint64).max));
+        assertEq(minTimeInfoSlot, wrapAdd(poolStateSlot, TWAMMStorageLayout.TIME_INFOS_OFFSET));
+        assertEq(maxTimeInfoSlot, wrapAdd(poolStateSlot, TWAMMStorageLayout.TIME_INFOS_OFFSET + type(uint64).max));
 
         // Reward rates before start at REWARD_RATES_BEFORE_OFFSET
-        assertEq(minRewardRatesBeforeSlot, wrapAdd(poolStateSlot, REWARD_RATES_BEFORE_OFFSET));
+        assertEq(minRewardRatesBeforeSlot, wrapAdd(poolStateSlot, TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET));
 
+        uint256 rewardRatesBeforeOffset = TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET;
         uint256 maxRewardRatesBeforeOffset;
         assembly ("memory-safe") {
-            maxRewardRatesBeforeOffset := add(REWARD_RATES_BEFORE_OFFSET, mul(0xffffffffffffffff, 2))
+            maxRewardRatesBeforeOffset := add(rewardRatesBeforeOffset, mul(0xffffffffffffffff, 2))
         }
         assertEq(maxRewardRatesBeforeSlot, wrapAdd(poolStateSlot, maxRewardRatesBeforeOffset));
 
         // Verify that the offsets themselves are non-zero and distinct
         // The offsets are generated using keccak and are designed to be in different regions
         // of the storage space to avoid collisions
-        assertTrue(REWARD_RATES_OFFSET > 0);
-        assertTrue(TIME_BITMAPS_OFFSET > 0);
-        assertTrue(TIME_INFOS_OFFSET > 0);
-        assertTrue(REWARD_RATES_BEFORE_OFFSET > 0);
+        assertTrue(TWAMMStorageLayout.REWARD_RATES_OFFSET > 0);
+        assertTrue(TWAMMStorageLayout.TIME_BITMAPS_OFFSET > 0);
+        assertTrue(TWAMMStorageLayout.TIME_INFOS_OFFSET > 0);
+        assertTrue(TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET > 0);
 
         // Verify all offsets are distinct
-        assertTrue(REWARD_RATES_OFFSET != TIME_BITMAPS_OFFSET);
-        assertTrue(REWARD_RATES_OFFSET != TIME_INFOS_OFFSET);
-        assertTrue(REWARD_RATES_OFFSET != REWARD_RATES_BEFORE_OFFSET);
-        assertTrue(TIME_BITMAPS_OFFSET != TIME_INFOS_OFFSET);
-        assertTrue(TIME_BITMAPS_OFFSET != REWARD_RATES_BEFORE_OFFSET);
-        assertTrue(TIME_INFOS_OFFSET != REWARD_RATES_BEFORE_OFFSET);
+        assertTrue(TWAMMStorageLayout.REWARD_RATES_OFFSET != TWAMMStorageLayout.TIME_BITMAPS_OFFSET);
+        assertTrue(TWAMMStorageLayout.REWARD_RATES_OFFSET != TWAMMStorageLayout.TIME_INFOS_OFFSET);
+        assertTrue(TWAMMStorageLayout.REWARD_RATES_OFFSET != TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET);
+        assertTrue(TWAMMStorageLayout.TIME_BITMAPS_OFFSET != TWAMMStorageLayout.TIME_INFOS_OFFSET);
+        assertTrue(TWAMMStorageLayout.TIME_BITMAPS_OFFSET != TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET);
+        assertTrue(TWAMMStorageLayout.TIME_INFOS_OFFSET != TWAMMStorageLayout.REWARD_RATES_BEFORE_OFFSET);
     }
 
     // Comprehensive test with realistic inputs

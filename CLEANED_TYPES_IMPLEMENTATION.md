@@ -64,7 +64,7 @@ if (liquidity.cleanedUint128() == 0) {
 }
 
 // Pass to functions expecting narrow types
-uint128 amount = amount0Delta(sqrtRatio, liquidity.cleanedUint128(), roundUp);
+uint128 amount = amount0Delta(sqrtRatioA, sqrtRatioB, liquidity.cleanedUint128(), roundUp);
 
 // Cast results back to cleaned types
 CleanedUint128 feeAmount = castCleanedUint128(beforeFee - calculatedAmount);

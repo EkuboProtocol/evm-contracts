@@ -2,10 +2,11 @@
 pragma solidity =0.8.30;
 
 import {SqrtRatio} from "./sqrtRatio.sol";
+import {CleanedUint128, CleanedInt32, castBoundedUint128, castBoundedInt32} from "./cleaned.sol";
 
 type PoolState is bytes32;
 
-using {sqrtRatio, tick, liquidity, isInitialized, parse} for PoolState global;
+using {sqrtRatio, tick, liquidity, isInitialized, parse, parseCleaned} for PoolState global;
 
 function sqrtRatio(PoolState state) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {
@@ -32,6 +33,16 @@ function isInitialized(PoolState state) pure returns (bool yes) {
 }
 
 function parse(PoolState state) pure returns (SqrtRatio r, int32 t, uint128 l) {
+    assembly ("memory-safe") {
+        r := shr(160, state)
+        t := signextend(3, shr(128, state))
+        l := shr(128, shl(128, state))
+    }
+}
+
+/// @notice Parse pool state returning cleaned types for tick and liquidity
+/// @dev Returns CleanedInt32 and CleanedUint128 to avoid redundant bit clearing
+function parseCleaned(PoolState state) pure returns (SqrtRatio r, CleanedInt32 t, CleanedUint128 l) {
     assembly ("memory-safe") {
         r := shr(160, state)
         t := signextend(3, shr(128, state))

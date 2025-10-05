@@ -7,6 +7,18 @@ import {PoolConfig} from "./types/poolConfig.sol";
 import {PositionId} from "./types/positionId.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "./types/feesPerLiquidity.sol";
 import {Position} from "./types/position.sol";
+import {
+    CleanedUint128,
+    CleanedInt32,
+    castCleanedUint128,
+    castCleanedInt32,
+    castBoundedUint128,
+    castBoundedInt32,
+    cleanedUint128,
+    cleanedInt32,
+    wordUint128,
+    wordInt32
+} from "./types/cleaned.sol";
 import {tickToSqrtRatio, sqrtRatioToTick} from "./math/ticks.sol";
 import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
 import {ExtensionCallPointsLib} from "./libraries/ExtensionCallPointsLib.sol";
@@ -513,7 +525,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
             if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
-                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
+                (SqrtRatio sqrtRatio, CleanedInt32 tick, CleanedUint128 liquidity) = stateAfter.parseCleaned();
 
                 bool isToken1 = params.isToken1();
 
@@ -546,24 +558,32 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
 
                 while (true) {
-                    int32 nextTick;
+                    CleanedInt32 nextTick;
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
                     if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
-                        (nextTick, isInitialized) = increasing
+                        int32 nextTickNarrow;
+                        (nextTickNarrow, isInitialized) = increasing
                             ? findNextInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
+                                CoreStorageLayout.tickBitmapsSlot(poolId),
+                                tick.cleanedInt32(),
+                                poolKey.tickSpacing(),
+                                params.skipAhead()
                             )
                             : findPrevInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
+                                CoreStorageLayout.tickBitmapsSlot(poolId),
+                                tick.cleanedInt32(),
+                                poolKey.tickSpacing(),
+                                params.skipAhead()
                             );
 
-                        nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                        nextTick = castCleanedInt32(nextTickNarrow);
+                        nextTickSqrtRatio = tickToSqrtRatio(nextTickNarrow);
                     } else {
                         // we never cross ticks in the full range version
-                        (nextTick, nextTickSqrtRatio) =
-                            increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
+                        nextTick = increasing ? castCleanedInt32(MAX_TICK) : castCleanedInt32(MIN_TICK);
+                        nextTickSqrtRatio = increasing ? MAX_SQRT_RATIO : MIN_SQRT_RATIO;
                     }
 
                     SqrtRatio limitedNextSqrtRatio =
@@ -571,7 +591,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                     SqrtRatio sqrtRatioNext;
 
-                    if (liquidity == 0) {
+                    if (liquidity.wordUint128() == 0) {
                         // if the pool is empty, the swap will always move all the way to the limit price
                         sqrtRatioNext = limitedNextSqrtRatio;
                     } else {
@@ -587,8 +607,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         SqrtRatio sqrtRatioNextFromAmount = isToken1
-                            ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
-                            : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+                            ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity.cleanedUint128(), priceImpactAmount)
+                            : nextSqrtRatioFromAmount0(sqrtRatio, liquidity.cleanedUint128(), priceImpactAmount);
 
                         bool hitLimit;
                         assembly ("memory-safe") {
@@ -599,29 +619,29 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             hitLimit := or(exceedsUp, exceedsDown)
                         }
 
-                        uint128 feeAmount;
+                        CleanedUint128 feeAmount;
 
                         if (hitLimit) {
                             (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
                                 ? (
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity.cleanedUint128(), !isExactOut),
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity.cleanedUint128(), isExactOut)
                                 )
                                 : (
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity.cleanedUint128(), !isExactOut),
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity.cleanedUint128(), isExactOut)
                                 );
 
                             if (isExactOut) {
                                 uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.fee());
                                 amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
                                 calculatedAmount += beforeFee;
-                                feeAmount = beforeFee - limitCalculatedAmountDelta;
+                                feeAmount = castCleanedUint128(beforeFee - limitCalculatedAmountDelta);
                             } else {
                                 uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.fee());
                                 amountRemaining -= SafeCastLib.toInt128(beforeFee);
                                 calculatedAmount += limitCalculatedAmountDelta;
-                                feeAmount = beforeFee - limitSpecifiedAmountDelta;
+                                feeAmount = castCleanedUint128(beforeFee - limitSpecifiedAmountDelta);
                             }
 
                             sqrtRatioNext = limitedNextSqrtRatio;
@@ -630,22 +650,22 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             assert(!isExactOut);
 
                             // consume the entire input amount as fees since the price did not move
-                            feeAmount = uint128(amountRemaining);
+                            feeAmount = castCleanedUint128(uint128(amountRemaining));
                             amountRemaining = 0;
 
                             sqrtRatioNext = sqrtRatio;
                         } else {
                             uint128 calculatedAmountWithoutFee = isToken1
-                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
-                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity.cleanedUint128(), isExactOut)
+                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity.cleanedUint128(), isExactOut);
 
                             if (isExactOut) {
                                 uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.fee());
                                 calculatedAmount += includingFee;
-                                feeAmount = includingFee - calculatedAmountWithoutFee;
+                                feeAmount = castCleanedUint128(includingFee - calculatedAmountWithoutFee);
                             } else {
                                 calculatedAmount += calculatedAmountWithoutFee;
-                                feeAmount = uint128(amountRemaining - priceImpactAmount);
+                                feeAmount = castCleanedUint128(uint128(amountRemaining - priceImpactAmount));
                             }
 
                             amountRemaining = 0;
@@ -668,7 +688,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         if (isInitialized) {
-                            bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick);
+                            bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick.cleanedInt32());
                             assembly ("memory-safe") {
                                 // if increasing, we add the liquidity delta, otherwise we subtract it
                                 let liquidityDelta :=
@@ -677,7 +697,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             }
 
                             (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
-                                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
+                                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick.cleanedInt32());
 
                             assembly ("memory-safe") {
                                 // assume input token is token0
@@ -700,7 +720,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
                     } else if (sqrtRatio != sqrtRatioNext) {
                         sqrtRatio = sqrtRatioNext;
-                        tick = sqrtRatioToTick(sqrtRatio);
+                        tick = castCleanedInt32(sqrtRatioToTick(sqrtRatio));
                     }
 
                     if (amountRemaining == 0 || sqrtRatio == sqrtRatioLimit) {
@@ -720,7 +740,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     ? (calculatedAmountDelta, params.amount() - amountRemaining)
                     : (params.amount() - amountRemaining, calculatedAmountDelta);
 
-                stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
+                stateAfter = createPoolState({
+                    _sqrtRatio: sqrtRatio,
+                    _tick: tick.cleanedInt32(),
+                    _liquidity: liquidity.cleanedUint128()
+                });
 
                 assembly ("memory-safe") {
                     sstore(poolId, stateAfter)

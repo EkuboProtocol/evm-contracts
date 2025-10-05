@@ -11,14 +11,20 @@ using {toOrderId, toPoolKey, buyToken, sellToken, fee, isToken1, startTime, endT
 /// @param ok The order key
 /// @return r The buy token
 function buyToken(OrderKey memory ok) pure returns (address r) {
-    return ok.isToken1() ? ok.token0 : ok.token1;
+    bool _isToken0 = !ok.isToken1();
+    assembly ("memory-safe") {
+        r := mload(add(ok, mul(_isToken0, 0x20)))
+    }
 }
 
 /// @notice Extracts the sell token from an order key
 /// @param ok The order key
 /// @return r The sell token
 function sellToken(OrderKey memory ok) pure returns (address r) {
-    return ok.isToken1() ? ok.token1 : ok.token0;
+    bool _isToken1 = ok.isToken1();
+    assembly ("memory-safe") {
+        r := mload(add(ok, mul(_isToken1, 0x20)))
+    }
 }
 
 /// @notice Extracts the fee from an order key

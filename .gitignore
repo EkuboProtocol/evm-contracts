@@ -19,3 +19,6 @@ docs/
 .env
 
 .codegpt
+
+# Gas snapshots (use snapshots/*.json instead)
+.gas-snapshot

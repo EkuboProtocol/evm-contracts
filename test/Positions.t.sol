@@ -535,20 +535,20 @@ contract PositionsTest is FullTest {
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
         // Perform swaps to cross ticks and accumulate fees per liquidity outside
-        token0.approve(address(router), 200);
-        token1.approve(address(router), 200);
+        token0.approve(address(router), 10000);
+        token1.approve(address(router), 10000);
 
-        // Swap token0 to move price up and cross the upper tick
+        // Swap a large amount of token0 to move price up and cross the upper tick (tick 100)
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
+            TokenAmount({token: address(token0), amount: 5000}),
             type(int256).min
         );
 
-        // Swap token1 to move price down and cross the lower tick
+        // Swap a large amount of token1 to move price down and cross the lower tick (tick -100)
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
+            TokenAmount({token: address(token1), amount: 5000}),
             type(int256).min
         );
 

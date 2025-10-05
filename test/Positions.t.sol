@@ -407,8 +407,12 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         coolAllContracts();
-        positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
         vm.snapshotGasLastCall("mintAndDeposit");
+
+        coolAllContracts();
+        positions.withdraw(id, poolKey, -100, 100, liquidity);
+        vm.snapshotGasLastCall("withdraw");
     }
 
     /// forge-config: default.isolate = true
@@ -417,8 +421,12 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         coolAllContracts();
-        positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, 0);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, 0);
         vm.snapshotGasLastCall("mintAndDeposit eth");
+
+        coolAllContracts();
+        positions.withdraw(id, poolKey, -100, 100, liquidity);
+        vm.snapshotGasLastCall("withdraw eth");
     }
 
     function test_burn_can_be_minted() public {
@@ -435,8 +443,12 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
 
         coolAllContracts();
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
         vm.snapshotGasLastCall("mintAndDeposit full range both tokens");
+
+        coolAllContracts();
+        positions.withdraw(id, poolKey, MIN_TICK, MAX_TICK, liquidity);
+        vm.snapshotGasLastCall("withdraw full range both tokens");
     }
 
     function test_positions_with_any_protocol_fees(

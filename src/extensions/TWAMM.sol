@@ -261,19 +261,24 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 }
 
                 // Calculate the duration for amountSold update, capping by endTime
-                uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
-                uint32 secondsSinceOrderStart = uint32(block.timestamp) - uint32(startTime);
-                uint32 totalOrderDuration = uint32(endTime - startTime);
-                uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
+                // Only count time after the order has started
+                uint32 saleDuration = 0;
+                if (block.timestamp > startTime) {
+                    uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
+                    uint32 secondsSinceOrderStart = uint32(block.timestamp) - uint32(startTime);
+                    uint32 totalOrderDuration = uint32(endTime - startTime);
+                    uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
 
-                uint32 saleDuration = uint32(
-                    FixedPointMathLib.min(
-                        remainingTimeSinceLastUpdate,
+                    saleDuration = uint32(
                         FixedPointMathLib.min(
-                            FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart), totalOrderDuration
+                            remainingTimeSinceLastUpdate,
+                            FixedPointMathLib.min(
+                                FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
+                                totalOrderDuration
+                            )
                         )
-                    )
-                );
+                    );
+                }
 
                 orderStateSlot.store(
                     OrderState.unwrap(

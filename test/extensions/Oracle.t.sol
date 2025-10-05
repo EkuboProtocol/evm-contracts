@@ -26,6 +26,7 @@ import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
+import {castCleanedUint128} from "../../src/types/cleaned.sol";
 import {FullRangeOnlyPool} from "../../src/types/positionId.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
@@ -62,7 +63,7 @@ abstract contract BaseOracleTest is FullTest {
             router.swap(poolKey, false, type(int128).min, targetRatio, 0);
         } else if (tick > targetTick) {
             SqrtRatio targetRatio = toSqrtRatio(tickToSqrtRatio(targetTick).toFixed() + 1, true);
-            vm.deal(address(router), amount0Delta(sqrtRatio, targetRatio, liquidity, true));
+            vm.deal(address(router), amount0Delta(sqrtRatio, targetRatio, castCleanedUint128(liquidity), true));
             router.swap(poolKey, true, type(int128).min, targetRatio, 0);
         }
 

@@ -6,6 +6,7 @@ import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "../../src/math
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "../../src/math/delta.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {castCleanedUint128} from "../../src/types/cleaned.sol";
 
 contract SqrtRatioTest is Test {
     function assertSqrtRatioEq(SqrtRatio a, SqrtRatio b) private pure {
@@ -14,18 +15,25 @@ contract SqrtRatioTest is Test {
 
     function test_nextSqrtRatioFromAmount0() public pure {
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount0(ONE, 1 << 96, 10000), toSqrtRatio(340282366920938463463374564482095251457, true)
+            nextSqrtRatioFromAmount0(ONE, castCleanedUint128(1 << 96), 10000),
+            toSqrtRatio(340282366920938463463374564482095251457, true)
         );
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount0(ONE, 1 << 96, -10000), toSqrtRatio(340282366920938463463374650381441171457, true)
+            nextSqrtRatioFromAmount0(ONE, castCleanedUint128(1 << 96), -10000),
+            toSqrtRatio(340282366920938463463374650381441171457, true)
         );
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount0(ONE, 1000000, 1000), toSqrtRatio(339942424496442021441932674757011200256, true)
+            nextSqrtRatioFromAmount0(ONE, castCleanedUint128(1000000), 1000),
+            toSqrtRatio(339942424496442021441932674757011200256, true)
         );
-        assertSqrtRatioEq(nextSqrtRatioFromAmount0(ONE, 1, -100000000000000), SqrtRatio.wrap(type(uint96).max));
-        assertSqrtRatioEq(nextSqrtRatioFromAmount0(MIN_SQRT_RATIO, 1, type(int128).max), toSqrtRatio(2, true));
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount0(ONE, 100000000000, -1000),
+            nextSqrtRatioFromAmount0(ONE, castCleanedUint128(1), -100000000000000), SqrtRatio.wrap(type(uint96).max)
+        );
+        assertSqrtRatioEq(
+            nextSqrtRatioFromAmount0(MIN_SQRT_RATIO, castCleanedUint128(1), type(int128).max), toSqrtRatio(2, true)
+        );
+        assertSqrtRatioEq(
+            nextSqrtRatioFromAmount0(ONE, castCleanedUint128(100000000000), -1000),
             toSqrtRatio((1 << 128) + 3402823703237621667009962744418, true)
         );
     }
@@ -40,7 +48,7 @@ contract SqrtRatioTest is Test {
         SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
         sqrtRatioFixed = sqrtRatio.toFixed();
 
-        SqrtRatio sqrtRatioNext = nextSqrtRatioFromAmount0(sqrtRatio, liquidity, amount);
+        SqrtRatio sqrtRatioNext = nextSqrtRatioFromAmount0(sqrtRatio, castCleanedUint128(liquidity), amount);
 
         unchecked {
             // this assertion ensures that the next sqrt ratio we compute is either sufficient to produce the requested amount0,
@@ -51,7 +59,8 @@ contract SqrtRatioTest is Test {
                     // if we overflowed, the amount in the pool is not enough to support the trade
                     uint256 amountAvailable = (uint256(liquidity) << 128) / sqrtRatioFixed;
                     if (amountAvailable > uint128(-amount)) {
-                        uint256 roundedAmountAvailable = amount0Delta(sqrtRatio, MAX_SQRT_RATIO, liquidity, false);
+                        uint256 roundedAmountAvailable =
+                            amount0Delta(sqrtRatio, MAX_SQRT_RATIO, castCleanedUint128(liquidity), false);
                         assertLe(
                             roundedAmountAvailable,
                             uint128(-amount),
@@ -72,7 +81,7 @@ contract SqrtRatioTest is Test {
                 assertLe(SqrtRatio.unwrap(sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio), "sqrt ratio decreased");
                 assertGe(
                     uint128(amount),
-                    amount0Delta(sqrtRatio, sqrtRatioNext, liquidity, true),
+                    amount0Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), true),
                     "the amount is g.e. the delta"
                 );
             } else {
@@ -84,16 +93,19 @@ contract SqrtRatioTest is Test {
 
     function test_nextSqrtRatioFromAmount1() public pure {
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount1(ONE, 1000000, 1000),
+            nextSqrtRatioFromAmount1(ONE, castCleanedUint128(1000000), 1000),
             toSqrtRatio((1 << 128) + 340282366920938463463374607431768211, false)
         );
         assertSqrtRatioEq(
-            nextSqrtRatioFromAmount1(ONE, 1000000, -1000), toSqrtRatio(339942084554017524999911232824336443244, false)
+            nextSqrtRatioFromAmount1(ONE, castCleanedUint128(1000000), -1000),
+            toSqrtRatio(339942084554017524999911232824336443244, false)
         );
-        assertSqrtRatioEq(nextSqrtRatioFromAmount1(ONE, 1, -1000000), SqrtRatio.wrap(0));
+        assertSqrtRatioEq(nextSqrtRatioFromAmount1(ONE, castCleanedUint128(1), -1000000), SqrtRatio.wrap(0));
         // 0 in case of overflow
         assertEq(
-            SqrtRatio.unwrap(nextSqrtRatioFromAmount1(SqrtRatio.wrap(type(uint96).max - 1), 1, type(int128).max)),
+            SqrtRatio.unwrap(
+                nextSqrtRatioFromAmount1(SqrtRatio.wrap(type(uint96).max - 1), castCleanedUint128(1), type(int128).max)
+            ),
             type(uint96).max,
             "overflow from amount1 in"
         );
@@ -110,7 +122,7 @@ contract SqrtRatioTest is Test {
         SqrtRatio sqrtRatio = toSqrtRatio(sqrtRatioFixed, false);
         sqrtRatioFixed = sqrtRatio.toFixed();
 
-        SqrtRatio sqrtRatioNext = nextSqrtRatioFromAmount1(sqrtRatio, liquidity, amount);
+        SqrtRatio sqrtRatioNext = nextSqrtRatioFromAmount1(sqrtRatio, castCleanedUint128(liquidity), amount);
 
         // this assertion ensures that the next sqrt ratio we compute is either sufficient to produce the requested amount0,
         // or more than the amount required to move to that price
@@ -128,7 +140,7 @@ contract SqrtRatioTest is Test {
                 } else {
                     assertLe(
                         uint128(-amount),
-                        amount1Delta(sqrtRatio, sqrtRatioNext, liquidity, false),
+                        amount1Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), false),
                         "amount taken out is less than the delta"
                     );
                 }
@@ -136,7 +148,7 @@ contract SqrtRatioTest is Test {
                 assertGe(SqrtRatio.unwrap(sqrtRatioNext), SqrtRatio.unwrap(sqrtRatio), "ratio increases for token1 > 0");
                 assertGe(
                     uint128(amount),
-                    amount1Delta(sqrtRatio, sqrtRatioNext, liquidity, true),
+                    amount1Delta(sqrtRatio, sqrtRatioNext, castCleanedUint128(liquidity), true),
                     "sqrt ratio increase is rounded down"
                 );
             } else {

@@ -6,6 +6,7 @@ import {amount0Delta, amount1Delta, sortAndConvertToFixedSqrtRatios} from "../..
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
+import {castCleanedUint128} from "../../src/types/cleaned.sol";
 
 contract DeltaTest is Test {
     function check_sortSqrtRatios(SqrtRatio a, SqrtRatio b) public pure {
@@ -22,24 +23,44 @@ contract DeltaTest is Test {
     }
 
     function test_amount0Delta_examples() public pure {
-        assertEq(amount0Delta(ONE, MIN_SQRT_RATIO, 1, false), 18446296994052723739);
-        assertEq(amount0Delta(MIN_SQRT_RATIO, ONE, 1, false), 18446296994052723739);
+        assertEq(amount0Delta(ONE, MIN_SQRT_RATIO, castCleanedUint128(1), false), 18446296994052723739);
+        assertEq(amount0Delta(MIN_SQRT_RATIO, ONE, castCleanedUint128(1), false), 18446296994052723739);
 
-        assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
-        assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, false), 0);
-        assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
-        assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
+        assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, castCleanedUint128(type(uint128).max), false), 0);
+        assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, castCleanedUint128(type(uint128).max), false), 0);
+        assertEq(amount0Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, castCleanedUint128(type(uint128).max), true), 0);
+        assertEq(amount0Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, castCleanedUint128(type(uint128).max), true), 0);
 
-        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255, false), ONE, 1000000, false), 1000);
         assertEq(
-            amount0Delta(toSqrtRatio((1 << 128) + 34028236692093846346337460743176821145, false), ONE, 1e18, true),
+            amount0Delta(
+                toSqrtRatio(339942424496442021441932674757011200255, false), ONE, castCleanedUint128(1000000), false
+            ),
+            1000
+        );
+        assertEq(
+            amount0Delta(
+                toSqrtRatio((1 << 128) + 34028236692093846346337460743176821145, false),
+                ONE,
+                castCleanedUint128(1e18),
+                true
+            ),
             90909090909090910
         );
         assertEq(
-            amount0Delta(toSqrtRatio((1 << 128) + 340622989910849312776150758189957120, false), ONE, 1000000, false),
+            amount0Delta(
+                toSqrtRatio((1 << 128) + 340622989910849312776150758189957120, false),
+                ONE,
+                castCleanedUint128(1000000),
+                false
+            ),
             999
         );
-        assertEq(amount0Delta(toSqrtRatio(339942424496442021441932674757011200255, false), ONE, 1000000, true), 1001);
+        assertEq(
+            amount0Delta(
+                toSqrtRatio(339942424496442021441932674757011200255, false), ONE, castCleanedUint128(1000000), true
+            ),
+            1001
+        );
     }
 
     function a0d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
@@ -47,7 +68,7 @@ contract DeltaTest is Test {
         pure
         returns (uint128)
     {
-        return amount0Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+        return amount0Delta(sqrtRatioA, sqrtRatioB, castCleanedUint128(liquidity), roundUp);
     }
 
     function test_amount0Delta_fuzz(uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed, uint128 liquidity, bool roundUp)
@@ -73,18 +94,26 @@ contract DeltaTest is Test {
     }
 
     function test_amount1Delta_examples() public pure {
-        assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, 1, false), 18446296994052723737);
-        assertEq(amount1Delta(MAX_SQRT_RATIO, ONE, 1, false), 18446296994052723737);
-        assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, false), 0);
-        assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, false), 0);
-        assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, type(uint128).max, true), 0);
-        assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, type(uint128).max, true), 0);
+        assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, castCleanedUint128(1), false), 18446296994052723737);
+        assertEq(amount1Delta(MAX_SQRT_RATIO, ONE, castCleanedUint128(1), false), 18446296994052723737);
+        assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, castCleanedUint128(type(uint128).max), false), 0);
+        assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, castCleanedUint128(type(uint128).max), false), 0);
+        assertEq(amount1Delta(MIN_SQRT_RATIO, MIN_SQRT_RATIO, castCleanedUint128(type(uint128).max), true), 0);
+        assertEq(amount1Delta(MAX_SQRT_RATIO, MAX_SQRT_RATIO, castCleanedUint128(type(uint128).max), true), 0);
 
         assertEq(
-            amount1Delta(ONE, toSqrtRatio(309347606291762239512158734028880192232, false), 1000000000000000000, true),
+            amount1Delta(
+                ONE,
+                toSqrtRatio(309347606291762239512158734028880192232, false),
+                castCleanedUint128(1000000000000000000),
+                true
+            ),
             90909090909090910
         );
-        assertEq(amount1Delta(ONE, MAX_SQRT_RATIO, 0xffffffffffffffff, false), 340274119756928397675478831269759003622);
+        assertEq(
+            amount1Delta(ONE, MAX_SQRT_RATIO, castCleanedUint128(0xffffffffffffffff), false),
+            340274119756928397675478831269759003622
+        );
     }
 
     function a1d(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
@@ -92,7 +121,7 @@ contract DeltaTest is Test {
         pure
         returns (uint128)
     {
-        return amount1Delta(sqrtRatioA, sqrtRatioB, liquidity, roundUp);
+        return amount1Delta(sqrtRatioA, sqrtRatioB, castCleanedUint128(liquidity), roundUp);
     }
 
     function test_amount1Delta_fuzz(uint256 sqrtRatioAFixed, uint256 sqrtRatioBFixed, uint128 liquidity, bool roundUp)

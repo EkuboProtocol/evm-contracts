@@ -3,12 +3,13 @@ pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, toSqrtRatio, MAX_FIXED_VALUE_ROUND_UP} from "../types/sqrtRatio.sol";
+import {CleanedUint128, wordUint128} from "../types/cleaned.sol";
 
 error ZeroLiquidityNextSqrtRatioFromAmount0();
 
 // Compute the next ratio from a delta amount0, always rounded towards starting price for input, and
 // away from starting price for output
-function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int128 amount)
+function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, CleanedUint128 liquidity, int128 amount)
     pure
     returns (SqrtRatio sqrtRatioNext)
 {
@@ -16,13 +17,13 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
         return _sqrtRatio;
     }
 
-    if (liquidity == 0) {
+    if (liquidity.wordUint128() == 0) {
         revert ZeroLiquidityNextSqrtRatioFromAmount0();
     }
 
     uint256 sqrtRatio = _sqrtRatio.toFixed();
 
-    uint256 liquidityX128 = uint256(liquidity) << 128;
+    uint256 liquidityX128 = liquidity.wordUint128() << 128;
     uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
 
     if (amount < 0) {
@@ -65,7 +66,7 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
 
 error ZeroLiquidityNextSqrtRatioFromAmount1();
 
-function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int128 amount)
+function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, CleanedUint128 liquidity, int128 amount)
     pure
     returns (SqrtRatio sqrtRatioNext)
 {
@@ -73,7 +74,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
         return _sqrtRatio;
     }
 
-    if (liquidity == 0) {
+    if (liquidity.wordUint128() == 0) {
         revert ZeroLiquidityNextSqrtRatioFromAmount1();
     }
 
@@ -82,7 +83,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     unchecked {
         uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
 
-        uint256 quotient = shiftedAmountAbs / liquidity;
+        uint256 quotient = shiftedAmountAbs / liquidity.wordUint128();
 
         if (amount < 0) {
             if (quotient >= sqrtRatio) {
@@ -92,9 +93,10 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
 
             uint256 sqrtRatioNextFixed = sqrtRatio - quotient;
 
+            uint256 liquidityWord = liquidity.wordUint128();
             assembly ("memory-safe") {
                 // subtraction of 1 is safe because sqrtRatio > quotient => sqrtRatio - quotient >= 1
-                sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidity))))
+                sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidityWord))))
             }
 
             sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);

@@ -5,6 +5,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {amount0Delta, amount1Delta, sortAndConvertToFixedSqrtRatios} from "./delta.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {castCleanedUint128} from "../types/cleaned.sol";
 
 // Liquidity Math Library
 // Contains functions for calculating liquidity-related amounts and conversions
@@ -36,18 +37,26 @@ function liquidityDeltaToAmountDelta(
 
         if (sqrtRatio <= sqrtRatioLower) {
             delta0 = SafeCastLib.toInt128(
-                sign * int256(uint256(amount0Delta(sqrtRatioLower, sqrtRatioUpper, magnitude, isPositive)))
+                sign
+                    * int256(
+                        uint256(amount0Delta(sqrtRatioLower, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive))
+                    )
             );
         } else if (sqrtRatio < sqrtRatioUpper) {
             delta0 = SafeCastLib.toInt128(
-                sign * int256(uint256(amount0Delta(sqrtRatio, sqrtRatioUpper, magnitude, isPositive)))
+                sign
+                    * int256(uint256(amount0Delta(sqrtRatio, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive)))
             );
             delta1 = SafeCastLib.toInt128(
-                sign * int256(uint256(amount1Delta(sqrtRatioLower, sqrtRatio, magnitude, isPositive)))
+                sign
+                    * int256(uint256(amount1Delta(sqrtRatioLower, sqrtRatio, castCleanedUint128(magnitude), isPositive)))
             );
         } else {
             delta1 = SafeCastLib.toInt128(
-                sign * int256(uint256(amount1Delta(sqrtRatioLower, sqrtRatioUpper, magnitude, isPositive)))
+                sign
+                    * int256(
+                        uint256(amount1Delta(sqrtRatioLower, sqrtRatioUpper, castCleanedUint128(magnitude), isPositive))
+                    )
             );
         }
     }

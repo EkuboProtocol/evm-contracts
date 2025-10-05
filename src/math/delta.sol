@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {CleanedUint128, wordUint128} from "../types/cleaned.sol";
 
 error Amount0DeltaOverflow();
 error Amount1DeltaOverflow();
@@ -21,7 +22,7 @@ function sortAndConvertToFixedSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRat
     }
 }
 
-function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, CleanedUint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount0)
 {
@@ -30,14 +31,14 @@ function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
 
         if (roundUp) {
             uint256 result0 = FixedPointMathLib.fullMulDivUp(
-                (uint256(liquidity) << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
+                (liquidity.wordUint128() << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
             );
             uint256 result = FixedPointMathLib.divUp(result0, sqrtRatioLower);
             if (result > type(uint128).max) revert Amount0DeltaOverflow();
             amount0 = uint128(result);
         } else {
             uint256 result0 = FixedPointMathLib.fullMulDiv(
-                (uint256(liquidity) << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
+                (liquidity.wordUint128() << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
             );
             uint256 result = result0 / sqrtRatioLower;
             if (result > type(uint128).max) revert Amount0DeltaOverflow();
@@ -46,7 +47,7 @@ function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
     }
 }
 
-function amount1Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
+function amount1Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, CleanedUint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount1)
 {
@@ -56,16 +57,17 @@ function amount1Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
         uint256 difference = sqrtRatioUpper - sqrtRatioLower;
 
         if (roundUp) {
-            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity, 128);
+            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity.wordUint128(), 128);
+            uint256 liquidityWord = liquidity.wordUint128();
             assembly {
                 // addition is safe from overflow because the result of fullMulDivN will never equal type(uint256).max
                 result :=
-                    add(result, iszero(iszero(mulmod(difference, liquidity, 0x100000000000000000000000000000000))))
+                    add(result, iszero(iszero(mulmod(difference, liquidityWord, 0x100000000000000000000000000000000))))
             }
             if (result > type(uint128).max) revert Amount1DeltaOverflow();
             amount1 = uint128(result);
         } else {
-            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity, 128);
+            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity.wordUint128(), 128);
             if (result > type(uint128).max) revert Amount1DeltaOverflow();
             amount1 = uint128(result);
         }

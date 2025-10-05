@@ -9,6 +9,7 @@ import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {MIN_SQRT_RATIO} from "../types/sqrtRatio.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Observation} from "../types/observation.sol";
+import {castCleanedUint128} from "../types/cleaned.sol";
 
 /// @notice Thrown when the number of intervals is invalid (0 or max uint32)
 error InvalidNumIntervals();
@@ -108,8 +109,11 @@ contract PriceFetcher {
                 PeriodAverage memory base = getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, baseToken, startTime, endTime);
                 PeriodAverage memory quote = getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, quoteToken, startTime, endTime);
 
-                uint128 amountBase = amount1Delta(tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, base.liquidity, false);
-                uint128 amountQuote = amount1Delta(tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, quote.liquidity, false);
+                uint128 amountBase =
+                    amount1Delta(tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, castCleanedUint128(base.liquidity), false);
+                uint128 amountQuote = amount1Delta(
+                    tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, castCleanedUint128(quote.liquidity), false
+                );
 
                 return PeriodAverage(
                     uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote))), quote.tick - base.tick
@@ -170,9 +174,12 @@ contract PriceFetcher {
                     PeriodAverage memory base = bases[i];
                     PeriodAverage memory quote = quotes[i];
 
-                    uint128 amountBase = amount1Delta(tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, base.liquidity, false);
-                    uint128 amountQuote =
-                        amount1Delta(tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, quote.liquidity, false);
+                    uint128 amountBase = amount1Delta(
+                        tickToSqrtRatio(base.tick), MIN_SQRT_RATIO, castCleanedUint128(base.liquidity), false
+                    );
+                    uint128 amountQuote = amount1Delta(
+                        tickToSqrtRatio(quote.tick), MIN_SQRT_RATIO, castCleanedUint128(quote.liquidity), false
+                    );
 
                     averages[i] = PeriodAverage(
                         uint128(FixedPointMathLib.sqrt(uint256(amountBase) * uint256(amountQuote))),

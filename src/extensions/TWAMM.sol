@@ -260,6 +260,21 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
                 }
 
+                // Calculate the duration for amountSold update, capping by endTime
+                uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
+                uint32 secondsSinceOrderStart = uint32(block.timestamp) - uint32(startTime);
+                uint32 totalOrderDuration = uint32(endTime - startTime);
+                uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
+
+                uint32 saleDuration = uint32(
+                    FixedPointMathLib.min(
+                        remainingTimeSinceLastUpdate,
+                        FixedPointMathLib.min(
+                            FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart), totalOrderDuration
+                        )
+                    )
+                );
+
                 orderStateSlot.store(
                     OrderState.unwrap(
                         createOrderState({
@@ -267,13 +282,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             _saleRate: uint112(saleRateNext),
                             _amountSold: uint112(
                                 amountSold
-                                    + computeAmountFromSaleRate({
-                                        saleRate: saleRate,
-                                        duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime, uint32(block.timestamp) - uint32(startTime)
-                                        ),
-                                        roundUp: false
-                                    })
+                                    + computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false})
                             )
                         })
                     )

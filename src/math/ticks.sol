@@ -26,90 +26,53 @@ function tickToSqrtRatio(int32 tick) pure returns (SqrtRatio r) {
 
         uint256 ratio;
         assembly ("memory-safe") {
+            // bit 0 is handled with a single conditional subtract from 2^128
             ratio := sub(0x100000000000000000000000000000000, mul(and(t, 0x1), 0x8637b66cd638344daef276cd7c5))
-        }
 
-        if ((t & 0x2) != 0) {
-            ratio = (ratio * 0xffffef390978c398134b4ff3764fe410) >> 128;
-        }
-        if ((t & 0x4) != 0) {
-            ratio = (ratio * 0xffffde72140b00a354bd3dc828e976c9) >> 128;
-        }
-        if ((t & 0x8) != 0) {
-            ratio = (ratio * 0xffffbce42c7be6c998ad6318193c0b18) >> 128;
-        }
-        if ((t & 0x10) != 0) {
-            ratio = (ratio * 0xffff79c86a8f6150a32d9778eceef97c) >> 128;
-        }
-        if ((t & 0x20) != 0) {
-            ratio = (ratio * 0xfffef3911b7cff24ba1b3dbb5f8f5974) >> 128;
-        }
-        if ((t & 0x40) != 0) {
-            ratio = (ratio * 0xfffde72350725cc4ea8feece3b5f13c8) >> 128;
-        }
-        if ((t & 0x80) != 0) {
-            ratio = (ratio * 0xfffbce4b06c196e9247ac87695d53c60) >> 128;
-        }
-        if ((t & 0x100) != 0) {
-            ratio = (ratio * 0xfff79ca7a4d1bf1ee8556cea23cdbaa5) >> 128;
-        }
-        if ((t & 0x200) != 0) {
-            ratio = (ratio * 0xffef3995a5b6a6267530f207142a5764) >> 128;
-        }
-        if ((t & 0x400) != 0) {
-            ratio = (ratio * 0xffde7444b28145508125d10077ba83b8) >> 128;
-        }
-        if ((t & 0x800) != 0) {
-            ratio = (ratio * 0xffbceceeb791747f10df216f2e53ec57) >> 128;
-        }
-        if ((t & 0x1000) != 0) {
-            ratio = (ratio * 0xff79eb706b9a64c6431d76e63531e929) >> 128;
-        }
-        if ((t & 0x2000) != 0) {
-            ratio = (ratio * 0xfef41d1a5f2ae3a20676bec6f7f9459a) >> 128;
-        }
-        if ((t & 0x4000) != 0) {
-            ratio = (ratio * 0xfde95287d26d81bea159c37073122c73) >> 128;
-        }
-        if ((t & 0x8000) != 0) {
-            ratio = (ratio * 0xfbd701c7cbc4c8a6bb81efd232d1e4e7) >> 128;
-        }
-        if ((t & 0x10000) != 0) {
-            ratio = (ratio * 0xf7bf5211c72f5185f372aeb1d48f937e) >> 128;
-        }
-        if ((t & 0x20000) != 0) {
-            ratio = (ratio * 0xefc2bf59df33ecc28125cf78ec4f167f) >> 128;
-        }
-        if ((t & 0x40000) != 0) {
-            ratio = (ratio * 0xe08d35706200796273f0b3a981d90cfd) >> 128;
-        }
-        if ((t & 0x80000) != 0) {
-            ratio = (ratio * 0xc4f76b68947482dc198a48a54348c4ed) >> 128;
-        }
-        if ((t & 0x100000) != 0) {
-            ratio = (ratio * 0x978bcb9894317807e5fa4498eee7c0fa) >> 128;
-        }
-        if ((t & 0x200000) != 0) {
-            ratio = (ratio * 0x59b63684b86e9f486ec54727371ba6ca) >> 128;
-        }
-        if ((t & 0x400000) != 0) {
-            ratio = (ratio * 0x1f703399d88f6aa83a28b22d4a1f56e3) >> 128;
-        }
-        if ((t & 0x800000) != 0) {
-            ratio = (ratio * 0x3dc5dac7376e20fc8679758d1bcdcfc) >> 128;
-        }
-        if ((t & 0x1000000) != 0) {
-            ratio = (ratio * 0xee7e32d61fdb0a5e622b820f681d0) >> 128;
-        }
-        if ((t & 0x2000000) != 0) {
-            ratio = (ratio * 0xde2ee4bc381afa7089aa84bb66) >> 128;
-        }
-        if ((t & 0x4000000) != 0) {
-            ratio = (ratio * 0xc0d55d4d7152c25fb139) >> 128;
-        }
+            // -------- Gate 1: bits 1..7 (mask 0xFE) --------
+            if and(t, 0xFE) {
+                if and(t, 0x2) { ratio := shr(128, mul(ratio, 0xffffef390978c398134b4ff3764fe410)) }
+                if and(t, 0x4) { ratio := shr(128, mul(ratio, 0xffffde72140b00a354bd3dc828e976c9)) }
+                if and(t, 0x8) { ratio := shr(128, mul(ratio, 0xffffbce42c7be6c998ad6318193c0b18)) }
+                if and(t, 0x10) { ratio := shr(128, mul(ratio, 0xffff79c86a8f6150a32d9778eceef97c)) }
+                if and(t, 0x20) { ratio := shr(128, mul(ratio, 0xfffef3911b7cff24ba1b3dbb5f8f5974)) }
+                if and(t, 0x40) { ratio := shr(128, mul(ratio, 0xfffde72350725cc4ea8feece3b5f13c8)) }
+                if and(t, 0x80) { ratio := shr(128, mul(ratio, 0xfffbce4b06c196e9247ac87695d53c60)) }
+            }
 
-        if (tick > 0) {
-            ratio = type(uint256).max / ratio;
+            // -------- Gate 2: bits 8..14 (mask 0x7F00) --------
+            if and(t, 0x7F00) {
+                if and(t, 0x100) { ratio := shr(128, mul(ratio, 0xfff79ca7a4d1bf1ee8556cea23cdbaa5)) }
+                if and(t, 0x200) { ratio := shr(128, mul(ratio, 0xffef3995a5b6a6267530f207142a5764)) }
+                if and(t, 0x400) { ratio := shr(128, mul(ratio, 0xffde7444b28145508125d10077ba83b8)) }
+                if and(t, 0x800) { ratio := shr(128, mul(ratio, 0xffbceceeb791747f10df216f2e53ec57)) }
+                if and(t, 0x1000) { ratio := shr(128, mul(ratio, 0xff79eb706b9a64c6431d76e63531e929)) }
+                if and(t, 0x2000) { ratio := shr(128, mul(ratio, 0xfef41d1a5f2ae3a20676bec6f7f9459a)) }
+                if and(t, 0x4000) { ratio := shr(128, mul(ratio, 0xfde95287d26d81bea159c37073122c73)) }
+            }
+
+            // -------- Gate 3: bits 15..20 (mask 0x1F8000) --------
+            if and(t, 0x1F8000) {
+                if and(t, 0x8000) { ratio := shr(128, mul(ratio, 0xfbd701c7cbc4c8a6bb81efd232d1e4e7)) }
+                if and(t, 0x10000) { ratio := shr(128, mul(ratio, 0xf7bf5211c72f5185f372aeb1d48f937e)) }
+                if and(t, 0x20000) { ratio := shr(128, mul(ratio, 0xefc2bf59df33ecc28125cf78ec4f167f)) }
+                if and(t, 0x40000) { ratio := shr(128, mul(ratio, 0xe08d35706200796273f0b3a981d90cfd)) }
+                if and(t, 0x80000) { ratio := shr(128, mul(ratio, 0xc4f76b68947482dc198a48a54348c4ed)) }
+                if and(t, 0x100000) { ratio := shr(128, mul(ratio, 0x978bcb9894317807e5fa4498eee7c0fa)) }
+            }
+
+            // -------- Gate 4: bits 21..26 (mask 0x7E00000) --------
+            if and(t, 0x7E00000) {
+                if and(t, 0x200000) { ratio := shr(128, mul(ratio, 0x59b63684b86e9f486ec54727371ba6ca)) }
+                if and(t, 0x400000) { ratio := shr(128, mul(ratio, 0x1f703399d88f6aa83a28b22d4a1f56e3)) }
+                if and(t, 0x800000) { ratio := shr(128, mul(ratio, 0x3dc5dac7376e20fc8679758d1bcdcfc)) }
+                if and(t, 0x1000000) { ratio := shr(128, mul(ratio, 0xee7e32d61fdb0a5e622b820f681d0)) }
+                if and(t, 0x2000000) { ratio := shr(128, mul(ratio, 0xde2ee4bc381afa7089aa84bb66)) }
+                if and(t, 0x4000000) { ratio := shr(128, mul(ratio, 0xc0d55d4d7152c25fb139)) }
+            }
+
+            // If original tick > 0, invert: ratio = maxUint / ratio
+            if sgt(tick, 0) { ratio := div(not(0), ratio) }
         }
 
         r = toSqrtRatio(ratio, false);
@@ -126,8 +89,8 @@ uint256 constant K_2_OVER_LN2_X64 = 53226052391377289966;
 // 2^64 / log2(sqrt(1.000001)) for converting from log base 2 in X64 to log base tick
 int256 constant INV_LB_X64 = 25572630076711825471857579;
 
-// Error bounds of the tick computation based on the number of iterations
-int256 constant ERROR_BOUNDS_X128 = int256((uint256(1) << 128) / 200);
+// Error bounds of the tick computation based on the number of iterations ~= +-0.002 ticks
+int256 constant ERROR_BOUNDS_X128 = int256((uint256(1) << 128) / 485);
 
 /// @notice Converts a sqrt price ratio to its corresponding tick
 /// @dev Computes log2 via one normalization + atanh series (no per-bit squaring loop)

@@ -442,11 +442,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         bytes32 firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, msg.sender, positionId);
         assembly ("memory-safe") {
             let v := sload(firstSlot)
-            if iszero(v) {
-                // cast sig "PositionDoesNotExist()"
-                mstore(0x00, 0xf7b3b391)
-                revert(0x1c, 0x04)
-            }
             sstore(firstSlot, or(shl(128, shr(128, v)), shr(128, extraData)))
         }
     }

@@ -163,9 +163,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when trying to operate on an uninitialized pool
     error PoolNotInitialized();
 
-    /// @notice Thrown when trying to set the extra data on a position that does not exist
-    error PositionDoesNotExist();
-
     /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
 

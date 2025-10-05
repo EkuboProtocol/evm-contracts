@@ -77,16 +77,32 @@ contract PositionExtraDataTest is Test {
         core.initializePool(poolKey, 0);
     }
 
-    function test_updatePosition_with_extraData_fails_if_liquidity_is_zero(
-        PoolId poolId,
-        PositionId positionId,
-        bytes16 extraData
-    ) public {
-        vm.expectRevert(ICore.PositionDoesNotExist.selector);
+    function test_setExtraData_position_does_not_exist(PoolId poolId, PositionId positionId, bytes16 extraData)
+        public
+    {
         locker.setExtraData(poolId, positionId, extraData);
+        Position memory position = core.poolPositions(poolId, address(locker), positionId);
+        assertEq(position.liquidity, 0);
+        assertEq(position.extraData, extraData);
+        assertEq(position.feesPerLiquidityInsideLast.value0, 0);
+        assertEq(position.feesPerLiquidityInsideLast.value1, 0);
     }
 
-    function test_updatePosition_with_extraData(uint128 liquidity, bytes16 extraData) public {
+    function test_setExtraData_before_position_created(uint128 liquidity, bytes16 extraData) public {
+        liquidity = uint128(bound(liquidity, 1, type(uint64).max));
+        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+
+        locker.setExtraData(poolKey.toPoolId(), positionId, extraData);
+
+        locker.doLock(abi.encode(poolKey, positionId, int128(liquidity)));
+
+        Position memory position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
+
+        assertEq(position.extraData, extraData, "extraData should be zero at create");
+        assertEq(position.liquidity, liquidity, "liquidity should equal what we set");
+    }
+
+    function test_setExtraData_after_position_created(uint128 liquidity, bytes16 extraData) public {
         liquidity = uint128(bound(liquidity, 1, type(uint64).max));
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
 
@@ -103,10 +119,9 @@ contract PositionExtraDataTest is Test {
         assertEq(position.liquidity, liquidity, "liquidity should still equal what we set");
     }
 
-    function test_updatePosition_extraData_stays_when_position_liquidity_is_set_to_zero(
-        uint128 liquidity,
-        bytes16 extraDataNonZero
-    ) public {
+    function test_setExtraData_stays_when_position_liquidity_is_set_to_zero(uint128 liquidity, bytes16 extraDataNonZero)
+        public
+    {
         liquidity = uint128(bound(liquidity, 1, type(uint64).max));
 
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});

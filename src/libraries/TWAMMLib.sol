@@ -6,6 +6,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
+import {TWAMMStorageLayout} from "./TWAMMStorageLayout.sol";
 import {FlashAccountantLib} from "./FlashAccountantLib.sol";
 import {TwammPoolState} from "../types/twammPoolState.sol";
 import {OrderState} from "../types/orderState.sol";
@@ -21,7 +22,7 @@ library TWAMMLib {
     using FlashAccountantLib for *;
 
     function poolState(ITWAMM twamm, PoolId poolId) internal view returns (TwammPoolState twammPoolState) {
-        twammPoolState = TwammPoolState.wrap(twamm.sload(PoolId.unwrap(poolId)));
+        twammPoolState = TwammPoolState.wrap(twamm.sload(TWAMMStorageLayout.twammPoolStateSlot(poolId)));
     }
 
     function orderState(ITWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
@@ -29,23 +30,9 @@ library TWAMMLib {
         view
         returns (OrderState state)
     {
-        bytes32 key;
-
-        assembly ("memory-safe") {
-            // order state
-            mstore(0, owner)
-            mstore(32, 4)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, salt)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, orderId)
-
-            key := keccak256(0, 64)
-        }
-
-        state = OrderState.wrap(twamm.sload(key));
+        state = OrderState.wrap(
+            twamm.sload(TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId))
+        );
     }
 
     function rewardRateSnapshot(ITWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
@@ -53,23 +40,11 @@ library TWAMMLib {
         view
         returns (uint256)
     {
-        bytes32 key;
-
+        bytes32 slot = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
         assembly ("memory-safe") {
-            // order state
-            mstore(0, owner)
-            mstore(32, 5)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, salt)
-
-            mstore(32, keccak256(0, 64))
-            mstore(0, orderId)
-
-            key := keccak256(0, 64)
+            slot := add(slot, 1)
         }
-
-        return uint256(twamm.sload(key));
+        return uint256(twamm.sload(slot));
     }
 
     function executeVirtualOrdersAndGetCurrentOrderInfo(
@@ -90,20 +65,22 @@ library TWAMMLib {
             uint256 _rewardRateSnapshot = rewardRateSnapshot(twamm, owner, salt, orderId);
 
             if (saleRate != 0) {
+                (uint64 startTime, uint64 endTime) = (orderKey.startTime(), orderKey.endTime());
+
                 uint256 rewardRateInside = twamm.getRewardRateInside(
-                    poolKey.toPoolId(), orderKey.startTime, orderKey.endTime, orderKey.sellToken < orderKey.buyToken
+                    poolKey.toPoolId(), startTime, endTime, orderKey.sellToken < orderKey.buyToken
                 );
 
                 purchasedAmount = computeRewardAmount(rewardRateInside - _rewardRateSnapshot, saleRate);
 
-                if (block.timestamp > orderKey.startTime) {
+                if (block.timestamp > startTime) {
                     uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
 
-                    uint32 secondsSinceOrderStart = uint32(block.timestamp - orderKey.startTime);
+                    uint32 secondsSinceOrderStart = uint32(block.timestamp - startTime);
 
-                    uint32 totalOrderDuration = uint32(orderKey.endTime - orderKey.startTime);
+                    uint32 totalOrderDuration = uint32(endTime - startTime);
 
-                    uint32 remainingTimeSinceLastUpdate = uint32(orderKey.endTime) - lastUpdateTime;
+                    uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
 
                     uint32 saleDuration = uint32(
                         FixedPointMathLib.min(
@@ -118,10 +95,10 @@ library TWAMMLib {
                     amountSold +=
                         computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false});
                 }
-                if (block.timestamp < orderKey.endTime) {
+                if (block.timestamp < endTime) {
                     remainingSellAmount = computeAmountFromSaleRate({
                         saleRate: saleRate,
-                        duration: uint32(orderKey.endTime - FixedPointMathLib.max(orderKey.startTime, block.timestamp)),
+                        duration: uint32(endTime - FixedPointMathLib.max(startTime, block.timestamp)),
                         roundUp: true
                     });
                 }

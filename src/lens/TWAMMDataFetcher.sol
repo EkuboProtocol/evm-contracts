@@ -11,16 +11,20 @@ import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {MAX_NUM_VALID_TIMES, nextValidTime} from "../math/time.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {PoolId} from "../types/poolId.sol";
+import {TimeInfo} from "../types/timeInfo.sol";
+import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 
-function getAllValidFutureTimes(uint256 currentTime) pure returns (uint256[] memory times) {
+function getAllValidFutureTimes(uint64 currentTime) pure returns (uint64[] memory times) {
     unchecked {
-        times = new uint256[](MAX_NUM_VALID_TIMES);
+        times = new uint64[](MAX_NUM_VALID_TIMES);
         uint256 count = 0;
-        uint256 t = currentTime;
+        uint64 t = currentTime;
 
         while (true) {
-            t = nextValidTime(currentTime, t);
-            if (t == 0) break;
+            uint256 nextTime = nextValidTime(currentTime, t);
+            if (nextTime == 0 || nextTime > type(uint64).max) break;
+
+            t = uint64(nextTime);
             times[count++] = t;
         }
 
@@ -31,7 +35,7 @@ function getAllValidFutureTimes(uint256 currentTime) pure returns (uint256[] mem
 }
 
 struct TimeSaleRateInfo {
-    uint256 time;
+    uint64 time;
     int112 saleRateDelta0;
     int112 saleRateDelta1;
 }
@@ -40,7 +44,7 @@ struct PoolState {
     SqrtRatio sqrtRatio;
     int32 tick;
     uint128 liquidity;
-    uint256 lastVirtualOrderExecutionTime;
+    uint64 lastVirtualOrderExecutionTime;
     uint112 saleRateToken0;
     uint112 saleRateToken1;
     TimeSaleRateInfo[] saleRateDeltas;
@@ -62,41 +66,31 @@ contract TWAMMDataFetcher is UsesCore {
             (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
                 TWAMM_EXTENSION.poolState(poolKey.toPoolId()).parse();
 
-            uint256 lastTimeReal = block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime);
+            uint64 lastTimeReal = uint64(block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime));
 
-            uint256[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
+            uint64[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
 
             PoolId poolId = poolKey.toPoolId();
             bytes32[] memory timeInfoSlots = new bytes32[](allValidTimes.length);
-            assembly ("memory-safe") {
-                mstore(0, poolId)
-                mstore(32, 1)
-                mstore(32, keccak256(0, 64))
-                for { let i := 0 } lt(i, mload(timeInfoSlots)) { i := add(i, 1) } {
-                    let offset := mul(add(i, 1), 32)
-                    mstore(0, mload(add(allValidTimes, offset)))
-                    mstore(add(timeInfoSlots, offset), keccak256(0, 64))
-                }
+
+            for (uint256 i = 0; i < timeInfoSlots.length; i++) {
+                timeInfoSlots[i] = TWAMMStorageLayout.poolTimeInfosSlot(poolId, allValidTimes[i]);
             }
 
             (bool success, bytes memory result) =
                 address(TWAMM_EXTENSION).staticcall(abi.encodePacked(IExposedStorage.sload.selector, timeInfoSlots));
-
             assert(success);
 
             uint256 countNonZero = 0;
             TimeSaleRateInfo[] memory saleRateDeltas = new TimeSaleRateInfo[](timeInfoSlots.length);
 
             for (uint256 i = 0; i < allValidTimes.length; i++) {
-                uint32 numOrders;
-                int112 saleRateDeltaToken0;
-                int112 saleRateDeltaToken1;
+                TimeInfo timeInfo;
                 assembly ("memory-safe") {
-                    let value := mload(add(result, mul(add(i, 1), 32)))
-                    numOrders := shr(224, value)
-                    saleRateDeltaToken0 := signextend(13, shr(112, value))
-                    saleRateDeltaToken1 := signextend(13, value)
+                    timeInfo := mload(add(result, mul(add(i, 1), 32)))
                 }
+
+                (uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
                 if (numOrders != 0) {
                     saleRateDeltas[countNonZero++] =

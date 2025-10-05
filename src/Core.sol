@@ -229,12 +229,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         // Note we do not check pool is initialized. If the extension calls this for a pool that does not exist,
         //  the fees are simply burned since liquidity is 0.
 
+        uint256 fplOffset = CoreStorageLayout.FPL_OFFSET;
+
         assembly ("memory-safe") {
             if or(amount0, amount1) {
                 let liquidity := shr(128, shl(128, sload(poolId)))
 
                 if liquidity {
-                    let slot0 := add(poolId, 1)
+                    let slot0 := add(poolId, fplOffset)
 
                     if amount0 {
                         let v := div(shl(128, amount0), liquidity)

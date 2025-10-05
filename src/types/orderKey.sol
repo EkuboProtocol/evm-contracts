@@ -2,6 +2,30 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "./poolKey.sol";
+import {OrderConfig} from "./orderConfig.sol";
+
+using {toOrderId, toPoolKey, fee, startTime, endTime} for OrderKey global;
+
+/// @notice Extracts the fee from an order key
+/// @param ok The order key
+/// @return r The fee
+function fee(OrderKey memory ok) pure returns (uint64 r) {
+    return ok.config.fee();
+}
+
+/// @notice Extracts the start time from an order key
+/// @param ok The order key
+/// @return r The start time
+function startTime(OrderKey memory ok) pure returns (uint64 r) {
+    return ok.config.startTime();
+}
+
+/// @notice Extracts the end time from an order key
+/// @param ok The order key
+/// @return r The end time
+function endTime(OrderKey memory ok) pure returns (uint64 r) {
+    return ok.config.endTime();
+}
 
 /// @notice Order key structure identifying a TWAMM order
 /// @dev Contains all parameters needed to uniquely identify an order
@@ -10,22 +34,16 @@ struct OrderKey {
     address sellToken;
     /// @notice Token being bought
     address buyToken;
-    /// @notice Fee tier for the order
-    uint64 fee;
-    /// @notice Start time for the order execution
-    uint256 startTime;
-    /// @notice End time for the order execution
-    uint256 endTime;
+    /// @notice Packed configuration containing fee, start, and end time
+    OrderConfig config;
 }
-
-using {toOrderId, toPoolKey} for OrderKey global;
 
 /// @notice Computes the order ID from an order key
 /// @param orderKey The order key
 /// @return id The computed order ID
 function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
     assembly ("memory-safe") {
-        id := keccak256(orderKey, 160)
+        id := keccak256(orderKey, 96)
     }
 }
 
@@ -35,12 +53,13 @@ function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
 /// @param twamm The TWAMM contract address to use as the extension
 /// @return poolKey The corresponding pool key for the order
 function toPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
+    uint256 _fee = orderKey.config.fee();
+
     assembly ("memory-safe") {
         poolKey := mload(0x40)
 
         let sellToken := mload(orderKey)
         let buyToken := mload(add(orderKey, 32))
-        let fee := mload(add(orderKey, 64))
 
         let xoredTokens := xor(sellToken, buyToken)
         let sellIsZero := gt(buyToken, sellToken)
@@ -50,7 +69,7 @@ function toPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKe
 
         mstore(poolKey, token0)
         mstore(add(poolKey, 32), token1)
-        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, fee)))
+        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, _fee)))
 
         // move free memory pointer forward 96 bytes
         mstore(0x40, add(poolKey, 96))

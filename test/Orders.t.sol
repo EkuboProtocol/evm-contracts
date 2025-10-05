@@ -14,6 +14,7 @@ import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
 import {TwammPoolState} from "../src/types/twammPoolState.sol";
+import {createOrderConfig} from "../src/types/orderConfig.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     Orders internal orders;
@@ -29,7 +30,7 @@ contract OrdersTest is BaseOrdersTest {
     using CoreLib for *;
     using TWAMMLib for *;
 
-    function test_createOrder_sell_token0_only(uint256 time) public {
+    function test_createOrder_sell_token0_only(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -46,9 +47,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         assertEq(saleRate, (uint256(100) << 32) / 15);
@@ -58,7 +57,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id, key, address(this)), 92);
     }
 
-    function test_createOrder_sell_token1_only(uint256 time) public {
+    function test_createOrder_sell_token1_only(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -75,9 +74,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         assertEq(saleRate, (uint256(100) << 32) / 15);
@@ -87,7 +84,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id, key, address(this)), 92);
     }
 
-    function test_createOrder_sell_both_tokens(uint256 time) public {
+    function test_createOrder_sell_both_tokens(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -105,17 +102,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
         OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
 
@@ -126,7 +119,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id1, key1, address(this)), 98);
     }
 
-    function test_createOrder_sell_both_tokens_sale_rate_dominated(uint256 time) public {
+    function test_createOrder_sell_both_tokens_sale_rate_dominated(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -144,17 +137,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
         OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2e18, type(uint112).max);
 
@@ -165,7 +154,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id1, key1, address(this)), 1000000000000002926);
     }
 
-    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_stop_future_order_partway(uint256 time) public {
+    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_stop_future_order_partway(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -182,9 +171,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time + 15,
-            endTime: time + 31
+            config: createOrderConfig({_fee: fee, _startTime: time + 15, _endTime: time + 31})
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -203,40 +190,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(amountSold, 500000000000000000);
     }
 
-    function test_executeVirtualOrder_fails_in_max_times() public {
-        uint256 time = type(uint256).max - type(uint32).max - 15;
-        vm.warp(time);
-
-        // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
-        int32 tick = 0;
-
-        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
-
-        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
-
-        token0.approve(address(orders), type(uint256).max);
-
-        OrderKey memory key = OrderKey({
-            sellToken: poolKey.token0,
-            buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time + 15,
-            endTime: time + 31
-        });
-
-        orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
-
-        advanceTime(23);
-        twamm.lockAndExecuteVirtualOrders(poolKey);
-
-        advanceTime(9);
-        // nextValidTime will return 0 which causes it to skip the initialized time and try to swap too much
-        vm.expectRevert(ICore.SavedBalanceOverflow.selector);
-        twamm.lockAndExecuteVirtualOrders(poolKey);
-    }
-
-    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_future_order_ends(uint256 time) public {
+    function test_executeVirtualOrdersAndGetCurrentOrderInfo_after_future_order_ends(uint64 time) public {
         // we use 33 because we advance time by 32 during the test
         time = boundTime(time, 33);
         vm.warp(time);
@@ -254,9 +208,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time + 15,
-            endTime: time + 31
+            config: createOrderConfig({_fee: fee, _startTime: time + 15, _endTime: time + 31})
         });
         (uint256 id,) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -284,7 +236,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(amountSold, 1e18);
     }
 
-    function test_createOrder_sell_both_tokens_getOrderInfo(uint256 time) public {
+    function test_createOrder_sell_both_tokens_getOrderInfo(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -302,17 +254,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
         OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 63
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 63})
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2e18, type(uint112).max);
 
@@ -349,7 +297,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(purchasedAmount1, 1.530943211251159013e18, "purchasedAmount1");
     }
 
-    function test_createOrder_sell_both_tokens_liquidity_dominated(uint256 time) public {
+    function test_createOrder_sell_both_tokens_liquidity_dominated(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -367,17 +315,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1000, type(uint112).max);
         OrderKey memory key1 = OrderKey({
             sellToken: poolKey.token1,
             buyToken: poolKey.token0,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2000, type(uint112).max);
 
@@ -388,7 +332,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id1, key1, address(this)), 1947);
     }
 
-    function test_createOrder_stop_order(uint256 time) public {
+    function test_createOrder_stop_order(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -405,9 +349,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             sellToken: poolKey.token0,
             buyToken: poolKey.token1,
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
 
@@ -420,7 +362,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(orders.collectProceeds(id, key, address(this)), 18);
     }
 
-    function test_createOrder_non_existent_pool(uint256 time) public {
+    function test_createOrder_non_existent_pool(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -431,23 +373,24 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             sellToken: address(token0),
             buyToken: address(token1),
-            fee: fee,
-            startTime: time - 1,
-            endTime: time + 15
+            config: createOrderConfig({_fee: fee, _startTime: time - 1, _endTime: time + 15})
         });
 
         vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
     }
 
-    function test_createOrder_uint32_bounds_does_not_revert(uint256 time) public {
+    function test_createOrder_uint32_bounds_does_not_revert(uint64 time) public {
         // we make time a multiple of 2**32
         // the pool state should be exactly 0
         time = (time >> 32) << 32;
         vm.warp(time);
 
-        OrderKey memory key =
-            OrderKey({sellToken: address(token0), buyToken: address(token1), fee: 0, startTime: 0, endTime: time + 16});
+        OrderKey memory key = OrderKey({
+            sellToken: address(token0),
+            buyToken: address(token1),
+            config: createOrderConfig({_fee: 0, _startTime: 0, _endTime: time + 16})
+        });
         positions.maybeInitializePool(key.toPoolKey(address(twamm)), 0);
 
         // pool state is legitimately 0 because it was initialized on a time that is a multiple of 2**32
@@ -457,15 +400,18 @@ contract OrdersTest is BaseOrdersTest {
         orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
     }
 
-    function test_collectProceeds_non_existent_pool(uint256 time) public {
+    function test_collectProceeds_non_existent_pool(uint64 time) public {
         vm.warp(time);
 
         uint64 fee = uint64((uint256(5) << 64) / 100);
 
         token0.approve(address(orders), type(uint256).max);
 
-        OrderKey memory key =
-            OrderKey({sellToken: address(token0), buyToken: address(token1), fee: fee, startTime: 0, endTime: 1});
+        OrderKey memory key = OrderKey({
+            sellToken: address(token0),
+            buyToken: address(token1),
+            config: createOrderConfig({_fee: fee, _startTime: 0, _endTime: 1})
+        });
 
         uint256 id = orders.mint();
 
@@ -503,9 +449,7 @@ contract OrdersTest is BaseOrdersTest {
             OrderKey({
                 sellToken: poolKey.token1,
                 buyToken: poolKey.token0,
-                fee: poolKey.fee(),
-                startTime: 4294902272,
-                endTime: 4311744512
+                config: createOrderConfig({_fee: poolKey.fee(), _startTime: 4294902272, _endTime: 4311744512})
             }),
             6849779285538874832820657709,
             type(uint112).max
@@ -544,9 +488,7 @@ contract OrdersTest is BaseOrdersTest {
             OrderKey({
                 sellToken: poolKey.token0,
                 buyToken: poolKey.token1,
-                fee: poolKey.fee(),
-                startTime: 4295004176,
-                endTime: 4295294976
+                config: createOrderConfig({_fee: poolKey.fee(), _startTime: 4295004176, _endTime: 4295294976})
             }),
             28877500254,
             type(uint112).max
@@ -614,8 +556,11 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(orders), type(uint256).max);
 
-        OrderKey memory key =
-            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _startTime: 0, _endTime: 16})
+        });
         coolAllContracts();
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(first order)");
@@ -641,11 +586,17 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        OrderKey memory key0 =
-            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key0 = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _startTime: 0, _endTime: 16})
+        });
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
-        OrderKey memory key1 =
-            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key1 = OrderKey({
+            sellToken: poolKey.token1,
+            buyToken: poolKey.token0,
+            config: createOrderConfig({_fee: fee, _startTime: 0, _endTime: 16})
+        });
         coolAllContracts();
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
         vm.snapshotGasLastCall("mintAndIncreaseSellAmount(second order)");
@@ -671,11 +622,17 @@ contract OrdersTest is BaseOrdersTest {
         token0.approve(address(orders), type(uint256).max);
         token1.approve(address(orders), type(uint256).max);
 
-        OrderKey memory key0 =
-            OrderKey({sellToken: poolKey.token0, buyToken: poolKey.token1, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key0 = OrderKey({
+            sellToken: poolKey.token0,
+            buyToken: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _startTime: 0, _endTime: 16})
+        });
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
-        OrderKey memory key1 =
-            OrderKey({sellToken: poolKey.token1, buyToken: poolKey.token0, fee: fee, startTime: 0, endTime: 16});
+        OrderKey memory key1 = OrderKey({
+            sellToken: poolKey.token1,
+            buyToken: poolKey.token0,
+            config: createOrderConfig({_fee: fee, _startTime: 0, _endTime: 16})
+        });
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
 
         advanceTime(15);
@@ -711,9 +668,7 @@ contract OrdersTest is BaseOrdersTest {
                 OrderKey({
                     sellToken: poolKey.token0,
                     buyToken: poolKey.token1,
-                    fee: fee,
-                    startTime: startTime,
-                    endTime: endTime
+                    config: createOrderConfig({_fee: fee, _startTime: uint64(startTime), _endTime: uint64(endTime)})
                 }),
                 uint112(100 * (i++)),
                 type(uint112).max
@@ -723,9 +678,7 @@ contract OrdersTest is BaseOrdersTest {
                 OrderKey({
                     sellToken: poolKey.token1,
                     buyToken: poolKey.token0,
-                    fee: fee,
-                    startTime: startTime,
-                    endTime: endTime
+                    config: createOrderConfig({_fee: fee, _startTime: uint64(startTime), _endTime: uint64(endTime)})
                 }),
                 uint112(100 * (i++)),
                 type(uint112).max

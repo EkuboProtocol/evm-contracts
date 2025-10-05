@@ -163,14 +163,8 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when trying to operate on an uninitialized pool
     error PoolNotInitialized();
 
-    /// @notice Thrown when trying to withdraw all liquidity without collecting fees first
-    error MustCollectFeesBeforeWithdrawingAllLiquidity();
-
     /// @notice Thrown when trying to set the extra data on a position that does not exist
     error PositionDoesNotExist();
-
-    /// @notice When withdrawing all liquidity, extraData must be empty
-    error ExtraDataMustBeEmpty();
 
     /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
@@ -238,11 +232,12 @@ interface ICore is IFlashAccountant, IExposedStorage {
         payable;
 
     /// @notice Returns the accumulated fees per liquidity inside the given bounds
-    /// @param poolKey Pool key identifying the pool
+    /// @dev The reason this getter is exposed is that it requires conditional SLOADs for maximum efficiency
+    /// @param poolId The ID of the pool to fetch the fees per liquidity inside
     /// @param tickLower Lower bound of the price range to get the snapshot
     /// @param tickLower Upper bound of the price range to get the snapshot
     /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
-    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
+    function getPoolFeesPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper)
         external
         view
         returns (FeesPerLiquidity memory feesPerLiquidity);

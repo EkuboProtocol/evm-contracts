@@ -417,12 +417,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
-
-            position.liquidity = liquidityNext;
             if (liquidityNext == 0) {
+                position.liquidity = 0;
                 position.feesPerLiquidityInsideLast = FeesPerLiquidity(0, 0);
             } else {
+                (uint128 fees0, uint128 fees1) = position.fees(feesPerLiquidityInside);
+                position.liquidity = liquidityNext;
                 position.feesPerLiquidityInsideLast =
                     feesPerLiquidityInside.sub(feesPerLiquidityFromAmounts(fees0, fees1, liquidityNext));
             }

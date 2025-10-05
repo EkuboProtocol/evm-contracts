@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {createPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {ICore} from "../src/interfaces/ICore.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
 import {Orders} from "../src/Orders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";

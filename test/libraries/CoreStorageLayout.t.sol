@@ -73,7 +73,10 @@ contract CoreStorageLayoutTest is Test {
     }
 
     // Test pool ticks slots
-    function test_noStorageLayoutCollisions_poolTicksSlot_uniqueness(PoolId poolId, int32 tick1, int32 tick2) public {
+    function test_noStorageLayoutCollisions_poolTicksSlot_uniqueness(PoolId poolId, int32 tick1, int32 tick2)
+        public
+        pure
+    {
         vm.assume(tick1 != tick2);
         bytes32 slot1 = CoreStorageLayout.poolTicksSlot(poolId, tick1);
         bytes32 slot2 = CoreStorageLayout.poolTicksSlot(poolId, tick2);
@@ -84,7 +87,7 @@ contract CoreStorageLayoutTest is Test {
         address extension,
         PoolId poolId,
         int32 tick
-    ) public {
+    ) public pure {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
         bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
         bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, tick);
@@ -93,6 +96,7 @@ contract CoreStorageLayoutTest is Test {
 
     function test_noStorageLayoutCollisions_poolStateSlot_poolTicksSlot(PoolId poolId1, PoolId poolId2, int32 tick)
         public
+        pure
     {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
         bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId1);
@@ -104,7 +108,7 @@ contract CoreStorageLayoutTest is Test {
         PoolId poolId1,
         PoolId poolId2,
         int32 tick
-    ) public {
+    ) public pure {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
         bytes32 poolFeesSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId1);
         bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId2, tick);
@@ -128,7 +132,7 @@ contract CoreStorageLayoutTest is Test {
         address extension,
         PoolId poolId,
         int32 tick
-    ) public {
+    ) public pure {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
         bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
         (bytes32 first, bytes32 second) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
@@ -140,7 +144,7 @@ contract CoreStorageLayoutTest is Test {
         PoolId poolId,
         int32 tick1,
         int32 tick2
-    ) public {
+    ) public pure {
         vm.assume(tick1 >= MIN_TICK && tick1 <= MAX_TICK);
         vm.assume(tick2 >= MIN_TICK && tick2 <= MAX_TICK);
         vm.assume(tick1 != tick2);
@@ -172,7 +176,7 @@ contract CoreStorageLayoutTest is Test {
         address owner,
         PositionId positionId1,
         PositionId positionId2
-    ) public {
+    ) public pure {
         vm.assume(PositionId.unwrap(positionId1) != PositionId.unwrap(positionId2));
         bytes32 slot1 = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId1);
         bytes32 slot2 = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId2);
@@ -184,7 +188,7 @@ contract CoreStorageLayoutTest is Test {
         address owner1,
         address owner2,
         PositionId positionId
-    ) public {
+    ) public pure {
         vm.assume(owner1 != owner2);
         bytes32 slot1 = CoreStorageLayout.poolPositionsSlot(poolId, owner1, positionId);
         bytes32 slot2 = CoreStorageLayout.poolPositionsSlot(poolId, owner2, positionId);
@@ -196,7 +200,7 @@ contract CoreStorageLayoutTest is Test {
         PoolId poolId2,
         address owner,
         PositionId positionId
-    ) public {
+    ) public pure {
         vm.assume(PoolId.unwrap(poolId1) != PoolId.unwrap(poolId2));
         bytes32 slot1 = CoreStorageLayout.poolPositionsSlot(poolId1, owner, positionId);
         bytes32 slot2 = CoreStorageLayout.poolPositionsSlot(poolId2, owner, positionId);
@@ -242,7 +246,7 @@ contract CoreStorageLayoutTest is Test {
         address token0,
         address token1,
         bytes32 salt
-    ) public {
+    ) public pure {
         vm.assume(owner1 != owner2);
         bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner1, token0, token1, salt);
         bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner2, token0, token1, salt);
@@ -255,7 +259,7 @@ contract CoreStorageLayoutTest is Test {
         address token0_2,
         address token1,
         bytes32 salt
-    ) public {
+    ) public pure {
         vm.assume(token0_1 != token0_2);
         bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner, token0_1, token1, salt);
         bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner, token0_2, token1, salt);
@@ -268,7 +272,7 @@ contract CoreStorageLayoutTest is Test {
         address token1_1,
         address token1_2,
         bytes32 salt
-    ) public {
+    ) public pure {
         vm.assume(token1_1 != token1_2);
         bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1_1, salt);
         bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1_2, salt);
@@ -281,7 +285,7 @@ contract CoreStorageLayoutTest is Test {
         address token1,
         bytes32 salt1,
         bytes32 salt2
-    ) public {
+    ) public pure {
         vm.assume(salt1 != salt2);
         bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt1);
         bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt2);
@@ -385,7 +389,7 @@ contract CoreStorageLayoutTest is Test {
         bytes24 salt,
         int32 tickLower,
         int32 tickUpper
-    ) public {
+    ) public pure {
         // Ensure valid inputs
         vm.assume(token0 < token1);
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);

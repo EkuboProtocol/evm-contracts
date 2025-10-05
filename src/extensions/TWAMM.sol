@@ -15,7 +15,6 @@ import {StorageSlot} from "../types/storageSlot.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
-import {Bitmap} from "../types/bitmap.sol";
 import {PoolState} from "../types/poolState.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {OrderKey} from "../types/orderKey.sol";

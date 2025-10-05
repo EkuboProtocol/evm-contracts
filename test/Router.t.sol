@@ -15,7 +15,6 @@ import {
 } from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
-import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";

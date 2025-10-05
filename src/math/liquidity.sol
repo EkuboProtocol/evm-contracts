@@ -135,18 +135,3 @@ function addLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure return
         }
     }
 }
-
-/// @notice Safely subtracts a liquidity delta from a liquidity amount
-/// @dev Reverts if the operation would cause overflow or underflow
-/// @param liquidity The current liquidity amount
-/// @param liquidityDelta The change in liquidity to subtract
-/// @return result The new liquidity amount after subtracting the delta
-function subLiquidityDelta(uint128 liquidity, int128 liquidityDelta) pure returns (uint128 result) {
-    assembly ("memory-safe") {
-        result := sub(liquidity, liquidityDelta)
-        if and(result, shl(128, 0xffffffffffffffffffffffffffffffff)) {
-            mstore(0, shl(224, 0x6d862c50))
-            revert(0, 4)
-        }
-    }
-}

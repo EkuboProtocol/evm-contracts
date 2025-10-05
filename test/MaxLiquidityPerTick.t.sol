@@ -6,12 +6,8 @@ import {PoolConfig, createPoolConfig} from "../src/types/poolConfig.sol";
 import {MAX_TICK_MAGNITUDE} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
-import {PoolKey} from "../src/types/poolKey.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {TestToken} from "./TestToken.sol";
-import {liquidityDeltaToAmountDelta} from "../src/math/liquidity.sol";
-import {tickToSqrtRatio} from "../src/math/ticks.sol";
-import {PoolId} from "../src/types/poolId.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 
 contract MaxLiquidityPerTickTest is Test {

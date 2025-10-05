@@ -6,7 +6,6 @@ import {
     liquidityDeltaToAmountDelta,
     LiquidityDeltaOverflow,
     addLiquidityDelta,
-    subLiquidityDelta,
     maxLiquidity
 } from "../../src/math/liquidity.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
@@ -157,25 +156,6 @@ contract LiquidityTest is Test {
         assertEq(addLiquidityDelta(1 << 127, type(int128).min), 0);
         assertEq(addLiquidityDelta(0, type(int128).max), type(uint128).max >> 1);
         assertEq(addLiquidityDelta(type(uint128).max, type(int128).min), type(uint128).max >> 1);
-    }
-
-    /// forge-config: default.allow_internal_expect_revert = true
-    function test_subLiquidityDelta() public {
-        vm.expectRevert(LiquidityDeltaOverflow.selector);
-        subLiquidityDelta(type(uint128).max, -1);
-        vm.expectRevert(LiquidityDeltaOverflow.selector);
-        subLiquidityDelta(0, 1);
-    }
-
-    /// forge-config: default.allow_internal_expect_revert = true
-    function test_subLiquidityDeltaInvariants(uint128 liquidity, int128 delta) public {
-        int256 result = int256(uint256(liquidity)) - delta;
-        if (result < 0) {
-            vm.expectRevert(LiquidityDeltaOverflow.selector);
-        } else if (result > int256(uint256(type(uint128).max))) {
-            vm.expectRevert(LiquidityDeltaOverflow.selector);
-        }
-        assertEq(int256(uint256(subLiquidityDelta(liquidity, delta))), result);
     }
 
     function ml(SqrtRatio sqrtRatio, SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 amount0, uint128 amount1)

@@ -6,7 +6,7 @@ import {Core} from "../src/Core.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {TestToken} from "./TestToken.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PoolConfig, createPoolConfig} from "../src/types/poolConfig.sol";
+import {createPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {Position} from "../src/types/position.sol";
 import {PositionId, createPositionId} from "../src/types/positionId.sol";

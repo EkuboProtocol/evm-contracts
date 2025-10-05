@@ -3,7 +3,8 @@ pragma solidity =0.8.30;
 
 import {FullTest} from "../FullTest.sol";
 import {QuoteData, QuoteDataFetcher} from "../../src/lens/QuoteDataFetcher.sol";
-import {PoolKey, createPoolConfig} from "../../src/types/poolKey.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {createPoolConfig} from "../../src/types/poolConfig.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";

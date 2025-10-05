@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {createPoolConfig} from "../src/types/poolConfig.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";

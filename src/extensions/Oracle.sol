@@ -112,10 +112,16 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
             PoolState state = CORE.poolState(poolId);
 
+            uint128 liquidity = state.liquidity();
+            uint256 nonZeroLiquidity;
+            assembly ("memory-safe") {
+                nonZeroLiquidity := add(liquidity, iszero(liquidity))
+            }
+
             Snapshot snapshot = createSnapshot({
                 _timestamp: uint32(block.timestamp),
                 _secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative()
-                    + uint160(FixedPointMathLib.rawDiv(uint256(timePassed) << 128, FixedPointMathLib.max(1, state.liquidity()))),
+                    + uint160(FixedPointMathLib.rawDiv(uint256(timePassed) << 128, nonZeroLiquidity)),
                 _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * state.tick()
             });
 

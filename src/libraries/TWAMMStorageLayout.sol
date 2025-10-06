@@ -2,6 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolId} from "../types/poolId.sol";
+import {OrderId} from "../types/orderId.sol";
 
 /// @title TWAMM Storage Layout
 /// @notice Library providing functions to compute the storage locations for the TWAMM contract
@@ -74,7 +75,7 @@ library TWAMMStorageLayout {
     /// @param salt The salt used for the order
     /// @param orderId The unique identifier for the order
     /// @return slot The storage slot of the order state in the TWAMM contract, followed by the storage slot of the order reward rate snapshot
-    function orderStateSlotFollowedByOrderRewardRateSnapshotSlot(address owner, bytes32 salt, bytes32 orderId)
+    function orderStateSlotFollowedByOrderRewardRateSnapshotSlot(address owner, bytes32 salt, OrderId orderId)
         internal
         pure
         returns (bytes32 slot)

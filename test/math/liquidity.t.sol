@@ -207,10 +207,10 @@ contract LiquidityTest is Test {
     function test_maxLiquidityPerTick_at_min_price_tickSpacing1_overflows() public {
         // For tick spacing 1, calculate max liquidity per tick
         PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
-        uint128 maxLiquidityPerTick = config.maxLiquidityPerTick();
+        uint128 maxLiquidityPerTick = config.maxLiquidityPerTickConcentratedLiquidity();
 
         // IMPORTANT: At extreme prices (near MIN_TICK), attempting to calculate the token amounts
-        // for maxLiquidityPerTick causes overflow. This demonstrates that while maxLiquidityPerTick
+        // for maxLiquidityPerTickConcentratedLiquidity causes overflow. This demonstrates that while maxLiquidityPerTickConcentratedLiquidity
         // is the theoretical maximum, in practice you cannot deposit that much liquidity at extreme
         // prices because the required token amounts exceed int128.max.
 
@@ -231,10 +231,10 @@ contract LiquidityTest is Test {
     function test_maxLiquidityPerTick_at_max_price_tickSpacing1_overflows() public {
         // For tick spacing 1, calculate max liquidity per tick
         PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
-        uint128 maxLiquidityPerTick = config.maxLiquidityPerTick();
+        uint128 maxLiquidityPerTick = config.maxLiquidityPerTickConcentratedLiquidity();
 
         // IMPORTANT: At extreme prices (near MAX_TICK), attempting to calculate the token amounts
-        // for maxLiquidityPerTick causes overflow. This demonstrates that while maxLiquidityPerTick
+        // for maxLiquidityPerTickConcentratedLiquidity causes overflow. This demonstrates that while maxLiquidityPerTickConcentratedLiquidity
         // is the theoretical maximum, in practice you cannot deposit that much liquidity at extreme
         // prices because the required token amounts exceed int128.max.
 
@@ -255,7 +255,7 @@ contract LiquidityTest is Test {
     function test_maxLiquidityPerTick_at_mid_price_tickSpacing1() public pure {
         // For tick spacing 1, calculate max liquidity per tick
         PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
-        uint128 maxLiquidityPerTick = config.maxLiquidityPerTick();
+        uint128 maxLiquidityPerTick = config.maxLiquidityPerTickConcentratedLiquidity();
 
         // At mid price (tick 0), liquidity is split between both tokens
         // Calculate the token amounts needed for max liquidity on a single tick

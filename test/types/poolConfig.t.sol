@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
-import {MAX_TICK} from "../../src/math/constants.sol";
+import {MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PoolConfigTest is Test {
     function test_conversionToAndFrom(PoolConfig config) public pure {
@@ -46,11 +46,13 @@ contract PoolConfigTest is Test {
         assertEq(config.extension(), extension, "extension");
     }
 
-    function test_maxLiquidityPerTick(PoolConfig config) public pure {
+    function test_maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) public pure {
+        vm.assume(config.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING);
         int256 tickSpacing = int256(uint256(config.tickSpacing()));
-        uint256 maxLiquidity = config.maxLiquidityPerTick();
 
-        if (tickSpacing > MAX_TICK || tickSpacing == 0) {
+        uint256 maxLiquidity = config.maxLiquidityPerTickConcentratedLiquidity();
+
+        if (int32(tickSpacing) > MAX_TICK) {
             assertEq(maxLiquidity, type(uint128).max);
         } else {
             uint256 numTicks = uint256(1 + ((MAX_TICK / tickSpacing) * 2));

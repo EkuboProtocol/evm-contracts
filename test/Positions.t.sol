@@ -549,8 +549,7 @@ contract PositionsTest is FullTest {
         );
 
         // Verify fees exist before withdrawal
-        (, uint128 p0Before, uint128 p1Before, uint128 f0Before, uint128 f1Before) =
-            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        (,,, uint128 f0Before, uint128 f1Before) = positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertEq(f0Before, 49, "Should have token0 fees before withdrawal");
         assertEq(f1Before, 0, "Should have no token1 fees");
 
@@ -801,6 +800,9 @@ contract PositionsTest is FullTest {
         (uint128 amount0_without, uint128 amount1_without) =
             positions.withdraw(id2, poolKey, -100, 100, liquidity2, address(this), false);
 
+        // Position 1 collected fees, position 2 burned them
+        assertGt(amount0_with, amount0_without, "Withdrawing with fees should return more token0");
+
         // Verify the difference approximately equals the fees (allow 1 wei difference for rounding)
         assertApproxEqAbs(
             uint256(amount0_with - amount0_without),
@@ -814,8 +816,5 @@ contract PositionsTest is FullTest {
             1,
             "Difference should approximately equal token1 fees"
         );
-
-        // Position 1 collected fees, position 2 burned them
-        assertGt(amount0_with, amount0_without, "Withdrawing with fees should return more token0");
     }
 }

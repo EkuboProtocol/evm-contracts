@@ -132,16 +132,17 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             int256 amount = CORE.updateSaleRate(TWAMM_EXTENSION, bytes32(id), orderKey, int112(saleRateDelta));
 
             if (amount != 0) {
+                address sellToken = orderKey.sellToken();
                 if (saleRateDelta > 0) {
-                    if (orderKey.sellToken == NATIVE_TOKEN_ADDRESS) {
+                    if (sellToken == NATIVE_TOKEN_ADDRESS) {
                         SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(amount));
                     } else {
-                        ACCOUNTANT.payFrom(recipientOrPayer, orderKey.sellToken, uint256(amount));
+                        ACCOUNTANT.payFrom(recipientOrPayer, sellToken, uint256(amount));
                     }
                 } else {
                     unchecked {
                         // we know amount will never exceed the uint128 type because of limitations on sale rate (fixed point 80.32) and duration (uint32)
-                        ACCOUNTANT.withdraw(orderKey.sellToken, recipientOrPayer, uint128(uint256(-amount)));
+                        ACCOUNTANT.withdraw(sellToken, recipientOrPayer, uint128(uint256(-amount)));
                     }
                 }
             }
@@ -154,7 +155,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             uint128 proceeds = CORE.collectProceeds(TWAMM_EXTENSION, bytes32(id), orderKey);
 
             if (proceeds != 0) {
-                ACCOUNTANT.withdraw(orderKey.buyToken, recipient, proceeds);
+                ACCOUNTANT.withdraw(orderKey.buyToken(), recipient, proceeds);
             }
 
             result = abi.encode(proceeds);

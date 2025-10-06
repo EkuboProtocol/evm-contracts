@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {OrderKey} from "../../src/types/orderKey.sol";
+import {OrderId} from "../../src/types/orderId.sol";
 import {OrderConfig, createOrderConfig} from "../../src/types/orderConfig.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 
@@ -148,75 +149,75 @@ contract OrderKeyTest is Test {
 
     // Test that toOrderId changes when token0 changes
     function test_toOrderId_changesWithToken0(OrderKey memory orderKey) public pure {
-        bytes32 id = orderKey.toOrderId();
+        OrderId id = orderKey.toOrderId();
         unchecked {
             orderKey.token0 = address(uint160(orderKey.token0) + 1);
         }
-        assertNotEq(orderKey.toOrderId(), id);
+        assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
 
     // Test that toOrderId changes when token1 changes
     function test_toOrderId_changesWithToken1(OrderKey memory orderKey) public pure {
-        bytes32 id = orderKey.toOrderId();
+        OrderId id = orderKey.toOrderId();
         unchecked {
             orderKey.token1 = address(uint160(orderKey.token1) + 1);
         }
-        assertNotEq(orderKey.toOrderId(), id);
+        assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
 
     // Test that toOrderId changes when fee changes
     function test_toOrderId_changesWithFee(OrderKey memory orderKey) public pure {
-        bytes32 id = orderKey.toOrderId();
+        OrderId id = orderKey.toOrderId();
         unchecked {
             orderKey.config =
                 createOrderConfig(orderKey.fee() + 1, orderKey.isToken1(), orderKey.startTime(), orderKey.endTime());
         }
-        assertNotEq(orderKey.toOrderId(), id);
+        assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
 
     // Test that toOrderId changes when isToken1 changes
     function test_toOrderId_changesWithIsToken1(OrderKey memory orderKey) public pure {
-        bytes32 id = orderKey.toOrderId();
+        OrderId id = orderKey.toOrderId();
         orderKey.config =
             createOrderConfig(orderKey.fee(), !orderKey.isToken1(), orderKey.startTime(), orderKey.endTime());
-        assertNotEq(orderKey.toOrderId(), id);
+        assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
 
     // Test that toOrderId changes when startTime changes
     function test_toOrderId_changesWithStartTime(OrderKey memory orderKey) public pure {
-        bytes32 id = orderKey.toOrderId();
+        OrderId id = orderKey.toOrderId();
         unchecked {
             orderKey.config =
                 createOrderConfig(orderKey.fee(), orderKey.isToken1(), orderKey.startTime() + 1, orderKey.endTime());
         }
-        assertNotEq(orderKey.toOrderId(), id);
+        assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
 
     // Test that toOrderId changes when endTime changes
     function test_toOrderId_changesWithEndTime(OrderKey memory orderKey) public pure {
-        bytes32 id = orderKey.toOrderId();
+        OrderId id = orderKey.toOrderId();
         unchecked {
             orderKey.config =
                 createOrderConfig(orderKey.fee(), orderKey.isToken1(), orderKey.startTime(), orderKey.endTime() + 1);
         }
-        assertNotEq(orderKey.toOrderId(), id);
+        assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
 
     // Test that toOrderId hash matches abi.encode (similar to poolKey test)
     function test_toOrderId_hash_matches_abi_encode(OrderKey memory ok) public pure {
-        bytes32 id = ok.toOrderId();
-        assertEq(id, keccak256(abi.encode(ok)));
+        OrderId id = ok.toOrderId();
+        assertEq(OrderId.unwrap(id), keccak256(abi.encode(ok)));
     }
 
     // Test that two identical OrderKeys produce the same toOrderId
     function test_toOrderId_aligns_with_eq(OrderKey memory ok0, OrderKey memory ok1) public pure {
-        bytes32 ok0Id = ok0.toOrderId();
-        bytes32 ok1Id = ok1.toOrderId();
+        OrderId ok0Id = ok0.toOrderId();
+        OrderId ok1Id = ok1.toOrderId();
 
         assertEq(
             ok0.token0 == ok1.token0 && ok0.token1 == ok1.token1
                 && OrderConfig.unwrap(ok0.config) == OrderConfig.unwrap(ok1.config),
-            ok0Id == ok1Id
+            OrderId.unwrap(ok0Id) == OrderId.unwrap(ok1Id)
         );
     }
 }

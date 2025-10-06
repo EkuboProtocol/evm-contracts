@@ -28,6 +28,7 @@ import {
 } from "../math/twamm.sol";
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 import {PoolId} from "../types/poolId.sol";
+import {OrderId} from "../types/orderId.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
 import {LibBit} from "solady/utils/LibBit.sol";
@@ -221,7 +222,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 PoolId poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                bytes32 orderId = orderKey.toOrderId();
+                OrderId orderId = orderKey.toOrderId();
 
                 StorageSlot orderStateSlot = StorageSlot.wrap(
                     TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)
@@ -360,7 +361,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 PoolId poolId = poolKey.toPoolId();
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                bytes32 orderId = orderKey.toOrderId();
+                OrderId orderId = orderKey.toOrderId();
 
                 StorageSlot orderStateSlot = StorageSlot.wrap(
                     TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)

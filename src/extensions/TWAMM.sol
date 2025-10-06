@@ -267,7 +267,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                     + computeAmountFromSaleRate({
                                         saleRate: saleRate,
                                         duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime, uint32(block.timestamp) - uint32(startTime)
+                                            uint32(block.timestamp) - lastUpdateTime, uint32(uint64(block.timestamp) - startTime)
                                         ),
                                         roundUp: false
                                     })

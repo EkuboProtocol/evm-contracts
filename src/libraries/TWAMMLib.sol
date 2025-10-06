@@ -76,7 +76,7 @@ library TWAMMLib {
                 if (block.timestamp > startTime) {
                     uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
 
-                    uint32 secondsSinceOrderStart = uint32(block.timestamp - startTime);
+                    uint32 secondsSinceOrderStart = uint32(uint64(block.timestamp) - startTime);
 
                     uint32 totalOrderDuration = uint32(endTime - startTime);
 

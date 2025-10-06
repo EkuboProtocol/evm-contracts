@@ -2,6 +2,7 @@
 pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {amount0Delta, amount1Delta, sortAndConvertToFixedSqrtRatios} from "./delta.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
@@ -29,8 +30,7 @@ function liquidityDeltaToAmountDelta(
             return (0, 0);
         }
         bool isPositive = (liquidityDelta > 0);
-        // type(uint256).max cast to int256 is -1
-        int256 sign = int256(FixedPointMathLib.ternary(isPositive, 1, type(uint256).max));
+        int256 sign = -1 + 2 * int256(LibBit.rawToUint(isPositive));
         // absolute value of a int128 always fits in a uint128
         uint128 magnitude = uint128(FixedPointMathLib.abs(liquidityDelta));
 

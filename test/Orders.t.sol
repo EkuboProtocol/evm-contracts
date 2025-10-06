@@ -713,4 +713,133 @@ contract OrdersTest is BaseOrdersTest {
         twamm.lockAndExecuteVirtualOrders(poolKey);
         vm.snapshotGasLastCall("lockAndExecuteVirtualOrders max cost");
     }
+
+    /// @notice Test that demonstrates proceeds are NOT lost when collected before stopping the order (correct order)
+    function test_collectProceeds_before_stop_order_correct() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
+
+        // Let the order run for 8 seconds (half the duration)
+        advanceTime(8);
+
+        // CORRECT ORDER: Collect proceeds BEFORE stopping the order
+        uint128 proceedsBeforeStop = orders.collectProceeds(id, key, address(this));
+
+        // Now stop the order
+        uint112 refund = orders.decreaseSaleRate(id, key, saleRate, address(this));
+
+        // Try to collect proceeds again after stopping
+        uint128 proceedsAfterStop = orders.collectProceeds(id, key, address(this));
+
+        // We should have collected some proceeds before stopping
+        assertGt(proceedsBeforeStop, 0, "Should have collected proceeds before stopping");
+
+        // After stopping, there should be no additional proceeds (or very minimal)
+        assertEq(proceedsAfterStop, 0, "Should have no proceeds after stopping since we already collected");
+
+        // We should have gotten a refund for the unsold tokens
+        assertGt(refund, 0, "Should have received refund for unsold tokens");
+    }
+
+    /// @notice Test that demonstrates proceeds ARE LOST when order is stopped before collecting (incorrect order)
+    function test_collectProceeds_after_stop_order_loses_proceeds() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
+
+        // Let the order run for 8 seconds (half the duration)
+        advanceTime(8);
+
+        // INCORRECT ORDER: Stop the order BEFORE collecting proceeds
+        uint112 refund = orders.decreaseSaleRate(id, key, saleRate, address(this));
+
+        // Now try to collect proceeds after stopping
+        uint128 proceedsAfterStop = orders.collectProceeds(id, key, address(this));
+
+        // We should have gotten a refund for the unsold tokens
+        assertGt(refund, 0, "Should have received refund for unsold tokens");
+
+        // BUG: The proceeds that were earned are now lost!
+        // proceedsAfterStop will be 0 even though the order ran for 8 seconds and should have earned proceeds
+        assertEq(proceedsAfterStop, 0, "BUG: Proceeds are lost when order is stopped before collecting!");
+    }
+
+    /// @notice Test comparing both scenarios side-by-side to show the difference
+    function test_proceeds_lost_comparison() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        // Scenario 1: Correct order (collect then stop)
+        OrderKey memory key1 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id1, uint112 saleRate1) = orders.mintAndIncreaseSellAmount(key1, 100, type(uint112).max);
+
+        advanceTime(8);
+
+        uint128 proceedsCorrectOrder = orders.collectProceeds(id1, key1, address(this));
+        orders.decreaseSaleRate(id1, key1, saleRate1, address(this));
+
+        // Scenario 2: Incorrect order (stop then collect)
+        vm.warp(1); // Reset time
+
+        OrderKey memory key2 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id2, uint112 saleRate2) = orders.mintAndIncreaseSellAmount(key2, 100, type(uint112).max);
+
+        advanceTime(8);
+
+        orders.decreaseSaleRate(id2, key2, saleRate2, address(this));
+        uint128 proceedsIncorrectOrder = orders.collectProceeds(id2, key2, address(this));
+
+        // The correct order should have collected proceeds, but the incorrect order loses them
+        assertGt(proceedsCorrectOrder, 0, "Correct order: should have collected proceeds");
+        assertEq(proceedsIncorrectOrder, 0, "Incorrect order: proceeds are lost!");
+
+        // This demonstrates the bug: same order parameters, same duration, but different results
+        // based solely on the order of operations
+        assertTrue(
+            proceedsCorrectOrder > proceedsIncorrectOrder,
+            "BUG DEMONSTRATED: Proceeds are lost when stopping order before collecting"
+        );
+    }
 }

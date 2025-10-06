@@ -2,6 +2,7 @@
 pragma solidity =0.8.30;
 
 import {MAX_TICK} from "../math/constants.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @notice Pool configuration packed into a single bytes32
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
@@ -73,6 +74,6 @@ function maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) pure return
 
     unchecked {
         // maxLiquidity = type(uint128).max / numTicks
-        maxLiquidity = uint128(type(uint128).max / numTicks);
+        maxLiquidity = uint128(FixedPointMathLib.rawDiv(type(uint128).max, numTicks));
     }
 }

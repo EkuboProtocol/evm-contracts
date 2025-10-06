@@ -21,6 +21,7 @@ function sortAndConvertToFixedSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRat
     }
 }
 
+/// @dev Assumes that the sqrt ratios are non-zero
 function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount0)
@@ -39,7 +40,7 @@ function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
             uint256 result0 = FixedPointMathLib.fullMulDiv(
                 (uint256(liquidity) << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
             );
-            uint256 result = result0 / sqrtRatioLower;
+            uint256 result = FixedPointMathLib.rawDiv(result0, sqrtRatioLower);
             if (result > type(uint128).max) revert Amount0DeltaOverflow();
             amount0 = uint128(result);
         }

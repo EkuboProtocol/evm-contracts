@@ -67,7 +67,7 @@ function computeC(uint256 sqrtRatio, uint256 sqrtSaleRatio) pure returns (int256
 /// @dev Assumes both saleRateToken0 and saleRateToken1 are nonzero and <= type(uint112).max
 function computeSqrtSaleRatio(uint256 saleRateToken0, uint256 saleRateToken1) pure returns (uint256 sqrtSaleRatio) {
     unchecked {
-        uint256 saleRatio = (saleRateToken1 << 128) / saleRateToken0;
+        uint256 saleRatio = FixedPointMathLib.rawDiv(saleRateToken1 << 128, saleRateToken0);
 
         if (saleRatio <= type(uint128).max) {
             // full precision for small ratios
@@ -117,7 +117,7 @@ function computeNextSqrtRatio(
             // (12392656037 * t * sqrtSaleRate) / liquidity == (34 + 32 + 128) - 128 bits, cannot overflow
             // uint256(12392656037) = Math.floor(Math.LOG2E * 2**33).
             // this combines the doubling, the left shifting and the converting to a base 2 exponent into a single multiplication
-            uint256 exponent = (sqrtSaleRate * timeElapsed * uint256(12392656037)) / liquidity;
+            uint256 exponent = FixedPointMathLib.rawDiv(sqrtSaleRate * timeElapsed * 12392656037, liquidity);
             if (exponent >= 0x400000000000000000) {
                 // if the exponent is larger than this value (64), the exponent term dominates and the result is approximately the sell ratio
                 sqrtRatioNext = toSqrtRatio(sqrtSaleRatio, roundUp);

@@ -8,6 +8,7 @@ error ZeroLiquidityNextSqrtRatioFromAmount0();
 
 // Compute the next ratio from a delta amount0, always rounded towards starting price for input, and
 // away from starting price for output
+/// @dev Assumes sqrt ratio is non-zero
 function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int128 amount)
     pure
     returns (SqrtRatio sqrtRatioNext)
@@ -28,7 +29,7 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     if (amount < 0) {
         unchecked {
             // multiplication will revert on overflow, so we return the maximum value for the type
-            if (amountAbs > type(uint256).max / sqrtRatio) {
+            if (amountAbs > FixedPointMathLib.rawDiv(type(uint256).max, sqrtRatio)) {
                 return SqrtRatio.wrap(type(uint96).max);
             }
 
@@ -52,7 +53,7 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     } else {
         uint256 denominator;
         unchecked {
-            uint256 denominatorP1 = liquidityX128 / sqrtRatio;
+            uint256 denominatorP1 = FixedPointMathLib.rawDiv(liquidityX128, sqrtRatio);
 
             // this can never overflow, amountAbs is limited to 2**128-1 and liquidityX128 / sqrtRatio is limited to (2**128-1 << 128)
             // adding the 2 values can at most equal type(uint256).max
@@ -82,7 +83,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     unchecked {
         uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
 
-        uint256 quotient = shiftedAmountAbs / liquidity;
+        uint256 quotient = FixedPointMathLib.rawDiv(shiftedAmountAbs, liquidity);
 
         if (amount < 0) {
             if (quotient >= sqrtRatio) {

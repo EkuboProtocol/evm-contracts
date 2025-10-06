@@ -573,8 +573,11 @@ contract PositionsTest is FullTest {
         (uint128 liquidityAfter,,,,) = positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertEq(liquidityAfter, 0, "Position should have no liquidity after full withdrawal");
 
-        // The fees are now burned - they remain in the pool but cannot be collected
-        // since the position no longer exists
+        // The fees are now burned - they cannot be collected since the position has zero liquidity
+        // Attempting to collect fees should return zero
+        (uint128 collectedAfter0, uint128 collectedAfter1) = positions.collectFees(id, poolKey, -100, 100);
+        assertEq(collectedAfter0, 0, "Should not be able to collect fees after full withdrawal");
+        assertEq(collectedAfter1, 0, "Should not be able to collect fees after full withdrawal");
     }
 
     function test_withdraw_without_fees_multiple_swaps() public {
@@ -599,7 +602,7 @@ contract PositionsTest is FullTest {
         );
 
         // Verify fees accumulated from both swaps
-        (,, uint128 p1Before, uint128 f0Before, uint128 f1Before) =
+        (, uint128 p0Before, uint128 p1Before, uint128 f0Before, uint128 f1Before) =
             positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertEq(f0Before, 49, "Should have token0 fees");
         assertEq(f1Before, 24, "Should have token1 fees");
@@ -613,13 +616,18 @@ contract PositionsTest is FullTest {
         uint256 balance0After = token0.balanceOf(address(this));
         uint256 balance1After = token1.balanceOf(address(this));
 
-        // Verify we only received principal amounts, fees are burned
+        // Verify we only received principal amounts minus withdrawal protocol fee, fees are burned
         assertEq(balance0After - balance0Before, amount0, "Should receive only principal token0");
         assertEq(balance1After - balance1Before, amount1, "Should receive only principal token1");
 
-        // The 49 token0 fees and 24 token1 fees are now burned
-        assertLt(amount0, 74 + 49, "Should not include fees in withdrawal");
-        assertLt(amount1, 75 + 24, "Should not include fees in withdrawal");
+        // Should receive principal minus 50% withdrawal protocol fee
+        assertApproxEqAbs(uint256(amount0), uint256(p0Before / 2), 1, "Should receive half of principal token0");
+        assertApproxEqAbs(uint256(amount1), uint256(p1Before / 2), 1, "Should receive half of principal token1");
+
+        // Verify fees cannot be collected after full withdrawal
+        (uint128 collectedAfter0, uint128 collectedAfter1) = positions.collectFees(id, poolKey, -100, 100);
+        assertEq(collectedAfter0, 0, "Should not be able to collect fees after full withdrawal");
+        assertEq(collectedAfter1, 0, "Should not be able to collect fees after full withdrawal");
     }
 
     function test_withdraw_without_fees_above_range() public {
@@ -664,6 +672,11 @@ contract PositionsTest is FullTest {
 
         // Fees (f1Before) are burned - not collected
         assertLt(amount1, p1Before, "Should receive less than principal due to withdrawal protocol fee");
+
+        // Verify fees cannot be collected after full withdrawal
+        (uint128 collectedAfter0, uint128 collectedAfter1) = positions.collectFees(id, poolKey, -100, 100);
+        assertEq(collectedAfter0, 0, "Should not be able to collect fees after full withdrawal");
+        assertEq(collectedAfter1, 0, "Should not be able to collect fees after full withdrawal");
     }
 
     function test_withdraw_without_fees_below_range() public {
@@ -708,9 +721,14 @@ contract PositionsTest is FullTest {
 
         // Fees (f0Before) are burned - not collected
         assertLt(amount0, p0Before, "Should receive less than principal due to withdrawal protocol fee");
+
+        // Verify fees cannot be collected after full withdrawal
+        (uint128 collectedAfter0, uint128 collectedAfter1) = positions.collectFees(id, poolKey, -100, 100);
+        assertEq(collectedAfter0, 0, "Should not be able to collect fees after full withdrawal");
+        assertEq(collectedAfter1, 0, "Should not be able to collect fees after full withdrawal");
     }
 
-    function test_partial_withdraw_without_fees_burns_proportional_fees() public {
+    function test_partial_withdraw_without_fees_leaves_fees_collectible() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
@@ -733,11 +751,11 @@ contract PositionsTest is FullTest {
         (uint128 amount0, uint128 amount1) =
             positions.withdraw(id, poolKey, -100, 100, halfLiquidity, address(this), false);
 
-        // Should receive approximately half the principal
+        // Should receive approximately half the principal (minus withdrawal protocol fee)
         assertApproxEqAbs(uint256(amount0), 37, 1, "Should receive half of principal token0");
         assertApproxEqAbs(uint256(amount1), 12, 1, "Should receive half of principal token1");
 
-        // Verify remaining position still has liquidity but fees are approximately unchanged
+        // Verify remaining position still has liquidity and fees remain collectible
         (uint128 liquidityAfter,, uint128 p1After, uint128 f0After,) =
             positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
         assertApproxEqAbs(

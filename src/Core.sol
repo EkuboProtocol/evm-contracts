@@ -377,7 +377,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             FeesPerLiquidity memory feesPerLiquidityInside;
 
-            if (!poolKey.isFullRange()) {
+            if (!poolKey.isFullRange() && !poolKey.isStableswap()) {
                 // the position is fully withdrawn
                 if (liquidityNext == 0) {
                     // we need to fetch it before the tick fees per liquidity outside is deleted
@@ -464,7 +464,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside;
-        if (poolKey.isFullRange()) {
+        if (poolKey.isFullRange() || poolKey.isStableswap()) {
             bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             assembly ("memory-safe") {
                 mstore(feesPerLiquidityInside, sload(fplFirstSlot))
@@ -550,7 +550,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
-                    if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
+                    if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING && !poolKey.isStableswap()) {
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
@@ -561,7 +561,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     } else {
-                        // we never cross ticks in the full range version
+                        // we never cross ticks in the full range and stableswap versions
                         (nextTick, nextTickSqrtRatio) =
                             increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                     }

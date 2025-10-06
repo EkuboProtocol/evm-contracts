@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING, STABLESWAP_POOL_TYPE_FLAG} from "../math/constants.sol";
 
 type PositionId is bytes32;
 
@@ -44,7 +44,11 @@ error BoundsTickSpacing();
 error FullRangeOnlyPool();
 
 function validateBounds(PositionId positionId, uint32 tickSpacing) pure {
-    if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+    // Check if this is a full-range-only or stableswap pool
+    bool isFullRangeOnly = tickSpacing == FULL_RANGE_ONLY_TICK_SPACING;
+    bool isStableswap = (tickSpacing & STABLESWAP_POOL_TYPE_FLAG) != 0;
+
+    if (isFullRangeOnly || isStableswap) {
         if (positionId.tickLower() != MIN_TICK || positionId.tickUpper() != MAX_TICK) revert FullRangeOnlyPool();
     } else {
         if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();

@@ -534,4 +534,262 @@ contract PositionsTest is FullTest {
             finalProtocolFees1, expectedSwapProtocolFee1 + expectedWithdrawalFee1, 2, "Final protocol fees0"
         );
     }
+
+    function test_withdraw_without_fees_burns_fees() public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
+
+        // Generate fees by swapping
+        token0.approve(address(router), 100);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
+        );
+
+        // Verify fees exist before withdrawal
+        (, uint128 p0Before, uint128 p1Before, uint128 f0Before, uint128 f1Before) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertEq(f0Before, 49, "Should have token0 fees before withdrawal");
+        assertEq(f1Before, 0, "Should have no token1 fees");
+
+        uint256 balance0Before = token0.balanceOf(address(this));
+        uint256 balance1Before = token1.balanceOf(address(this));
+
+        // Withdraw WITHOUT collecting fees (withFees = false)
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity, address(this), false);
+
+        uint256 balance0After = token0.balanceOf(address(this));
+        uint256 balance1After = token1.balanceOf(address(this));
+
+        // Verify we only received principal, not fees
+        assertEq(amount0, 74, "Should receive principal token0 only");
+        assertEq(amount1, 25, "Should receive principal token1 only");
+        assertEq(balance0After - balance0Before, 74, "Balance should increase by principal only");
+        assertEq(balance1After - balance1Before, 25, "Balance should increase by principal only");
+
+        // Verify the position no longer has liquidity
+        (uint128 liquidityAfter,,,,) = positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertEq(liquidityAfter, 0, "Position should have no liquidity after full withdrawal");
+
+        // The fees are now burned - they remain in the pool but cannot be collected
+        // since the position no longer exists
+    }
+
+    function test_withdraw_without_fees_multiple_swaps() public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
+
+        // Generate fees with multiple swaps
+        token0.approve(address(router), 100);
+        token1.approve(address(router), 50);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
+        );
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 50}),
+            type(int256).min
+        );
+
+        // Verify fees accumulated from both swaps
+        (,, uint128 p1Before, uint128 f0Before, uint128 f1Before) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertEq(f0Before, 49, "Should have token0 fees");
+        assertEq(f1Before, 24, "Should have token1 fees");
+
+        uint256 balance0Before = token0.balanceOf(address(this));
+        uint256 balance1Before = token1.balanceOf(address(this));
+
+        // Withdraw without fees
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity, address(this), false);
+
+        uint256 balance0After = token0.balanceOf(address(this));
+        uint256 balance1After = token1.balanceOf(address(this));
+
+        // Verify we only received principal amounts, fees are burned
+        assertEq(balance0After - balance0Before, amount0, "Should receive only principal token0");
+        assertEq(balance1After - balance1Before, amount1, "Should receive only principal token1");
+
+        // The 49 token0 fees and 24 token1 fees are now burned
+        assertLt(amount0, 74 + 49, "Should not include fees in withdrawal");
+        assertLt(amount1, 75 + 24, "Should not include fees in withdrawal");
+    }
+
+    function test_withdraw_without_fees_above_range() public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
+
+        // Generate fees
+        token0.approve(address(router), 100);
+        token1.approve(address(router), type(uint256).max);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
+        );
+
+        // Move price above range
+        router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: type(int128).max,
+            sqrtRatioLimit: tickToSqrtRatio(100),
+            skipAhead: 0
+        });
+
+        // Verify position is above range with fees
+        (, uint128 p0Before, uint128 p1Before, uint128 f0Before, uint128 f1Before) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertEq(p0Before, 0, "Should have no token0 principal above range");
+        assertEq(p1Before, 200, "Should have token1 principal above range");
+        assertEq(f0Before, 49, "Should have token0 fees");
+        assertGt(f1Before, 0, "Should have token1 fees");
+
+        // Withdraw without fees
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity, address(this), false);
+
+        // Should only receive principal minus withdrawal protocol fee (all in token1 since above range)
+        // Withdrawal protocol fee = 50% of principal = 100, so we receive 100
+        assertEq(amount0, 0, "Should receive no token0 above range");
+        assertEq(amount1, 100, "Should receive principal minus withdrawal protocol fee");
+
+        // Fees (f1Before) are burned - not collected
+        assertLt(amount1, p1Before, "Should receive less than principal due to withdrawal protocol fee");
+    }
+
+    function test_withdraw_without_fees_below_range() public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
+
+        // Generate fees
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), 50);
+
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 50}),
+            type(int256).min
+        );
+
+        // Move price below range
+        router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: type(int128).max,
+            sqrtRatioLimit: tickToSqrtRatio(-100),
+            skipAhead: 0
+        });
+
+        // Verify position is below range with fees
+        (, uint128 p0Before, uint128 p1Before, uint128 f0Before, uint128 f1Before) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertEq(p0Before, 200, "Should have token0 principal below range");
+        assertEq(p1Before, 0, "Should have no token1 principal below range");
+        assertGt(f0Before, 0, "Should have token0 fees");
+        assertEq(f1Before, 24, "Should have token1 fees");
+
+        // Withdraw without fees
+        (uint128 amount0, uint128 amount1) = positions.withdraw(id, poolKey, -100, 100, liquidity, address(this), false);
+
+        // Should only receive principal minus withdrawal protocol fee (all in token0 since below range)
+        // Withdrawal protocol fee = 50% of principal = 100, so we receive 100
+        assertEq(amount0, 100, "Should receive principal minus withdrawal protocol fee");
+        assertEq(amount1, 0, "Should receive no token1 below range");
+
+        // Fees (f0Before) are burned - not collected
+        assertLt(amount0, p0Before, "Should receive less than principal due to withdrawal protocol fee");
+    }
+
+    function test_partial_withdraw_without_fees_burns_proportional_fees() public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
+
+        // Generate fees
+        token0.approve(address(router), 100);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 100}),
+            type(int256).min
+        );
+
+        // Verify fees before partial withdrawal
+        (uint128 liquidityBefore,, uint128 p1Before, uint128 f0Before,) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertEq(f0Before, 49, "Should have token0 fees");
+
+        // Withdraw half the liquidity without fees
+        uint128 halfLiquidity = liquidityBefore / 2;
+        (uint128 amount0, uint128 amount1) =
+            positions.withdraw(id, poolKey, -100, 100, halfLiquidity, address(this), false);
+
+        // Should receive approximately half the principal
+        assertApproxEqAbs(uint256(amount0), 37, 1, "Should receive half of principal token0");
+        assertApproxEqAbs(uint256(amount1), 12, 1, "Should receive half of principal token1");
+
+        // Verify remaining position still has liquidity but fees are approximately unchanged
+        (uint128 liquidityAfter,, uint128 p1After, uint128 f0After,) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100, 100);
+        assertApproxEqAbs(
+            uint256(liquidityAfter), uint256(halfLiquidity), uint256(1), "Should have half liquidity remaining"
+        );
+        assertApproxEqAbs(
+            uint256(f0After), 49, 1, "Fees should remain approximately unchanged after partial withdrawal without fees"
+        );
+
+        // Now collect the fees that remained
+        (uint128 collectedFees0, uint128 collectedFees1) = positions.collectFees(id, poolKey, -100, 100);
+        assertApproxEqAbs(
+            uint256(collectedFees0), 49, 1, "Should be able to collect approximately all fees after partial withdrawal"
+        );
+        assertEq(collectedFees1, 0, "Should have no token1 fees");
+    }
+
+    function test_compare_withdraw_with_and_without_fees() public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+
+        // Create two identical positions
+        (uint256 id1, uint128 liquidity1) = createPosition(poolKey, -100, 100, 100, 100);
+        (uint256 id2, uint128 liquidity2) = createPosition(poolKey, -100, 100, 100, 100);
+
+        assertEq(liquidity1, liquidity2, "Both positions should have same liquidity");
+
+        // Generate fees for both positions
+        token0.approve(address(router), 200);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: 200}),
+            type(int256).min
+        );
+
+        // Verify both have same fees
+        (,,, uint128 f0_1, uint128 f1_1) = positions.getPositionFeesAndLiquidity(id1, poolKey, -100, 100);
+        (,,, uint128 f0_2, uint128 f1_2) = positions.getPositionFeesAndLiquidity(id2, poolKey, -100, 100);
+        assertEq(f0_1, f0_2, "Both positions should have same token0 fees");
+        assertEq(f1_1, f1_2, "Both positions should have same token1 fees");
+
+        // Withdraw position 1 WITH fees (default behavior)
+        (uint128 amount0_with, uint128 amount1_with) = positions.withdraw(id1, poolKey, -100, 100, liquidity1);
+
+        // Withdraw position 2 WITHOUT fees
+        (uint128 amount0_without, uint128 amount1_without) =
+            positions.withdraw(id2, poolKey, -100, 100, liquidity2, address(this), false);
+
+        // Verify the difference equals the fees
+        assertEq(amount0_with - amount0_without, f0_1, "Difference should equal token0 fees");
+        assertEq(amount1_with - amount1_without, f1_1, "Difference should equal token1 fees");
+
+        // Position 1 collected fees, position 2 burned them
+        assertGt(amount0_with, amount0_without, "Withdrawing with fees should return more token0");
+    }
 }

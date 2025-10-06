@@ -15,7 +15,6 @@ import {StorageSlot} from "../types/storageSlot.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
-import {Bitmap} from "../types/bitmap.sol";
 import {PoolState} from "../types/poolState.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {OrderKey} from "../types/orderKey.sol";
@@ -230,8 +229,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 OrderState order = OrderState.wrap(orderStateSlot.load());
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
-                uint256 rewardRateInside =
-                    getRewardRateInside(poolId, startTime, endTime, orderKey.sellToken < orderKey.buyToken);
+                uint256 rewardRateInside = getRewardRateInside(poolId, startTime, endTime, !orderKey.isToken1());
 
                 (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
 
@@ -294,7 +292,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 );
                 orderRewardRateSnapshotSlot.store(bytes32(rewardRateSnapshotAdjusted));
 
-                bool isToken1 = orderKey.sellToken > orderKey.buyToken;
+                bool isToken1 = orderKey.isToken1();
 
                 // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
                 uint256 durationRemaining;
@@ -393,16 +391,15 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 OrderState order = OrderState.wrap(orderStateSlot.load());
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
-                uint256 rewardRateInside = getRewardRateInside(
-                    poolId, orderKey.startTime(), orderKey.endTime(), orderKey.sellToken < orderKey.buyToken
-                );
+                uint256 rewardRateInside =
+                    getRewardRateInside(poolId, orderKey.startTime(), orderKey.endTime(), !orderKey.isToken1());
 
                 uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, order.saleRate());
 
                 orderRewardRateSnapshotSlot.store(bytes32(rewardRateInside));
 
                 if (purchasedAmount != 0) {
-                    if (orderKey.sellToken > orderKey.buyToken) {
+                    if (orderKey.isToken1()) {
                         CORE.updateSavedBalances(
                             poolKey.token0, poolKey.token1, bytes32(0), -int256(purchasedAmount), 0
                         );

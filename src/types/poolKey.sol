@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {PoolId} from "./poolId.sol";
-import {PoolConfig, createPoolConfig} from "./poolConfig.sol";
+import {PoolConfig} from "./poolConfig.sol";
 
 using {toPoolId, validatePoolKey, isFullRange, mustLoadFees, tickSpacing, fee, extension} for PoolKey global;
 

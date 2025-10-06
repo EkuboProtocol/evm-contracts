@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, createPoolConfig} from "../../src/types/poolKey.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {createPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
@@ -106,13 +107,9 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
 
     function test_orderKeyToPoolKey(OrderKey memory orderKey, address twamm) public pure {
         PoolKey memory pk = orderKey.toPoolKey(twamm);
-        if (orderKey.sellToken > orderKey.buyToken) {
-            assertEq(pk.token0, orderKey.buyToken);
-            assertEq(pk.token1, orderKey.sellToken);
-        } else {
-            assertEq(pk.token0, orderKey.sellToken);
-            assertEq(pk.token1, orderKey.buyToken);
-        }
+
+        assertEq(pk.token0, orderKey.token0);
+        assertEq(pk.token1, orderKey.token1);
         assertEq(pk.fee(), orderKey.fee());
         assertEq(pk.tickSpacing(), 0);
         assertEq(pk.extension(), twamm);

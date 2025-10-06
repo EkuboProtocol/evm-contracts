@@ -65,9 +65,10 @@ function isExactOut(SwapParameters params) pure returns (bool yes) {
 }
 
 function isPriceIncreasing(SwapParameters params) pure returns (bool yes) {
+    bool _isExactOut = params.isExactOut();
+    bool _isToken1 = params.isToken1();
     assembly ("memory-safe") {
-        let sign := and(shr(159, params), 1)
-        yes := xor(sign, and(shr(31, params), 1))
+        yes := xor(_isExactOut, _isToken1)
     }
 }
 

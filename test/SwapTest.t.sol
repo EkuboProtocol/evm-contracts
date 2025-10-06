@@ -9,7 +9,8 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio, SqrtRatio, ONE} from "../sr
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {sqrtRatioToTick} from "../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../src/math/liquidity.sol";
-import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {createPoolConfig} from "../src/types/poolConfig.sol";
 import {FullTest} from "./FullTest.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 

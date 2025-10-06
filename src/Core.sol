@@ -13,7 +13,7 @@ import {ExtensionCallPointsLib} from "./libraries/ExtensionCallPointsLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
-import {liquidityDeltaToAmountDelta, addLiquidityDelta, subLiquidityDelta} from "./math/liquidity.sol";
+import {liquidityDeltaToAmountDelta, addLiquidityDelta} from "./math/liquidity.sol";
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, createPoolConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {createPoolConfig} from "../src/types/poolConfig.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
@@ -248,13 +249,15 @@ contract Handler is StdUtils, StdAssertions {
             return;
         }
 
-        (address sellToken, address buyToken) =
-            isToken1 ? (poolKey.token1, poolKey.token0) : (poolKey.token0, poolKey.token1);
-
         OrderKey memory orderKey = OrderKey({
-            sellToken: sellToken,
-            buyToken: buyToken,
-            config: createOrderConfig({_fee: poolKey.fee(), _startTime: uint64(startTime), _endTime: uint64(endTime)})
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({
+                _fee: poolKey.fee(),
+                _isToken1: isToken1,
+                _startTime: uint64(startTime),
+                _endTime: uint64(endTime)
+            })
         });
 
         try orders.increaseSellAmount(ordersId, orderKey, amount, type(uint112).max) returns (uint112 saleRate) {

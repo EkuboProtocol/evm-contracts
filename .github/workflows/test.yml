@@ -45,7 +45,7 @@ jobs:
 
       - name: Run Forge tests
         run: |
-          forge test -vvv
+          forge test --gas-snapshot-check=true -vvv
         id: test
 
       - name: Install the latest version of uv

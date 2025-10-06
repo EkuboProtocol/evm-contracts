@@ -115,7 +115,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             Snapshot snapshot = createSnapshot({
                 _timestamp: uint32(block.timestamp),
                 _secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative()
-                    + ((uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, state.liquidity()))),
+                    + uint160(FixedPointMathLib.rawDiv(uint256(timePassed) << 128, FixedPointMathLib.max(1, state.liquidity()))),
                 _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * state.tick()
             });
 
@@ -327,8 +327,11 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                     PoolState state = CORE.poolState(poolId);
 
                     tickCumulative += int64(state.tick()) * int64(uint64(timePassed));
-                    secondsPerLiquidityCumulative +=
-                        (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, state.liquidity()));
+                    secondsPerLiquidityCumulative += uint160(
+                        FixedPointMathLib.rawDiv(
+                            uint256(timePassed) << 128, FixedPointMathLib.max(1, state.liquidity())
+                        )
+                    );
                 } else {
                     // Use the next snapshot.
                     uint256 logicalIndexNext = logicalIndexToStorageIndex(c.index(), c.count(), logicalIndex + 1);
@@ -340,8 +343,10 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                     uint32 timestampDifference = next.timestamp() - snapshot.timestamp();
 
                     tickCumulative += int64(
-                        int256(uint256(timePassed)) * (next.tickCumulative() - snapshot.tickCumulative())
-                            / int256(uint256(timestampDifference))
+                        FixedPointMathLib.rawSDiv(
+                            int256(uint256(timePassed)) * (next.tickCumulative() - snapshot.tickCumulative()),
+                            int256(uint256(timestampDifference))
+                        )
                     );
                     secondsPerLiquidityCumulative += uint160(
                         (

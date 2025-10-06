@@ -126,7 +126,7 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32 tick) {
         // Fractional log2 using atanh on y = (m-1)/(m+1), m = X/2^127 ∈ [1,2)
         uint256 a = x - ONE_Q127; // (m - 1) * 2^127
         uint256 b = x + ONE_Q127; // (m + 1) * 2^127
-        uint256 yQ = (a << 127) / b; // y in Q1.127
+        uint256 yQ = FixedPointMathLib.rawDiv(a << 127, b); // y in Q1.127
 
         // Build odd powers via y^2 ladder
         uint256 y2 = (yQ * yQ) >> 127; // y^2

@@ -126,7 +126,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         // positive is saving, negative is loading
         int256 delta0,
         int256 delta1
-    ) public payable {
+    ) external payable {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
         (uint256 id, address lockerAddr) = _requireLocker().parse();

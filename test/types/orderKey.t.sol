@@ -2,17 +2,7 @@
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    OrderKey,
-    buyToken,
-    sellToken,
-    fee,
-    isToken1,
-    startTime,
-    endTime,
-    toOrderId,
-    toPoolKey
-} from "../../src/types/orderKey.sol";
+import {OrderKey} from "../../src/types/orderKey.sol";
 import {OrderConfig, createOrderConfig} from "../../src/types/orderConfig.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 

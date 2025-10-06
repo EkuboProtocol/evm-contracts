@@ -226,7 +226,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 if (saleRateDelta != 0) {
                     OrderId orderId = orderKey.toOrderId();
-
                     StorageSlot orderStateSlot = StorageSlot.wrap(
                         TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)
                     );
@@ -242,10 +241,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
 
                     uint256 saleRateNext = addSaleRateDelta(saleRate, saleRateDelta);
-
-                    if (saleRateNext == 0 && purchasedAmount != 0) {
-                        revert MustCollectProceedsBeforeCanceling();
-                    }
 
                     uint256 rewardRateSnapshotAdjusted;
                     int256 numOrdersChange;

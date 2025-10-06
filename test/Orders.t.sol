@@ -402,7 +402,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(purchasedAmount, 0);
     }
 
-    function test_createOrder_cannot_stop_ended_order_with_uncollected_proceeds(uint64 time) public {
+    function test_createOrder_stop_ended_order_with_uncollected_proceeds(uint64 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 
@@ -426,8 +426,7 @@ contract OrdersTest is BaseOrdersTest {
         // Advance past the end time
         advanceTime(16);
 
-        // Try to stop the order without collecting proceeds first - should fail
-        vm.expectRevert(ITWAMM.MustCollectProceedsBeforeCanceling.selector);
+        // Try to stop the order without collecting proceeds first - succeeds but burns the proceeds
         orders.decreaseSaleRate(id, key, saleRate, address(this));
     }
 

@@ -283,13 +283,7 @@ contract Handler is StdUtils, StdAssertions {
         try orders.decreaseSaleRate(ordersId, order.orderKey, amount, address(this)) returns (uint112) {
             order.saleRate -= amount;
         } catch (bytes memory err) {
-            bytes4 sig;
-            assembly ("memory-safe") {
-                sig := mload(add(err, 32))
-            }
-            if (sig != ITWAMM.MustCollectProceedsBeforeCanceling.selector) {
-                revert UnexpectedError(err);
-            }
+            revert UnexpectedError(err);
         }
     }
 
@@ -299,10 +293,6 @@ contract Handler is StdUtils, StdAssertions {
 
         try orders.collectProceeds(ordersId, order.orderKey, address(this)) returns (uint128) {}
         catch (bytes memory err) {
-            bytes4 sig;
-            assembly ("memory-safe") {
-                sig := mload(add(err, 32))
-            }
             revert UnexpectedError(err);
         }
     }

@@ -282,7 +282,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
         // Check that liquidityNet doesn't exceed max liquidity per tick
-        uint128 maxLiquidity = poolConfig.maxLiquidityPerTick();
+        uint128 maxLiquidity = poolConfig.maxLiquidityPerTickConcentratedLiquidity();
         if (liquidityNetNext > maxLiquidity) {
             revert MaxLiquidityPerTickExceeded(tick, liquidityNetNext, maxLiquidity);
         }

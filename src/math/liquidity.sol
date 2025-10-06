@@ -12,10 +12,10 @@ import {SqrtRatio} from "../types/sqrtRatio.sol";
 
 /// @notice Returns the token0 and token1 delta owed for a given change in liquidity
 /// @dev Calculates the token amounts required or returned when liquidity is added or removed from a position
-/// @param sqrtRatio Current price (as a sqrt ratio)
+/// @param sqrtRatio Current price (as a valid sqrt ratio)
 /// @param liquidityDelta Signed liquidity change; positive = added, negative = removed
-/// @param sqrtRatioLower The lower bound of the price range (as a sqrt ratio)
-/// @param sqrtRatioUpper The upper bound of the price range (as a sqrt ratio)
+/// @param sqrtRatioLower The lower bound of the price range (as a valid sqrt ratio)
+/// @param sqrtRatioUpper The upper bound of the price range (as a valid sqrt ratio)
 /// @return delta0 The change in token0 amount
 /// @return delta1 The change in token1 amount
 function liquidityDeltaToAmountDelta(

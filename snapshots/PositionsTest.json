@@ -1,10 +1,10 @@
 {
-  "mintAndDeposit": "394519",
-  "mintAndDeposit eth": "367296",
-  "mintAndDeposit full range both tokens": "204172",
-  "mintAndDeposit full range max": "204608",
-  "mintAndDeposit full range min": "204292",
-  "withdraw": "134162",
-  "withdraw eth": "127459",
-  "withdraw full range both tokens": "120645"
+  "mintAndDeposit": "394529",
+  "mintAndDeposit eth": "367306",
+  "mintAndDeposit full range both tokens": "204182",
+  "mintAndDeposit full range max": "204618",
+  "mintAndDeposit full range min": "204302",
+  "withdraw": "134128",
+  "withdraw eth": "127424",
+  "withdraw full range both tokens": "120602"
 }

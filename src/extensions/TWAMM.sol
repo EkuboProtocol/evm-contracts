@@ -217,161 +217,168 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 PoolKey memory poolKey = orderKey.toPoolKey(address(this));
                 PoolId poolId = poolKey.toPoolId();
+                // we only do this when saleRateDelta == 0 because we want to trigger an error if the pool is not initialized
                 _executeVirtualOrdersFromWithinLock(poolKey, poolId);
 
-                bytes32 orderId = orderKey.toOrderId();
-
-                StorageSlot orderStateSlot = StorageSlot.wrap(
-                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)
-                );
-                StorageSlot orderRewardRateSnapshotSlot = orderStateSlot.next();
-
-                OrderState order = OrderState.wrap(orderStateSlot.load());
-                uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
-
-                uint256 rewardRateInside = getRewardRateInside(poolId, startTime, endTime, !orderKey.isToken1());
-
-                (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
-
-                uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
-
-                uint256 saleRateNext = addSaleRateDelta(saleRate, saleRateDelta);
-
-                if (saleRateNext == 0 && purchasedAmount != 0) {
-                    revert MustCollectProceedsBeforeCanceling();
-                }
-
-                uint256 rewardRateSnapshotAdjusted;
-                int256 numOrdersChange;
-                assembly ("memory-safe") {
-                    rewardRateSnapshotAdjusted :=
-                        mul(
-                            sub(rewardRateInside, div(shl(128, purchasedAmount), saleRateNext)),
-                            // if saleRateNext is zero, write 0 for the reward rate snapshot adjusted
-                            iszero(iszero(saleRateNext))
-                        )
-
-                    // if current is zero, and next is zero, then 1-1 = 0
-                    // if current is nonzero, and next is nonzero, then 0-0 = 0
-                    // if current is zero, and next is nonzero, then we get 1-0 = 1
-                    // if current is nonzero, and next is zero, then we get 0-1 = -1 = (type(uint256).max)
-                    numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
-                }
-
-                // Calculate the duration for amountSold update, capping by endTime
-                // Only count time after the order has started and before it ended
-                uint32 saleDuration = 0;
-                if (block.timestamp > startTime && lastUpdateTime < endTime) {
-                    uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
-                    uint32 secondsSinceOrderStart = uint32(block.timestamp) - uint32(startTime);
-                    uint32 totalOrderDuration = uint32(endTime - startTime);
-                    uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
-
-                    saleDuration = uint32(
-                        FixedPointMathLib.min(
-                            remainingTimeSinceLastUpdate,
-                            FixedPointMathLib.min(
-                                FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
-                                totalOrderDuration
-                            )
-                        )
-                    );
-                }
-
-                orderStateSlot.store(
-                    OrderState.unwrap(
-                        createOrderState({
-                            _lastUpdateTime: uint32(block.timestamp),
-                            _saleRate: uint112(saleRateNext),
-                            _amountSold: uint112(
-                                amountSold
-                                    + computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false})
-                            )
-                        })
-                    )
-                );
-                orderRewardRateSnapshotSlot.store(bytes32(rewardRateSnapshotAdjusted));
-
-                bool isToken1 = orderKey.isToken1();
-
-                // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
-                uint256 durationRemaining;
+                // the return parameter which is how much the user owes for the sale rate update
                 int256 amountDelta;
 
-                if (block.timestamp >= endTime) {
-                    // Order has ended - no need to update time points or pool state
-                    // durationRemaining is 0, so amountDelta is 0
-                    durationRemaining = 0;
-                    amountDelta = 0;
-                } else if (block.timestamp < startTime) {
-                    _updateTime(poolId, startTime, saleRateDelta, isToken1, numOrdersChange);
-                    _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
+                if (saleRateDelta != 0) {
+                    bytes32 orderId = orderKey.toOrderId();
 
-                    durationRemaining = endTime - startTime;
-                } else {
-                    // we know block.timestamp < orderKey.endTime because of the check above
-                    // and we know the order is active, so we have to apply its delta to the current pool state
-                    StorageSlot currentStateSlot = StorageSlot.wrap(TWAMMStorageLayout.twammPoolStateSlot(poolId));
-                    TwammPoolState currentState = TwammPoolState.wrap(currentStateSlot.load());
-                    (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
+                    StorageSlot orderStateSlot = StorageSlot.wrap(
+                        TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)
+                    );
+                    StorageSlot orderRewardRateSnapshotSlot = orderStateSlot.next();
 
-                    if (isToken1) {
-                        currentState = createTwammPoolState({
-                            _lastVirtualOrderExecutionTime: lastTime,
-                            _saleRateToken0: rate0,
-                            _saleRateToken1: uint112(addSaleRateDelta(rate1, saleRateDelta))
-                        });
-                    } else {
-                        currentState = createTwammPoolState({
-                            _lastVirtualOrderExecutionTime: lastTime,
-                            _saleRateToken0: uint112(addSaleRateDelta(rate0, saleRateDelta)),
-                            _saleRateToken1: rate1
-                        });
+                    OrderState order = OrderState.wrap(orderStateSlot.load());
+                    uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
+
+                    uint256 rewardRateInside = getRewardRateInside(poolId, startTime, endTime, !orderKey.isToken1());
+
+                    (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
+
+                    uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
+
+                    uint256 saleRateNext = addSaleRateDelta(saleRate, saleRateDelta);
+
+                    if (saleRateNext == 0 && purchasedAmount != 0) {
+                        revert MustCollectProceedsBeforeCanceling();
                     }
 
-                    currentStateSlot.store(TwammPoolState.unwrap(currentState));
-
-                    // only update the end time
-                    _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
-
-                    durationRemaining = endTime - block.timestamp;
-                }
-
-                if (durationRemaining > 0) {
-                    // the amount required for executing at the next sale rate for the remaining duration of the order
-                    uint256 amountRequired =
-                        computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
-
-                    uint256 remainingSellAmount =
-                        computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
-
+                    uint256 rewardRateSnapshotAdjusted;
+                    int256 numOrdersChange;
                     assembly ("memory-safe") {
-                        amountDelta := sub(amountRequired, remainingSellAmount)
+                        rewardRateSnapshotAdjusted :=
+                            mul(
+                                sub(rewardRateInside, div(shl(128, purchasedAmount), saleRateNext)),
+                                // if saleRateNext is zero, write 0 for the reward rate snapshot adjusted
+                                iszero(iszero(saleRateNext))
+                            )
+
+                        // if current is zero, and next is zero, then 1-1 = 0
+                        // if current is nonzero, and next is nonzero, then 0-0 = 0
+                        // if current is zero, and next is nonzero, then we get 1-0 = 1
+                        // if current is nonzero, and next is zero, then we get 0-1 = -1 = (type(uint256).max)
+                        numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
                     }
 
-                    // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
-                    if (amountDelta < 0) {
-                        // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                        uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
+                    // Calculate the duration for amountSold update, capping by endTime
+                    // Only count time after the order has started and before it ended
+                    uint32 activeTimeSinceLastUpdate = 0;
+                    if (block.timestamp > startTime && lastUpdateTime < endTime) {
+                        uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
+                        uint32 secondsSinceOrderStart = uint32(block.timestamp) - uint32(startTime);
+                        uint32 totalOrderDuration = uint32(endTime - startTime);
+                        uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
+
+                        activeTimeSinceLastUpdate = uint32(
+                            FixedPointMathLib.min(
+                                remainingTimeSinceLastUpdate,
+                                FixedPointMathLib.min(
+                                    FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
+                                    totalOrderDuration
+                                )
+                            )
+                        );
+                    }
+
+                    orderStateSlot.store(
+                        OrderState.unwrap(
+                            createOrderState({
+                                _lastUpdateTime: uint32(block.timestamp),
+                                _saleRate: uint112(saleRateNext),
+                                _amountSold: uint112(
+                                    amountSold
+                                        + computeAmountFromSaleRate({
+                                            saleRate: saleRate,
+                                            duration: activeTimeSinceLastUpdate,
+                                            roundUp: false
+                                        })
+                                )
+                            })
+                        )
+                    );
+                    orderRewardRateSnapshotSlot.store(bytes32(rewardRateSnapshotAdjusted));
+
+                    bool isToken1 = orderKey.isToken1();
+
+                    // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
+                    uint256 durationRemaining;
+
+                    if (block.timestamp < startTime) {
+                        _updateTime(poolId, startTime, saleRateDelta, isToken1, numOrdersChange);
+                        _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
+
+                        durationRemaining = endTime - startTime;
+                    } else if (block.timestamp < endTime) {
+                        // we know block.timestamp < orderKey.endTime because of the check above
+                        // and we know the order is active, so we have to apply its delta to the current pool state
+                        StorageSlot currentStateSlot = StorageSlot.wrap(TWAMMStorageLayout.twammPoolStateSlot(poolId));
+                        TwammPoolState currentState = TwammPoolState.wrap(currentStateSlot.load());
+                        (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
+
                         if (isToken1) {
-                            CORE.accumulateAsFees(poolKey, 0, fee);
-                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                            currentState = createTwammPoolState({
+                                _lastVirtualOrderExecutionTime: lastTime,
+                                _saleRateToken0: rate0,
+                                _saleRateToken1: uint112(addSaleRateDelta(rate1, saleRateDelta))
+                            });
                         } else {
-                            CORE.accumulateAsFees(poolKey, fee, 0);
-                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                            currentState = createTwammPoolState({
+                                _lastVirtualOrderExecutionTime: lastTime,
+                                _saleRateToken0: uint112(addSaleRateDelta(rate0, saleRateDelta)),
+                                _saleRateToken1: rate1
+                            });
                         }
 
-                        amountDelta += int128(fee);
-                    } else {
-                        if (isToken1) {
-                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                        currentStateSlot.store(TwammPoolState.unwrap(currentState));
+
+                        // only update the end time
+                        _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
+
+                        durationRemaining = endTime - block.timestamp;
+                    }
+
+                    if (durationRemaining > 0) {
+                        // the amount required for executing at the next sale rate for the remaining duration of the order
+                        uint256 amountRequired = computeAmountFromSaleRate({
+                            saleRate: saleRateNext,
+                            duration: durationRemaining,
+                            roundUp: true
+                        });
+
+                        uint256 remainingSellAmount =
+                            computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
+
+                        assembly ("memory-safe") {
+                            amountDelta := sub(amountRequired, remainingSellAmount)
+                        }
+
+                        // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
+                        if (amountDelta < 0) {
+                            // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
+                            uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
+                            if (isToken1) {
+                                CORE.accumulateAsFees(poolKey, 0, fee);
+                                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                            } else {
+                                CORE.accumulateAsFees(poolKey, fee, 0);
+                                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                            }
+
+                            amountDelta += int128(fee);
                         } else {
-                            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                            if (isToken1) {
+                                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
+                            } else {
+                                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
+                            }
                         }
                     }
+
+                    emit OrderUpdated(owner, salt, orderKey, saleRateDelta);
                 }
-
-                emit OrderUpdated(owner, salt, orderKey, saleRateDelta);
 
                 result = abi.encode(amountDelta);
             } else if (callType == 1) {

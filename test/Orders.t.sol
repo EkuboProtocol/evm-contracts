@@ -713,4 +713,137 @@ contract OrdersTest is BaseOrdersTest {
         twamm.lockAndExecuteVirtualOrders(poolKey);
         vm.snapshotGasLastCall("lockAndExecuteVirtualOrders max cost");
     }
+
+    /// @notice Test documenting that proceeds must be collected before stopping an order
+    /// @dev This demonstrates the correct usage pattern: collect proceeds before decreasing sale rate
+    function test_collectProceeds_before_stop_order_correct() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
+
+        // Let the order run for 8 seconds (half the duration)
+        advanceTime(8);
+
+        // CORRECT ORDER: Collect proceeds BEFORE stopping the order
+        uint128 proceedsBeforeStop = orders.collectProceeds(id, key, address(this));
+
+        // Now stop the order
+        uint112 refund = orders.decreaseSaleRate(id, key, saleRate, address(this));
+
+        // Try to collect proceeds again after stopping
+        uint128 proceedsAfterStop = orders.collectProceeds(id, key, address(this));
+
+        // We should have collected some proceeds before stopping
+        assertGt(proceedsBeforeStop, 0, "Should have collected proceeds before stopping");
+
+        // After stopping, there should be no additional proceeds
+        assertEq(proceedsAfterStop, 0, "Should have no proceeds after stopping since we already collected");
+
+        // We should have gotten a refund for the unsold tokens
+        assertGt(refund, 0, "Should have received refund for unsold tokens");
+    }
+
+    /// @notice Test documenting that proceeds cannot be collected after stopping an order
+    /// @dev This is intended behavior - the TWAMM extension cannot assume proceeds should be withdrawn
+    ///      Users must collect proceeds before calling decreaseSaleRate to stop their order
+    function test_collectProceeds_after_stop_order_loses_proceeds() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
+
+        // Let the order run for 8 seconds (half the duration)
+        advanceTime(8);
+
+        // INCORRECT ORDER: Stop the order BEFORE collecting proceeds
+        uint112 refund = orders.decreaseSaleRate(id, key, saleRate, address(this));
+
+        // Now try to collect proceeds after stopping
+        uint128 proceedsAfterStop = orders.collectProceeds(id, key, address(this));
+
+        // We should have gotten a refund for the unsold tokens
+        assertGt(refund, 0, "Should have received refund for unsold tokens");
+
+        // INTENDED BEHAVIOR: Proceeds cannot be collected after stopping the order
+        // proceedsAfterStop will be 0 even though the order ran for 8 seconds
+        // This is by design - users must collect proceeds before calling decreaseSaleRate
+        assertEq(proceedsAfterStop, 0, "Proceeds cannot be collected after stopping order (intended behavior)");
+    }
+
+    /// @notice Test documenting the importance of operation order when stopping orders
+    /// @dev Demonstrates that proceeds must be collected before stopping to avoid losing them
+    ///      This is intended behavior to ensure the TWAMM extension doesn't make assumptions
+    function test_proceeds_lost_comparison() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        // Create two identical orders at the same time in the same pool
+        OrderKey memory key1 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id1, uint112 saleRate1) = orders.mintAndIncreaseSellAmount(key1, 100, type(uint112).max);
+
+        OrderKey memory key2 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+        });
+        (uint256 id2, uint112 saleRate2) = orders.mintAndIncreaseSellAmount(key2, 100, type(uint112).max);
+
+        // Let both orders run for 8 seconds (half the duration)
+        advanceTime(8);
+
+        // Scenario 1: Correct order (collect then stop)
+        uint128 proceedsCorrectOrder = orders.collectProceeds(id1, key1, address(this));
+        orders.decreaseSaleRate(id1, key1, saleRate1, address(this));
+
+        // Scenario 2: Incorrect order (stop then collect)
+        orders.decreaseSaleRate(id2, key2, saleRate2, address(this));
+        uint128 proceedsIncorrectOrder = orders.collectProceeds(id2, key2, address(this));
+
+        // The correct order collected proceeds, but the incorrect order cannot collect them after stopping
+        assertGt(proceedsCorrectOrder, 0, "Correct order: should have collected proceeds");
+        assertEq(proceedsIncorrectOrder, 0, "Incorrect order: proceeds cannot be collected after stopping");
+
+        // This demonstrates the intended behavior: same order parameters, same duration, but different results
+        // based solely on the order of operations. Users must collect proceeds before stopping orders.
+        assertTrue(
+            proceedsCorrectOrder > proceedsIncorrectOrder,
+            "INTENDED BEHAVIOR: Proceeds cannot be collected after stopping order"
+        );
+    }
 }

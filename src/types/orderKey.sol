@@ -4,6 +4,7 @@ pragma solidity =0.8.30;
 import {PoolKey} from "./poolKey.sol";
 import {createPoolConfig} from "./poolConfig.sol";
 import {OrderConfig} from "./orderConfig.sol";
+import {OrderId} from "./orderId.sol";
 
 using {toOrderId, toPoolKey, buyToken, sellToken, fee, isToken1, startTime, endTime} for OrderKey global;
 
@@ -69,7 +70,7 @@ struct OrderKey {
 /// @notice Computes the order ID from an order key
 /// @param orderKey The order key
 /// @return id The computed order ID
-function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
+function toOrderId(OrderKey memory orderKey) pure returns (OrderId id) {
     assembly ("memory-safe") {
         id := keccak256(orderKey, 96)
     }

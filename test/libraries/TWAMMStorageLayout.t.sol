@@ -4,6 +4,7 @@ pragma solidity =0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {TWAMMStorageLayout} from "../../src/libraries/TWAMMStorageLayout.sol";
 import {PoolId} from "../../src/types/poolId.sol";
+import {OrderId} from "../../src/types/orderId.sol";
 
 contract TWAMMStorageLayoutTest is Test {
     // Helper function for wrapping addition to match assembly behavior
@@ -257,7 +258,7 @@ contract TWAMMStorageLayoutTest is Test {
         address owner0,
         address owner1,
         bytes32 salt,
-        bytes32 orderId
+        OrderId orderId
     ) public {
         vm.assume(owner0 != owner1);
         bytes32 slot0 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner0, salt, orderId);
@@ -273,7 +274,7 @@ contract TWAMMStorageLayoutTest is Test {
         address owner,
         bytes32 salt0,
         bytes32 salt1,
-        bytes32 orderId
+        OrderId orderId
     ) public {
         vm.assume(salt0 != salt1);
         bytes32 slot0 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt0, orderId);
@@ -287,10 +288,10 @@ contract TWAMMStorageLayoutTest is Test {
     function test_noStorageLayoutCollisions_orderStateSlot_uniqueness_orderId(
         address owner,
         bytes32 salt,
-        bytes32 orderId0,
-        bytes32 orderId1
+        OrderId orderId0,
+        OrderId orderId1
     ) public {
-        vm.assume(orderId0 != orderId1);
+        vm.assume(OrderId.unwrap(orderId0) != OrderId.unwrap(orderId1));
         bytes32 slot0 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId0);
         bytes32 slot1 = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId1);
         // Different order IDs should produce different state slots
@@ -304,7 +305,7 @@ contract TWAMMStorageLayoutTest is Test {
         PoolId poolId,
         address owner,
         bytes32 salt,
-        bytes32 orderId
+        OrderId orderId
     ) public pure {
         bytes32 stateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
         bytes32 orderSlot = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
@@ -317,7 +318,7 @@ contract TWAMMStorageLayoutTest is Test {
         PoolId poolId,
         address owner,
         bytes32 salt,
-        bytes32 orderId
+        OrderId orderId
     ) public pure {
         bytes32 rewardRatesSlot = TWAMMStorageLayout.poolRewardRatesSlot(poolId);
         bytes32 orderSlot = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
@@ -332,7 +333,7 @@ contract TWAMMStorageLayoutTest is Test {
         PoolId poolId,
         address owner,
         bytes32 salt,
-        bytes32 orderId
+        OrderId orderId
     ) public pure {
         bytes32 bitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
         bytes32 orderSlot = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
@@ -350,7 +351,7 @@ contract TWAMMStorageLayoutTest is Test {
         uint64 time,
         address owner,
         bytes32 salt,
-        bytes32 orderId
+        OrderId orderId
     ) public pure {
         bytes32 timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, time);
         bytes32 orderSlot = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
@@ -364,7 +365,7 @@ contract TWAMMStorageLayoutTest is Test {
         uint64 time,
         address owner,
         bytes32 salt,
-        bytes32 orderId
+        OrderId orderId
     ) public pure {
         bytes32 rewardRatesBeforeSlot = TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time);
         bytes32 orderSlot = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
@@ -432,7 +433,7 @@ contract TWAMMStorageLayoutTest is Test {
         uint64 time1,
         address owner,
         bytes32 salt,
-        bytes32 orderId
+        OrderId orderId
     ) public {
         vm.assume(time0 != time1);
 

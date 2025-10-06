@@ -13,6 +13,7 @@ import {OrderState} from "../types/orderState.sol";
 import {OrderKey} from "../types/orderKey.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolId} from "../types/poolId.sol";
+import {OrderId} from "../types/orderId.sol";
 import {computeAmountFromSaleRate, computeRewardAmount} from "../math/twamm.sol";
 
 /// @title TWAMM Library
@@ -25,7 +26,7 @@ library TWAMMLib {
         twammPoolState = TwammPoolState.wrap(twamm.sload(TWAMMStorageLayout.twammPoolStateSlot(poolId)));
     }
 
-    function orderState(ITWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
+    function orderState(ITWAMM twamm, address owner, bytes32 salt, OrderId orderId)
         internal
         view
         returns (OrderState state)
@@ -35,7 +36,7 @@ library TWAMMLib {
         );
     }
 
-    function rewardRateSnapshot(ITWAMM twamm, address owner, bytes32 salt, bytes32 orderId)
+    function rewardRateSnapshot(ITWAMM twamm, address owner, bytes32 salt, OrderId orderId)
         internal
         view
         returns (uint256)
@@ -58,7 +59,7 @@ library TWAMMLib {
             twamm.lockAndExecuteVirtualOrders(poolKey);
 
             uint32 lastUpdateTime;
-            bytes32 orderId = orderKey.toOrderId();
+            OrderId orderId = orderKey.toOrderId();
 
             (lastUpdateTime, saleRate, amountSold) = orderState(twamm, owner, salt, orderId).parse();
 

@@ -287,8 +287,7 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            if (sig != IOrders.OrderAlreadyEnded.selector && sig != ITWAMM.MustCollectProceedsBeforeCanceling.selector)
-            {
+            if (sig != IOrders.OrderAlreadyEnded.selector) {
                 revert UnexpectedError(err);
             }
         }

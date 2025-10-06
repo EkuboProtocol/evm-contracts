@@ -38,9 +38,6 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @notice Thrown when order timestamps are invalid
     error InvalidTimestamps();
 
-    /// @notice Thrown when trying to cancel an order with uncollected proceeds
-    error MustCollectProceedsBeforeCanceling();
-
     /// @notice Thrown when sale rate delta exceeds maximum allowed value
     error MaxSaleRateDeltaPerTime();
 

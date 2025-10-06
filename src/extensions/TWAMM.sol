@@ -240,10 +240,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 uint256 saleRateNext = addSaleRateDelta(saleRate, saleRateDelta);
 
-                if (saleRateNext == 0 && purchasedAmount != 0) {
-                    revert MustCollectProceedsBeforeCanceling();
-                }
-
                 uint256 rewardRateSnapshotAdjusted;
                 int256 numOrdersChange;
                 assembly ("memory-safe") {

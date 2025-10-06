@@ -177,13 +177,13 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
         view
         returns (OrderKey memory key)
     {
-        (address token0, address token1, bool isToken1) =
-            token > BUY_TOKEN ? (BUY_TOKEN, token, true) : (token, BUY_TOKEN, false);
+        bool isToken1 = token > BUY_TOKEN;
+        address buyToken = BUY_TOKEN;
+        assembly ("memory-safe") {
+            mstore(add(key, mul(isToken1, 32)), token)
+            mstore(add(key, mul(iszero(isToken1), 32)), buyToken)
+        }
 
-        key = OrderKey({
-            token0: token0,
-            token1: token1,
-            config: createOrderConfig({_fee: fee, _isToken1: isToken1, _startTime: startTime, _endTime: endTime})
-        });
+        key.config = createOrderConfig({_fee: fee, _isToken1: isToken1, _startTime: startTime, _endTime: endTime});
     }
 }

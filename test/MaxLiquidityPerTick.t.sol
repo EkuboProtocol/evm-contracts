@@ -35,23 +35,19 @@ contract MaxLiquidityPerTickTest is Test {
         PoolConfig config1 = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
         uint256 numTicks1 = 1 + (MAX_TICK_MAGNITUDE / 1) * 2;
         uint128 expected1 = uint128(type(uint128).max / numTicks1);
-        assertEq(config1.maxLiquidityPerTick(), expected1, "tick spacing 1");
+        assertEq(config1.maxLiquidityPerTickConcentratedLiquidity(), expected1, "tick spacing 1");
 
         // Test with tick spacing of 10
         PoolConfig config10 = createPoolConfig({_fee: 0, _tickSpacing: 10, _extension: address(0)});
         uint256 numTicks10 = 1 + (MAX_TICK_MAGNITUDE / 10) * 2;
         uint128 expected10 = uint128(type(uint128).max / numTicks10);
-        assertEq(config10.maxLiquidityPerTick(), expected10, "tick spacing 10");
+        assertEq(config10.maxLiquidityPerTickConcentratedLiquidity(), expected10, "tick spacing 10");
 
         // Test with tick spacing of 100
         PoolConfig config100 = createPoolConfig({_fee: 0, _tickSpacing: 100, _extension: address(0)});
         uint256 numTicks100 = 1 + (MAX_TICK_MAGNITUDE / 100) * 2;
         uint128 expected100 = uint128(type(uint128).max / numTicks100);
-        assertEq(config100.maxLiquidityPerTick(), expected100, "tick spacing 100");
-
-        // Test with full-range-only tick spacing (0)
-        PoolConfig config0 = createPoolConfig({_fee: 0, _tickSpacing: 0, _extension: address(0)});
-        assertEq(config0.maxLiquidityPerTick(), type(uint128).max, "full range only");
+        assertEq(config100.maxLiquidityPerTickConcentratedLiquidity(), expected100, "tick spacing 100");
     }
 
     function test_maxLiquidityPerTick_increases_with_tickSpacing() public pure {
@@ -60,9 +56,9 @@ contract MaxLiquidityPerTickTest is Test {
         PoolConfig config10 = createPoolConfig({_fee: 0, _tickSpacing: 10, _extension: address(0)});
         PoolConfig config100 = createPoolConfig({_fee: 0, _tickSpacing: 100, _extension: address(0)});
 
-        uint128 max1 = config1.maxLiquidityPerTick();
-        uint128 max10 = config10.maxLiquidityPerTick();
-        uint128 max100 = config100.maxLiquidityPerTick();
+        uint128 max1 = config1.maxLiquidityPerTickConcentratedLiquidity();
+        uint128 max10 = config10.maxLiquidityPerTickConcentratedLiquidity();
+        uint128 max100 = config100.maxLiquidityPerTickConcentratedLiquidity();
 
         assertTrue(max10 > max1, "max10 > max1");
         assertTrue(max100 > max10, "max100 > max10");
@@ -78,7 +74,7 @@ contract MaxLiquidityPerTickTest is Test {
         uint32 tickSpacing = 10;
         PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: tickSpacing, _extension: address(0)});
         uint128 maxLiquidity = config.maxLiquidityPerTick();
-        
+
         // For most tick spacings, maxLiquidity > type(int128).max
         // So we need to add liquidity in multiple deposits to hit the limit
 
@@ -94,24 +90,24 @@ contract MaxLiquidityPerTickTest is Test {
         // Add liquidity in chunks of type(int128).max (the max per deposit)
         uint128 depositAmount = uint128(type(int128).max);
         uint128 totalDeposited = 0;
-        
+
         // Keep depositing until remainingSpace < type(int128).max
         while (maxLiquidity - totalDeposited >= depositAmount) {
             uint256 id = positions.mint();
             positions.deposit(id, poolKey, -int32(tickSpacing), int32(tickSpacing), type(uint128).max, type(uint128).max, depositAmount);
             totalDeposited += depositAmount;
         }
-        
+
         // Now remainingSpace < type(int128).max, so we can work with it
         uint128 remainingSpace = maxLiquidity - totalDeposited;
         assertLt(remainingSpace, uint128(type(int128).max), "remainingSpace should be < int128.max");
-        
+
         // Fill up most of the remaining space, leaving just 1000 units
         if (remainingSpace > 1000) {
             uint256 id = positions.mint();
             uint128 fillAmount = remainingSpace - 1000;
             assertLt(fillAmount, uint128(type(int128).max), "fillAmount should be < int128.max");
-            
+
             // Calculate the exact token amounts needed for this liquidity
             (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
                 ICore(payable(address(core))).poolState(poolKey.toPoolId()).sqrtRatio(),
@@ -119,16 +115,16 @@ contract MaxLiquidityPerTickTest is Test {
                 tickToSqrtRatio(-int32(tickSpacing)),
                 tickToSqrtRatio(int32(tickSpacing))
             );
-            
+
             positions.deposit(id, poolKey, -int32(tickSpacing), int32(tickSpacing), uint128(delta0), uint128(delta1), fillAmount);
             totalDeposited += fillAmount;
         }
-        
+
         // Now try to add more liquidity than the remaining ~1000 units
         // This should revert with MaxLiquidityPerTickExceeded
         uint256 finalId = positions.mint();
         uint128 excessAmount = 1001; // Try to add more than the ~1000 remaining
-        
+
         // We expect MaxLiquidityPerTickExceeded to be thrown
         // Using try/catch to verify the error is thrown
         try positions.deposit(finalId, poolKey, -int32(tickSpacing), int32(tickSpacing), type(uint128).max, type(uint128).max, excessAmount) {
@@ -164,7 +160,7 @@ contract MaxLiquidityPerTickTest is Test {
         // Add multiple positions
         uint256 numPositions = 0;
         uint128 totalLiquidity = 0;
-        
+
         // Keep adding positions until remainingSpace < liquidityAmount
         while (maxLiquidity - totalLiquidity >= liquidityAmount) {
             uint256 id = positions.mint();
@@ -172,13 +168,13 @@ contract MaxLiquidityPerTickTest is Test {
             totalLiquidity += liquidityAmount;
             numPositions++;
         }
-        
+
         // Verify we added at least 2 positions
         assertGt(numPositions, 1, "Should have added multiple positions");
 
         // Now remainingSpace < liquidityAmount, so we can work with it
         uint128 remainingSpace = maxLiquidity - totalLiquidity;
-        
+
         // Fill up most of the remaining space, leaving just 1000 units
         if (remainingSpace > 1000) {
             uint256 id = positions.mint();
@@ -190,7 +186,7 @@ contract MaxLiquidityPerTickTest is Test {
         // Now try to add more liquidity than the remaining ~1000 units
         uint256 finalId = positions.mint();
         uint128 excessAmount = 1001; // Try to add more than the ~1000 remaining
-        
+
         // We expect MaxLiquidityPerTickExceeded to be thrown
         // Using try/catch to verify the error is thrown
         try positions.deposit(finalId, poolKey, -int32(tickSpacing), int32(tickSpacing), type(uint128).max, type(uint128).max, excessAmount) {

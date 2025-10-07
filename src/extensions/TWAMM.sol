@@ -416,8 +416,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             if (realLastVirtualOrderExecutionTime != block.timestamp) {
                 // initialize the values that are handled once per execution
                 FeesPerLiquidity memory rewardRates;
-                bool rewardRate0Updated;
-                bool rewardRate1Updated;
+
+                // 0 = not loaded & not updated, 1 = loaded & not updated, 2 = loaded & updated
+                uint256 rewardRate0Access;
+                uint256 rewardRate1Access;
+
                 int256 saveDelta0;
                 int256 saveDelta1;
                 PoolState corePoolState;
@@ -498,33 +501,35 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     }
 
                     if (rewardDelta0 < 0) {
-                        if (!rewardRate0Updated) {
+                        if (rewardRate0Access == 0) {
                             rewardRates.value0 =
                                 uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).load());
-                            rewardRate0Updated = true;
                         }
+                        rewardRate0Access = 2;
                         rewardRates.value0 +=
                             FixedPointMathLib.rawDiv(uint256(-rewardDelta0) << 128, state.saleRateToken1());
                     }
 
                     if (rewardDelta1 < 0) {
-                        if (!rewardRate1Updated) {
+                        if (rewardRate1Access == 0) {
                             rewardRates.value1 =
                                 uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).next().load());
-                            rewardRate1Updated = true;
                         }
+                        rewardRate1Access = 2;
                         rewardRates.value1 +=
                             FixedPointMathLib.rawDiv(uint256(-rewardDelta1) << 128, state.saleRateToken0());
                     }
 
                     if (initialized) {
-                        if (!rewardRate0Updated) {
+                        if (rewardRate0Access == 0) {
                             rewardRates.value0 =
                                 uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).load());
+                            rewardRate0Access = 1;
                         }
-                        if (!rewardRate1Updated) {
+                        if (rewardRate1Access == 0) {
                             rewardRates.value1 =
                                 uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).next().load());
+                            rewardRate1Access = 1;
                         }
 
                         StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, nextTime)).storeTwo(
@@ -562,10 +567,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), saveDelta0, saveDelta1);
                 }
 
-                if (rewardRate0Updated) {
+                if (rewardRate0Access == 2) {
                     StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).store(bytes32(rewardRates.value0));
                 }
-                if (rewardRate1Updated) {
+                if (rewardRate1Access == 2) {
                     StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).next().store(
                         bytes32(rewardRates.value1)
                     );

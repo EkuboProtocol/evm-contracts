@@ -13,12 +13,8 @@ fi
 echo "Formatting Solidity files..."
 forge fmt
 
-# Run tests
+# Run tests (this also updates gas snapshots in snapshots/ directory)
 echo "Running tests..."
 forge test
 
-# Update gas snapshots
-echo "Updating gas snapshots..."
-forge snapshot
-
-echo "Format, tests, and snapshots complete!"
+echo "Format and tests complete!"

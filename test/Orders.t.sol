@@ -1292,4 +1292,36 @@ contract OrdersTest is BaseOrdersTest {
             "INTENDED BEHAVIOR: Proceeds cannot be collected after stopping order"
         );
     }
+
+    function test_gas_costs_execute_virtual_orders_switch_sell_direction() public {
+        vm.warp(0);
+
+        uint64 fee = 0;
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: 0});
+
+        {
+            token0.approve(address(orders), type(uint256).max);
+            OrderKey memory key = OrderKey({
+                token0: poolKey.token0,
+                token1: poolKey.token1,
+                config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            });
+            orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
+        }
+        {
+            token1.approve(address(orders), type(uint256).max);
+            OrderKey memory key = OrderKey({
+                token0: poolKey.token0,
+                token1: poolKey.token1,
+                config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: 16, _endTime: 32})
+            });
+            orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
+        }
+
+        vm.warp(32);
+
+        coolAllContracts();
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+        vm.snapshotGasLastCall("lockAndExecuteVirtualOrders switch sell direction");
+    }
 }

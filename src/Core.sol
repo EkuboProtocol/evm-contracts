@@ -548,17 +548,22 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     // For stableswap pools, calculate effective liquidity based on trading range
                     if (poolKey.isStableswap()) {
                         (int32 minTick, int32 maxTick) = poolKey.config.stableswapTradingRange();
+                        SqrtRatio boundaryUpper = tickToSqrtRatio(maxTick);
+                        SqrtRatio boundaryLower = tickToSqrtRatio(minTick);
 
-                        // Check if current tick is within trading range
-                        if (tick >= minTick && tick < maxTick) {
+                        // Check if we're at a boundary (to prevent infinite loops)
+                        bool atBoundary = increasing ? sqrtRatio == boundaryUpper : sqrtRatio == boundaryLower;
+
+                        // Check if current tick is within trading range and not at boundary
+                        if (tick >= minTick && tick < maxTick && !atBoundary) {
                             // In range: apply liquidity multiplier with overflow protection
                             uint256 eff = uint256(baseLiquidity) << poolKey.config.stableswapAmplification();
                             liquidity = eff > type(uint128).max ? type(uint128).max : uint128(eff);
                             // Next tick is the range boundary
                             (nextTick, nextTickSqrtRatio) =
-                                increasing ? (maxTick, tickToSqrtRatio(maxTick)) : (minTick, tickToSqrtRatio(minTick));
+                                increasing ? (maxTick, boundaryUpper) : (minTick, boundaryLower);
                         } else {
-                            // Out of range: zero liquidity, set to extremes
+                            // Out of range or at boundary: zero liquidity, set to extremes
                             liquidity = 0;
                             (nextTick, nextTickSqrtRatio) =
                                 increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);

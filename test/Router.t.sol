@@ -6,13 +6,7 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {
-    FULL_RANGE_ONLY_TICK_SPACING,
-    MIN_TICK,
-    MAX_TICK,
-    MAX_TICK_SPACING,
-    NATIVE_TOKEN_ADDRESS
-} from "../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
@@ -645,7 +639,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_eth_for_token_full_range_pool_gas() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangeETHPool(0, 1 << 63);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
         // do the swap one time first to set the fees slot
@@ -666,7 +660,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_token_for_eth_full_range_pool_gas() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangeETHPool(0, 1 << 63);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
         token1.approve(address(router), type(uint256).max);
@@ -687,7 +681,7 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_full_range_to_max_price() public {
-        PoolKey memory poolKey = createPool(MAX_TICK - 1, 0, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangePool(MAX_TICK - 1, 0);
 
         (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1, 1e36);
         assertNotEq(liquidity, 0);
@@ -713,7 +707,7 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_full_range_to_min_price() public {
-        PoolKey memory poolKey = createPool(MIN_TICK + 1, 0, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangePool(MIN_TICK + 1, 0);
 
         (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1e36, 1);
         assertNotEq(liquidity, 0);

@@ -7,7 +7,7 @@ import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {createPoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
 import {PositionId} from "../src/types/positionId.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
@@ -226,6 +226,29 @@ abstract contract FullTest is Test {
     {
         poolKey = PoolKey({token0: _token0, token1: _token1, config: createPoolConfig(fee, tickSpacing, extension)});
         core.initializePool(poolKey, tick);
+    }
+
+    /// @notice Creates a full-range stableswap pool (amplification=0, centerTick=0)
+    /// @dev This replaces the old FULL_RANGE_ONLY_TICK_SPACING behavior
+    function createFullRangePool(int32 tick, uint64 fee) internal returns (PoolKey memory poolKey) {
+        return createFullRangePool(tick, fee, address(0));
+    }
+
+    function createFullRangePool(int32 tick, uint64 fee, address extension) internal returns (PoolKey memory poolKey) {
+        return createFullRangePool(address(token0), address(token1), tick, fee, extension);
+    }
+
+    function createFullRangePool(address _token0, address _token1, int32 tick, uint64 fee, address extension)
+        internal
+        returns (PoolKey memory poolKey)
+    {
+        // Full-range is now stableswap with amplification=0 and centerTick=0
+        poolKey = PoolKey({token0: _token0, token1: _token1, config: createStableswapPoolConfig(fee, 0, 0, extension)});
+        core.initializePool(poolKey, tick);
+    }
+
+    function createFullRangeETHPool(int32 tick, uint64 fee) internal returns (PoolKey memory poolKey) {
+        return createFullRangePool(NATIVE_TOKEN_ADDRESS, address(token1), tick, fee, address(0));
     }
 
     function createPosition(PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 amount0, uint128 amount1)

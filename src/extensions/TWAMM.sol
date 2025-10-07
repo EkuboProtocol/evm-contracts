@@ -240,10 +240,6 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 uint256 saleRateNext = addSaleRateDelta(saleRate, saleRateDelta);
 
-                if (saleRateNext == 0 && purchasedAmount != 0) {
-                    revert MustCollectProceedsBeforeCanceling();
-                }
-
                 uint256 rewardRateSnapshotAdjusted;
                 int256 numOrdersChange;
                 assembly ("memory-safe") {
@@ -271,7 +267,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                     + computeAmountFromSaleRate({
                                         saleRate: saleRate,
                                         duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime, uint32(block.timestamp) - uint32(startTime)
+                                            uint32(block.timestamp) - lastUpdateTime, uint32(uint64(block.timestamp) - startTime)
                                         ),
                                         roundUp: false
                                     })
@@ -507,7 +503,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                 uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).load());
                             rewardRate0Updated = true;
                         }
-                        rewardRates.value0 += (uint256(-rewardDelta0) << 128) / state.saleRateToken1();
+                        rewardRates.value0 +=
+                            FixedPointMathLib.rawDiv(uint256(-rewardDelta0) << 128, state.saleRateToken1());
                     }
 
                     if (rewardDelta1 < 0) {
@@ -516,7 +513,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                 uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).next().load());
                             rewardRate1Updated = true;
                         }
-                        rewardRates.value1 += (uint256(-rewardDelta1) << 128) / state.saleRateToken0();
+                        rewardRates.value1 +=
+                            FixedPointMathLib.rawDiv(uint256(-rewardDelta1) << 128, state.saleRateToken0());
                     }
 
                     if (initialized) {

@@ -2,12 +2,13 @@
 pragma solidity =0.8.30;
 
 import {MAX_TICK} from "../math/constants.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @notice Pool configuration packed into a single bytes32
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
 type PoolConfig is bytes32;
 
-using {tickSpacing, fee, extension, maxLiquidityPerTick} for PoolConfig global;
+using {tickSpacing, fee, extension, maxLiquidityPerTickConcentratedLiquidity} for PoolConfig global;
 
 /// @notice Extracts the tick spacing from a pool config
 /// @param config The pool config
@@ -55,18 +56,13 @@ function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) 
     }
 }
 
-/// @notice Computes the maximum liquidity per tick for a given pool configuration
+/// @notice Computes the maximum liquidity per tick for a given concentrated liquidity pool configuration.
+/// For full-range-only pools (tickSpacing == 0), there are no individual ticks to limit
 /// @dev Calculated as type(uint128).max / (1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2)
-/// @param config The pool configuration
+/// @param config The concentrated liquidity pool configuration
 /// @return maxLiquidity The maximum liquidity allowed to reference each tick
-function maxLiquidityPerTick(PoolConfig config) pure returns (uint128 maxLiquidity) {
+function maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) pure returns (uint128 maxLiquidity) {
     uint32 _tickSpacing = config.tickSpacing();
-
-    // For full-range-only pools (tickSpacing == 0), there are no individual ticks to limit
-    // Return max uint128 as there's effectively no per-tick limit
-    if (_tickSpacing == 0) {
-        return type(uint128).max;
-    }
 
     // Calculate total number of usable ticks: 1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2
     // This represents all ticks from -MAX_TICK_MAGNITUDE to +MAX_TICK_MAGNITUDE, plus tick 0
@@ -78,6 +74,6 @@ function maxLiquidityPerTick(PoolConfig config) pure returns (uint128 maxLiquidi
 
     unchecked {
         // maxLiquidity = type(uint128).max / numTicks
-        maxLiquidity = uint128(type(uint128).max / numTicks);
+        maxLiquidity = uint128(FixedPointMathLib.rawDiv(type(uint128).max, numTicks));
     }
 }

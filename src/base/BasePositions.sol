@@ -48,6 +48,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
 
         liquidity = position.liquidity;
 
+        // the sqrt ratio may be 0 (because the pool is uninitialized) but this is
+        // fine since amount0Delta isn't called with it in this case
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
             sqrtRatio, -SafeCastLib.toInt128(position.liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
         );

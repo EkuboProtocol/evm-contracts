@@ -13,6 +13,7 @@ import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {PoolId} from "../types/poolId.sol";
 import {TimeInfo} from "../types/timeInfo.sol";
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 function getAllValidFutureTimes(uint64 currentTime) pure returns (uint64[] memory times) {
     unchecked {
@@ -71,7 +72,7 @@ contract TWAMMDataFetcher is UsesCore {
             uint64[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
 
             PoolId poolId = poolKey.toPoolId();
-            bytes32[] memory timeInfoSlots = new bytes32[](allValidTimes.length);
+            StorageSlot[] memory timeInfoSlots = new StorageSlot[](allValidTimes.length);
 
             for (uint256 i = 0; i < timeInfoSlots.length; i++) {
                 timeInfoSlots[i] = TWAMMStorageLayout.poolTimeInfosSlot(poolId, allValidTimes[i]);

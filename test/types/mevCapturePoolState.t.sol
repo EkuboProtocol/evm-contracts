@@ -6,12 +6,11 @@ import {MEVCapturePoolState, createMEVCapturePoolState} from "../../src/types/me
 
 contract MEVCapturePoolStateTest is Test {
     function test_conversionToAndFrom(MEVCapturePoolState state) public pure {
-        // MEVCapturePoolState only uses the top 64 bits (lastUpdateTime: 32 bits, tickLast: 32 bits)
-        // The lower 192 bits are unused, so we need to mask them out for comparison
+        // MEVCapturePoolState only uses the top 32 and bottom lower 32 bits
         bytes32 maskedState;
         assembly ("memory-safe") {
-            // Keep only the top 64 bits by masking: shift right 192 to get top 64, then shift left 192 to restore position
-            maskedState := shl(192, shr(192, state))
+            // Keep only the top and bottom 32 bits
+            maskedState := or(shl(224, shr(224, state)), shr(224, shl(224, state)))
         }
 
         assertEq(

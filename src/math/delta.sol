@@ -37,7 +37,7 @@ function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
             if (result > type(uint128).max) revert Amount0DeltaOverflow();
             amount0 = uint128(result);
         } else {
-            uint256 result0 = FixedPointMathLib.fullMulDiv(
+            uint256 result0 = FixedPointMathLib.fullMulDivUnchecked(
                 (uint256(liquidity) << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
             );
             uint256 result = FixedPointMathLib.rawDiv(result0, sqrtRatioLower);

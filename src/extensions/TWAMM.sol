@@ -84,14 +84,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     {
         if (block.timestamp >= endTime) {
             uint256 rewardRateStart = uint256(
-                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).add(
-                    LibBit.rawToUint(isToken1)
-                ).load()
+                TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime).add(LibBit.rawToUint(isToken1)).load()
             );
+
             uint256 rewardRateEnd = uint256(
-                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, endTime)).add(
-                    LibBit.rawToUint(isToken1)
-                ).load()
+                TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, endTime).add(LibBit.rawToUint(isToken1)).load()
             );
 
             unchecked {
@@ -101,13 +98,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
 
             uint256 rewardRateStart = uint256(
-                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime)).add(
-                    LibBit.rawToUint(isToken1)
-                ).load()
+                TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime).add(LibBit.rawToUint(isToken1)).load()
             );
-            uint256 rewardRateCurrent = uint256(
-                StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).add(LibBit.rawToUint(isToken1)).load()
-            );
+            uint256 rewardRateCurrent =
+                uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).add(LibBit.rawToUint(isToken1)).load());
 
             unchecked {
                 result = rewardRateCurrent - rewardRateStart;
@@ -149,7 +143,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     function _updateTime(PoolId poolId, uint256 time, int256 saleRateDelta, bool isToken1, int256 numOrdersChange)
         internal
     {
-        TimeInfo timeInfo = TimeInfo.wrap(StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time)).load());
+        TimeInfo timeInfo = TimeInfo.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time).load());
         (uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
 
         // note we assume this will never overflow, since it would require 2**32 separate orders to be placed
@@ -171,11 +165,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         if (flip) {
             bytes32 zeroNumOrders = bytes32(LibBit.rawToUint(numOrders == 0));
 
-            StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time)).storeTwo(
-                zeroNumOrders, zeroNumOrders
-            );
+            TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, time).storeTwo(zeroNumOrders, zeroNumOrders);
 
-            flipTime(StorageSlot.wrap(TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId)), time);
+            flipTime(TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId), time);
         }
 
         if (isToken1) {
@@ -184,7 +176,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             saleRateDeltaToken0 = _addConstrainSaleRateDelta(saleRateDeltaToken0, saleRateDelta);
         }
 
-        StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time)).store(
+        TWAMMStorageLayout.poolTimeInfosSlot(poolId, time).store(
             TimeInfo.unwrap(createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1))
         );
     }
@@ -224,9 +216,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 OrderId orderId = orderKey.toOrderId();
 
-                StorageSlot orderStateSlot = StorageSlot.wrap(
-                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)
-                );
+                StorageSlot orderStateSlot =
+                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
+
                 StorageSlot orderRewardRateSnapshotSlot = orderStateSlot.next();
 
                 OrderState order = OrderState.wrap(orderStateSlot.load());
@@ -285,7 +277,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 } else {
                     // we know block.timestamp < orderKey.endTime because we validate that first
                     // and we know the order is active, so we have to apply its delta to the current pool state
-                    StorageSlot currentStateSlot = StorageSlot.wrap(TWAMMStorageLayout.twammPoolStateSlot(poolId));
+                    StorageSlot currentStateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
                     TwammPoolState currentState = TwammPoolState.wrap(currentStateSlot.load());
                     (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
 
@@ -359,9 +351,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 OrderId orderId = orderKey.toOrderId();
 
-                StorageSlot orderStateSlot = StorageSlot.wrap(
-                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)
-                );
+                StorageSlot orderStateSlot =
+                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
+
                 StorageSlot orderRewardRateSnapshotSlot = orderStateSlot.next();
 
                 OrderState order = OrderState.wrap(orderStateSlot.load());
@@ -397,7 +389,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
     function _executeVirtualOrdersFromWithinLock(PoolKey memory poolKey, PoolId poolId) internal {
         unchecked {
-            StorageSlot stateSlot = StorageSlot.wrap(TWAMMStorageLayout.twammPoolStateSlot(poolId));
+            StorageSlot stateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
             TwammPoolState state = TwammPoolState.wrap(stateSlot.load());
 
             // we only conditionally load this if the state is coincidentally zero,
@@ -427,8 +419,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 uint256 time = realLastVirtualOrderExecutionTime;
 
                 while (time != block.timestamp) {
-                    StorageSlot initializedTimesBitmapSlot =
-                        StorageSlot.wrap(TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId));
+                    StorageSlot initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
 
                     (uint256 nextTime, bool initialized) = searchForNextInitializedTime({
                         slot: initializedTimesBitmapSlot,
@@ -502,8 +493,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     if (rewardDelta0 < 0) {
                         if (rewardRate0Access == 0) {
-                            rewardRates.value0 =
-                                uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).load());
+                            rewardRates.value0 = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).load());
                         }
                         rewardRate0Access = 2;
                         rewardRates.value0 +=
@@ -512,8 +502,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     if (rewardDelta1 < 0) {
                         if (rewardRate1Access == 0) {
-                            rewardRates.value1 =
-                                uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).next().load());
+                            rewardRates.value1 = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).next().load());
                         }
                         rewardRate1Access = 2;
                         rewardRates.value1 +=
@@ -522,22 +511,19 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                     if (initialized) {
                         if (rewardRate0Access == 0) {
-                            rewardRates.value0 =
-                                uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).load());
+                            rewardRates.value0 = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).load());
                             rewardRate0Access = 1;
                         }
                         if (rewardRate1Access == 0) {
-                            rewardRates.value1 =
-                                uint256(StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).next().load());
+                            rewardRates.value1 = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).next().load());
                             rewardRate1Access = 1;
                         }
 
-                        StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, nextTime)).storeTwo(
+                        TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, nextTime).storeTwo(
                             bytes32(rewardRates.value0), bytes32(rewardRates.value1)
                         );
 
-                        StorageSlot timeInfoSlot =
-                            StorageSlot.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, nextTime));
+                        StorageSlot timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, nextTime);
                         (, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) =
                             TimeInfo.wrap(timeInfoSlot.load()).parse();
 
@@ -568,12 +554,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 }
 
                 if (rewardRate0Access == 2) {
-                    StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).store(bytes32(rewardRates.value0));
+                    TWAMMStorageLayout.poolRewardRatesSlot(poolId).store(bytes32(rewardRates.value0));
                 }
                 if (rewardRate1Access == 2) {
-                    StorageSlot.wrap(TWAMMStorageLayout.poolRewardRatesSlot(poolId)).next().store(
-                        bytes32(rewardRates.value1)
-                    );
+                    TWAMMStorageLayout.poolRewardRatesSlot(poolId).next().store(bytes32(rewardRates.value1));
                 }
 
                 stateSlot.store(TwammPoolState.unwrap(state));
@@ -627,7 +611,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
         PoolId poolId = key.toPoolId();
 
-        StorageSlot.wrap(TWAMMStorageLayout.twammPoolStateSlot(poolId)).store(
+        TWAMMStorageLayout.twammPoolStateSlot(poolId).store(
             TwammPoolState.unwrap(
                 createTwammPoolState({
                     _lastVirtualOrderExecutionTime: uint32(block.timestamp),

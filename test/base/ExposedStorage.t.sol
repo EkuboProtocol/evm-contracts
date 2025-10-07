@@ -5,6 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {IExposedStorage} from "../../src/interfaces/IExposedStorage.sol";
 import {ExposedStorage} from "../../src/base/ExposedStorage.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
+import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
+import {PoolId} from "../../src/types/poolId.sol";
 
 contract TestTarget is ExposedStorage {
     function sstore(bytes32 slot, bytes32 value) external {
@@ -92,5 +95,75 @@ contract ExposedStorageTest is Test {
         assertEq(tt.tload(slot), 0);
         tt.tstore(slot, value);
         assertEq(tt.tload(slot), value);
+    }
+
+    // Tests for StorageSlot overloads
+
+    function test_storageSlot_sload_single(bytes32 slotValue, bytes32 value) public {
+        TestTarget tt = new TestTarget();
+        StorageSlot slot = StorageSlot.wrap(slotValue);
+
+        assertEq(tt.sload(slot), 0);
+        tt.sstore(slotValue, value);
+        assertEq(tt.sload(slot), value);
+    }
+
+    function test_storageSlot_sload_two(bytes32 slotValue0, bytes32 slotValue1, bytes32 value0, bytes32 value1)
+        public
+    {
+        TestTarget tt = new TestTarget();
+        StorageSlot slot0 = StorageSlot.wrap(slotValue0);
+        StorageSlot slot1 = StorageSlot.wrap(slotValue1);
+
+        tt.sstore(slotValue0, value0);
+        tt.sstore(slotValue1, value1);
+
+        (bytes32 result0, bytes32 result1) = tt.sload(slot0, slot1);
+        assertEq(result0, value0);
+        assertEq(result1, value1);
+    }
+
+    function test_storageSlot_sload_three(
+        bytes32 slotValue0,
+        bytes32 slotValue1,
+        bytes32 slotValue2,
+        bytes32 value0,
+        bytes32 value1,
+        bytes32 value2
+    ) public {
+        TestTarget tt = new TestTarget();
+        StorageSlot slot0 = StorageSlot.wrap(slotValue0);
+        StorageSlot slot1 = StorageSlot.wrap(slotValue1);
+        StorageSlot slot2 = StorageSlot.wrap(slotValue2);
+
+        tt.sstore(slotValue0, value0);
+        tt.sstore(slotValue1, value1);
+        tt.sstore(slotValue2, value2);
+
+        (bytes32 result0, bytes32 result1, bytes32 result2) = tt.sload(slot0, slot1, slot2);
+        assertEq(result0, value0);
+        assertEq(result1, value1);
+        assertEq(result2, value2);
+    }
+
+    function test_storageSlot_tload_single(bytes32 slotValue, bytes32 value) public {
+        TestTarget tt = new TestTarget();
+        StorageSlot slot = StorageSlot.wrap(slotValue);
+
+        assertEq(tt.tload(slot), 0);
+        tt.tstore(slotValue, value);
+        assertEq(tt.tload(slot), value);
+    }
+
+    function test_storageSlot_withCoreStorageLayout(bytes32 poolIdValue, bytes32 value) public {
+        TestTarget tt = new TestTarget();
+        PoolId poolId = PoolId.wrap(poolIdValue);
+
+        // Demonstrate cleaner API: no need to unwrap StorageSlot
+        StorageSlot slot = CoreStorageLayout.poolStateSlot(poolId);
+
+        assertEq(tt.sload(slot), 0);
+        tt.sstore(StorageSlot.unwrap(slot), value);
+        assertEq(tt.sload(slot), value);
     }
 }

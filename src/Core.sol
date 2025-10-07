@@ -547,27 +547,21 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                     // For stableswap pools, calculate effective liquidity based on trading range
                     if (poolKey.isStableswap()) {
-                        (int32 minTradingTick, int32 maxTradingTick) = poolKey.config.stableswapTradingRange();
-                        uint8 amplification = poolKey.config.stableswapAmplification();
+                        (int32 minTick, int32 maxTick) = poolKey.config.stableswapTradingRange();
 
                         // Check if current tick is within trading range
-                        bool inRange = tick >= minTradingTick && tick < maxTradingTick;
-
-                        if (inRange) {
-                            // Apply liquidity multiplier: 2^amplification
-                            liquidity = baseLiquidity << amplification;
+                        if (tick >= minTick && tick < maxTick) {
+                            // In range: apply liquidity multiplier with overflow protection
+                            uint256 eff = uint256(baseLiquidity) << poolKey.config.stableswapAmplification();
+                            liquidity = eff > type(uint128).max ? type(uint128).max : uint128(eff);
+                            // Next tick is the range boundary
+                            (nextTick, nextTickSqrtRatio) =
+                                increasing ? (maxTick, tickToSqrtRatio(maxTick)) : (minTick, tickToSqrtRatio(minTick));
                         } else {
-                            // Outside range, set liquidity to zero
+                            // Out of range: zero liquidity, set to extremes
                             liquidity = 0;
-                        }
-
-                        // Set next tick to range boundary
-                        if (increasing) {
-                            nextTick = maxTradingTick;
-                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                        } else {
-                            nextTick = minTradingTick;
-                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                            (nextTick, nextTickSqrtRatio) =
+                                increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                         }
                     } else if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                         (nextTick, isInitialized) = increasing

@@ -6,7 +6,8 @@ import {
     MIN_TICK,
     STABLESWAP_POOL_TYPE_FLAG,
     STABLESWAP_CENTER_TICK_MASK,
-    STABLESWAP_AMPLIFICATION_SHIFT
+    STABLESWAP_AMPLIFICATION_SHIFT,
+    FULL_RANGE_ONLY_TICK_SPACING
 } from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -90,11 +91,11 @@ function stableswapTradingRange(PoolConfig config) pure returns (int32 minTick, 
         int32 halfRange = int32(uint32(MAX_TICK) >> amplification);
 
         // Calculate min and max ticks, clamping to valid range
-        int256 minTickCalc = int256(centerTick) - int256(halfRange);
-        int256 maxTickCalc = int256(centerTick) + int256(halfRange);
+        minTick = centerTick - halfRange;
+        if (minTick < MIN_TICK) minTick = MIN_TICK;
 
-        minTick = int32(FixedPointMathLib.max(minTickCalc, int256(MIN_TICK)));
-        maxTick = int32(FixedPointMathLib.min(maxTickCalc, int256(MAX_TICK)));
+        maxTick = centerTick + halfRange;
+        if (maxTick > MAX_TICK) maxTick = MAX_TICK;
     }
 }
 
@@ -169,12 +170,17 @@ function createStableswapPoolConfig(uint64 _fee, int32 _centerTick, uint8 _ampli
 }
 
 /// @notice Computes the maximum liquidity per tick for a given concentrated liquidity pool configuration.
-/// For full-range-only pools (tickSpacing == 0), there are no individual ticks to limit
+/// For full-range-only and stableswap pools, there are no individual ticks to limit
 /// @dev Calculated as type(uint128).max / (1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2)
 /// @param config The concentrated liquidity pool configuration
 /// @return maxLiquidity The maximum liquidity allowed to reference each tick
 function maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) pure returns (uint128 maxLiquidity) {
     uint32 _tickSpacing = config.tickSpacing();
+
+    // For full-range-only and stableswap pools, return max
+    if (_tickSpacing == FULL_RANGE_ONLY_TICK_SPACING || config.isStableswap()) {
+        return type(uint128).max;
+    }
 
     // Calculate total number of usable ticks: 1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2
     // This represents all ticks from -MAX_TICK_MAGNITUDE to +MAX_TICK_MAGNITUDE, plus tick 0

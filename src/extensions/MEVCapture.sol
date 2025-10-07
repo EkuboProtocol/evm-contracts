@@ -15,6 +15,7 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
 import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {PoolState} from "../types/poolState.sol";
+import {MEVCapturePoolState, createMEVCapturePoolState} from "../types/mevCapturePoolState.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
@@ -44,19 +45,15 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
-    /// @return lastUpdateTime The last time this pool was updated
-    /// @return tickLast The tick from the last time the pool was touched
-    function getPoolState(PoolId poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
+    function getPoolState(PoolId poolId) private view returns (MEVCapturePoolState state) {
         assembly ("memory-safe") {
-            let v := sload(poolId)
-            lastUpdateTime := shr(224, v)
-            tickLast := signextend(31, shr(192, v))
+            state := sload(poolId)
         }
     }
 
-    function setPoolState(PoolId poolId, uint32 lastUpdateTime, int32 tickLast) private {
+    function setPoolState(PoolId poolId, MEVCapturePoolState state) private {
         assembly ("memory-safe") {
-            sstore(poolId, or(shl(224, lastUpdateTime), shr(32, shl(224, tickLast))))
+            sstore(poolId, state)
         }
     }
 
@@ -76,7 +73,10 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             revert NonzeroFeesOnly();
         }
 
-        setPoolState({poolId: poolKey.toPoolId(), lastUpdateTime: uint32(block.timestamp), tickLast: tick});
+        setPoolState({
+            poolId: poolKey.toPoolId(),
+            state: createMEVCapturePoolState({_lastUpdateTime: uint32(block.timestamp), _tickLast: tick})
+        });
     }
 
     /// @notice We only allow swapping via forward to this extension
@@ -130,7 +130,8 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
         PoolId poolId = poolKey.toPoolId();
 
-        (uint32 lastUpdateTime,) = getPoolState(poolId);
+        MEVCapturePoolState state = getPoolState(poolId);
+        uint32 lastUpdateTime = state.lastUpdateTime();
 
         uint32 currentTime = uint32(block.timestamp);
 
@@ -149,7 +150,10 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                     );
                 }
 
-                setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tick});
+                setPoolState({
+                    poolId: poolId,
+                    state: createMEVCapturePoolState({_lastUpdateTime: currentTime, _tickLast: tick})
+                });
             }
         }
     }
@@ -179,7 +183,9 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             (PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (PoolKey, SwapParameters));
 
             PoolId poolId = poolKey.toPoolId();
-            (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolId);
+            MEVCapturePoolState state = getPoolState(poolId);
+            uint32 lastUpdateTime = state.lastUpdateTime();
+            int32 tickLast = state.tickLast();
 
             uint32 currentTime = uint32(block.timestamp);
 
@@ -198,7 +204,10 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 }
 
                 tickLast = tick;
-                setPoolState({poolId: poolId, lastUpdateTime: currentTime, tickLast: tickLast});
+                setPoolState({
+                    poolId: poolId,
+                    state: createMEVCapturePoolState({_lastUpdateTime: currentTime, _tickLast: tickLast})
+                });
             }
 
             (int128 delta0, int128 delta1, PoolState stateAfter) = CORE.swap_1773245541(poolKey, params);

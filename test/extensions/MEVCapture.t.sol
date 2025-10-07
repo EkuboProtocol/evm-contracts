@@ -12,6 +12,7 @@ import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {MEVCaptureRouter} from "../../src/MEVCaptureRouter.sol";
+import {MEVCapturePoolState} from "../../src/types/mevCapturePoolState.sol";
 
 abstract contract BaseMEVCaptureTest is FullTest {
     MEVCapture internal mevCapture;
@@ -45,12 +46,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertTrue(core.isExtensionRegistered(address(mevCapture)));
     }
 
-    function getPoolState(PoolId poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
-        bytes32 v = mevCapture.sload(PoolId.unwrap(poolId));
-        assembly ("memory-safe") {
-            lastUpdateTime := shr(224, v)
-            tickLast := signextend(31, shr(192, v))
-        }
+    function getPoolState(PoolId poolId) private view returns (MEVCapturePoolState state) {
+        state = MEVCapturePoolState.wrap(mevCapture.sload(PoolId.unwrap(poolId)));
     }
 
     function test_pool_initialization_success(uint256 time, uint64 fee, uint32 tickSpacing, int32 tick, uint32 warp)
@@ -63,26 +60,26 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         PoolKey memory poolKey = createMEVCapturePool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
-        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
-        assertEq(tickLast, tick);
+        MEVCapturePoolState state = getPoolState(poolKey.toPoolId());
+        assertEq(state.lastUpdateTime(), uint32(vm.getBlockTimestamp()));
+        assertEq(state.tickLast(), tick);
 
         unchecked {
             vm.warp(time + uint256(warp));
         }
         mevCapture.accumulatePoolFees(poolKey);
-        (lastUpdateTime, tickLast) = getPoolState(poolKey.toPoolId());
-        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
-        assertEq(tickLast, tick);
+        state = getPoolState(poolKey.toPoolId());
+        assertEq(state.lastUpdateTime(), uint32(vm.getBlockTimestamp()));
+        assertEq(state.tickLast(), tick);
     }
 
     function test_accumulate_fees_for_any_pool(uint256 time, PoolKey memory poolKey) public {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
         mevCapture.accumulatePoolFees(poolKey);
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
-        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
-        assertEq(tickLast, 0);
+        MEVCapturePoolState state = getPoolState(poolKey.toPoolId());
+        assertEq(state.lastUpdateTime(), uint32(vm.getBlockTimestamp()));
+        assertEq(state.tickLast(), 0);
     }
 
     function test_pool_initialization_validation() public {

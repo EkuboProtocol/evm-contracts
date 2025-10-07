@@ -6,7 +6,7 @@ import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
 import {PoolId} from "../types/poolId.sol";
 
@@ -49,7 +49,8 @@ contract QuoteDataFetcher is UsesCore {
                     int256 minTick;
                     int256 maxTick;
                     TickDelta[] memory ticks;
-                    if (poolKeys[i].tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
+                    // For concentrated liquidity pools, search tick bitmaps
+                    if (!poolKeys[i].isStableswap()) {
                         int256 rangeSize =
                             int256(uint256(minBitmapsSearched)) * int256(uint256(poolKeys[i].tickSpacing())) * 256;
                         minTick = int256(tick) - rangeSize;
@@ -99,7 +100,8 @@ contract QuoteDataFetcher is UsesCore {
     {
         assert(toTick >= fromTick);
 
-        if (tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
+        // For concentrated liquidity pools, search tick bitmaps
+        if (!poolKey.isStableswap()) {
             DynamicArrayLib.DynamicArray memory packedTicks;
 
             while (toTick >= fromTick) {

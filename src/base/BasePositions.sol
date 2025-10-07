@@ -56,9 +56,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
 
         (principal0, principal1) = (uint128(-delta0), uint128(-delta1));
 
-        FeesPerLiquidity memory feesPerLiquidityInside = (poolKey.isFullRange() || poolKey.isStableswap())
-            ? CORE.getPoolFeesPerLiquidity(poolId)
-            : CORE.getPoolFeesPerLiquidityInside(poolId, tickLower, tickUpper);
+        FeesPerLiquidity memory feesPerLiquidityInside =
+            CORE.getPoolFeesPerLiquidityInside(poolId, tickLower, tickUpper);
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
     }
 

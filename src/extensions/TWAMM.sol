@@ -14,7 +14,7 @@ import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
-import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+// TWAMM extension removed FULL_RANGE_ONLY_TICK_SPACING import - now uses stableswap
 import {PoolState} from "../types/poolState.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {OrderKey} from "../types/orderKey.sol";
@@ -607,7 +607,12 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         override(BaseExtension, IExtension)
         onlyCore
     {
-        if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+        // TWAMM requires stableswap pools (amplification=0, centerTick=0 for full-range behavior)
+        if (!key.isStableswap()) revert TickSpacingMustBeMaximum();
+        // Verify it's a full-range stableswap (amp=0, center=0)
+        if (key.config.stableswapAmplification() != 0 || key.config.stableswapCenterTick() != 0) {
+            revert TickSpacingMustBeMaximum();
+        }
 
         PoolId poolId = key.toPoolId();
 

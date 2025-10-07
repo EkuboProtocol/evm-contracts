@@ -17,7 +17,7 @@ import {liquidityDeltaToAmountDelta, addLiquidityDelta} from "./math/liquidity.s
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
 import {SwapParameters} from "./types/swapParameters.sol";
@@ -373,42 +373,28 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             FeesPerLiquidity memory feesPerLiquidityInside;
 
-            if (!poolKey.isFullRange() && !poolKey.isStableswap()) {
-                // the position is fully withdrawn
-                if (liquidityNext == 0) {
-                    // we need to fetch it before the tick fees per liquidity outside is deleted
-                    feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                        poolId, state.tick(), positionId.tickLower(), positionId.tickUpper()
-                    );
-                }
+            // the position is fully withdrawn
+            if (liquidityNext == 0) {
+                // we need to fetch it before the tick fees per liquidity outside is deleted
+                feesPerLiquidityInside =
+                    _getPoolFeesPerLiquidityInside(poolId, state.tick(), positionId.tickLower(), positionId.tickUpper());
+            }
 
-                _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
-                _updateTick(poolId, positionId.tickUpper(), poolKey.config, liquidityDelta, true);
+            _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
+            _updateTick(poolId, positionId.tickUpper(), poolKey.config, liquidityDelta, true);
 
-                if (liquidityNext != 0) {
-                    feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                        poolId, state.tick(), positionId.tickLower(), positionId.tickUpper()
-                    );
-                }
+            if (liquidityNext != 0) {
+                feesPerLiquidityInside =
+                    _getPoolFeesPerLiquidityInside(poolId, state.tick(), positionId.tickLower(), positionId.tickUpper());
+            }
 
-                if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
-                    state = createPoolState({
-                        _sqrtRatio: state.sqrtRatio(),
-                        _tick: state.tick(),
-                        _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
-                    });
-                    writePoolState(poolId, state);
-                }
-            } else {
+            if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
                 state = createPoolState({
                     _sqrtRatio: state.sqrtRatio(),
                     _tick: state.tick(),
                     _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
                 });
                 writePoolState(poolId, state);
-                StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-                feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
-                feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
             }
 
             if (liquidityNext == 0) {
@@ -461,15 +447,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside;
-        if (poolKey.isFullRange() || poolKey.isStableswap()) {
-            StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-            feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
-            feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
-        } else {
-            feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                poolId, readPoolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
-            );
-        }
+        feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
+            poolId, readPoolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
+        );
 
         (amount0, amount1) = position.fees(feesPerLiquidityInside);
 
@@ -537,38 +517,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
                 }
 
-                // Store base liquidity for stableswap pools
-                uint128 baseLiquidity = liquidity;
-
                 while (true) {
                     int32 nextTick;
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
-                    // For stableswap pools, calculate effective liquidity based on trading range
+                    // For stableswap pools, don't use tick bitmaps
                     if (poolKey.isStableswap()) {
-                        (int32 minTick, int32 maxTick) = poolKey.config.stableswapTradingRange();
-                        SqrtRatio boundaryUpper = tickToSqrtRatio(maxTick);
-                        SqrtRatio boundaryLower = tickToSqrtRatio(minTick);
-
-                        // Check if we're at a boundary (to prevent infinite loops)
-                        bool atBoundary = increasing ? sqrtRatio == boundaryUpper : sqrtRatio == boundaryLower;
-
-                        // Check if current tick is within trading range and not at boundary
-                        if (tick >= minTick && tick < maxTick && !atBoundary) {
-                            // In range: apply liquidity multiplier with overflow protection
-                            uint256 eff = uint256(baseLiquidity) << poolKey.config.stableswapAmplification();
-                            liquidity = eff > type(uint128).max ? type(uint128).max : uint128(eff);
-                            // Next tick is the range boundary
-                            (nextTick, nextTickSqrtRatio) =
-                                increasing ? (maxTick, boundaryUpper) : (minTick, boundaryLower);
-                        } else {
-                            // Out of range or at boundary: zero liquidity, set to extremes
-                            liquidity = 0;
-                            (nextTick, nextTickSqrtRatio) =
-                                increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
-                        }
-                    } else if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
+                        // For stableswap, find next tick without using bitmaps
+                        // This will be handled by the position bounds
+                        (nextTick, nextTickSqrtRatio) =
+                            increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
+                    } else {
+                        // For concentrated liquidity pools, use tick bitmaps
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
@@ -578,10 +539,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             );
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                    } else {
-                        // we never cross ticks in the full range version
-                        (nextTick, nextTickSqrtRatio) =
-                            increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                     }
 
                     SqrtRatio limitedNextSqrtRatio =

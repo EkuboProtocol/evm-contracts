@@ -4,10 +4,10 @@ pragma solidity =0.8.30;
 import {
     MAX_TICK,
     MIN_TICK,
-    STABLESWAP_POOL_TYPE_FLAG,
+    CONCENTRATED_LIQUIDITY_FLAG,
+    TICK_SPACING_MASK,
     STABLESWAP_CENTER_TICK_MASK,
-    STABLESWAP_AMPLIFICATION_SHIFT,
-    FULL_RANGE_ONLY_TICK_SPACING
+    STABLESWAP_AMPLIFICATION_SHIFT
 } from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -27,21 +27,30 @@ using {
 } for PoolConfig global;
 
 /// @notice Extracts the tick spacing from a pool config
-/// @dev For stableswap pools, this returns the raw encoded value (not actual tick spacing)
+/// @dev Only valid for concentrated liquidity pools. For stableswap pools, use stableswap-specific functions
 /// @param config The pool config
-/// @return r The tick spacing (or encoded stableswap parameters)
+/// @return r The tick spacing
 function tickSpacing(PoolConfig config) pure returns (uint32 r) {
     assembly ("memory-safe") {
-        r := and(config, 0xffffffff)
+        r := and(config, TICK_SPACING_MASK)
     }
 }
 
 /// @notice Checks if a pool config represents a stableswap pool
 /// @param config The pool config
-/// @return r True if this is a stableswap pool
+/// @return r True if this is a stableswap pool (bit 31 is 0)
 function isStableswap(PoolConfig config) pure returns (bool r) {
     assembly ("memory-safe") {
-        r := iszero(iszero(and(config, STABLESWAP_POOL_TYPE_FLAG)))
+        r := iszero(and(config, CONCENTRATED_LIQUIDITY_FLAG))
+    }
+}
+
+/// @notice Checks if a pool config represents a concentrated liquidity pool
+/// @param config The pool config
+/// @return r True if this is a concentrated liquidity pool (bit 31 is 1)
+function isConcentratedLiquidity(PoolConfig config) pure returns (bool r) {
+    assembly ("memory-safe") {
+        r := iszero(iszero(and(config, CONCENTRATED_LIQUIDITY_FLAG)))
     }
 }
 
@@ -117,21 +126,23 @@ function extension(PoolConfig config) pure returns (address r) {
     }
 }
 
-/// @notice Creates a PoolConfig from individual components
+/// @notice Creates a PoolConfig for a concentrated liquidity pool
 /// @param _fee The fee for the pool
 /// @param _tickSpacing The tick spacing for the pool
 /// @param _extension The extension address for the pool
 /// @return c The packed configuration
 function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) pure returns (PoolConfig c) {
     assembly ("memory-safe") {
-        // Mask inputs to ensure only relevant bits are used
+        // Set concentrated liquidity flag (bit 31 = 1) and tick spacing (bits 0-30)
+        let tickSpacingWithFlag := or(and(_tickSpacing, TICK_SPACING_MASK), CONCENTRATED_LIQUIDITY_FLAG)
+
         c :=
             add(
                 add(
                     shl(96, and(_extension, 0xffffffffffffffffffffffffffffffffffffffff)),
                     shl(32, and(_fee, 0xffffffffffffffff))
                 ),
-                and(_tickSpacing, 0xffffffff)
+                tickSpacingWithFlag
             )
     }
 }
@@ -150,13 +161,14 @@ function createStableswapPoolConfig(uint64 _fee, int32 _centerTick, uint8 _ampli
         // Encode stableswap parameters:
         // - bits 0-27: center tick (sign-extended)
         // - bits 28-30: amplification factor
-        // - bit 31: stableswap flag (1)
+        // - bit 31: concentrated liquidity flag (0 for stableswap)
 
         // First, ensure _centerTick is properly sign-extended to 32 bits, then mask to 28 bits
         let centerTick32 := signextend(3, _centerTick)
         let centerTickEncoded := and(centerTick32, STABLESWAP_CENTER_TICK_MASK)
         let amplificationEncoded := shl(STABLESWAP_AMPLIFICATION_SHIFT, and(_amplification, 0x7))
-        let stableswapConfig := or(or(centerTickEncoded, amplificationEncoded), STABLESWAP_POOL_TYPE_FLAG)
+        // Note: bit 31 is 0 for stableswap (no CONCENTRATED_LIQUIDITY_FLAG)
+        let stableswapConfig := or(centerTickEncoded, amplificationEncoded)
 
         c :=
             add(
@@ -170,17 +182,12 @@ function createStableswapPoolConfig(uint64 _fee, int32 _centerTick, uint8 _ampli
 }
 
 /// @notice Computes the maximum liquidity per tick for a given concentrated liquidity pool configuration.
-/// For full-range-only and stableswap pools, there are no individual ticks to limit
 /// @dev Calculated as type(uint128).max / (1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2)
+/// @dev For stableswap pools, this function should not be called as they don't use tick-based liquidity limits
 /// @param config The concentrated liquidity pool configuration
 /// @return maxLiquidity The maximum liquidity allowed to reference each tick
 function maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) pure returns (uint128 maxLiquidity) {
     uint32 _tickSpacing = config.tickSpacing();
-
-    // For full-range-only and stableswap pools, return max
-    if (_tickSpacing == FULL_RANGE_ONLY_TICK_SPACING || config.isStableswap()) {
-        return type(uint128).max;
-    }
 
     // Calculate total number of usable ticks: 1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2
     // This represents all ticks from -MAX_TICK_MAGNITUDE to +MAX_TICK_MAGNITUDE, plus tick 0

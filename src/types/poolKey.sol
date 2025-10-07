@@ -1,20 +1,11 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING, MIN_TICK, MAX_TICK} from "../math/constants.sol";
+import {MAX_TICK_SPACING, MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {PoolId} from "./poolId.sol";
 import {PoolConfig} from "./poolConfig.sol";
 
-using {
-    toPoolId,
-    validatePoolKey,
-    isFullRange,
-    isStableswap,
-    mustLoadFees,
-    tickSpacing,
-    fee,
-    extension
-} for PoolKey global;
+using {toPoolId, validatePoolKey, isStableswap, mustLoadFees, tickSpacing, fee, extension} for PoolKey global;
 
 /// @notice Extracts the tick spacing from a pool key
 /// @param pk The pool key
@@ -38,22 +29,15 @@ function extension(PoolKey memory pk) pure returns (address r) {
 }
 
 /// @notice Determines if fees must be loaded for swaps in this pool
-/// @dev Returns true if either tick spacing or fee are nonzero
+/// @dev Returns true if either the config lower 32 bits or fee are nonzero
 /// @param pk The pool key
 /// @return r True if fees must be loaded
 function mustLoadFees(PoolKey memory pk) pure returns (bool r) {
     assembly ("memory-safe") {
-        // only if either of tick spacing and fee are nonzero
+        // only if either of config lower 32 bits and fee are nonzero
         // if _both_ are zero, then we know we do not need to load fees for swaps
         r := iszero(iszero(and(mload(add(64, pk)), 0xffffffffffffffffffffffff)))
     }
-}
-
-/// @notice Determines if this pool uses full-range-only tick spacing
-/// @param pk The pool key
-/// @return r True if the pool uses full-range-only tick spacing
-function isFullRange(PoolKey memory pk) pure returns (bool r) {
-    r = pk.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
 }
 
 /// @notice Determines if this pool is a stableswap pool

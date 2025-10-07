@@ -9,7 +9,7 @@ import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Snapshot, createSnapshot} from "../types/snapshot.sol";
 import {Counts, createCounts} from "../types/counts.sol";
@@ -154,7 +154,11 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
         if (key.fee() != 0) revert FeeMustBeZero();
-        if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+        // Oracle requires stableswap pools (amplification=0, centerTick=0 for full-range behavior)
+        if (!key.isStableswap()) revert TickSpacingMustBeMaximum();
+        if (key.config.stableswapAmplification() != 0 || key.config.stableswapCenterTick() != 0) {
+            revert TickSpacingMustBeMaximum();
+        }
 
         address token = key.token1;
 

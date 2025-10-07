@@ -21,13 +21,13 @@ uint32 constant MAX_TICK_MAGNITUDE = uint32(MAX_TICK);
 // Defines the upper limit for tick spacing configuration in pool creation
 uint32 constant MAX_TICK_SPACING = 698605;
 
-// Special tick spacing value indicating full-range-only pools
-// When a pool uses this tick spacing, only full-range positions are allowed
-uint32 constant FULL_RANGE_ONLY_TICK_SPACING = 0;
+// Concentrated liquidity pool type flag (bit 31 of tick spacing field)
+// When set (1), the pool uses concentrated liquidity with tick spacing
+// When clear (0), the pool uses stableswap with encoded parameters
+uint32 constant CONCENTRATED_LIQUIDITY_FLAG = 0x80000000;
 
-// Stableswap pool type flag (bit 31 of tick spacing field)
-// When set, the tick spacing field encodes stableswap parameters instead
-uint32 constant STABLESWAP_POOL_TYPE_FLAG = 0x80000000;
+// Mask for extracting tick spacing from concentrated liquidity config (bits 0-30)
+uint32 constant TICK_SPACING_MASK = 0x7FFFFFFF;
 
 // Mask for extracting the center tick from stableswap config (bits 0-27)
 uint32 constant STABLESWAP_CENTER_TICK_MASK = 0x0FFFFFFF;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING, STABLESWAP_POOL_TYPE_FLAG} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, CONCENTRATED_LIQUIDITY_FLAG} from "../math/constants.sol";
 
 type PositionId is bytes32;
 
@@ -40,20 +40,22 @@ error BoundsOrder();
 error MinMaxBounds();
 /// @notice Thrown when the ticks of the bounds do not align with tick spacing, i.e. tick{Lower,Upper} % tickSpacing != 0
 error BoundsTickSpacing();
-/// @notice Thrown if the pool is full range only and the position is not full range
-error FullRangeOnlyPool();
 
 function validateBounds(PositionId positionId, uint32 tickSpacing) pure {
-    // Check if this is a full-range-only or stableswap pool
-    bool isFullRangeOnly = tickSpacing == FULL_RANGE_ONLY_TICK_SPACING;
-    bool isStableswap = (tickSpacing & STABLESWAP_POOL_TYPE_FLAG) != 0;
+    // Check if this is a concentrated liquidity pool (bit 31 = 1)
+    bool isConcentratedLiquidity = (tickSpacing & CONCENTRATED_LIQUIDITY_FLAG) != 0;
 
-    if (isFullRangeOnly || isStableswap) {
-        if (positionId.tickLower() != MIN_TICK || positionId.tickUpper() != MAX_TICK) revert FullRangeOnlyPool();
-    } else {
+    if (isConcentratedLiquidity) {
+        // For concentrated liquidity pools, validate tick spacing alignment
         if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();
         if (positionId.tickLower() < MIN_TICK || positionId.tickUpper() > MAX_TICK) revert MinMaxBounds();
-        int32 spacing = int32(tickSpacing);
+        // Extract actual tick spacing (bits 0-30)
+        int32 spacing = int32(tickSpacing & 0x7FFFFFFF);
         if (positionId.tickLower() % spacing != 0 || positionId.tickUpper() % spacing != 0) revert BoundsTickSpacing();
+    } else {
+        // For stableswap pools, bounds validation is done elsewhere based on pool key
+        // Just check basic ordering and min/max bounds
+        if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();
+        if (positionId.tickLower() < MIN_TICK || positionId.tickUpper() > MAX_TICK) revert MinMaxBounds();
     }
 }

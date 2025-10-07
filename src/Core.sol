@@ -373,7 +373,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             FeesPerLiquidity memory feesPerLiquidityInside;
 
-            if (!poolKey.isFullRange()) {
+            if (!poolKey.isFullRange() && !poolKey.isStableswap()) {
                 // the position is fully withdrawn
                 if (liquidityNext == 0) {
                     // we need to fetch it before the tick fees per liquidity outside is deleted
@@ -461,7 +461,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside;
-        if (poolKey.isFullRange()) {
+        if (poolKey.isFullRange() || poolKey.isStableswap()) {
             StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
             feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
@@ -537,12 +537,39 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
                 }
 
+                // Store base liquidity for stableswap pools
+                uint128 baseLiquidity = liquidity;
+
                 while (true) {
                     int32 nextTick;
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
-                    if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
+                    // For stableswap pools, calculate effective liquidity based on trading range
+                    if (poolKey.isStableswap()) {
+                        (int32 minTradingTick, int32 maxTradingTick) = poolKey.config.stableswapTradingRange();
+                        uint8 amplification = poolKey.config.stableswapAmplification();
+
+                        // Check if current tick is within trading range
+                        bool inRange = tick >= minTradingTick && tick < maxTradingTick;
+
+                        if (inRange) {
+                            // Apply liquidity multiplier: 2^amplification
+                            liquidity = baseLiquidity << amplification;
+                        } else {
+                            // Outside range, set liquidity to zero
+                            liquidity = 0;
+                        }
+
+                        // Set next tick to range boundary
+                        if (increasing) {
+                            nextTick = maxTradingTick;
+                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                        } else {
+                            nextTick = minTradingTick;
+                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                        }
+                    } else if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()

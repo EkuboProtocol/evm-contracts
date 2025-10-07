@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING, MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {PoolId} from "./poolId.sol";
 import {PoolConfig} from "./poolConfig.sol";
 
-using {toPoolId, validatePoolKey, isFullRange, mustLoadFees, tickSpacing, fee, extension} for PoolKey global;
+using {
+    toPoolId,
+    validatePoolKey,
+    isFullRange,
+    isStableswap,
+    mustLoadFees,
+    tickSpacing,
+    fee,
+    extension
+} for PoolKey global;
 
 /// @notice Extracts the tick spacing from a pool key
 /// @param pk The pool key
@@ -47,6 +56,13 @@ function isFullRange(PoolKey memory pk) pure returns (bool r) {
     r = pk.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
 }
 
+/// @notice Determines if this pool is a stableswap pool
+/// @param pk The pool key
+/// @return r True if the pool is a stableswap pool
+function isStableswap(PoolKey memory pk) pure returns (bool r) {
+    r = pk.config.isStableswap();
+}
+
 /// @notice Unique identifier for a pool containing token addresses and configuration
 /// @dev Each pool has its own state associated with this key
 struct PoolKey {
@@ -64,13 +80,26 @@ error TokensMustBeSorted();
 /// @notice Thrown when tick spacing exceeds the maximum allowed value
 error InvalidTickSpacing();
 
+/// @notice Thrown when stableswap center tick is outside valid range
+error InvalidStableswapCenterTick();
+
 /// @notice Validates that a pool key is properly formatted
 /// @dev Checks that tokens are sorted and tick spacing is valid
 /// @param key The pool key to validate
 function validatePoolKey(PoolKey memory key) pure {
     if (key.token0 >= key.token1) revert TokensMustBeSorted();
-    if (key.tickSpacing() > MAX_TICK_SPACING) {
-        revert InvalidTickSpacing();
+
+    if (key.config.isStableswap()) {
+        // For stableswap pools, validate the center tick is within bounds
+        int32 centerTick = key.config.stableswapCenterTick();
+        if (centerTick < MIN_TICK || centerTick > MAX_TICK) {
+            revert InvalidStableswapCenterTick();
+        }
+    } else {
+        // For regular pools, validate tick spacing
+        if (key.tickSpacing() > MAX_TICK_SPACING) {
+            revert InvalidTickSpacing();
+        }
     }
 }
 

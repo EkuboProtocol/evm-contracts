@@ -4,21 +4,15 @@ pragma solidity =0.8.30;
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio, toSqrtRatio, MAX_FIXED_VALUE_ROUND_UP} from "../types/sqrtRatio.sol";
 
-error ZeroLiquidityNextSqrtRatioFromAmount0();
-
 // Compute the next ratio from a delta amount0, always rounded towards starting price for input, and
 // away from starting price for output
-/// @dev Assumes sqrt ratio is non-zero
+/// @dev Assumes sqrt ratio and liquidity are non-zero
 function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int128 amount)
     pure
     returns (SqrtRatio sqrtRatioNext)
 {
     if (amount == 0) {
         return _sqrtRatio;
-    }
-
-    if (liquidity == 0) {
-        revert ZeroLiquidityNextSqrtRatioFromAmount0();
     }
 
     uint256 sqrtRatio = _sqrtRatio.toFixed();
@@ -64,18 +58,13 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     }
 }
 
-error ZeroLiquidityNextSqrtRatioFromAmount1();
-
+/// @dev Assumes liquidity is non-zero
 function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int128 amount)
     pure
     returns (SqrtRatio sqrtRatioNext)
 {
     if (amount == 0) {
         return _sqrtRatio;
-    }
-
-    if (liquidity == 0) {
-        revert ZeroLiquidityNextSqrtRatioFromAmount1();
     }
 
     uint256 sqrtRatio = _sqrtRatio.toFixed();

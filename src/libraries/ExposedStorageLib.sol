@@ -2,6 +2,7 @@
 pragma solidity =0.8.30;
 
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 /// @dev This library includes some helper functions for calling IExposedStorage#sload and IExposedStorage#tload.
 library ExposedStorageLib {
@@ -63,5 +64,31 @@ library ExposedStorageLib {
 
             result := mload(0)
         }
+    }
+
+    // Overloads for StorageSlot type
+
+    function sload(IExposedStorage target, StorageSlot slot) internal view returns (bytes32 result) {
+        return sload(target, StorageSlot.unwrap(slot));
+    }
+
+    function sload(IExposedStorage target, StorageSlot slot0, StorageSlot slot1)
+        internal
+        view
+        returns (bytes32 result0, bytes32 result1)
+    {
+        return sload(target, StorageSlot.unwrap(slot0), StorageSlot.unwrap(slot1));
+    }
+
+    function sload(IExposedStorage target, StorageSlot slot0, StorageSlot slot1, StorageSlot slot2)
+        internal
+        view
+        returns (bytes32 result0, bytes32 result1, bytes32 result2)
+    {
+        return sload(target, StorageSlot.unwrap(slot0), StorageSlot.unwrap(slot1), StorageSlot.unwrap(slot2));
+    }
+
+    function tload(IExposedStorage target, StorageSlot slot) internal view returns (bytes32 result) {
+        return tload(target, StorageSlot.unwrap(slot));
     }
 }

@@ -24,8 +24,7 @@ library TWAMMLib {
     using FlashAccountantLib for *;
 
     function poolState(ITWAMM twamm, PoolId poolId) internal view returns (TwammPoolState twammPoolState) {
-        twammPoolState =
-            TwammPoolState.wrap(twamm.sload(StorageSlot.unwrap(TWAMMStorageLayout.twammPoolStateSlot(poolId))));
+        twammPoolState = TwammPoolState.wrap(twamm.sload(TWAMMStorageLayout.twammPoolStateSlot(poolId)));
     }
 
     function orderState(ITWAMM twamm, address owner, bytes32 salt, OrderId orderId)

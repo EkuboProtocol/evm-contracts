@@ -25,8 +25,7 @@ library CoreLib {
     /// @param extension The extension address to check
     /// @return registered True if the extension is registered
     function isExtensionRegistered(ICore core, address extension) internal view returns (bool registered) {
-        registered =
-            uint256(core.sload(StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension)))) != 0;
+        registered = uint256(core.sload(CoreStorageLayout.isExtensionRegisteredSlot(extension))) != 0;
     }
 
     /// @notice Gets the current state of a pool
@@ -34,7 +33,7 @@ library CoreLib {
     /// @param poolId The unique identifier for the pool
     /// @return state The current state of the pool
     function poolState(ICore core, PoolId poolId) internal view returns (PoolState state) {
-        state = PoolState.wrap(core.sload(StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId))));
+        state = PoolState.wrap(core.sload(CoreStorageLayout.poolStateSlot(poolId)));
     }
 
     /// @notice Gets the current global fees per liquidity for a pool
@@ -47,8 +46,7 @@ library CoreLib {
         returns (FeesPerLiquidity memory feesPerLiquidity)
     {
         StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-        (bytes32 value0, bytes32 value1) =
-            core.sload(StorageSlot.unwrap(fplFirstSlot), StorageSlot.unwrap(fplFirstSlot.next()));
+        (bytes32 value0, bytes32 value1) = core.sload(fplFirstSlot, fplFirstSlot.next());
 
         feesPerLiquidity.value0 = uint256(value0);
         feesPerLiquidity.value1 = uint256(value1);
@@ -65,9 +63,7 @@ library CoreLib {
         returns (Position memory position)
     {
         StorageSlot firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId);
-        (bytes32 v0, bytes32 v1, bytes32 v2) = core.sload(
-            StorageSlot.unwrap(firstSlot), StorageSlot.unwrap(firstSlot.add(1)), StorageSlot.unwrap(firstSlot.add(2))
-        );
+        (bytes32 v0, bytes32 v1, bytes32 v2) = core.sload(firstSlot, firstSlot.add(1), firstSlot.add(2));
 
         assembly ("memory-safe") {
             mstore(position, shl(128, v0))
@@ -90,8 +86,7 @@ library CoreLib {
         view
         returns (uint128 savedBalance0, uint128 savedBalance1)
     {
-        uint256 value =
-            uint256(core.sload(StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt))));
+        uint256 value = uint256(core.sload(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt)));
 
         savedBalance0 = uint128(value >> 128);
         savedBalance1 = uint128(value);
@@ -108,7 +103,7 @@ library CoreLib {
         view
         returns (int128 liquidityDelta, uint128 liquidityNet)
     {
-        bytes32 data = core.sload(StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, tick)));
+        bytes32 data = core.sload(CoreStorageLayout.poolTicksSlot(poolId, tick));
 
         // takes only least significant 128 bits
         liquidityDelta = int128(uint128(uint256(data)));

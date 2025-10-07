@@ -44,12 +44,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             revert FailedRegisterInvalidCallPoints();
         }
         StorageSlot isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(msg.sender);
-        bytes32 isExtensionRegisteredRaw = isExtensionRegisteredSlot.load();
-        bool isExtensionRegistered;
-        assembly ("memory-safe") {
-            isExtensionRegistered := isExtensionRegisteredRaw
-        }
-        if (isExtensionRegistered) revert ExtensionAlreadyRegistered();
+        if (isExtensionRegisteredSlot.load() != bytes32(0)) revert ExtensionAlreadyRegistered();
 
         isExtensionRegisteredSlot.store(bytes32(LibBit.rawToUint(true)));
 
@@ -70,13 +65,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         address extension = poolKey.extension();
         if (extension != address(0)) {
-            bytes32 isExtensionRegisteredRaw = CoreStorageLayout.isExtensionRegisteredSlot(extension).load();
-            bool isExtensionRegistered;
-            assembly ("memory-safe") {
-                isExtensionRegistered := isExtensionRegisteredRaw
-            }
+            StorageSlot isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
 
-            if (!isExtensionRegistered) {
+            if (isExtensionRegisteredSlot.load() == bytes32(0)) {
                 revert ExtensionNotRegistered();
             }
 

@@ -730,7 +730,7 @@ contract PositionsTest is FullTest {
     function test_partial_withdraw_without_fees_leaves_fees_collectible() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
 
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
+        (uint256 id,) = createPosition(poolKey, -100, 100, 100, 100);
 
         // Generate fees
         token0.approve(address(router), 100);

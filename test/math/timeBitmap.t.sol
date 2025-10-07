@@ -18,20 +18,20 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 
 contract TimeBitmap {
-    StorageSlot public constant mapSlot = StorageSlot.wrap(0);
+    StorageSlot public constant slot = StorageSlot.wrap(0);
 
     function isInitialized(uint256 time) public view returns (bool) {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-        Bitmap bitmap = Bitmap.wrap(uint256(mapSlot.add(word).load()));
+        Bitmap bitmap = Bitmap.wrap(uint256(slot.add(word).load()));
         return bitmap.isSet(uint8(index));
     }
 
     function flip(uint256 time) public {
-        flipTime(mapSlot, time);
+        flipTime(slot, time);
     }
 
     function find(uint256 fromTime) public view returns (uint256, bool) {
-        return findNextInitializedTime(mapSlot, fromTime);
+        return findNextInitializedTime(slot, fromTime);
     }
 
     function search(uint256 fromTime, uint256 untilTime) public view returns (uint256, bool) {
@@ -43,7 +43,7 @@ contract TimeBitmap {
         view
         returns (uint256, bool)
     {
-        return searchForNextInitializedTime(mapSlot, lastVirtualOrderExecutionTime, fromTime, untilTime);
+        return searchForNextInitializedTime(slot, lastVirtualOrderExecutionTime, fromTime, untilTime);
     }
 }
 

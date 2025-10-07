@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {PoolId} from "../types/poolId.sol";
 import {PositionId} from "../types/positionId.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 /// @title Core Storage Layout
 /// @notice Library providing functions to compute the storage locations for the Core contract
@@ -32,7 +33,7 @@ library CoreStorageLayout {
     /// @notice Computes the storage slot containing information on whether an extension is registered
     /// @param extension The extension address to check
     /// @return slot The storage slot in the Core contract
-    function isExtensionRegisteredSlot(address extension) internal pure returns (bytes32 slot) {
+    function isExtensionRegisteredSlot(address extension) internal pure returns (StorageSlot slot) {
         assembly ("memory-safe") {
             mstore(0, extension)
             mstore(32, 0)
@@ -43,14 +44,14 @@ library CoreStorageLayout {
     /// @notice Computes the storage slot of the current state of a pool
     /// @param poolId The unique identifier for the pool
     /// @return slot The storage slot in the Core contract
-    function poolStateSlot(PoolId poolId) internal pure returns (bytes32 slot) {
-        slot = PoolId.unwrap(poolId);
+    function poolStateSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(PoolId.unwrap(poolId));
     }
 
     /// @notice Computes the storage slots of the current fees of a pool
     /// @param poolId The unique identifier for the pool
     /// @return firstSlot The first of two consecutive storage slots in the Core contract
-    function poolFeesPerLiquiditySlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
+    function poolFeesPerLiquiditySlot(PoolId poolId) internal pure returns (StorageSlot firstSlot) {
         assembly ("memory-safe") {
             firstSlot := add(poolId, FPL_OFFSET)
         }
@@ -60,7 +61,7 @@ library CoreStorageLayout {
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
     /// @return slot The storage slot in the Core contract
-    function poolTicksSlot(PoolId poolId, int32 tick) internal pure returns (bytes32 slot) {
+    function poolTicksSlot(PoolId poolId, int32 tick) internal pure returns (StorageSlot slot) {
         assembly ("memory-safe") {
             slot := add(poolId, add(tick, TICKS_OFFSET))
         }
@@ -74,7 +75,7 @@ library CoreStorageLayout {
     function poolTickFeesPerLiquidityOutsideSlot(PoolId poolId, int32 tick)
         internal
         pure
-        returns (bytes32 firstSlot, bytes32 secondSlot)
+        returns (StorageSlot firstSlot, StorageSlot secondSlot)
     {
         assembly ("memory-safe") {
             firstSlot := add(poolId, add(FPL_OUTSIDE_OFFSET_VALUE0, tick))
@@ -85,7 +86,7 @@ library CoreStorageLayout {
     /// @notice Computes the first storage slot of the tick bitmaps for a specific pool
     /// @param poolId The unique identifier for the pool
     /// @return firstSlot The first storage slot in the Core contract
-    function tickBitmapsSlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
+    function tickBitmapsSlot(PoolId poolId) internal pure returns (StorageSlot firstSlot) {
         assembly ("memory-safe") {
             firstSlot := add(poolId, BITMAPS_OFFSET)
         }
@@ -99,7 +100,7 @@ library CoreStorageLayout {
     function poolPositionsSlot(PoolId poolId, address owner, PositionId positionId)
         internal
         pure
-        returns (bytes32 firstSlot)
+        returns (StorageSlot firstSlot)
     {
         assembly ("memory-safe") {
             mstore(0, positionId)
@@ -116,7 +117,7 @@ library CoreStorageLayout {
     function savedBalancesSlot(address owner, address token0, address token1, bytes32 salt)
         internal
         pure
-        returns (bytes32 slot)
+        returns (StorageSlot slot)
     {
         assembly ("memory-safe") {
             let free := mload(0x40)

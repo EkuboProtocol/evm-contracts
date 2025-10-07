@@ -15,6 +15,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {PoolId} from "../types/poolId.sol";
 import {OrderId} from "../types/orderId.sol";
 import {computeAmountFromSaleRate, computeRewardAmount} from "../math/twamm.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 /// @title TWAMM Library
 /// @notice Helper methods for interacting with the TWAMM extension
@@ -23,7 +24,8 @@ library TWAMMLib {
     using FlashAccountantLib for *;
 
     function poolState(ITWAMM twamm, PoolId poolId) internal view returns (TwammPoolState twammPoolState) {
-        twammPoolState = TwammPoolState.wrap(twamm.sload(TWAMMStorageLayout.twammPoolStateSlot(poolId)));
+        twammPoolState =
+            TwammPoolState.wrap(twamm.sload(StorageSlot.unwrap(TWAMMStorageLayout.twammPoolStateSlot(poolId))));
     }
 
     function orderState(ITWAMM twamm, address owner, bytes32 salt, OrderId orderId)
@@ -32,7 +34,11 @@ library TWAMMLib {
         returns (OrderState state)
     {
         state = OrderState.wrap(
-            twamm.sload(TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId))
+            twamm.sload(
+                StorageSlot.unwrap(
+                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId)
+                )
+            )
         );
     }
 
@@ -41,11 +47,13 @@ library TWAMMLib {
         view
         returns (uint256)
     {
-        bytes32 slot = TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId);
-        assembly ("memory-safe") {
-            slot := add(slot, 1)
-        }
-        return uint256(twamm.sload(slot));
+        return uint256(
+            twamm.sload(
+                StorageSlot.unwrap(
+                    TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderId).next()
+                )
+            )
+        );
     }
 
     function executeVirtualOrdersAndGetCurrentOrderInfo(

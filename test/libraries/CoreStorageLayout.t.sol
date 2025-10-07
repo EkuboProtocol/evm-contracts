@@ -8,6 +8,7 @@ import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
 
 contract CoreStorageLayoutTest is Test {
     // Helper function for wrapping addition to match assembly behavior
@@ -21,8 +22,8 @@ contract CoreStorageLayoutTest is Test {
         address extension0,
         address extension1
     ) public pure {
-        bytes32 extensionSlot0 = CoreStorageLayout.isExtensionRegisteredSlot(extension0);
-        bytes32 extensionSlot1 = CoreStorageLayout.isExtensionRegisteredSlot(extension1);
+        bytes32 extensionSlot0 = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension0));
+        bytes32 extensionSlot1 = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension1));
         assertEq((extensionSlot0 == extensionSlot1), (extension0 == extension1));
     }
 
@@ -30,8 +31,8 @@ contract CoreStorageLayoutTest is Test {
         address extension,
         PoolKey memory poolKey
     ) public pure {
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolKey.toPoolId());
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        bytes32 poolStateSlot = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolKey.toPoolId()));
         assertNotEq(extensionSlot, poolStateSlot);
     }
 
@@ -39,8 +40,8 @@ contract CoreStorageLayoutTest is Test {
         PoolKey memory poolKey0,
         PoolKey memory poolKey1
     ) public pure {
-        bytes32 poolStateSlot0 = CoreStorageLayout.poolStateSlot(poolKey0.toPoolId());
-        bytes32 poolStateSlot1 = CoreStorageLayout.poolStateSlot(poolKey1.toPoolId());
+        bytes32 poolStateSlot0 = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolKey0.toPoolId()));
+        bytes32 poolStateSlot1 = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolKey1.toPoolId()));
         assertEq(
             (
                 poolKey0.token0 == poolKey1.token0 && poolKey0.token1 == poolKey1.token1
@@ -52,8 +53,8 @@ contract CoreStorageLayoutTest is Test {
 
     // Test pool fees per liquidity slots
     function test_noStorageLayoutCollisions_poolFeesPerLiquiditySlot_consecutive(PoolId poolId) public pure {
-        bytes32 firstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-        bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId);
+        bytes32 firstSlot = StorageSlot.unwrap(CoreStorageLayout.poolFeesPerLiquiditySlot(poolId));
+        bytes32 poolStateSlot = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId));
 
         // First fees slot should be pool state slot + FPL_OFFSET (with wrapping)
         assertEq(firstSlot, wrapAdd(poolStateSlot, CoreStorageLayout.FPL_OFFSET));
@@ -66,8 +67,8 @@ contract CoreStorageLayoutTest is Test {
         address extension,
         PoolId poolId
     ) public pure {
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        bytes32 poolFeesSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        bytes32 poolFeesSlot = StorageSlot.unwrap(CoreStorageLayout.poolFeesPerLiquiditySlot(poolId));
         assertNotEq(extensionSlot, poolFeesSlot);
         assertNotEq(extensionSlot, wrapAdd(poolFeesSlot, 1));
     }
@@ -78,8 +79,8 @@ contract CoreStorageLayoutTest is Test {
         pure
     {
         vm.assume(tick1 != tick2);
-        bytes32 slot1 = CoreStorageLayout.poolTicksSlot(poolId, tick1);
-        bytes32 slot2 = CoreStorageLayout.poolTicksSlot(poolId, tick2);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, tick1));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, tick2));
         assertNotEq(slot1, slot2);
     }
 
@@ -89,8 +90,8 @@ contract CoreStorageLayoutTest is Test {
         int32 tick
     ) public pure {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, tick);
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        bytes32 tickSlot = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, tick));
         assertNotEq(extensionSlot, tickSlot);
     }
 
@@ -99,8 +100,8 @@ contract CoreStorageLayoutTest is Test {
         pure
     {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
-        bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId1);
-        bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId2, tick);
+        bytes32 poolStateSlot = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId1));
+        bytes32 tickSlot = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId2, tick));
         assertNotEq(poolStateSlot, tickSlot);
     }
 
@@ -110,8 +111,8 @@ contract CoreStorageLayoutTest is Test {
         int32 tick
     ) public pure {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
-        bytes32 poolFeesSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId1);
-        bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId2, tick);
+        bytes32 poolFeesSlot = StorageSlot.unwrap(CoreStorageLayout.poolFeesPerLiquiditySlot(poolId1));
+        bytes32 tickSlot = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId2, tick));
 
         assertNotEq(poolFeesSlot, tickSlot);
         assertNotEq(wrapAdd(poolFeesSlot, 1), tickSlot);
@@ -119,7 +120,8 @@ contract CoreStorageLayoutTest is Test {
 
     // Test tick fees per liquidity outside slots
     function test_poolTickFeesPerLiquidityOutsideSlot_separation(PoolId poolId, int32 tick) public pure {
-        (bytes32 first, bytes32 second) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+        (StorageSlot _first, StorageSlot _second) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+        (bytes32 first, bytes32 second) = (StorageSlot.unwrap(_first), StorageSlot.unwrap(_second));
 
         // The two slots should be different
         assertNotEq(first, second);
@@ -134,8 +136,9 @@ contract CoreStorageLayoutTest is Test {
         int32 tick
     ) public pure {
         vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        (bytes32 first, bytes32 second) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        (StorageSlot _first, StorageSlot _second) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+        (bytes32 first, bytes32 second) = (StorageSlot.unwrap(_first), StorageSlot.unwrap(_second));
         assertNotEq(extensionSlot, first);
         assertNotEq(extensionSlot, second);
     }
@@ -149,8 +152,9 @@ contract CoreStorageLayoutTest is Test {
         vm.assume(tick2 >= MIN_TICK && tick2 <= MAX_TICK);
         vm.assume(tick1 != tick2);
 
-        bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, tick1);
-        (bytes32 first, bytes32 second) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick2);
+        bytes32 tickSlot = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, tick1));
+        (StorageSlot _first, StorageSlot _second) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick2);
+        (bytes32 first, bytes32 second) = (StorageSlot.unwrap(_first), StorageSlot.unwrap(_second));
 
         assertNotEq(tickSlot, first);
         assertNotEq(tickSlot, second);
@@ -161,8 +165,8 @@ contract CoreStorageLayoutTest is Test {
         public
         pure
     {
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        bytes32 bitmapSlot = CoreStorageLayout.tickBitmapsSlot(poolId);
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        bytes32 bitmapSlot = StorageSlot.unwrap(CoreStorageLayout.tickBitmapsSlot(poolId));
 
         // Check that extension slot doesn't collide with bitmap slots in a reasonable range
         for (uint256 i = 0; i < 100; i++) {
@@ -178,8 +182,8 @@ contract CoreStorageLayoutTest is Test {
         PositionId positionId2
     ) public pure {
         vm.assume(PositionId.unwrap(positionId1) != PositionId.unwrap(positionId2));
-        bytes32 slot1 = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId1);
-        bytes32 slot2 = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId2);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId1));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId2));
         assertNotEq(slot1, slot2);
     }
 
@@ -190,8 +194,8 @@ contract CoreStorageLayoutTest is Test {
         PositionId positionId
     ) public pure {
         vm.assume(owner1 != owner2);
-        bytes32 slot1 = CoreStorageLayout.poolPositionsSlot(poolId, owner1, positionId);
-        bytes32 slot2 = CoreStorageLayout.poolPositionsSlot(poolId, owner2, positionId);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner1, positionId));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner2, positionId));
         assertNotEq(slot1, slot2);
     }
 
@@ -202,8 +206,8 @@ contract CoreStorageLayoutTest is Test {
         PositionId positionId
     ) public pure {
         vm.assume(PoolId.unwrap(poolId1) != PoolId.unwrap(poolId2));
-        bytes32 slot1 = CoreStorageLayout.poolPositionsSlot(poolId1, owner, positionId);
-        bytes32 slot2 = CoreStorageLayout.poolPositionsSlot(poolId2, owner, positionId);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId1, owner, positionId));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId2, owner, positionId));
         assertNotEq(slot1, slot2);
     }
 
@@ -213,8 +217,8 @@ contract CoreStorageLayoutTest is Test {
         address owner,
         PositionId positionId
     ) public pure {
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId);
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        bytes32 positionSlot = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId));
         assertNotEq(extensionSlot, positionSlot);
         // Positions occupy 3 consecutive slots
         assertNotEq(extensionSlot, wrapAdd(positionSlot, 1));
@@ -227,8 +231,8 @@ contract CoreStorageLayoutTest is Test {
         address owner,
         PositionId positionId
     ) public pure {
-        bytes32 bitmapSlot = CoreStorageLayout.tickBitmapsSlot(poolId1);
-        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId2, owner, positionId);
+        bytes32 bitmapSlot = StorageSlot.unwrap(CoreStorageLayout.tickBitmapsSlot(poolId1));
+        bytes32 positionSlot = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId2, owner, positionId));
 
         // Check that bitmap slots don't collide with position slots in a reasonable range
         for (uint256 i = 0; i < 100; i++) {
@@ -248,8 +252,8 @@ contract CoreStorageLayoutTest is Test {
         bytes32 salt
     ) public pure {
         vm.assume(owner1 != owner2);
-        bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner1, token0, token1, salt);
-        bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner2, token0, token1, salt);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner1, token0, token1, salt));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner2, token0, token1, salt));
         assertNotEq(slot1, slot2);
     }
 
@@ -261,8 +265,8 @@ contract CoreStorageLayoutTest is Test {
         bytes32 salt
     ) public pure {
         vm.assume(token0_1 != token0_2);
-        bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner, token0_1, token1, salt);
-        bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner, token0_2, token1, salt);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0_1, token1, salt));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0_2, token1, salt));
         assertNotEq(slot1, slot2);
     }
 
@@ -274,8 +278,8 @@ contract CoreStorageLayoutTest is Test {
         bytes32 salt
     ) public pure {
         vm.assume(token1_1 != token1_2);
-        bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1_1, salt);
-        bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1_2, salt);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0, token1_1, salt));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0, token1_2, salt));
         assertNotEq(slot1, slot2);
     }
 
@@ -287,8 +291,8 @@ contract CoreStorageLayoutTest is Test {
         bytes32 salt2
     ) public pure {
         vm.assume(salt1 != salt2);
-        bytes32 slot1 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt1);
-        bytes32 slot2 = CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt2);
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt1));
+        bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt2));
         assertNotEq(slot1, slot2);
     }
 
@@ -299,8 +303,8 @@ contract CoreStorageLayoutTest is Test {
         address token1,
         bytes32 salt
     ) public pure {
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        bytes32 savedBalancesSlot = CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt);
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        bytes32 savedBalancesSlot = StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt));
         assertNotEq(extensionSlot, savedBalancesSlot);
     }
 
@@ -313,8 +317,9 @@ contract CoreStorageLayoutTest is Test {
         address token1,
         bytes32 salt
     ) public pure {
-        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, owner1, positionId);
-        bytes32 savedBalancesSlot = CoreStorageLayout.savedBalancesSlot(owner2, token0, token1, salt);
+        bytes32 positionSlot = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner1, positionId));
+        bytes32 savedBalancesSlot =
+            StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(owner2, token0, token1, salt));
 
         assertNotEq(positionSlot, savedBalancesSlot);
         assertNotEq(wrapAdd(positionSlot, 1), savedBalancesSlot);
@@ -323,15 +328,19 @@ contract CoreStorageLayoutTest is Test {
 
     // Test offset sufficiency
     function test_offsetsSufficient(PoolId poolId) public pure {
-        bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId);
-        bytes32 poolFeesSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-        bytes32 minTickSlot = CoreStorageLayout.poolTicksSlot(poolId, MIN_TICK);
-        bytes32 maxTickSlot = CoreStorageLayout.poolTicksSlot(poolId, MAX_TICK);
-        (bytes32 minTickFeesFirst, bytes32 minTickFeesSecond) =
+        bytes32 poolStateSlot = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId));
+        bytes32 poolFeesSlot = StorageSlot.unwrap(CoreStorageLayout.poolFeesPerLiquiditySlot(poolId));
+        bytes32 minTickSlot = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, MIN_TICK));
+        bytes32 maxTickSlot = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, MAX_TICK));
+        (StorageSlot _minTickFeesFirst, StorageSlot _minTickFeesSecond) =
             CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, MIN_TICK);
-        (bytes32 maxTickFeesFirst, bytes32 maxTickFeesSecond) =
+        (bytes32 minTickFeesFirst, bytes32 minTickFeesSecond) =
+            (StorageSlot.unwrap(_minTickFeesFirst), StorageSlot.unwrap(_minTickFeesSecond));
+        (StorageSlot _maxTickFeesFirst, StorageSlot _maxTickFeesSecond) =
             CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, MAX_TICK);
-        bytes32 bitmapSlot = CoreStorageLayout.tickBitmapsSlot(poolId);
+        (bytes32 maxTickFeesFirst, bytes32 maxTickFeesSecond) =
+            (StorageSlot.unwrap(_maxTickFeesFirst), StorageSlot.unwrap(_maxTickFeesSecond));
+        bytes32 bitmapSlot = StorageSlot.unwrap(CoreStorageLayout.tickBitmapsSlot(poolId));
 
         // Pool state is at offset 0
         assertEq(uint256(poolStateSlot), uint256(PoolId.unwrap(poolId)));
@@ -406,16 +415,19 @@ contract CoreStorageLayoutTest is Test {
         PositionId positionId = createPositionId(salt, tickLower, tickUpper);
 
         // Get all the different storage slots
-        bytes32 extensionSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-        bytes32 poolStateSlot = CoreStorageLayout.poolStateSlot(poolId);
-        bytes32 poolFeesSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-        bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, tick);
-        (bytes32 tickFeesFirst, bytes32 tickFeesSecond) =
+        bytes32 extensionSlot = StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(extension));
+        bytes32 poolStateSlot = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId));
+        bytes32 poolFeesSlot = StorageSlot.unwrap(CoreStorageLayout.poolFeesPerLiquiditySlot(poolId));
+        bytes32 tickSlot = StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, tick));
+        (StorageSlot _tickFeesFirst, StorageSlot _tickFeesSecond) =
             CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
-        bytes32 bitmapSlot = CoreStorageLayout.tickBitmapsSlot(poolId);
-        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId);
-        bytes32 savedBalancesSlot =
-            CoreStorageLayout.savedBalancesSlot(owner, token0, token1, bytes32(uint256(uint160(extension))));
+        (bytes32 tickFeesFirst, bytes32 tickFeesSecond) =
+            (StorageSlot.unwrap(_tickFeesFirst), StorageSlot.unwrap(_tickFeesSecond));
+        bytes32 bitmapSlot = StorageSlot.unwrap(CoreStorageLayout.tickBitmapsSlot(poolId));
+        bytes32 positionSlot = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId));
+        bytes32 savedBalancesSlot = StorageSlot.unwrap(
+            CoreStorageLayout.savedBalancesSlot(owner, token0, token1, bytes32(uint256(uint160(extension))))
+        );
 
         // Verify no collisions between different storage types
         assertNotEq(extensionSlot, poolStateSlot);

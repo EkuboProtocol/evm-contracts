@@ -27,6 +27,8 @@ import {Locker} from "./types/locker.sol";
 import {computeFee, amountBeforeFee} from "./math/fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
 import {amount0Delta, amount1Delta} from "./math/delta.sol";
+import {StorageSlot} from "./types/storageSlot.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 
 /// @title Ekubo Protocol Core
 /// @author Moody Salem <moody@ekubo.org>
@@ -41,30 +43,20 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if (!computed.eq(expectedCallPoints) || !computed.isValid()) {
             revert FailedRegisterInvalidCallPoints();
         }
-        bytes32 isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(msg.sender);
-        bool isExtensionRegistered;
-        assembly ("memory-safe") {
-            isExtensionRegistered := sload(isExtensionRegisteredSlot)
-        }
-        if (isExtensionRegistered) revert ExtensionAlreadyRegistered();
+        StorageSlot isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(msg.sender);
+        if (isExtensionRegisteredSlot.load() != bytes32(0)) revert ExtensionAlreadyRegistered();
 
-        assembly ("memory-safe") {
-            sstore(isExtensionRegisteredSlot, 1)
-        }
+        isExtensionRegisteredSlot.store(bytes32(LibBit.rawToUint(true)));
 
         emit ExtensionRegistered(msg.sender);
     }
 
     function readPoolState(PoolId poolId) internal view returns (PoolState state) {
-        assembly ("memory-safe") {
-            state := sload(poolId)
-        }
+        state = PoolState.wrap(CoreStorageLayout.poolStateSlot(poolId).load());
     }
 
     function writePoolState(PoolId poolId, PoolState state) internal {
-        assembly ("memory-safe") {
-            sstore(poolId, state)
-        }
+        CoreStorageLayout.poolStateSlot(poolId).store(PoolState.unwrap(state));
     }
 
     /// @inheritdoc ICore
@@ -73,13 +65,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         address extension = poolKey.extension();
         if (extension != address(0)) {
-            bytes32 isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
-            bool isExtensionRegistered;
-            assembly ("memory-safe") {
-                isExtensionRegistered := sload(isExtensionRegisteredSlot)
-            }
+            StorageSlot isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
 
-            if (!isExtensionRegistered) {
+            if (isExtensionRegisteredSlot.load() == bytes32(0)) {
                 revert ExtensionNotRegistered();
             }
 
@@ -177,35 +165,35 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         view
         returns (FeesPerLiquidity memory feesPerLiquidityInside)
     {
-        (bytes32 lowerFirstSlot, bytes32 lowerSecondSlot) =
-            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
-        (bytes32 upperFirstSlot, bytes32 upperSecondSlot) =
-            CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
+        uint256 lower0;
+        uint256 lower1;
+        uint256 upper0;
+        uint256 upper1;
+        {
+            (StorageSlot l0, StorageSlot l1) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickLower);
+            (lower0, lower1) = (uint256(l0.load()), uint256(l1.load()));
 
-        if (tick < tickLower) {
-            // lower - upper
-            assembly ("memory-safe") {
-                mstore(feesPerLiquidityInside, sub(sload(lowerFirstSlot), sload(upperFirstSlot)))
-                mstore(add(feesPerLiquidityInside, 0x20), sub(sload(lowerSecondSlot), sload(upperSecondSlot)))
-            }
-        } else if (tick < tickUpper) {
-            // global - lower - upper
-            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+            (StorageSlot u0, StorageSlot u1) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tickUpper);
+            (upper0, upper1) = (uint256(u0.load()), uint256(u1.load()));
+        }
 
-            assembly ("memory-safe") {
-                mstore(
-                    feesPerLiquidityInside, sub(sub(sload(fplFirstSlot), sload(upperFirstSlot)), sload(lowerFirstSlot))
-                )
-                mstore(
-                    add(feesPerLiquidityInside, 0x20),
-                    sub(sub(sload(add(fplFirstSlot, 1)), sload(upperSecondSlot)), sload(lowerSecondSlot))
-                )
-            }
-        } else {
-            // upper - lower
-            assembly ("memory-safe") {
-                mstore(feesPerLiquidityInside, sub(sload(upperFirstSlot), sload(lowerFirstSlot)))
-                mstore(add(feesPerLiquidityInside, 0x20), sub(sload(upperSecondSlot), sload(lowerSecondSlot)))
+        unchecked {
+            if (tick < tickLower) {
+                feesPerLiquidityInside.value0 = lower0 - upper0;
+                feesPerLiquidityInside.value1 = lower1 - upper1;
+            } else if (tick < tickUpper) {
+                uint256 global0;
+                uint256 global1;
+                {
+                    (bytes32 g0, bytes32 g1) = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).loadTwo();
+                    (global0, global1) = (uint256(g0), uint256(g1));
+                }
+
+                feesPerLiquidityInside.value0 = global0 - upper0 - lower0;
+                feesPerLiquidityInside.value1 = global1 - upper1 - lower1;
+            } else {
+                feesPerLiquidityInside.value0 = upper0 - lower0;
+                feesPerLiquidityInside.value1 = upper1 - lower1;
             }
         }
     }
@@ -220,43 +208,54 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable {
+    function accumulateAsFees(PoolKey memory poolKey, uint128 _amount0, uint128 _amount1) external payable {
         (uint256 id, address lockerAddr) = _requireLocker().parse();
         require(lockerAddr == poolKey.extension());
 
         PoolId poolId = poolKey.toPoolId();
 
+        uint256 amount0;
+        uint256 amount1;
+        assembly ("memory-safe") {
+            amount0 := _amount0
+            amount1 := _amount1
+        }
+
         // Note we do not check pool is initialized. If the extension calls this for a pool that does not exist,
         //  the fees are simply burned since liquidity is 0.
 
-        uint256 fplOffset = CoreStorageLayout.FPL_OFFSET;
+        if (amount0 != 0 || amount1 != 0) {
+            uint256 liquidity;
+            {
+                uint128 _liquidity = readPoolState(poolId).liquidity();
+                assembly ("memory-safe") {
+                    liquidity := _liquidity
+                }
+            }
 
-        assembly ("memory-safe") {
-            if or(amount0, amount1) {
-                let liquidity := shr(128, shl(128, sload(poolId)))
+            unchecked {
+                if (liquidity != 0) {
+                    StorageSlot slot0 = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
 
-                if liquidity {
-                    let slot0 := add(poolId, fplOffset)
-
-                    if amount0 {
-                        let v := div(shl(128, amount0), liquidity)
-                        sstore(slot0, add(sload(slot0), v))
+                    if (amount0 != 0) {
+                        slot0.store(
+                            bytes32(uint256(slot0.load()) + FixedPointMathLib.rawDiv(amount0 << 128, liquidity))
+                        );
                     }
-                    if amount1 {
-                        let slot1 := add(slot0, 1)
-                        let v := div(shl(128, amount1), liquidity)
-                        sstore(slot1, add(sload(slot1), v))
+                    if (amount1 != 0) {
+                        StorageSlot slot1 = slot0.next();
+                        slot1.store(
+                            bytes32(uint256(slot1.load()) + FixedPointMathLib.rawDiv(amount1 << 128, liquidity))
+                        );
                     }
                 }
             }
         }
 
         // whether the fees are actually accounted to any position, the caller owes the debt
-        _updatePairDebtWithNative(
-            id, poolKey.token0, poolKey.token1, int256(uint256(amount0)), int256(uint256(amount1))
-        );
+        _updatePairDebtWithNative(id, poolKey.token0, poolKey.token1, int256(amount0), int256(amount1));
 
-        emit FeesAccumulated(poolId, amount0, amount1);
+        emit FeesAccumulated(poolId, _amount0, _amount1);
     }
 
     /// @notice Updates tick information when liquidity is added or removed
@@ -269,13 +268,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     function _updateTick(PoolId poolId, int32 tick, PoolConfig poolConfig, int128 liquidityDelta, bool isUpper)
         private
     {
-        bytes32 slot = CoreStorageLayout.poolTicksSlot(poolId, tick);
-        TickInfo ti;
-        assembly ("memory-safe") {
-            ti := sload(slot)
-        }
+        StorageSlot tickInfoSlot = CoreStorageLayout.poolTicksSlot(poolId, tick);
 
-        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = ti.parse();
+        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = TickInfo.wrap(tickInfoSlot.load()).parse();
         uint128 liquidityNetNext = addLiquidityDelta(currentLiquidityNet, liquidityDelta);
         // this is checked math
         int128 liquidityDeltaNext =
@@ -290,19 +285,20 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
             flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.tickSpacing());
 
-            (bytes32 fplSlot0, bytes32 fplSlot1) = CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+            (StorageSlot fplSlot0, StorageSlot fplSlot1) =
+                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
+
+            bytes32 v;
             assembly ("memory-safe") {
-                // initialize the storage slots for the fees per liquidity outside to non-zero so tick crossing is cheaper
-                sstore(fplSlot0, gt(liquidityNetNext, 0))
-                sstore(fplSlot1, gt(liquidityNetNext, 0))
+                v := gt(liquidityNetNext, 0)
             }
+
+            // initialize the storage slots for the fees per liquidity outside to non-zero so tick crossing is cheaper
+            fplSlot0.store(v);
+            fplSlot1.store(v);
         }
 
-        ti = createTickInfo(liquidityDeltaNext, liquidityNetNext);
-
-        assembly ("memory-safe") {
-            sstore(slot, ti)
-        }
+        tickInfoSlot.store(TickInfo.unwrap(createTickInfo(liquidityDeltaNext, liquidityNetNext)));
     }
 
     /// @notice Updates debt for a token pair, handling native token payments for token0
@@ -367,7 +363,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
-            bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
+            StorageSlot positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
             Position storage position;
             assembly ("memory-safe") {
                 position.slot := positionSlot
@@ -410,11 +406,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
                 });
                 writePoolState(poolId, state);
-                bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-                assembly ("memory-safe") {
-                    mstore(feesPerLiquidityInside, sload(fplFirstSlot))
-                    mstore(add(feesPerLiquidityInside, 0x20), sload(add(fplFirstSlot, 1)))
-                }
+                StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+                feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
+                feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
             }
 
             if (liquidityNext == 0) {
@@ -438,12 +432,15 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external {
-        bytes32 firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, msg.sender, positionId);
+    function setExtraData(PoolId poolId, PositionId positionId, bytes16 _extraData) external {
+        StorageSlot firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, msg.sender, positionId);
+
+        bytes32 extraData;
         assembly ("memory-safe") {
-            let v := sload(firstSlot)
-            sstore(firstSlot, or(shl(128, shr(128, v)), shr(128, extraData)))
+            extraData := _extraData
         }
+
+        firstSlot.store(((firstSlot.load() >> 128) << 128) | (extraData >> 128));
     }
 
     /// @inheritdoc ICore
@@ -458,18 +455,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         PoolId poolId = poolKey.toPoolId();
 
         Position storage position;
-        bytes32 positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
+        StorageSlot positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
         assembly ("memory-safe") {
             position.slot := positionSlot
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside;
         if (poolKey.isFullRange()) {
-            bytes32 fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-            assembly ("memory-safe") {
-                mstore(feesPerLiquidityInside, sload(fplFirstSlot))
-                mstore(add(feesPerLiquidityInside, 0x20), sload(add(fplFirstSlot, 1)))
-            }
+            StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+            feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
+            feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
         } else {
             feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
                 poolId, readPoolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
@@ -517,10 +512,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 bool isToken1 = params.isToken1();
 
-                bool isExactOut;
+                bool isExactOut = amountRemaining < 0;
                 bool increasing;
                 assembly ("memory-safe") {
-                    isExactOut := slt(amountRemaining, 0)
                     increasing := xor(isToken1, isExactOut)
                 }
 
@@ -531,18 +525,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 uint256 calculatedAmount;
 
                 // the slot where inputTokenFeesPerLiquidity is stored, reused later
-                bytes32 inputTokenFeesPerLiquiditySlot;
+                StorageSlot inputTokenFeesPerLiquiditySlot;
 
                 // fees per liquidity only for the input token
                 uint256 inputTokenFeesPerLiquidity;
 
                 // this loads only the input token fees per liquidity
                 if (poolKey.mustLoadFees()) {
-                    bytes32 fplSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
-                    assembly ("memory-safe") {
-                        inputTokenFeesPerLiquiditySlot := add(fplSlot, increasing)
-                        inputTokenFeesPerLiquidity := sload(inputTokenFeesPerLiquiditySlot)
-                    }
+                    inputTokenFeesPerLiquiditySlot =
+                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing));
+                    inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
                 }
 
                 while (true) {
@@ -668,35 +660,39 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         if (isInitialized) {
-                            bytes32 tickSlot = CoreStorageLayout.poolTicksSlot(poolId, nextTick);
+                            bytes32 tickValue = CoreStorageLayout.poolTicksSlot(poolId, nextTick).load();
                             assembly ("memory-safe") {
                                 // if increasing, we add the liquidity delta, otherwise we subtract it
                                 let liquidityDelta :=
-                                    mul(signextend(15, sload(tickSlot)), sub(increasing, iszero(increasing)))
+                                    mul(signextend(15, tickValue), sub(increasing, iszero(increasing)))
                                 liquidity := add(liquidity, liquidityDelta)
                             }
 
-                            (bytes32 tickFplFirstSlot, bytes32 tickFplSecondSlot) =
+                            (StorageSlot tickFplFirstSlot, StorageSlot tickFplSecondSlot) =
                                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
 
-                            assembly ("memory-safe") {
-                                // assume input token is token0
-                                let globalFeesPerLiquidity0 := inputTokenFeesPerLiquidity
-                                // load the output token fees per liquidity
-                                let globalFeesPerLiquidity1 :=
-                                    sload(add(sub(inputTokenFeesPerLiquiditySlot, increasing), iszero(increasing)))
+                            // assume input token is token0
+                            uint256 globalFeesPerLiquidity0 = inputTokenFeesPerLiquidity;
 
-                                // if increasing, flip the values
-                                if increasing {
-                                    let tmp := globalFeesPerLiquidity0
-                                    globalFeesPerLiquidity0 := globalFeesPerLiquidity1
-                                    globalFeesPerLiquidity1 := tmp
-                                }
+                            // load the output token fees per liquidity
+                            uint256 globalFeesPerLiquidity1 = uint256(
+                                inputTokenFeesPerLiquiditySlot.sub(LibBit.rawToUint(increasing)).add(
+                                    LibBit.rawToUint(!increasing)
+                                ).load()
+                            );
 
-                                // store global - tick fpl on the crossed tick
-                                sstore(tickFplFirstSlot, sub(globalFeesPerLiquidity0, sload(tickFplFirstSlot)))
-                                sstore(tickFplSecondSlot, sub(globalFeesPerLiquidity1, sload(tickFplSecondSlot)))
+                            // if increasing, flip the values
+                            if (increasing) {
+                                uint256 tmp = globalFeesPerLiquidity0;
+                                globalFeesPerLiquidity0 = globalFeesPerLiquidity1;
+                                globalFeesPerLiquidity1 = tmp;
                             }
+
+                            // store global - tick fpl on the crossed tick
+                            tickFplFirstSlot.store(bytes32(globalFeesPerLiquidity0 - uint256(tickFplFirstSlot.load())));
+                            tickFplSecondSlot.store(
+                                bytes32(globalFeesPerLiquidity1 - uint256(tickFplSecondSlot.load()))
+                            );
                         }
                     } else if (sqrtRatio != sqrtRatioNext) {
                         sqrtRatio = sqrtRatioNext;
@@ -722,15 +718,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
 
-                assembly ("memory-safe") {
-                    sstore(poolId, stateAfter)
-                }
+                writePoolState(poolId, stateAfter);
 
                 if (poolKey.mustLoadFees()) {
-                    assembly ("memory-safe") {
-                        // this stores only the input token fees per liquidity
-                        sstore(inputTokenFeesPerLiquiditySlot, inputTokenFeesPerLiquidity)
-                    }
+                    // this stores only the input token fees per liquidity
+                    inputTokenFeesPerLiquiditySlot.store(bytes32(inputTokenFeesPerLiquidity));
                 }
 
                 _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);

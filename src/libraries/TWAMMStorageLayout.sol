@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {PoolId} from "../types/poolId.sol";
 import {OrderId} from "../types/orderId.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 /// @title TWAMM Storage Layout
 /// @notice Library providing functions to compute the storage locations for the TWAMM contract
@@ -28,14 +29,14 @@ library TWAMMStorageLayout {
     /// @notice Computes the storage slot of the TWAMM pool state
     /// @param poolId The unique identifier for the pool
     /// @return slot The storage slot in the TWAMM contract
-    function twammPoolStateSlot(PoolId poolId) internal pure returns (bytes32 slot) {
-        slot = PoolId.unwrap(poolId);
+    function twammPoolStateSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(PoolId.unwrap(poolId));
     }
 
     /// @notice Computes the first storage slot of the reward rates of a pool
     /// @param poolId The unique identifier for the pool
     /// @return firstSlot The first of two consecutive storage slots in the TWAMM contract
-    function poolRewardRatesSlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
+    function poolRewardRatesSlot(PoolId poolId) internal pure returns (StorageSlot firstSlot) {
         assembly ("memory-safe") {
             firstSlot := add(poolId, REWARD_RATES_OFFSET)
         }
@@ -44,7 +45,7 @@ library TWAMMStorageLayout {
     /// @notice Computes the storage slot of the first word of an initialized times bitmap for a given pool
     /// @param poolId The unique identifier for the pool
     /// @return firstSlot The first storage slot in the TWAMM contract
-    function poolInitializedTimesBitmapSlot(PoolId poolId) internal pure returns (bytes32 firstSlot) {
+    function poolInitializedTimesBitmapSlot(PoolId poolId) internal pure returns (StorageSlot firstSlot) {
         assembly ("memory-safe") {
             firstSlot := add(poolId, TIME_BITMAPS_OFFSET)
         }
@@ -54,7 +55,7 @@ library TWAMMStorageLayout {
     /// @param poolId The unique identifier for the pool
     /// @param time The timestamp to query
     /// @return slot The storage slot in the TWAMM contract
-    function poolTimeInfosSlot(PoolId poolId, uint256 time) internal pure returns (bytes32 slot) {
+    function poolTimeInfosSlot(PoolId poolId, uint256 time) internal pure returns (StorageSlot slot) {
         assembly ("memory-safe") {
             slot := add(poolId, add(TIME_INFOS_OFFSET, time))
         }
@@ -64,7 +65,7 @@ library TWAMMStorageLayout {
     /// @param poolId The unique identifier for the pool
     /// @param time The time to query
     /// @return firstSlot The first of two consecutive storage slots in the TWAMM contract
-    function poolRewardRatesBeforeSlot(PoolId poolId, uint256 time) internal pure returns (bytes32 firstSlot) {
+    function poolRewardRatesBeforeSlot(PoolId poolId, uint256 time) internal pure returns (StorageSlot firstSlot) {
         assembly ("memory-safe") {
             firstSlot := add(poolId, add(REWARD_RATES_BEFORE_OFFSET, mul(time, 2)))
         }
@@ -78,7 +79,7 @@ library TWAMMStorageLayout {
     function orderStateSlotFollowedByOrderRewardRateSnapshotSlot(address owner, bytes32 salt, OrderId orderId)
         internal
         pure
-        returns (bytes32 slot)
+        returns (StorageSlot slot)
     {
         assembly ("memory-safe") {
             mstore(0, salt)

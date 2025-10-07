@@ -12,6 +12,7 @@ import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
+import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
 import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {PoolState} from "../types/poolState.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
@@ -39,6 +40,7 @@ function mevCaptureCallPoints() pure returns (CallPoints memory) {
 /// @notice Charges additional fees based on the relative size of the priority fee
 contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
+    using ExposedStorageLib for *;
 
     constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
@@ -157,27 +159,17 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
     {
+        StorageSlot stateSlot = CoreStorageLayout.poolStateSlot(poolId);
         StorageSlot feesSlot = CoreStorageLayout.savedBalancesSlot(address(this), token0, token1, PoolId.unwrap(poolId));
 
-        address c = address(CORE);
+        (bytes32 v0, bytes32 v1) = CORE.sload(stateSlot, feesSlot);
+        tick = PoolState.wrap(v0).tick();
+
         assembly ("memory-safe") {
-            let freeMemPointer := mload(0x40)
-
-            // cast sig "sload()"
-            mstore(freeMemPointer, shl(224, 0x380eb4e0))
-            mstore(add(freeMemPointer, 4), poolId)
-            mstore(add(freeMemPointer, 36), feesSlot)
-
-            if iszero(staticcall(gas(), c, freeMemPointer, 68, 0, 64)) { revert(0, 0) }
-
-            tick := shr(224, mload(12))
-
-            let fees := mload(32)
-
-            fees0 := shr(128, fees)
+            fees0 := shr(128, v1)
             fees0 := sub(fees0, gt(fees0, 0))
 
-            fees1 := shr(128, shl(128, fees))
+            fees1 := shr(128, shl(128, v1))
             fees1 := sub(fees1, gt(fees1, 0))
         }
     }

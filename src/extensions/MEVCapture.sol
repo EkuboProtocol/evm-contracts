@@ -17,6 +17,7 @@ import {PoolState} from "../types/poolState.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -156,7 +157,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         view
         returns (int32 tick, uint128 fees0, uint128 fees1)
     {
-        bytes32 feesSlot = CoreStorageLayout.savedBalancesSlot(address(this), token0, token1, PoolId.unwrap(poolId));
+        StorageSlot feesSlot = CoreStorageLayout.savedBalancesSlot(address(this), token0, token1, PoolId.unwrap(poolId));
 
         address c = address(CORE);
         assembly ("memory-safe") {

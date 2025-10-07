@@ -1,10 +1,10 @@
 {
-  "flip(0)": "43762",
-  "next(0)": "2846",
-  "next(0) == 3000": "2815",
-  "prev(0)": "2822",
-  "prev(0) == -3000": "2789",
+  "flip(0)": "43792",
+  "next(0)": "2854",
+  "next(0) == 3000": "2823",
+  "prev(0)": "2852",
+  "prev(0) == -3000": "2819",
   "tickToBitmapWordAndIndex(150,100)": "28",
-  "ts = 100, next(MIN_TICK, type(uint256).max)": "16909865",
-  "ts = 100, prev(MAX_TICK, type(uint256).max)": "17277346"
+  "ts = 100, next(MIN_TICK, type(uint256).max)": "16909895",
+  "ts = 100, prev(MAX_TICK, type(uint256).max)": "17277376"
 }

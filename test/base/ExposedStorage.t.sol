@@ -141,8 +141,8 @@ contract ExposedStorageTest is Test {
         tt.sstore(slotValue2, value2);
 
         (bytes32 result0, bytes32 result1, bytes32 result2) = tt.sload(slot0, slot1, slot2);
-        assertEq(result0, value0);
-        assertEq(result1, value1);
+        assertEq(result0, slotValue0 == slotValue2 ? value2 : slotValue0 == slotValue1 ? value1 : value0);
+        assertEq(result1, slotValue1 == slotValue2 ? value2 : value1);
         assertEq(result2, value2);
     }
 

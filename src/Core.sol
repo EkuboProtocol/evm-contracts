@@ -567,10 +567,24 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     } else {
-                        // Stableswap pools: swap to the pool's min/max tick boundaries
-                        (nextTick, nextTickSqrtRatio) = increasing
-                            ? (poolKey.config.maxTick(), tickToSqrtRatio(poolKey.config.maxTick()))
-                            : (poolKey.config.minTick(), tickToSqrtRatio(poolKey.config.minTick()));
+                        // Stableswap pools: check if we're in range to determine liquidity
+                        int32 minTickConfig = poolKey.config.minTick();
+                        int32 maxTickConfig = poolKey.config.maxTick();
+
+                        // If current tick is outside the pool's range, liquidity is zero
+                        if (tick < minTickConfig || tick >= maxTickConfig) {
+                            liquidity = 0;
+                        }
+
+                        // Use global bounds when outside range to allow swapping through zero liquidity
+                        // Use config bounds when inside range
+                        if (increasing) {
+                            nextTick = (tick >= maxTickConfig) ? MAX_TICK : maxTickConfig;
+                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                        } else {
+                            nextTick = (tick < minTickConfig) ? MIN_TICK : minTickConfig;
+                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                        }
                     }
 
                     SqrtRatio limitedNextSqrtRatio =

@@ -41,6 +41,8 @@ error BoundsOrder();
 error MinMaxBounds();
 /// @notice Thrown when the ticks of the bounds do not align with tick spacing for concentrated pools
 error BoundsTickSpacing();
+/// @notice Thrown when stableswap pool positions are not exactly min/max tick
+error StableswapMustBeFullRange();
 
 function validateBounds(PositionId positionId, PoolConfig config) pure {
     int32 _tickLower = positionId.tickLower();
@@ -53,9 +55,12 @@ function validateBounds(PositionId positionId, PoolConfig config) pure {
 
     if (_tickLower < _minTick || _tickUpper > _maxTick) revert MinMaxBounds();
 
-    // For concentrated liquidity pools, check tick spacing alignment
     if (config.isConcentrated()) {
+        // For concentrated liquidity pools, check tick spacing alignment
         int32 spacing = int32(config.tickSpacing());
         if (_tickLower % spacing != 0 || _tickUpper % spacing != 0) revert BoundsTickSpacing();
+    } else {
+        // For stableswap pools, positions must be exactly min/max tick
+        if (_tickLower != _minTick || _tickUpper != _maxTick) revert StableswapMustBeFullRange();
     }
 }

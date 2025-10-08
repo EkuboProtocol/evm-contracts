@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MAX_TICK, MAX_TICK_SPACING, MAX_TICK_MAGNITUDE} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, MAX_TICK_MAGNITUDE} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @notice Pool configuration packed into a single bytes32
@@ -118,14 +118,17 @@ function isFullRange(PoolConfig config) pure returns (bool r) {
 function minTick(PoolConfig config) pure returns (int32 r) {
     if (config.isConcentrated()) {
         // Concentrated pools use the full tick range
-        r = -int32(MAX_TICK);
+        r = MIN_TICK;
     } else {
         // Stableswap pools: center - (MAX_TICK_MAGNITUDE >> amplification)
+        // Clamped to MIN_TICK to ensure valid tick range
         int32 center = config.centerTick();
         uint32 range = MAX_TICK_MAGNITUDE >> config.amplificationFactor();
+        int256 result;
         assembly ("memory-safe") {
-            r := sub(center, range)
+            result := sub(center, range)
         }
+        r = int32(FixedPointMathLib.max(MIN_TICK, result));
     }
 }
 
@@ -135,14 +138,17 @@ function minTick(PoolConfig config) pure returns (int32 r) {
 function maxTick(PoolConfig config) pure returns (int32 r) {
     if (config.isConcentrated()) {
         // Concentrated pools use the full tick range
-        r = int32(MAX_TICK);
+        r = MAX_TICK;
     } else {
         // Stableswap pools: center + (MAX_TICK_MAGNITUDE >> amplification)
+        // Clamped to MAX_TICK to ensure valid tick range
         int32 center = config.centerTick();
         uint32 range = MAX_TICK_MAGNITUDE >> config.amplificationFactor();
+        int256 result;
         assembly ("memory-safe") {
-            r := add(center, range)
+            result := add(center, range)
         }
+        r = int32(FixedPointMathLib.min(MAX_TICK, result));
     }
 }
 

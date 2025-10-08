@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
+import {PoolConfig} from "./poolConfig.sol";
 
 type PositionId is bytes32;
 
@@ -43,13 +44,13 @@ error BoundsTickSpacing();
 /// @notice Thrown if the pool is full range only and the position is not full range
 error FullRangeOnlyPool();
 
-function validateBounds(PositionId positionId, uint32 tickSpacing) pure {
-    if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+function validateBounds(PositionId positionId, PoolConfig config) pure {
+    if (config.isFullRange()) {
         if (positionId.tickLower() != MIN_TICK || positionId.tickUpper() != MAX_TICK) revert FullRangeOnlyPool();
     } else {
         if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();
         if (positionId.tickLower() < MIN_TICK || positionId.tickUpper() > MAX_TICK) revert MinMaxBounds();
-        int32 spacing = int32(tickSpacing);
+        int32 spacing = int32(config.tickSpacing());
         if (positionId.tickLower() % spacing != 0 || positionId.tickUpper() % spacing != 0) revert BoundsTickSpacing();
     }
 }

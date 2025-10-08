@@ -47,7 +47,7 @@ contract PoolConfigTest is Test {
     }
 
     function test_maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) public pure {
-        vm.assume(config.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING);
+        vm.assume(!config.isFullRange());
         int256 tickSpacing = int256(uint256(config.tickSpacing()));
 
         uint256 maxLiquidity = config.maxLiquidityPerTickConcentratedLiquidity();

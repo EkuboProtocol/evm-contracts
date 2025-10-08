@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MAX_TICK} from "../math/constants.sol";
+import {MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @notice Pool configuration packed into a single bytes32
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
 type PoolConfig is bytes32;
 
-using {tickSpacing, fee, extension, maxLiquidityPerTickConcentratedLiquidity} for PoolConfig global;
+using {tickSpacing, fee, extension, isFullRange, maxLiquidityPerTickConcentratedLiquidity} for PoolConfig global;
 
 /// @notice Extracts the tick spacing from a pool config
 /// @param config The pool config
@@ -35,6 +35,13 @@ function extension(PoolConfig config) pure returns (address r) {
     assembly ("memory-safe") {
         r := shr(96, config)
     }
+}
+
+/// @notice Determines if this pool uses full-range-only tick spacing
+/// @param config The pool config
+/// @return r True if the pool uses full-range-only tick spacing
+function isFullRange(PoolConfig config) pure returns (bool r) {
+    r = config.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
 }
 
 /// @notice Creates a PoolConfig from individual components

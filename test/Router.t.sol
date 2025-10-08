@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.sol";
@@ -194,7 +195,7 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_delta_overflows_int128_container_token0_in() public {
-        PoolKey memory poolKey = createPool({tick: MAX_TICK, fee: 0, tickSpacing: 0});
+        PoolKey memory poolKey = createFullRangePool({tick: MAX_TICK, fee: 0});
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
@@ -209,7 +210,7 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_delta_overflows_int128_container_token1_in() public {
-        PoolKey memory poolKey = createPool({tick: MIN_TICK, fee: 0, tickSpacing: 0});
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK, fee: 0});
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 

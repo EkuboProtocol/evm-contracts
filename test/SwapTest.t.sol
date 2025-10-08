@@ -10,6 +10,7 @@ import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {sqrtRatioToTick} from "../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../src/math/liquidity.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {createPoolConfig} from "../src/types/poolConfig.sol";
 import {FullTest} from "./FullTest.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -44,7 +45,7 @@ contract SwapTest is FullTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(token1),
-            config: createPoolConfig({_tickSpacing: 0, _fee: fee, _extension: address(0)})
+            config: createFullRangePoolConfig({_fee: fee, _extension: address(0)})
         });
         positions.maybeInitializePool(poolKey, sqrtRatioToTick(sqrtRatio));
         SqrtRatio current = core.poolState(poolKey.toPoolId()).sqrtRatio();

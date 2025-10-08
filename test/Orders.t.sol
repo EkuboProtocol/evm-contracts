@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {createPoolConfig, createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -433,7 +433,7 @@ contract OrdersTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(token1),
-            config: createPoolConfig({_extension: address(twamm), _fee: 6969, _tickSpacing: 0})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: 6969})
         });
         PoolId poolId = poolKey.toPoolId();
         positions.maybeInitializePool(poolKey, -18135370); // 0.000000013301874 token1/token0

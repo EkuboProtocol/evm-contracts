@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createPoolConfig} from "../../src/types/poolConfig.sol";
+import {createPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
@@ -86,10 +86,20 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
     function test_pool_initialization_validation() public {
         vm.expectRevert(IMEVCapture.ConcentratedLiquidityPoolsOnly.selector);
-        createMEVCapturePool({fee: 1, tickSpacing: 0, tick: 0});
+        createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createFullRangePoolConfig({_fee: 1, _extension: address(mevCapture)})
+        });
 
         vm.expectRevert(IMEVCapture.NonzeroFeesOnly.selector);
-        createMEVCapturePool({fee: 0, tickSpacing: 1, tick: 0});
+        createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(mevCapture)})
+        });
     }
 
     /// forge-config: default.isolate = true

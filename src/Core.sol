@@ -548,24 +548,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     // For stableswap pools, determine active liquidity for this step
                     uint128 stepLiquidity = liquidity;
 
-                    if (poolKey.config.isConcentrated()) {
-                        // Concentrated liquidity pools use tick crossing
-                        (nextTick, isInitialized) = increasing
-                            ? findNextInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId),
-                                tick,
-                                poolKey.config.concentratedTickSpacing(),
-                                params.skipAhead()
-                            )
-                            : findPrevInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId),
-                                tick,
-                                poolKey.config.concentratedTickSpacing(),
-                                params.skipAhead()
-                            );
-
-                        nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                    } else {
+                    if (poolKey.config.isStableswap()) {
                         if (poolKey.config.isFullRange()) {
                             // special case since we don't need to compute min/max tick sqrt ratio
                             (nextTick, nextTickSqrtRatio) =
@@ -592,6 +575,23 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 stepLiquidity = 0;
                             }
                         }
+                    } else {
+                        // concentrated liquidity pools use the tick bitmaps
+                        (nextTick, isInitialized) = increasing
+                            ? findNextInitializedTick(
+                                CoreStorageLayout.tickBitmapsSlot(poolId),
+                                tick,
+                                poolKey.config.concentratedTickSpacing(),
+                                params.skipAhead()
+                            )
+                            : findPrevInitializedTick(
+                                CoreStorageLayout.tickBitmapsSlot(poolId),
+                                tick,
+                                poolKey.config.concentratedTickSpacing(),
+                                params.skipAhead()
+                            );
+
+                        nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     }
 
                     SqrtRatio limitedNextSqrtRatio =

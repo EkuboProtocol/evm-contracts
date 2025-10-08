@@ -212,7 +212,7 @@ error InvalidCenterTick();
 /// @param config The config to validate
 function validate(PoolConfig config) pure {
     if (config.isConcentrated()) {
-        if (config.concentratedTickSpacing() > MAX_TICK_SPACING) {
+        if (config.concentratedTickSpacing() > MAX_TICK_SPACING || config.concentratedTickSpacing() == 0) {
             revert InvalidTickSpacing();
         }
     } else {

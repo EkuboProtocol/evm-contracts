@@ -8,7 +8,7 @@ import {
     createConcentratedPoolConfig,
     createStableswapPoolConfig
 } from "../../src/types/poolConfig.sol";
-import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PoolConfigTest is Test {
     function test_conversionToAndFrom_concentrated(PoolConfig config) public pure {
@@ -111,16 +111,19 @@ contract PoolConfigTest is Test {
         assertFalse(config.isConcentrated(), "should not be concentrated");
     }
 
-    function test_concentratedMaxLiquidityPerTick(PoolConfig config) public pure {
-        vm.assume(!config.isFullRange());
-        int256 tickSpacing = int256(uint256(config.concentratedTickSpacing()));
+    function test_concentratedMaxLiquidityPerTick(uint64 fee, uint32 tickSpacing, address extension) public pure {
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+        PoolConfig config = createConcentratedPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
+        config.validate();
+
+        int256 ts = int256(uint256(config.concentratedTickSpacing()));
 
         uint256 maxLiquidity = config.concentratedMaxLiquidityPerTick();
 
-        if (int32(tickSpacing) > MAX_TICK) {
+        if (ts > MAX_TICK) {
             assertEq(maxLiquidity, type(uint128).max);
         } else {
-            uint256 numTicks = uint256(1 + ((MAX_TICK / tickSpacing) * 2));
+            uint256 numTicks = uint256(1 + ((MAX_TICK / ts) * 2));
             assertLe(maxLiquidity * numTicks, type(uint128).max);
         }
     }

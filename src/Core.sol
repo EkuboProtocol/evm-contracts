@@ -17,7 +17,7 @@ import {liquidityDeltaToAmountDelta, addLiquidityDelta} from "./math/liquidity.s
 import {findNextInitializedTick, findPrevInitializedTick, flipTick} from "./math/tickBitmap.sol";
 import {ICore, IExtension} from "./interfaces/ICore.sol";
 import {FlashAccountant} from "./base/FlashAccountant.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "./math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
 import {SwapParameters} from "./types/swapParameters.sol";
@@ -346,7 +346,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         payable
         returns (int128 delta0, int128 delta1)
     {
-        positionId.validateBounds(poolKey.tickSpacing());
+        positionId.validateBounds(poolKey.config);
 
         Locker locker = _requireLocker();
 
@@ -542,7 +542,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
-                    if (poolKey.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
+                    if (!poolKey.isFullRange()) {
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()

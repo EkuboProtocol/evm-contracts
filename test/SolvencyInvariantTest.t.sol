@@ -2,14 +2,14 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
@@ -22,11 +22,11 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-function maxBounds(uint32 tickSpacing) pure returns (int32 tickLower, int32 tickUpper) {
-    if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+function maxBounds(PoolConfig config) pure returns (int32 tickLower, int32 tickUpper) {
+    if (config.isFullRange()) {
         return (MIN_TICK, MAX_TICK);
     }
-    int32 spacing = int32(tickSpacing);
+    int32 spacing = int32(config.tickSpacing());
 
     return ((MIN_TICK / spacing) * spacing, (MAX_TICK / spacing) * spacing);
 }
@@ -108,10 +108,10 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        if (poolKey.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
+        if (poolKey.isFullRange()) {
             (tickLower, tickUpper) = (MIN_TICK, MAX_TICK);
         } else {
-            (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.tickSpacing());
+            (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.config);
             tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.tickSpacing())));
             // snap to nearest valid tick
             tickLower = (tickLower / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());

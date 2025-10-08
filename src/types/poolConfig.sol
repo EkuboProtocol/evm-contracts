@@ -8,7 +8,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and tick spacing (4 bytes)
 type PoolConfig is bytes32;
 
-using {tickSpacing, fee, extension, maxLiquidityPerTickConcentratedLiquidity} for PoolConfig global;
+using {tickSpacing, fee, extension, isFullRange, maxLiquidityPerTickConcentratedLiquidity} for PoolConfig global;
 
 /// @notice Extracts the tick spacing from a pool config
 /// @param config The pool config
@@ -37,6 +37,15 @@ function extension(PoolConfig config) pure returns (address r) {
     }
 }
 
+/// @notice Determines if this pool uses full-range-only tick spacing
+/// @param config The pool config
+/// @return r True if the pool uses full-range-only tick spacing
+function isFullRange(PoolConfig config) pure returns (bool r) {
+    assembly ("memory-safe") {
+        r := iszero(and(config, 0xffffffff))
+    }
+}
+
 /// @notice Creates a PoolConfig from individual components
 /// @param _fee The fee for the pool
 /// @param _tickSpacing The tick spacing for the pool
@@ -45,14 +54,18 @@ function extension(PoolConfig config) pure returns (address r) {
 function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) pure returns (PoolConfig c) {
     assembly ("memory-safe") {
         // Mask inputs to ensure only relevant bits are used
-        c :=
-            add(
-                add(
-                    shl(96, and(_extension, 0xffffffffffffffffffffffffffffffffffffffff)),
-                    shl(32, and(_fee, 0xffffffffffffffff))
-                ),
-                and(_tickSpacing, 0xffffffff)
-            )
+        c := or(or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff))), and(_tickSpacing, 0xffffffff))
+    }
+}
+
+/// @notice Creates a PoolConfig for a pool that is full range
+/// @param _fee The fee for the pool
+/// @param _extension The extension address for the pool
+/// @return c The packed configuration
+function createFullRangePoolConfig(uint64 _fee, address _extension) pure returns (PoolConfig c) {
+    assembly ("memory-safe") {
+        // Mask inputs to ensure only relevant bits are used
+        c := or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff)))
     }
 }
 

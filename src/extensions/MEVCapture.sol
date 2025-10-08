@@ -7,7 +7,6 @@ import {IExtension} from "../interfaces/ICore.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
-import {FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -65,7 +64,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         external
         override(BaseExtension, IExtension)
     {
-        if (poolKey.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
+        if (poolKey.isFullRange()) {
             revert ConcentratedLiquidityPoolsOnly();
         }
         if (poolKey.fee() == 0) {

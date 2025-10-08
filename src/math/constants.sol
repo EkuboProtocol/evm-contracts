@@ -21,10 +21,6 @@ uint32 constant MAX_TICK_MAGNITUDE = uint32(MAX_TICK);
 // Defines the upper limit for tick spacing configuration in pool creation
 uint32 constant MAX_TICK_SPACING = 698605;
 
-// Special tick spacing value indicating full-range-only pools
-// When a pool uses this tick spacing, only full-range positions are allowed
-uint32 constant FULL_RANGE_ONLY_TICK_SPACING = 0;
-
 // Address used to represent the native token (ETH) within the protocol
 // Using address(0) allows the protocol to handle native ETH alongside ERC20 tokens
 address constant NATIVE_TOKEN_ADDRESS = address(0);

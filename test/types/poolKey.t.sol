@@ -3,9 +3,9 @@ pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolKey, TokensMustBeSorted, InvalidTickSpacing} from "../../src/types/poolKey.sol";
-import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
-import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
+import {MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PoolKeyTest is Test {
     function test_toConfig_fee_tickSpacing_extension(uint64 fee, uint32 tickSpacing, address extension) public pure {
@@ -52,11 +52,8 @@ contract PoolKeyTest is Test {
     }
 
     function test_poolKey_validateTickSpacing_full_range() public pure {
-        PoolKey({
-            token0: address(1),
-            token1: address(2),
-            config: createPoolConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(0))
-        }).validatePoolKey();
+        PoolKey({token0: address(1), token1: address(2), config: createFullRangePoolConfig(0, address(0))})
+            .validatePoolKey();
     }
 
     function test_toPoolId_changesWithToken0(PoolKey memory poolKey) public pure {

@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
@@ -10,7 +10,7 @@ import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SaleRateOverflow} from "../src/math/twamm.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -110,11 +110,8 @@ contract Handler is StdUtils, StdAssertions {
 
     function createNewPool(uint64 fee, int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        PoolKey memory poolKey = PoolKey(
-            address(token0),
-            address(token1),
-            createPoolConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.TWAMM_EXTENSION()))
-        );
+        PoolKey memory poolKey =
+            PoolKey(address(token0), address(token1), createFullRangePoolConfig(fee, address(orders.TWAMM_EXTENSION())));
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);

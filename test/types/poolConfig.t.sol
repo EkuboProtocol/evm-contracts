@@ -2,8 +2,8 @@
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
-import {MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
+import {PoolConfig, createFullRangePoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {MAX_TICK} from "../../src/math/constants.sol";
 
 contract PoolConfigTest is Test {
     function test_conversionToAndFrom(PoolConfig config) public pure {
@@ -24,6 +24,15 @@ contract PoolConfigTest is Test {
         assertEq(config.fee(), fee);
         assertEq(config.tickSpacing(), tickSpacing);
         assertEq(config.extension(), extension);
+        assertEq(config.isFullRange(), tickSpacing == 0, "isFullRange");
+    }
+
+    function test_createFullRangePoolConfig(uint64 fee, address extension) public pure {
+        PoolConfig config = createFullRangePoolConfig(fee, extension);
+        assertEq(config.fee(), fee);
+        assertEq(config.tickSpacing(), 0);
+        assertEq(config.extension(), extension);
+        assertTrue(config.isFullRange(), "isFullRange");
     }
 
     function test_conversionFromAndToDirtyBits(bytes32 feeDirty, bytes32 tickSpacingDirty, bytes32 extensionDirty)
@@ -47,7 +56,7 @@ contract PoolConfigTest is Test {
     }
 
     function test_maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) public pure {
-        vm.assume(config.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING);
+        vm.assume(!config.isFullRange());
         int256 tickSpacing = int256(uint256(config.tickSpacing()));
 
         uint256 maxLiquidity = config.maxLiquidityPerTickConcentratedLiquidity();

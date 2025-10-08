@@ -6,7 +6,7 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
@@ -295,8 +295,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_fees_fullRange_max_price() public {
-        PoolKey memory poolKey =
-            createPool({tick: MAX_TICK - 1, fee: 1 << 63, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
+        PoolKey memory poolKey = createFullRangePool({tick: MAX_TICK - 1, fee: 1 << 63});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
@@ -324,8 +323,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_fees_fullRange_min_price() public {
-        PoolKey memory poolKey =
-            createPool({tick: MIN_TICK + 1, fee: 1 << 63, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 1 << 63});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
@@ -354,12 +352,7 @@ contract PositionsTest is FullTest {
     function test_feeAccumulation_works_full_range() public {
         MockExtension fae = createAndRegisterExtension();
 
-        PoolKey memory poolKey = createPool({
-            tick: MIN_TICK + 1,
-            fee: 1 << 63,
-            tickSpacing: FULL_RANGE_ONLY_TICK_SPACING,
-            extension: address(fae)
-        });
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 1 << 63, extension: address(fae)});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
@@ -380,12 +373,7 @@ contract PositionsTest is FullTest {
     function test_feeAccumulation_zero_liquidity_full_range() public {
         MockExtension fae = createAndRegisterExtension();
 
-        PoolKey memory poolKey = createPool({
-            tick: MIN_TICK + 1,
-            fee: 1 << 63,
-            tickSpacing: FULL_RANGE_ONLY_TICK_SPACING,
-            extension: address(fae)
-        });
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 1 << 63, extension: address(fae)});
 
         token0.approve(address(fae), 1000);
         token1.approve(address(fae), 2000);
@@ -438,7 +426,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_full_range_mintAndDeposit() public {
-        PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 63, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
+        PoolKey memory poolKey = createFullRangePool({tick: 0, fee: 1 << 63});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 

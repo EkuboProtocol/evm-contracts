@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {MAX_TICK_SPACING} from "../math/constants.sol";
 import {PoolId} from "./poolId.sol";
 import {PoolConfig} from "./poolConfig.sol";
 
@@ -44,7 +44,7 @@ function mustLoadFees(PoolKey memory pk) pure returns (bool r) {
 /// @param pk The pool key
 /// @return r True if the pool uses full-range-only tick spacing
 function isFullRange(PoolKey memory pk) pure returns (bool r) {
-    r = pk.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
+    r = pk.config.isFullRange();
 }
 
 /// @notice Unique identifier for a pool containing token addresses and configuration

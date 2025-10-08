@@ -3,9 +3,10 @@ pragma solidity =0.8.30;
 
 import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
+import {createPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
 import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
@@ -34,7 +35,8 @@ abstract contract BaseMEVCaptureTest is FullTest {
         internal
         returns (PoolKey memory poolKey)
     {
-        poolKey = createPool(address(token0), address(token1), tick, fee, tickSpacing, address(mevCapture));
+        poolKey =
+            createPool(address(token0), address(token1), tick, createPoolConfig(fee, tickSpacing, address(mevCapture)));
     }
 }
 
@@ -84,7 +86,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
     function test_pool_initialization_validation() public {
         vm.expectRevert(IMEVCapture.ConcentratedLiquidityPoolsOnly.selector);
-        createMEVCapturePool({fee: 1, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, tick: 0});
+        createMEVCapturePool({fee: 1, tickSpacing: 0, tick: 0});
 
         vm.expectRevert(IMEVCapture.NonzeroFeesOnly.selector);
         createMEVCapturePool({fee: 0, tickSpacing: 1, tick: 0});

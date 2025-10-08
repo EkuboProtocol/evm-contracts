@@ -6,7 +6,7 @@ import {QuoteData, QuoteDataFetcher} from "../../src/lens/QuoteDataFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {createPoolConfig} from "../../src/types/poolConfig.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 
 contract QuoteDataFetcherTest is FullTest {
@@ -25,7 +25,7 @@ contract QuoteDataFetcherTest is FullTest {
         (, uint128 liqD) = createPosition(poolKey, 250, 600, 200, 0);
         createPosition(poolKey, -1280, -1275, 0, 5000);
 
-        PoolKey memory poolKeyFull = createPool({tick: 693147, fee: 0, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING});
+        PoolKey memory poolKeyFull = createFullRangePool({tick: 693147, fee: 0});
         (, uint128 liqF) = createPosition(poolKeyFull, MIN_TICK, MAX_TICK, 5000, 5000);
         (, uint128 liqG) = createPosition(poolKeyFull, MIN_TICK, MAX_TICK, 7500, 7500);
 

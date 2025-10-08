@@ -537,12 +537,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 // fees per liquidity only for the input token
                 uint256 inputTokenFeesPerLiquidity;
 
-                // this loads only the input token fees per liquidity
-                if (poolKey.config.mustLoadFees()) {
-                    inputTokenFeesPerLiquiditySlot =
-                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing));
-                    inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
-                }
+                // 0 = not loaded & not updated, 1 = loaded & not updated, 2 = loaded & updated
+                uint256 feesAccessed;
 
                 while (true) {
                     int32 nextTick;
@@ -676,11 +672,23 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             sqrtRatioNext = sqrtRatioNextFromAmount;
                         }
 
-                        // this accounts the fees into the feesPerLiquidity memory struct
+                        // compute the change in fees per liquidity first
+                        uint256 deltaFpl;
                         assembly ("memory-safe") {
-                            // div by 0 returns 0, so it's ok
-                            let v := div(shl(128, feeAmount), stepLiquidity)
-                            inputTokenFeesPerLiquidity := add(inputTokenFeesPerLiquidity, v)
+                            deltaFpl := div(shl(128, feeAmount), liquidity)
+                        }
+
+                        // only if it changed do we need to load fees per liquidity
+                        if (deltaFpl != 0) {
+                            if (feesAccessed == 0) {
+                                // this loads only the input token fees per liquidity
+                                inputTokenFeesPerLiquiditySlot =
+                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing));
+                                inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
+                            }
+
+                            inputTokenFeesPerLiquidity += deltaFpl;
+                            feesAccessed = 2;
                         }
                     }
 
@@ -702,6 +710,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             (StorageSlot tickFplFirstSlot, StorageSlot tickFplSecondSlot) =
                                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
+
+                            if (feesAccessed == 0) {
+                                inputTokenFeesPerLiquiditySlot =
+                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing));
+                                inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
+                                feesAccessed = 1;
+                            }
 
                             // assume input token is token0
                             uint256 globalFeesPerLiquidity0 = inputTokenFeesPerLiquidity;
@@ -752,7 +767,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 writePoolState(poolId, stateAfter);
 
-                if (poolKey.config.mustLoadFees()) {
+                if (feesAccessed == 2) {
                     // this stores only the input token fees per liquidity
                     inputTokenFeesPerLiquiditySlot.store(bytes32(inputTokenFeesPerLiquidity));
                 }

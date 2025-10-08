@@ -75,7 +75,7 @@ function maxLiquidityForToken0(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, u
 /// @return The maximum liquidity that can be provided
 function maxLiquidityForToken1(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint128 amount) pure returns (uint256) {
     unchecked {
-        return (uint256(amount) << 128) / (sqrtRatioUpper - sqrtRatioLower);
+        return FixedPointMathLib.rawDiv((uint256(amount) << 128), (sqrtRatioUpper - sqrtRatioLower));
     }
 }
 

@@ -98,7 +98,10 @@ contract ERC7726 is IERC7726 {
                 (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
                 (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
 
-                return tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / int64(uint64(TWAP_DURATION)));
+                return tickSign
+                    * int32(
+                        FixedPointMathLib.rawSDiv((tickCumulativeEnd - tickCumulativeStart), int64(uint64(TWAP_DURATION)))
+                    );
             } else {
                 int32 baseTick = getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);
                 int32 quoteTick = getAverageTick(NATIVE_TOKEN_ADDRESS, quoteToken);

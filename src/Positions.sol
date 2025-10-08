@@ -5,6 +5,7 @@ import {BasePositions} from "./base/BasePositions.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {computeFee} from "./math/fee.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title Ekubo Protocol Positions
 /// @author Moody Salem <moody@ekubo.org>
@@ -62,8 +63,10 @@ contract Positions is BasePositions {
     {
         uint64 fee = poolKey.config.fee();
         if (fee != 0 && WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR != 0) {
-            protocolFee0 = computeFee(amount0, fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);
-            protocolFee1 = computeFee(amount1, fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);
+            protocolFee0 =
+                computeFee(amount0, uint64(FixedPointMathLib.rawDiv(fee, WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR)));
+            protocolFee1 =
+                computeFee(amount1, uint64(FixedPointMathLib.rawDiv(fee, WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR)));
         }
     }
 }

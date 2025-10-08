@@ -5,6 +5,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TokenDataFetcher {
     using DynamicArrayLib for *;
@@ -62,14 +63,14 @@ contract TokenDataFetcher {
                 }
             }
 
-            balances = new Balance[](balanceTuples.length() / 2);
+            balances = new Balance[](FixedPointMathLib.rawDiv(balanceTuples.length(), 2));
             for (uint256 i = 0; i < balances.length; i++) {
                 address token = address(uint160(balanceTuples.get((i * 2))));
                 uint256 balance = balanceTuples.get((i * 2) + 1);
                 balances[i] = Balance(token, balance);
             }
 
-            allowances = new Allowance[](allowanceTuples.length() / 3);
+            allowances = new Allowance[](FixedPointMathLib.rawDiv(allowanceTuples.length(), 3));
             for (uint256 i = 0; i < allowances.length; i++) {
                 address token = address(uint160(allowanceTuples.get(i * 3)));
                 address spender = address(uint160(allowanceTuples.get((i * 3) + 1)));

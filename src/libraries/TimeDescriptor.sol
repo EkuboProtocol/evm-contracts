@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 import {DateTimeLib} from "solady/utils/DateTimeLib.sol";
 import {LibString} from "solady/utils/LibString.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 error UnrecognizedMonth();
 
@@ -29,8 +30,9 @@ function toQuarter(uint256 unlockTime) pure returns (string memory quarterLabel)
     string memory shortenedYearStr = LibString.toString(year);
 
     unchecked {
-        quarterLabel =
-            string.concat(year < 10 ? "0" : "", shortenedYearStr, "Q", LibString.toString(1 + (month - 1) / 3));
+        quarterLabel = string.concat(
+            year < 10 ? "0" : "", shortenedYearStr, "Q", LibString.toString(1 + FixedPointMathLib.rawDiv(month - 1, 3))
+        );
     }
 }
 

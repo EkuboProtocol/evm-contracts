@@ -139,7 +139,9 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32 tick) {
         uint256 y15 = (y13 * y2) >> 127; // y^15
 
         // s = y + y^3/3 + y^5/5 + ... + y^15/15  (Q1.127)
-        uint256 s = yQ + (y3 / 3) + (y5 / 5) + (y7 / 7) + (y9 / 9) + (y11 / 11) + (y13 / 13) + (y15 / 15);
+        uint256 s = yQ + FixedPointMathLib.rawDiv(y3, 3) + FixedPointMathLib.rawDiv(y5, 5)
+            + FixedPointMathLib.rawDiv(y7, 7) + FixedPointMathLib.rawDiv(y9, 9) + FixedPointMathLib.rawDiv(y11, 11)
+            + FixedPointMathLib.rawDiv(y13, 13) + FixedPointMathLib.rawDiv(y15, 15);
 
         // fracX64 = ((2/ln2) * s) in Q64.64  =>  (s * K) >> 127
         uint256 fracX64 = (s * K_2_OVER_LN2_X64) >> 127;

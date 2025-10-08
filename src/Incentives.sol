@@ -25,7 +25,7 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
             dropState := sload(id)
         }
 
-        uint128 currentFunded = dropState.funded();
+        uint128 currentFunded = uint128(dropState.funded());
         if (currentFunded < minimum) {
             fundedAmount = minimum - currentFunded;
             dropState = dropState.setFunded(minimum);
@@ -54,10 +54,10 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
             dropState := sload(id)
         }
 
-        refundAmount = dropState.getRemaining();
+        refundAmount = uint128(dropState.getRemaining());
         if (refundAmount > 0) {
             // Set funded amount to claimed amount (no remaining funds)
-            dropState = dropState.setFunded(dropState.claimed());
+            dropState = dropState.setFunded(uint128(dropState.claimed()));
 
             // Store updated drop state
             assembly ("memory-safe") {
@@ -96,13 +96,13 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
         }
 
         // Check sufficient funds
-        uint128 remaining = dropState.getRemaining();
+        uint128 remaining = uint128(dropState.getRemaining());
         if (remaining < c.amount) {
             revert InsufficientFunds();
         }
 
         // Update claimed amount
-        dropState = dropState.setClaimed(dropState.claimed() + c.amount);
+        dropState = dropState.setClaimed(uint128(dropState.claimed() + c.amount));
 
         // Store updated drop state
         assembly ("memory-safe") {

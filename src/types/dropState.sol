@@ -9,8 +9,8 @@ type DropState is bytes32;
 
 /// @notice Gets the funded amount from a drop state
 /// @param state The drop state
-/// @return amount The funded amount
-function funded(DropState state) pure returns (uint128 amount) {
+/// @return amount The funded amount value, bounded by uint128
+function funded(DropState state) pure returns (uint256 amount) {
     assembly ("memory-safe") {
         amount := shr(128, state)
     }
@@ -18,8 +18,8 @@ function funded(DropState state) pure returns (uint128 amount) {
 
 /// @notice Gets the claimed amount from a drop state
 /// @param state The drop state
-/// @return amount The claimed amount
-function claimed(DropState state) pure returns (uint128 amount) {
+/// @return amount The claimed amount value, bounded by uint128
+function claimed(DropState state) pure returns (uint256 amount) {
     assembly ("memory-safe") {
         amount := and(state, 0xffffffffffffffffffffffffffffffff)
     }
@@ -47,8 +47,8 @@ function setClaimed(DropState state, uint128 amount) pure returns (DropState new
 
 /// @notice Gets the remaining amount (funded - claimed) from a drop state
 /// @param state The drop state
-/// @return remaining The remaining amount available for claims
-function getRemaining(DropState state) pure returns (uint128 remaining) {
+/// @return remaining The remaining amount available for claims, bounded by uint128
+function getRemaining(DropState state) pure returns (uint256 remaining) {
     unchecked {
         remaining = state.funded() - state.claimed();
     }

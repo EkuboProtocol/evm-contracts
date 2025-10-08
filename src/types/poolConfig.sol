@@ -20,8 +20,8 @@ using {
 
 /// @notice Extracts the tick spacing from a pool config
 /// @param config The pool config
-/// @return r The tick spacing
-function tickSpacing(PoolConfig config) pure returns (uint32 r) {
+/// @return r The tick spacing value, bounded by uint32
+function tickSpacing(PoolConfig config) pure returns (uint256 r) {
     assembly ("memory-safe") {
         r := and(config, 0xffffffff)
     }
@@ -29,8 +29,8 @@ function tickSpacing(PoolConfig config) pure returns (uint32 r) {
 
 /// @notice Extracts the fee from a pool config
 /// @param config The pool config
-/// @return r The fee
-function fee(PoolConfig config) pure returns (uint64 r) {
+/// @return r The fee value, bounded by uint64
+function fee(PoolConfig config) pure returns (uint256 r) {
     assembly ("memory-safe") {
         r := and(shr(32, config), 0xffffffffffffffff)
     }

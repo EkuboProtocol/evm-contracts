@@ -99,10 +99,10 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 c := sload(token)
             }
 
-            uint32 timePassed = uint32(block.timestamp) - c.lastTimestamp();
+            uint32 timePassed = uint32(block.timestamp) - uint32(c.lastTimestamp());
             if (timePassed == 0) return;
 
-            uint32 index = c.index();
+            uint32 index = uint32(c.index());
 
             // we know count is always g.t. 0 in the places this is called
             Snapshot last;
@@ -112,7 +112,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
             PoolState state = CORE.poolState(poolId);
 
-            uint128 liquidity = state.liquidity();
+            uint128 liquidity = uint128(state.liquidity());
             uint256 nonZeroLiquidity;
             assembly ("memory-safe") {
                 nonZeroLiquidity := add(liquidity, iszero(liquidity))
@@ -120,13 +120,15 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
             Snapshot snapshot = createSnapshot({
                 _timestamp: uint32(block.timestamp),
-                _secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative()
-                    + uint160(FixedPointMathLib.rawDiv(uint256(timePassed) << 128, nonZeroLiquidity)),
-                _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * state.tick()
+                _secondsPerLiquidityCumulative: uint160(
+                    last.secondsPerLiquidityCumulative()
+                        + uint160(FixedPointMathLib.rawDiv(uint256(timePassed) << 128, nonZeroLiquidity))
+                ),
+                _tickCumulative: int64(last.tickCumulative() + int64(uint64(timePassed)) * state.tick())
             });
 
-            uint32 count = c.count();
-            uint32 capacity = c.capacity();
+            uint32 count = uint32(c.count());
+            uint32 capacity = uint32(c.capacity());
 
             bool isLastIndex = index == count - 1;
             bool incrementCount = isLastIndex && capacity > count;
@@ -224,17 +226,17 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 }
             }
             c = createCounts({
-                _index: c.index(),
-                _count: c.count(),
+                _index: uint32(c.index()),
+                _count: uint32(c.count()),
                 _capacity: minCapacity,
-                _lastTimestamp: c.lastTimestamp()
+                _lastTimestamp: uint32(c.lastTimestamp())
             });
             assembly ("memory-safe") {
                 sstore(token, c)
             }
         }
 
-        capacity = c.capacity();
+        capacity = uint32(c.capacity());
     }
 
     /// @notice Searches for the latest snapshot with timestamp <= time within a logical range
@@ -323,9 +325,9 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
         Snapshot snapshot
     ) private view returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative) {
         unchecked {
-            secondsPerLiquidityCumulative = snapshot.secondsPerLiquidityCumulative();
-            tickCumulative = snapshot.tickCumulative();
-            uint32 timePassed = uint32(atTime) - snapshot.timestamp();
+            secondsPerLiquidityCumulative = uint160(snapshot.secondsPerLiquidityCumulative());
+            tickCumulative = int64(snapshot.tickCumulative());
+            uint32 timePassed = uint32(atTime) - uint32(snapshot.timestamp());
             if (timePassed != 0) {
                 if (logicalIndex == c.count() - 1) {
                     // Use current pool state.
@@ -346,7 +348,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                         next := sload(or(shl(32, token), logicalIndexNext))
                     }
 
-                    uint32 timestampDifference = next.timestamp() - snapshot.timestamp();
+                    uint32 timestampDifference = uint32(next.timestamp()) - uint32(snapshot.timestamp());
 
                     tickCumulative += int64(
                         FixedPointMathLib.rawSDiv(

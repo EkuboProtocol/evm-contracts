@@ -5,13 +5,19 @@ type MEVCapturePoolState is bytes32;
 
 using {lastUpdateTime, tickLast} for MEVCapturePoolState global;
 
-function lastUpdateTime(MEVCapturePoolState state) pure returns (uint32 v) {
+/// @notice Extracts the last update time from MEV capture pool state
+/// @param state The MEV capture pool state
+/// @return v The last update time value, bounded by uint32
+function lastUpdateTime(MEVCapturePoolState state) pure returns (uint256 v) {
     assembly ("memory-safe") {
         v := shr(224, state)
     }
 }
 
-function tickLast(MEVCapturePoolState state) pure returns (int32 v) {
+/// @notice Extracts the last tick from MEV capture pool state
+/// @param state The MEV capture pool state
+/// @return v The last tick value, bounded by int32
+function tickLast(MEVCapturePoolState state) pure returns (int256 v) {
     assembly ("memory-safe") {
         v := signextend(3, state)
     }

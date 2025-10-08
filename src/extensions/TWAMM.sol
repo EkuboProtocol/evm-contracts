@@ -138,7 +138,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         internal
     {
         TimeInfo timeInfo = TimeInfo.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time).load());
-        (uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) = timeInfo.parse();
+        (uint256 numOrders_, int256 saleRateDeltaToken0_, int256 saleRateDeltaToken1_) = timeInfo.parse();
+        uint32 numOrders = uint32(numOrders_);
+        int112 saleRateDeltaToken0 = int112(saleRateDeltaToken0_);
+        int112 saleRateDeltaToken1 = int112(saleRateDeltaToken1_);
 
         // note we assume this will never overflow, since it would require 2**32 separate orders to be placed
         uint32 numOrdersNext;
@@ -220,7 +223,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 uint256 rewardRateInside = getRewardRateInside(poolId, orderKey.config);
 
-                (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
+                (uint256 lastUpdateTime_, uint256 saleRate_, uint256 amountSold_) = order.parse();
+                uint32 lastUpdateTime = uint32(lastUpdateTime_);
+                uint112 saleRate = uint112(saleRate_);
+                uint112 amountSold = uint112(amountSold_);
 
                 uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, saleRate);
 
@@ -273,7 +279,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     // and we know the order is active, so we have to apply its delta to the current pool state
                     StorageSlot currentStateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
                     TwammPoolState currentState = TwammPoolState.wrap(currentStateSlot.load());
-                    (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
+                    (uint256 lastTime_, uint256 rate0_, uint256 rate1_) = currentState.parse();
+                    uint32 lastTime = uint32(lastTime_);
+                    uint112 rate0 = uint112(rate0_);
+                    uint112 rate1 = uint112(rate1_);
 
                     if (isToken1) {
                         currentState = createTwammPoolState({
@@ -315,7 +324,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
                 if (amountDelta < 0) {
                     // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.config.fee());
+                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), uint64(poolKey.config.fee()));
                     if (isToken1) {
                         CORE.accumulateAsFees(poolKey, 0, fee);
                         CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
@@ -445,11 +454,11 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         }
                         SqrtRatio sqrtRatioNext = computeNextSqrtRatio({
                             sqrtRatio: corePoolState.sqrtRatio(),
-                            liquidity: corePoolState.liquidity(),
+                            liquidity: uint128(corePoolState.liquidity()),
                             saleRateToken0: state.saleRateToken0(),
                             saleRateToken1: state.saleRateToken1(),
                             timeElapsed: timeElapsed,
-                            fee: poolKey.config.fee()
+                            fee: uint64(poolKey.config.fee())
                         });
 
                         int256 swapDelta0;
@@ -517,13 +526,15 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         );
 
                         StorageSlot timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, nextTime);
-                        (, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) =
+                        (, int256 saleRateDeltaToken0_, int256 saleRateDeltaToken1_) =
                             TimeInfo.wrap(timeInfoSlot.load()).parse();
+                        int112 saleRateDeltaToken0 = int112(saleRateDeltaToken0_);
+                        int112 saleRateDeltaToken1 = int112(saleRateDeltaToken1_);
 
                         state = createTwammPoolState({
                             _lastVirtualOrderExecutionTime: uint32(nextTime),
-                            _saleRateToken0: uint112(addSaleRateDelta(state.saleRateToken0(), saleRateDeltaToken0)),
-                            _saleRateToken1: uint112(addSaleRateDelta(state.saleRateToken1(), saleRateDeltaToken1))
+                            _saleRateToken0: uint112(addSaleRateDelta(uint112(state.saleRateToken0()), saleRateDeltaToken0)),
+                            _saleRateToken1: uint112(addSaleRateDelta(uint112(state.saleRateToken1()), saleRateDeltaToken1))
                         });
 
                         // this time is _consumed_, will never be crossed again, so we delete the info we no longer need.

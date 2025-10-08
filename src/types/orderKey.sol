@@ -54,7 +54,7 @@ function toOrderId(OrderKey memory orderKey) pure returns (OrderId id) {
 /// @param twamm The TWAMM contract address to use as the extension
 /// @return poolKey The corresponding pool key for the order
 function toPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
-    uint64 _fee = orderKey.config.fee();
+    uint256 _fee = orderKey.config.fee();
     assembly ("memory-safe") {
         mcopy(poolKey, orderKey, 64)
         mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, _fee)))

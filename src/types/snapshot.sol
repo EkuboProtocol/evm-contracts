@@ -5,19 +5,28 @@ type Snapshot is bytes32;
 
 using {timestamp, secondsPerLiquidityCumulative, tickCumulative} for Snapshot global;
 
-function timestamp(Snapshot snapshot) pure returns (uint32 t) {
+/// @notice Extracts the timestamp from a snapshot
+/// @param snapshot The snapshot
+/// @return t The timestamp value, bounded by uint32
+function timestamp(Snapshot snapshot) pure returns (uint256 t) {
     assembly ("memory-safe") {
         t := and(snapshot, 0xFFFFFFFF)
     }
 }
 
-function secondsPerLiquidityCumulative(Snapshot snapshot) pure returns (uint160 s) {
+/// @notice Extracts the seconds per liquidity cumulative from a snapshot
+/// @param snapshot The snapshot
+/// @return s The seconds per liquidity cumulative value, bounded by uint160
+function secondsPerLiquidityCumulative(Snapshot snapshot) pure returns (uint256 s) {
     assembly ("memory-safe") {
         s := and(shr(32, snapshot), 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
     }
 }
 
-function tickCumulative(Snapshot snapshot) pure returns (int64 t) {
+/// @notice Extracts the tick cumulative from a snapshot
+/// @param snapshot The snapshot
+/// @return t The tick cumulative value, bounded by int64
+function tickCumulative(Snapshot snapshot) pure returns (int256 t) {
     assembly ("memory-safe") {
         t := signextend(7, shr(192, snapshot))
     }

@@ -5,13 +5,19 @@ type Observation is bytes32;
 
 using {secondsPerLiquidityCumulative, tickCumulative} for Observation global;
 
-function secondsPerLiquidityCumulative(Observation observation) pure returns (uint160 s) {
+/// @notice Extracts the seconds per liquidity cumulative from an observation
+/// @param observation The observation
+/// @return s The seconds per liquidity cumulative value, bounded by uint160
+function secondsPerLiquidityCumulative(Observation observation) pure returns (uint256 s) {
     assembly ("memory-safe") {
         s := shr(96, observation)
     }
 }
 
-function tickCumulative(Observation observation) pure returns (int64 t) {
+/// @notice Extracts the tick cumulative from an observation
+/// @param observation The observation
+/// @return t The tick cumulative value, bounded by int64
+function tickCumulative(Observation observation) pure returns (int256 t) {
     assembly ("memory-safe") {
         t := signextend(7, observation)
     }

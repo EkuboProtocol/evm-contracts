@@ -79,36 +79,36 @@ library CoreLib {
     /// @param token0 The first token address
     /// @param token1 The second token address
     /// @param salt The salt used for the saved balance key
-    /// @return savedBalance0 The saved balance of token0
-    /// @return savedBalance1 The saved balance of token1
+    /// @return savedBalance0 The saved balance of token0, bounded by uint128
+    /// @return savedBalance1 The saved balance of token1, bounded by uint128
     function savedBalances(ICore core, address owner, address token0, address token1, bytes32 salt)
         internal
         view
-        returns (uint128 savedBalance0, uint128 savedBalance1)
+        returns (uint256 savedBalance0, uint256 savedBalance1)
     {
         uint256 value = uint256(core.sload(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt)));
 
-        savedBalance0 = uint128(value >> 128);
-        savedBalance1 = uint128(value);
+        savedBalance0 = value >> 128;
+        savedBalance1 = value;
     }
 
     /// @notice Gets tick information for a specific tick in a pool
     /// @param core The core contract instance
     /// @param poolId The unique identifier for the pool
     /// @param tick The tick to query
-    /// @return liquidityDelta The liquidity change when crossing this tick
-    /// @return liquidityNet The net liquidity above this tick
+    /// @return liquidityDelta The liquidity change when crossing this tick, bounded by int128
+    /// @return liquidityNet The net liquidity above this tick, bounded by uint128
     function poolTicks(ICore core, PoolId poolId, int32 tick)
         internal
         view
-        returns (int128 liquidityDelta, uint128 liquidityNet)
+        returns (int256 liquidityDelta, uint256 liquidityNet)
     {
         bytes32 data = core.sload(CoreStorageLayout.poolTicksSlot(poolId, tick));
 
         // takes only least significant 128 bits
-        liquidityDelta = int128(uint128(uint256(data)));
+        liquidityDelta = int256(uint256(data));
         // takes only most significant 128 bits
-        liquidityNet = uint128(bytes16(data));
+        liquidityNet = uint256(data) >> 128;
     }
 
     /// @notice Executes a swap against the core contract using assembly optimization

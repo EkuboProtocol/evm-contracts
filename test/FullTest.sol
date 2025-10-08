@@ -77,7 +77,7 @@ contract MockExtension is IExtension, BaseLocker {
 
     function beforeSwap(Locker locker, PoolKey memory poolKey, SwapParameters params) external {
         emit BeforeSwapCalled(
-            locker, poolKey, params.amount(), params.isToken1(), params.sqrtRatioLimit(), params.skipAhead()
+            locker, poolKey, int128(params.amount()), params.isToken1(), params.sqrtRatioLimit(), params.skipAhead()
         );
     }
 
@@ -104,7 +104,7 @@ contract MockExtension is IExtension, BaseLocker {
         emit AfterSwapCalled(
             locker,
             poolKey,
-            params.amount(),
+            int128(params.amount()),
             params.isToken1(),
             params.sqrtRatioLimit(),
             params.skipAhead(),

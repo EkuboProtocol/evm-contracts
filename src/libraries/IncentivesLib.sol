@@ -83,8 +83,8 @@ library IncentivesLib {
     /// @notice Gets the remaining amount available for claims in a drop
     /// @param incentives The incentives contract instance
     /// @param key The drop key to check
-    /// @return The remaining amount available
-    function getRemaining(IIncentives incentives, DropKey memory key) internal view returns (uint128) {
+    /// @return The remaining amount available, bounded by uint128
+    function getRemaining(IIncentives incentives, DropKey memory key) internal view returns (uint256) {
         DropState state = getDropState(incentives, key);
         return state.getRemaining();
     }
@@ -92,8 +92,8 @@ library IncentivesLib {
     /// @notice Gets the funded amount for a drop
     /// @param incentives The incentives contract instance
     /// @param key The drop key to check
-    /// @return The funded amount
-    function getFunded(IIncentives incentives, DropKey memory key) internal view returns (uint128) {
+    /// @return The funded amount, bounded by uint128
+    function getFunded(IIncentives incentives, DropKey memory key) internal view returns (uint256) {
         DropState state = getDropState(incentives, key);
         return state.funded();
     }
@@ -101,8 +101,8 @@ library IncentivesLib {
     /// @notice Gets the claimed amount for a drop
     /// @param incentives The incentives contract instance
     /// @param key The drop key to check
-    /// @return The claimed amount
-    function getClaimed(IIncentives incentives, DropKey memory key) internal view returns (uint128) {
+    /// @return The claimed amount, bounded by uint128
+    function getClaimed(IIncentives incentives, DropKey memory key) internal view returns (uint256) {
         DropState state = getDropState(incentives, key);
         return state.claimed();
     }

@@ -11,7 +11,10 @@ using {
     parse
 } for TwammPoolState global;
 
-function lastVirtualOrderExecutionTime(TwammPoolState state) pure returns (uint32 time) {
+/// @notice Extracts the last virtual order execution time from TWAMM pool state
+/// @param state The TWAMM pool state
+/// @return time The last virtual order execution time value, bounded by uint32
+function lastVirtualOrderExecutionTime(TwammPoolState state) pure returns (uint256 time) {
     assembly ("memory-safe") {
         time := and(state, 0xffffffff)
     }
@@ -23,19 +26,30 @@ function realLastVirtualOrderExecutionTime(TwammPoolState state) view returns (u
     }
 }
 
-function saleRateToken0(TwammPoolState state) pure returns (uint112 rate) {
+/// @notice Extracts the sale rate for token0 from TWAMM pool state
+/// @param state The TWAMM pool state
+/// @return rate The sale rate for token0 value, bounded by uint112
+function saleRateToken0(TwammPoolState state) pure returns (uint256 rate) {
     assembly ("memory-safe") {
         rate := shr(144, shl(112, state))
     }
 }
 
-function saleRateToken1(TwammPoolState state) pure returns (uint112 rate) {
+/// @notice Extracts the sale rate for token1 from TWAMM pool state
+/// @param state The TWAMM pool state
+/// @return rate The sale rate for token1 value, bounded by uint112
+function saleRateToken1(TwammPoolState state) pure returns (uint256 rate) {
     assembly ("memory-safe") {
         rate := shr(144, state)
     }
 }
 
-function parse(TwammPoolState state) pure returns (uint32 time, uint112 rate0, uint112 rate1) {
+/// @notice Parses all components from TWAMM pool state
+/// @param state The TWAMM pool state
+/// @return time The last virtual order execution time value, bounded by uint32
+/// @return rate0 The sale rate for token0 value, bounded by uint112
+/// @return rate1 The sale rate for token1 value, bounded by uint112
+function parse(TwammPoolState state) pure returns (uint256 time, uint256 rate0, uint256 rate1) {
     assembly ("memory-safe") {
         time := and(state, 0xffffffff)
         rate0 := shr(144, shl(112, state))

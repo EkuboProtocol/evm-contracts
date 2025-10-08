@@ -5,25 +5,39 @@ type OrderState is bytes32;
 
 using {lastUpdateTime, saleRate, amountSold, parse} for OrderState global;
 
-function lastUpdateTime(OrderState state) pure returns (uint32 time) {
+/// @notice Extracts the last update time from order state
+/// @param state The order state
+/// @return time The last update time value, bounded by uint32
+function lastUpdateTime(OrderState state) pure returns (uint256 time) {
     assembly ("memory-safe") {
         time := and(state, 0xffffffff)
     }
 }
 
-function saleRate(OrderState state) pure returns (uint112 rate) {
+/// @notice Extracts the sale rate from order state
+/// @param state The order state
+/// @return rate The sale rate value, bounded by uint112
+function saleRate(OrderState state) pure returns (uint256 rate) {
     assembly ("memory-safe") {
         rate := shr(144, shl(112, state))
     }
 }
 
-function amountSold(OrderState state) pure returns (uint112 amount) {
+/// @notice Extracts the amount sold from order state
+/// @param state The order state
+/// @return amount The amount sold value, bounded by uint112
+function amountSold(OrderState state) pure returns (uint256 amount) {
     assembly ("memory-safe") {
         amount := shr(144, state)
     }
 }
 
-function parse(OrderState state) pure returns (uint32 time, uint112 rate, uint112 amount) {
+/// @notice Parses all components from order state
+/// @param state The order state
+/// @return time The last update time value, bounded by uint32
+/// @return rate The sale rate value, bounded by uint112
+/// @return amount The amount sold value, bounded by uint112
+function parse(OrderState state) pure returns (uint256 time, uint256 rate, uint256 amount) {
     assembly ("memory-safe") {
         time := and(state, 0xffffffff)
         rate := shr(144, shl(112, state))

@@ -9,8 +9,8 @@ using {fee, isToken1, startTime, endTime} for OrderConfig global;
 
 /// @notice Extracts the fee from an order config
 /// @param config The order config
-/// @return r The fee
-function fee(OrderConfig config) pure returns (uint64 r) {
+/// @return r The fee value, bounded by uint64
+function fee(OrderConfig config) pure returns (uint256 r) {
     assembly ("memory-safe") {
         r := shr(192, config)
     }
@@ -27,8 +27,8 @@ function isToken1(OrderConfig config) pure returns (bool r) {
 
 /// @notice Extracts the start time from an order config
 /// @param config The order config
-/// @return r The start time
-function startTime(OrderConfig config) pure returns (uint64 r) {
+/// @return r The start time value, bounded by uint64
+function startTime(OrderConfig config) pure returns (uint256 r) {
     assembly ("memory-safe") {
         r := and(shr(64, config), 0xffffffffffffffff)
     }
@@ -36,8 +36,8 @@ function startTime(OrderConfig config) pure returns (uint64 r) {
 
 /// @notice Extracts the end time from an order config
 /// @param config The order config
-/// @return r The end time
-function endTime(OrderConfig config) pure returns (uint64 r) {
+/// @return r The end time value, bounded by uint64
+function endTime(OrderConfig config) pure returns (uint256 r) {
     assembly ("memory-safe") {
         r := and(config, 0xffffffffffffffff)
     }

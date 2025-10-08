@@ -204,7 +204,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         view
         returns (FeesPerLiquidity memory)
     {
-        return _getPoolFeesPerLiquidityInside(poolId, readPoolState(poolId).tick(), tickLower, tickUpper);
+        return _getPoolFeesPerLiquidityInside(poolId, int32(readPoolState(poolId).tick()), tickLower, tickUpper);
     }
 
     /// @inheritdoc ICore
@@ -227,7 +227,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         if (amount0 != 0 || amount1 != 0) {
             uint256 liquidity;
             {
-                uint128 _liquidity = readPoolState(poolId).liquidity();
+                uint256 _liquidity = readPoolState(poolId).liquidity();
                 assembly ("memory-safe") {
                     liquidity := _liquidity
                 }
@@ -270,7 +270,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     {
         StorageSlot tickInfoSlot = CoreStorageLayout.poolTicksSlot(poolId, tick);
 
-        (int128 currentLiquidityDelta, uint128 currentLiquidityNet) = TickInfo.wrap(tickInfoSlot.load()).parse();
+        (int256 currentLiquidityDelta_, uint256 currentLiquidityNet_) = TickInfo.wrap(tickInfoSlot.load()).parse();
+        int128 currentLiquidityDelta = int128(currentLiquidityDelta_);
+        uint128 currentLiquidityNet = uint128(currentLiquidityNet_);
         uint128 liquidityNetNext = addLiquidityDelta(currentLiquidityNet, liquidityDelta);
         // this is checked math
         int128 liquidityDeltaNext =
@@ -283,7 +285,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.tickSpacing());
+            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, uint32(poolConfig.tickSpacing()));
 
             (StorageSlot fplSlot0, StorageSlot fplSlot1) =
                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
@@ -360,7 +362,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         if (liquidityDelta != 0) {
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
-                (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
+                (tickToSqrtRatio(int32(positionId.tickLower())), tickToSqrtRatio(int32(positionId.tickUpper())));
 
             (delta0, delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
@@ -380,32 +382,32 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 if (liquidityNext == 0) {
                     // we need to fetch it before the tick fees per liquidity outside is deleted
                     feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                        poolId, state.tick(), positionId.tickLower(), positionId.tickUpper()
+                        poolId, int32(state.tick()), int32(positionId.tickLower()), int32(positionId.tickUpper())
                     );
                 }
 
-                _updateTick(poolId, positionId.tickLower(), poolKey.config, liquidityDelta, false);
-                _updateTick(poolId, positionId.tickUpper(), poolKey.config, liquidityDelta, true);
+                _updateTick(poolId, int32(positionId.tickLower()), poolKey.config, liquidityDelta, false);
+                _updateTick(poolId, int32(positionId.tickUpper()), poolKey.config, liquidityDelta, true);
 
                 if (liquidityNext != 0) {
                     feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                        poolId, state.tick(), positionId.tickLower(), positionId.tickUpper()
+                        poolId, int32(state.tick()), int32(positionId.tickLower()), int32(positionId.tickUpper())
                     );
                 }
 
                 if (state.tick() >= positionId.tickLower() && state.tick() < positionId.tickUpper()) {
                     state = createPoolState({
                         _sqrtRatio: state.sqrtRatio(),
-                        _tick: state.tick(),
-                        _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                        _tick: int32(state.tick()),
+                        _liquidity: uint128(addLiquidityDelta(uint128(state.liquidity()), liquidityDelta))
                     });
                     writePoolState(poolId, state);
                 }
             } else {
                 state = createPoolState({
                     _sqrtRatio: state.sqrtRatio(),
-                    _tick: state.tick(),
-                    _liquidity: addLiquidityDelta(state.liquidity(), liquidityDelta)
+                    _tick: int32(state.tick()),
+                    _liquidity: uint128(addLiquidityDelta(uint128(state.liquidity()), liquidityDelta))
                 });
                 writePoolState(poolId, state);
                 StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
@@ -469,7 +471,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
         } else {
             feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
-                poolId, readPoolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
+                poolId,
+                int32(readPoolState(poolId).tick()),
+                int32(positionId.tickLower()),
+                int32(positionId.tickUpper())
             );
         }
 
@@ -506,11 +511,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
-            int128 amountRemaining = params.amount();
+            int128 amountRemaining = int128(params.amount());
 
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
             if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
-                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
+                (SqrtRatio sqrtRatio, int256 tick_, uint256 liquidity_) = stateAfter.parse();
+                int32 tick = int32(tick_);
+                uint128 liquidity = uint128(liquidity_);
 
                 bool isToken1 = params.isToken1();
 
@@ -613,12 +620,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 );
 
                             if (isExactOut) {
-                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.config.fee());
+                                uint128 beforeFee =
+                                    amountBeforeFee(limitCalculatedAmountDelta, uint64(poolKey.config.fee()));
                                 amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
                                 calculatedAmount += beforeFee;
                                 feeAmount = beforeFee - limitCalculatedAmountDelta;
                             } else {
-                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.config.fee());
+                                uint128 beforeFee =
+                                    amountBeforeFee(limitSpecifiedAmountDelta, uint64(poolKey.config.fee()));
                                 amountRemaining -= SafeCastLib.toInt128(beforeFee);
                                 calculatedAmount += limitCalculatedAmountDelta;
                                 feeAmount = beforeFee - limitSpecifiedAmountDelta;
@@ -640,7 +649,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
 
                             if (isExactOut) {
-                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());
+                                uint128 includingFee =
+                                    amountBeforeFee(calculatedAmountWithoutFee, uint64(poolKey.config.fee()));
                                 calculatedAmount += includingFee;
                                 feeAmount = includingFee - calculatedAmountWithoutFee;
                             } else {

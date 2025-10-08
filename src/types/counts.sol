@@ -5,25 +5,37 @@ type Counts is bytes32;
 
 using {index, count, capacity, lastTimestamp} for Counts global;
 
-function index(Counts counts) pure returns (uint32 i) {
+/// @notice Extracts the index from counts
+/// @param counts The counts
+/// @return i The index value, bounded by uint32
+function index(Counts counts) pure returns (uint256 i) {
     assembly ("memory-safe") {
         i := and(counts, 0xFFFFFFFF)
     }
 }
 
-function count(Counts counts) pure returns (uint32 c) {
+/// @notice Extracts the count from counts
+/// @param counts The counts
+/// @return c The count value, bounded by uint32
+function count(Counts counts) pure returns (uint256 c) {
     assembly ("memory-safe") {
         c := shr(224, shl(192, counts))
     }
 }
 
-function capacity(Counts counts) pure returns (uint32 c) {
+/// @notice Extracts the capacity from counts
+/// @param counts The counts
+/// @return c The capacity value, bounded by uint32
+function capacity(Counts counts) pure returns (uint256 c) {
     assembly ("memory-safe") {
         c := shr(224, shl(160, counts))
     }
 }
 
-function lastTimestamp(Counts counts) pure returns (uint32 t) {
+/// @notice Extracts the last timestamp from counts
+/// @param counts The counts
+/// @return t The last timestamp value, bounded by uint32
+function lastTimestamp(Counts counts) pure returns (uint256 t) {
     assembly ("memory-safe") {
         t := shr(224, shl(128, counts))
     }

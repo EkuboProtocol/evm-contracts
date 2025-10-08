@@ -14,14 +14,20 @@ function salt(PositionId positionId) pure returns (bytes24 v) {
     }
 }
 
-function tickLower(PositionId positionId) pure returns (int32 v) {
+/// @notice Extracts the lower tick from a position ID
+/// @param positionId The position ID
+/// @return v The lower tick value, bounded by int32
+function tickLower(PositionId positionId) pure returns (int256 v) {
     assembly ("memory-safe") {
         // shift down, then signextend to 32 bits
         v := signextend(3, shr(32, positionId))
     }
 }
 
-function tickUpper(PositionId positionId) pure returns (int32 v) {
+/// @notice Extracts the upper tick from a position ID
+/// @param positionId The position ID
+/// @return v The upper tick value, bounded by int32
+function tickUpper(PositionId positionId) pure returns (int256 v) {
     assembly ("memory-safe") {
         // lowest 4 bytes, then signextend to 32 bits
         v := signextend(3, positionId)

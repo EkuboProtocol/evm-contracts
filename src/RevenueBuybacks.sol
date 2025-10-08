@@ -102,7 +102,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
             bool isEth = token == NATIVE_TOKEN_ADDRESS;
             uint256 amountToSpend = isEth ? address(this).balance : SafeTransferLib.balanceOf(token, address(this));
 
-            uint32 timeRemaining = state.lastEndTime() - uint32(block.timestamp);
+            uint32 timeRemaining = uint32(state.lastEndTime()) - uint32(block.timestamp);
             // if the fee changed, or the amount of time exceeds the min order duration
             // note the time remaining can underflow if the last order has ended. in this case time remaining will be greater than min order duration,
             // but also greater than last order duration, so it will not be re-used.
@@ -117,12 +117,12 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
                     uint64(nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration()) - 1));
 
                 state = createBuybacksState({
-                    _targetOrderDuration: state.targetOrderDuration(),
-                    _minOrderDuration: state.minOrderDuration(),
-                    _fee: state.fee(),
+                    _targetOrderDuration: uint32(state.targetOrderDuration()),
+                    _minOrderDuration: uint32(state.minOrderDuration()),
+                    _fee: uint64(state.fee()),
                     _lastEndTime: uint32(endTime),
                     _lastOrderDuration: uint32(endTime - block.timestamp),
-                    _lastFee: state.fee()
+                    _lastFee: uint64(state.fee())
                 });
 
                 assembly ("memory-safe") {
@@ -132,7 +132,10 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
 
             if (amountToSpend != 0) {
                 saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
-                    NFT_ID, _createOrderKey(token, state.fee(), 0, endTime), uint128(amountToSpend), type(uint112).max
+                    NFT_ID,
+                    _createOrderKey(token, uint64(state.fee()), 0, endTime),
+                    uint128(amountToSpend),
+                    type(uint112).max
                 );
             }
         }
@@ -161,9 +164,9 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
             _targetOrderDuration: targetOrderDuration,
             _minOrderDuration: minOrderDuration,
             _fee: fee,
-            _lastEndTime: state.lastEndTime(),
-            _lastOrderDuration: state.lastOrderDuration(),
-            _lastFee: state.lastFee()
+            _lastEndTime: uint32(state.lastEndTime()),
+            _lastOrderDuration: uint32(state.lastOrderDuration()),
+            _lastFee: uint64(state.lastFee())
         });
         assembly ("memory-safe") {
             sstore(token, state)

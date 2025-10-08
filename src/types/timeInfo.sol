@@ -10,25 +10,39 @@ type TimeInfo is bytes32;
 
 using {numOrders, saleRateDeltaToken0, saleRateDeltaToken1, parse} for TimeInfo global;
 
-function numOrders(TimeInfo info) pure returns (uint32 n) {
+/// @notice Extracts the number of orders from time info
+/// @param info The time info
+/// @return n The number of orders value, bounded by uint32
+function numOrders(TimeInfo info) pure returns (uint256 n) {
     assembly ("memory-safe") {
         n := shr(224, info)
     }
 }
 
-function saleRateDeltaToken0(TimeInfo info) pure returns (int112 delta) {
+/// @notice Extracts the sale rate delta for token0 from time info
+/// @param info The time info
+/// @return delta The sale rate delta for token0 value, bounded by int112
+function saleRateDeltaToken0(TimeInfo info) pure returns (int256 delta) {
     assembly ("memory-safe") {
         delta := signextend(13, shr(112, info))
     }
 }
 
-function saleRateDeltaToken1(TimeInfo info) pure returns (int112 delta) {
+/// @notice Extracts the sale rate delta for token1 from time info
+/// @param info The time info
+/// @return delta The sale rate delta for token1 value, bounded by int112
+function saleRateDeltaToken1(TimeInfo info) pure returns (int256 delta) {
     assembly ("memory-safe") {
         delta := signextend(13, info)
     }
 }
 
-function parse(TimeInfo info) pure returns (uint32 n, int112 delta0, int112 delta1) {
+/// @notice Parses all components from time info
+/// @param info The time info
+/// @return n The number of orders value, bounded by uint32
+/// @return delta0 The sale rate delta for token0 value, bounded by int112
+/// @return delta1 The sale rate delta for token1 value, bounded by int112
+function parse(TimeInfo info) pure returns (uint256 n, int256 delta0, int256 delta1) {
     assembly ("memory-safe") {
         n := shr(224, info)
         delta0 := signextend(13, shr(112, info))

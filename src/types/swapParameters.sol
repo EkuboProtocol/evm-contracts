@@ -21,7 +21,10 @@ function sqrtRatioLimit(SwapParameters params) pure returns (SqrtRatio r) {
     }
 }
 
-function amount(SwapParameters params) pure returns (int128 a) {
+/// @notice Extracts the amount from swap parameters
+/// @param params The swap parameters
+/// @return a The amount value, bounded by int128
+function amount(SwapParameters params) pure returns (int256 a) {
     assembly ("memory-safe") {
         a := signextend(15, shr(32, params))
     }

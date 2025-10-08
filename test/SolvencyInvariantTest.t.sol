@@ -83,7 +83,8 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     function createNewPool(uint64 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
-        tickSpacing = uint32(bound(tickSpacing, 0, MAX_TICK_SPACING));
+        // Concentrated pools need tick spacing >= 1 to avoid division by zero
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
             address(token0),

@@ -37,20 +37,25 @@ function createPositionId(bytes24 _salt, int32 _tickLower, int32 _tickUpper) pur
 
 /// @notice Thrown when the order of the position bounds is invalid, i.e. tickLower >= tickUpper
 error BoundsOrder();
-/// @notice Thrown when the bounds of the position are greater than or less than the min/max tick
+/// @notice Thrown when the bounds of the position are outside the pool's min/max tick range
 error MinMaxBounds();
-/// @notice Thrown when the ticks of the bounds do not align with tick spacing, i.e. tick{Lower,Upper} % tickSpacing != 0
+/// @notice Thrown when the ticks of the bounds do not align with tick spacing for concentrated pools
 error BoundsTickSpacing();
-/// @notice Thrown if the pool is full range only and the position is not full range
-error FullRangeOnlyPool();
 
 function validateBounds(PositionId positionId, PoolConfig config) pure {
-    if (config.isFullRange()) {
-        if (positionId.tickLower() != MIN_TICK || positionId.tickUpper() != MAX_TICK) revert FullRangeOnlyPool();
-    } else {
-        if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();
-        if (positionId.tickLower() < MIN_TICK || positionId.tickUpper() > MAX_TICK) revert MinMaxBounds();
+    int32 _tickLower = positionId.tickLower();
+    int32 _tickUpper = positionId.tickUpper();
+
+    if (_tickLower >= _tickUpper) revert BoundsOrder();
+
+    int32 _minTick = config.minTick();
+    int32 _maxTick = config.maxTick();
+
+    if (_tickLower < _minTick || _tickUpper > _maxTick) revert MinMaxBounds();
+
+    // For concentrated liquidity pools, check tick spacing alignment
+    if (config.isConcentrated()) {
         int32 spacing = int32(config.tickSpacing());
-        if (positionId.tickLower() % spacing != 0 || positionId.tickUpper() % spacing != 0) revert BoundsTickSpacing();
+        if (_tickLower % spacing != 0 || _tickUpper % spacing != 0) revert BoundsTickSpacing();
     }
 }

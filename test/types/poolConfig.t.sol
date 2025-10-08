@@ -2,11 +2,18 @@
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {PoolConfig, createFullRangePoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {
+    PoolConfig,
+    createFullRangePoolConfig,
+    createPoolConfig,
+    createStableswapPoolConfig
+} from "../../src/types/poolConfig.sol";
 import {MAX_TICK} from "../../src/math/constants.sol";
 
 contract PoolConfigTest is Test {
-    function test_conversionToAndFrom(PoolConfig config) public pure {
+    function test_conversionToAndFrom_concentrated(PoolConfig config) public pure {
+        // Only test concentrated pools (bit 31 = 1)
+        vm.assume(config.isConcentrated());
         assertEq(
             PoolConfig.unwrap(
                 createPoolConfig({
@@ -20,11 +27,15 @@ contract PoolConfigTest is Test {
     }
 
     function test_conversionFromAndTo(uint64 fee, uint32 tickSpacing, address extension) public pure {
+        // Mask tick spacing to 31 bits since bit 31 is used for discriminator
+        tickSpacing = tickSpacing & 0x7fffffff;
+
         PoolConfig config = createPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
         assertEq(config.fee(), fee);
         assertEq(config.tickSpacing(), tickSpacing);
         assertEq(config.extension(), extension);
-        assertEq(config.isFullRange(), tickSpacing == 0, "isFullRange");
+        assertTrue(config.isConcentrated(), "should be concentrated");
+        assertFalse(config.isFullRange(), "concentrated pools are not full range");
     }
 
     function test_createFullRangePoolConfig(uint64 fee, address extension) public pure {
@@ -49,10 +60,39 @@ contract PoolConfigTest is Test {
             extension := extensionDirty
         }
 
+        // Mask tick spacing to 31 bits since bit 31 is used for discriminator
+        uint32 expectedTickSpacing = tickSpacing & 0x7fffffff;
+
         PoolConfig config = createPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
         assertEq(config.fee(), fee, "fee");
-        assertEq(config.tickSpacing(), tickSpacing, "tickSpacing");
+        assertEq(config.tickSpacing(), expectedTickSpacing, "tickSpacing");
         assertEq(config.extension(), extension, "extension");
+    }
+
+    function test_stableswapPoolConfig(uint64 fee, uint8 amplificationFactor, int32 centerTick, address extension)
+        public
+        pure
+    {
+        // Limit amplification to valid range
+        amplificationFactor = uint8(bound(amplificationFactor, 0, 26));
+        // Limit center tick to representable range (24 bits signed, scaled by 16)
+        centerTick = int32(bound(centerTick, -8388608 * 16, 8388607 * 16));
+        // Round to multiple of 16
+        centerTick = (centerTick / 16) * 16;
+
+        PoolConfig config = createStableswapPoolConfig({
+            _fee: fee,
+            _amplificationFactor: amplificationFactor,
+            _centerTick: centerTick,
+            _extension: extension
+        });
+
+        assertEq(config.fee(), fee, "fee");
+        assertEq(config.amplificationFactor(), amplificationFactor, "amplificationFactor");
+        assertEq(config.centerTick(), centerTick, "centerTick");
+        assertEq(config.extension(), extension, "extension");
+        assertTrue(config.isStableswap(), "should be stableswap");
+        assertFalse(config.isConcentrated(), "should not be concentrated");
     }
 
     function test_maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) public pure {

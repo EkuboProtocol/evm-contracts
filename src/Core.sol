@@ -375,7 +375,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             FeesPerLiquidity memory feesPerLiquidityInside;
 
-            if (!poolKey.config.isFullRange()) {
+            if (poolKey.config.isConcentrated()) {
+                // Concentrated liquidity pools use tick-based accounting
+
                 // the position is fully withdrawn
                 if (liquidityNext == 0) {
                     // we need to fetch it before the tick fees per liquidity outside is deleted
@@ -402,6 +404,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     writePoolState(poolId, state);
                 }
             } else {
+                // Stableswap pools: all liquidity is always active
                 state = createPoolState({
                     _sqrtRatio: state.sqrtRatio(),
                     _tick: state.tick(),
@@ -463,11 +466,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside;
-        if (poolKey.config.isFullRange()) {
+        if (poolKey.config.isStableswap()) {
+            // Stableswap pools: use global fees per liquidity
             StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
             feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
         } else {
+            // Concentrated pools: calculate fees per liquidity inside the position bounds
             feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
                 poolId, readPoolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
             );
@@ -544,7 +549,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
-                    if (!poolKey.config.isFullRange()) {
+                    if (poolKey.config.isConcentrated()) {
+                        // Concentrated liquidity pools use tick crossing
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
@@ -561,9 +567,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     } else {
-                        // we never cross ticks in the full range version
-                        (nextTick, nextTickSqrtRatio) =
-                            increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
+                        // Stableswap pools: swap to the pool's min/max tick boundaries
+                        (nextTick, nextTickSqrtRatio) = increasing
+                            ? (poolKey.config.maxTick(), tickToSqrtRatio(poolKey.config.maxTick()))
+                            : (poolKey.config.minTick(), tickToSqrtRatio(poolKey.config.minTick()));
                     }
 
                     SqrtRatio limitedNextSqrtRatio =

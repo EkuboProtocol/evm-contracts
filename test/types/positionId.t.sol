@@ -3,12 +3,7 @@ pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {
-    PositionId,
-    createPositionId,
-    BoundsOrder,
-    MinMaxBounds,
-    BoundsTickSpacing,
-    FullRangeOnlyPool
+    PositionId, createPositionId, BoundsOrder, MinMaxBounds, BoundsTickSpacing
 } from "../../src/types/positionId.sol";
 import {PoolConfig, createFullRangePoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
@@ -29,7 +24,7 @@ contract PositionIdTest is Test {
             createFullRangePoolConfig(0, address(0))
         );
 
-        vm.expectRevert(FullRangeOnlyPool.selector);
+        // Full range pools no longer require positions to be exactly MIN_TICK to MAX_TICK
         createPositionId({_salt: bytes24(0), _tickLower: -2, _tickUpper: 2}).validateBounds(
             createFullRangePoolConfig(0, address(0))
         );

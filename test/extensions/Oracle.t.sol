@@ -20,7 +20,6 @@ import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
-import {FullRangeOnlyPool} from "../../src/types/positionId.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -544,12 +543,6 @@ contract OracleTest is BaseOracleTest {
 
         vm.expectRevert(IOracle.FeeMustBeZero.selector);
         createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createPoolConfig(1, 0, address(oracle)));
-    }
-
-    function test_createPosition_failsForPositionsNotWideEnough() public {
-        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
-        vm.expectRevert(FullRangeOnlyPool.selector);
-        positions.mintAndDeposit{value: 100}(poolKey, -int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING), 100, 100, 0);
     }
 
     function test_createPosition(uint256 startTime) public {

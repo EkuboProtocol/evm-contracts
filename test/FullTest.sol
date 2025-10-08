@@ -201,7 +201,7 @@ abstract contract FullTest is Test {
     }
 
     function createFullRangePool(int32 tick, uint64 fee) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(tick, fee, 0, CallPoints(false, false, false, false, false, false, false, false));
+        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, address(0)));
     }
 
     function createFullRangePool(int32 tick, uint64 fee, address extension) internal returns (PoolKey memory poolKey) {

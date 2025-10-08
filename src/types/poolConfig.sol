@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {MAX_TICK} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @notice Pool configuration packed into a single bytes32
@@ -41,7 +41,9 @@ function extension(PoolConfig config) pure returns (address r) {
 /// @param config The pool config
 /// @return r True if the pool uses full-range-only tick spacing
 function isFullRange(PoolConfig config) pure returns (bool r) {
-    r = config.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING;
+    assembly ("memory-safe") {
+        r := iszero(and(config, 0xffffffff))
+    }
 }
 
 /// @notice Creates a PoolConfig from individual components
@@ -52,14 +54,18 @@ function isFullRange(PoolConfig config) pure returns (bool r) {
 function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) pure returns (PoolConfig c) {
     assembly ("memory-safe") {
         // Mask inputs to ensure only relevant bits are used
-        c :=
-            add(
-                add(
-                    shl(96, and(_extension, 0xffffffffffffffffffffffffffffffffffffffff)),
-                    shl(32, and(_fee, 0xffffffffffffffff))
-                ),
-                and(_tickSpacing, 0xffffffff)
-            )
+        c := or(or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff))), and(_tickSpacing, 0xffffffff))
+    }
+}
+
+/// @notice Creates a PoolConfig for a pool that is full range
+/// @param _fee The fee for the pool
+/// @param _extension The extension address for the pool
+/// @return c The packed configuration
+function createFullRangePoolConfig(uint64 _fee, address _extension) pure returns (PoolConfig c) {
+    assembly ("memory-safe") {
+        // Mask inputs to ensure only relevant bits are used
+        c := or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff)))
     }
 }
 

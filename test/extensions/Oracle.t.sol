@@ -2,17 +2,11 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createPoolConfig} from "../../src/types/poolConfig.sol";
+import {createPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {createPositionId} from "../../src/types/positionId.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    MAX_TICK_SPACING,
-    FULL_RANGE_ONLY_TICK_SPACING,
-    NATIVE_TOKEN_ADDRESS
-} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";
@@ -73,12 +67,11 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function createOraclePool(address quoteToken, int32 tick) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
+        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, createFullRangePoolConfig(0, address(oracle)));
     }
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128 liquidity) {
-        PoolKey memory pk =
-            PoolKey(NATIVE_TOKEN_ADDRESS, token, createPoolConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
+        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, createFullRangePoolConfig(0, address(oracle)));
         {
             (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, MIN_TICK, MAX_TICK);
         }
@@ -544,13 +537,13 @@ contract OracleTest is BaseOracleTest {
 
     function test_createPool_beforeInitializePool_reverts() public {
         vm.expectRevert(IOracle.PairsWithNativeTokenOnly.selector);
-        createPool(address(token0), address(token1), 0, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
+        createPool(address(token0), address(token1), 0, createFullRangePoolConfig(0, address(oracle)));
 
         vm.expectRevert(IOracle.TickSpacingMustBeMaximum.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, 100, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createPoolConfig(0, 100, address(oracle)));
 
         vm.expectRevert(IOracle.FeeMustBeZero.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createPoolConfig(1, 0, address(oracle)));
     }
 
     function test_createPosition_failsForPositionsNotWideEnough() public {

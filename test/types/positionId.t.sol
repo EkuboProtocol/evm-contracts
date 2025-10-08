@@ -10,8 +10,8 @@ import {
     BoundsTickSpacing,
     FullRangeOnlyPool
 } from "../../src/types/positionId.sol";
-import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING, MAX_TICK_SPACING} from "../../src/math/constants.sol";
+import {PoolConfig, createFullRangePoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PositionIdTest is Test {
     /// forge-config: default.allow_internal_expect_revert = true
@@ -26,12 +26,12 @@ contract PositionIdTest is Test {
             createPoolConfig(0, MAX_TICK_SPACING, address(0))
         );
         createPositionId({_salt: bytes24(0), _tickLower: MIN_TICK, _tickUpper: MAX_TICK}).validateBounds(
-            createPoolConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(0))
+            createFullRangePoolConfig(0, address(0))
         );
 
         vm.expectRevert(FullRangeOnlyPool.selector);
         createPositionId({_salt: bytes24(0), _tickLower: -2, _tickUpper: 2}).validateBounds(
-            createPoolConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(0))
+            createFullRangePoolConfig(0, address(0))
         );
 
         vm.expectRevert(BoundsOrder.selector);

@@ -2,15 +2,11 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {
-    createConcentratedPoolConfig,
-    createStableswapPoolConfig,
-    createFullRangePoolConfig
-} from "../../src/types/poolConfig.sol";
+import {createStableswapPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {createPositionId} from "../../src/types/positionId.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";

@@ -10,7 +10,7 @@ import {
     BoundsTickSpacing,
     StableswapMustBeFullRange
 } from "../../src/types/positionId.sol";
-import {PoolConfig, createFullRangePoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
+import {createFullRangePoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PositionIdTest is Test {

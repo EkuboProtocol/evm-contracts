@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, MAX_TICK_MAGNITUDE} from "../math/constants.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
 
 /// @notice Pool configuration packed into a single bytes32
 /// @dev Contains extension address (20 bytes), fee (8 bytes), and pool type config (4 bytes)

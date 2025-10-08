@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PoolConfig, createFullRangePoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.sol";

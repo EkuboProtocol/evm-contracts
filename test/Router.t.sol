@@ -833,4 +833,100 @@ contract RouterTest is FullTest {
         assertEq(tick, MIN_TICK - 1);
         assertEq(liquidityAfter, 0);
     }
+
+    function test_stableswap_amplification_26_token0_in() public {
+        // Create stableswap pool with high amplification (26)
+        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With high amplification (26), the pool behaves more like a constant sum
+        // so we get very close to 1:1 exchange rate with minimal slippage
+        // Slippage: 0.00005% (0.5 basis points)
+        assertEq(delta0, 1000000000000000);
+        assertEq(delta1, -999999999500000);
+    }
+
+    function test_stableswap_amplification_26_token1_in() public {
+        // Create stableswap pool with high amplification (26)
+        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With high amplification (26), the pool behaves more like a constant sum
+        // so we get very close to 1:1 exchange rate with minimal slippage
+        // Slippage: 0.00009% (0.9 basis points)
+        assertEq(delta0, -999999999138796);
+        assertEq(delta1, 1000000000000000);
+    }
+
+    function test_stableswap_amplification_1_token0_in() public {
+        // Create stableswap pool with low amplification (1)
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
+        // so we get more slippage compared to amplification 26
+        // Slippage: 0.1% (10 basis points) - 200x more than amplification 26
+        assertEq(delta0, 1000000000000000);
+        assertEq(delta1, -999000999001231);
+    }
+
+    function test_stableswap_amplification_1_token1_in() public {
+        // Create stableswap pool with low amplification (1)
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
+        // so we get more slippage compared to amplification 26
+        // Slippage: 0.1% (10 basis points) - 200x more than amplification 26
+        assertEq(delta0, -999000999001231);
+        assertEq(delta1, 1000000000000000);
+    }
 }

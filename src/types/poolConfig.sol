@@ -14,7 +14,6 @@ using {
     extension,
     isFullRange,
     validate,
-    mustLoadFees,
     maxLiquidityPerTickConcentratedLiquidity
 } for PoolConfig global;
 
@@ -96,18 +95,6 @@ function maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) pure return
     unchecked {
         // maxLiquidity = type(uint128).max / numTicks
         maxLiquidity = uint128(FixedPointMathLib.rawDiv(type(uint128).max, numTicks));
-    }
-}
-
-/// @notice Determines if fees must be loaded for swaps in this pool
-/// @dev Returns true if either tick spacing or fee are nonzero
-/// @param config The pool config
-/// @return r True if fees must be loaded on swap
-function mustLoadFees(PoolConfig config) pure returns (bool r) {
-    assembly ("memory-safe") {
-        // only if either of tick spacing and fee are nonzero
-        // if _both_ are zero, then we know we do not need to load fees for swaps
-        r := iszero(iszero(and(config, 0xffffffffffffffffffffffff)))
     }
 }
 

@@ -534,9 +534,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 uint256 calculatedAmount;
 
-                // the slot where inputTokenFeesPerLiquidity is stored, reused later
-                StorageSlot inputTokenFeesPerLiquiditySlot;
-
                 // fees per liquidity only for the input token
                 uint256 inputTokenFeesPerLiquidity;
 
@@ -574,7 +571,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             (nextTick, nextTickSqrtRatio) =
                                 increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                         } else {
-                            // Stableswap pools: check if we're in range to determine liquidity
                             (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
 
                             bool inRange;
@@ -694,9 +690,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         if (deltaFpl != 0) {
                             if (feesAccessed == 0) {
                                 // this loads only the input token fees per liquidity
-                                inputTokenFeesPerLiquiditySlot =
-                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing));
-                                inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
+                                inputTokenFeesPerLiquidity = uint256(
+                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
+                                        .load()
+                                );
                             }
 
                             inputTokenFeesPerLiquidity += deltaFpl;
@@ -724,9 +721,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
 
                             if (feesAccessed == 0) {
-                                inputTokenFeesPerLiquiditySlot =
-                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing));
-                                inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
+                                inputTokenFeesPerLiquidity = uint256(
+                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
+                                        .load()
+                                );
                                 feesAccessed = 1;
                             }
 
@@ -735,9 +733,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             // load the output token fees per liquidity
                             uint256 globalFeesPerLiquidity1 = uint256(
-                                inputTokenFeesPerLiquiditySlot.sub(LibBit.rawToUint(increasing)).add(
-                                    LibBit.rawToUint(!increasing)
-                                ).load()
+                                CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(!increasing))
+                                    .load()
                             );
 
                             // if increasing, flip the values
@@ -781,7 +778,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (feesAccessed == 2) {
                     // this stores only the input token fees per liquidity
-                    inputTokenFeesPerLiquiditySlot.store(bytes32(inputTokenFeesPerLiquidity));
+                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing)).store(
+                        bytes32(inputTokenFeesPerLiquidity)
+                    );
                 }
 
                 _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);

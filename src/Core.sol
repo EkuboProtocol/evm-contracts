@@ -376,8 +376,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             FeesPerLiquidity memory feesPerLiquidityInside;
 
             if (poolKey.config.isConcentrated()) {
-                // Concentrated liquidity pools use tick-based accounting
-
                 // the position is fully withdrawn
                 if (liquidityNext == 0) {
                     // we need to fetch it before the tick fees per liquidity outside is deleted
@@ -404,7 +402,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     writePoolState(poolId, state);
                 }
             } else {
-                // Stableswap pools: all liquidity is always active
+                // we store the active liquidity in the liquidity slot for stableswap pools
                 state = createPoolState({
                     _sqrtRatio: state.sqrtRatio(),
                     _tick: state.tick(),
@@ -590,6 +588,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                     (nextTick, nextTickSqrtRatio) =
                                         increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (upper, tickToSqrtRatio(upper));
                                 }
+                                stepLiquidity = 0;
                             }
                         }
                     }

@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createFullRangePoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.sol";
@@ -679,6 +679,53 @@ contract RouterTest is FullTest {
             calculatedAmountThreshold: type(int256).min
         });
         vm.snapshotGasLastCall("swap 100 wei of token for eth full range");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_eth_for_token_stableswap_pool_gas() public {
+        PoolConfig config = createStableswapPoolConfig(1 << 63, 4, 0, address(0));
+        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1000, 1000);
+
+        // do the swap one time first to set the fees slot
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        coolAllContracts();
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+        vm.snapshotGasLastCall("swap 100 wei of eth for token stableswap");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_token_for_eth_stableswap_pool_gas() public {
+        PoolConfig config = createStableswapPoolConfig(1 << 63, 4, 0, address(0));
+        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1000, 1000);
+
+        token1.approve(address(router), type(uint256).max);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        coolAllContracts();
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+        vm.snapshotGasLastCall("swap 100 wei of token for eth stableswap");
     }
 
     function test_swap_full_range_to_max_price() public {

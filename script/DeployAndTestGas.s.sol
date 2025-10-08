@@ -34,7 +34,12 @@ import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol
 import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createConcentratedPoolConfig, createFullRangePoolConfig} from "../src/types/poolConfig.sol";
+import {
+    createConcentratedPoolConfig,
+    createFullRangePoolConfig,
+    createStableswapPoolConfig,
+    stableswapActiveLiquidityTickRange
+} from "../src/types/poolConfig.sol";
 import {createSwapParameters} from "../src/types/swapParameters.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -220,6 +225,24 @@ contract DeployAndTestGas is Script {
         );
         console2.log("Liquidity added to ETH/token0 Oracle pool");
 
+        // 15. Create token0/token1 stableswap pool with amplification 13
+        console2.log("Creating token0/token1 stableswap pool (amplification 13)...");
+        PoolKey memory stableswapPool = PoolKey({
+            token0: sortedToken0,
+            token1: sortedToken1,
+            config: createStableswapPoolConfig(1 << 62, 13, 0, address(0)) // 25% fee, amplification 13, centered at tick 0
+        });
+        core.initializePool(stableswapPool, 0);
+        console2.log("Stableswap pool initialized");
+
+        // 16. Add liquidity to stableswap pool
+        console2.log("Adding liquidity to stableswap pool...");
+        (int32 stableLower, int32 stableUpper) = stableswapActiveLiquidityTickRange(stableswapPool.config);
+        positions.mintAndDepositWithSalt(
+            bytes32(uint256(3)), stableswapPool, stableLower, stableUpper, TOKEN_AMOUNT, TOKEN_AMOUNT, 0
+        );
+        console2.log("Liquidity added to stableswap pool");
+
         console2.log("\n=== Performing Swaps ===");
 
         // 15. Swap ETH for token0
@@ -296,7 +319,36 @@ contract DeployAndTestGas is Script {
         );
         console2.log("Swap 3 - delta0:", uint128(delta0_3), "delta1:", uint128(-delta1_3));
 
-        // 20. Multiple swaps to initialize all slots
+        // 20. Swap token0 for token1 in stableswap pool
+        console2.log("Swapping token0 for token1 in stableswap pool...");
+        uint128 stableSwapAmount = TOKEN_AMOUNT / 100; // 1% of liquidity
+        (int128 delta0_stable, int128 delta1_stable) = router.swap(
+            stableswapPool,
+            createSwapParameters({
+                _isToken1: isToken1Swap,
+                _amount: int128(stableSwapAmount),
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
+            type(int256).min
+        );
+        console2.log("Stableswap - delta0:", uint128(delta0_stable), "delta1:", uint128(-delta1_stable));
+
+        // 21. Swap token1 for token0 in stableswap pool
+        console2.log("Swapping token1 for token0 in stableswap pool...");
+        (int128 delta0_stable_back, int128 delta1_stable_back) = router.swap(
+            stableswapPool,
+            createSwapParameters({
+                _isToken1: !isToken1Swap,
+                _amount: int128(stableSwapAmount),
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
+            type(int256).min
+        );
+        console2.log("Stableswap back - delta0:", uint128(-delta0_stable_back), "delta1:", uint128(delta1_stable_back));
+
+        // 22. Multiple swaps to initialize all slots
         console2.log("Performing multiple small swaps to initialize slots...");
         for (uint256 i = 0; i < 5; i++) {
             uint128 smallSwapAmount = SWAP_AMOUNT / 10;

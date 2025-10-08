@@ -8,7 +8,7 @@ import {
     createPoolConfig,
     createStableswapPoolConfig
 } from "../../src/types/poolConfig.sol";
-import {MAX_TICK} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 
 contract PoolConfigTest is Test {
     function test_conversionToAndFrom_concentrated(PoolConfig config) public pure {
@@ -42,6 +42,11 @@ contract PoolConfigTest is Test {
         PoolConfig config = createFullRangePoolConfig(fee, extension);
         assertEq(config.fee(), fee);
         assertEq(config.tickSpacing(), 0);
+        assertEq(config.stableswapAmplificationFactor(), 0);
+        assertEq(config.stableswapCenterTick(), 0);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        assertEq(lower, MIN_TICK);
+        assertEq(upper, MAX_TICK);
         assertEq(config.extension(), extension);
         assertTrue(config.isFullRange(), "isFullRange");
     }
@@ -69,27 +74,35 @@ contract PoolConfigTest is Test {
         assertEq(config.extension(), extension, "extension");
     }
 
-    function test_stableswapPoolConfig(uint64 fee, uint8 amplificationFactor, int32 centerTick, address extension)
-        public
-        pure
-    {
+    function test_stableswapPoolConfig(
+        uint64 fee,
+        uint8 stableswapAmplificationFactor,
+        int32 stableswapCenterTick,
+        address extension
+    ) public pure {
         // Limit amplification to valid range
-        amplificationFactor = uint8(bound(amplificationFactor, 0, 26));
+        stableswapAmplificationFactor = uint8(bound(stableswapAmplificationFactor, 0, 26));
         // Limit center tick to representable range (24 bits signed, scaled by 16)
-        centerTick = int32(bound(centerTick, -8388608 * 16, 8388607 * 16));
+        stableswapCenterTick = int32(bound(stableswapCenterTick, MIN_TICK, MAX_TICK));
         // Round to multiple of 16
-        centerTick = (centerTick / 16) * 16;
+        stableswapCenterTick = (stableswapCenterTick / 16) * 16;
 
         PoolConfig config = createStableswapPoolConfig({
             _fee: fee,
-            _amplificationFactor: amplificationFactor,
-            _centerTick: centerTick,
+            _stableswapAmplificationFactor: stableswapAmplificationFactor,
+            _stableswapCenterTick: stableswapCenterTick,
             _extension: extension
         });
 
         assertEq(config.fee(), fee, "fee");
-        assertEq(config.amplificationFactor(), amplificationFactor, "amplificationFactor");
-        assertEq(config.centerTick(), centerTick, "centerTick");
+        assertEq(config.stableswapAmplificationFactor(), stableswapAmplificationFactor, "stableswapAmplificationFactor");
+        assertEq(config.stableswapCenterTick(), stableswapCenterTick, "stableswapCenterTick");
+
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        assertGe(lower, MIN_TICK, "lower");
+        assertLe(upper, MAX_TICK, "upper");
+        assertGt(upper, lower, "upper>lower");
+
         assertEq(config.extension(), extension, "extension");
         assertTrue(config.isStableswap(), "should be stableswap");
         assertFalse(config.isConcentrated(), "should not be concentrated");

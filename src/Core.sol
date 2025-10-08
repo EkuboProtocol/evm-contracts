@@ -346,7 +346,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         payable
         returns (int128 delta0, int128 delta1)
     {
-        positionId.validateBounds(poolKey.config);
+        positionId.validate(poolKey.config);
 
         Locker locker = _requireLocker();
 
@@ -566,23 +566,29 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     } else {
-                        // Stableswap pools: check if we're in range to determine liquidity
-                        int32 minTickConfig = poolKey.config.minTick();
-                        int32 maxTickConfig = poolKey.config.maxTick();
-
-                        // If current tick is outside the pool's range, liquidity is zero for this step
-                        if (tick < minTickConfig || tick > maxTickConfig) {
-                            stepLiquidity = 0;
-                        }
-
-                        // Use global bounds when outside range to allow swapping through zero liquidity
-                        // Use config bounds when inside range
-                        if (increasing) {
-                            nextTick = (tick > maxTickConfig) ? MAX_TICK : maxTickConfig;
-                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                        if (poolKey.config.isFullRange()) {
+                            (nextTick, nextTickSqrtRatio) =
+                                increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                         } else {
-                            nextTick = (tick < minTickConfig) ? MIN_TICK : minTickConfig;
-                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                            // Stableswap pools: check if we're in range to determine liquidity
+                            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+
+                            bool inRange;
+                            assembly ("memory-safe") {
+                                inRange := and(iszero(sgt(tick, upper)), iszero(slt(tick, lower)))
+                            }
+                            if (inRange) {
+                                nextTick = increasing ? upper : lower;
+                                nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                            } else {
+                                if (tick < lower) {
+                                    (nextTick, nextTickSqrtRatio) =
+                                        increasing ? (lower, tickToSqrtRatio(lower)) : (MIN_TICK, MIN_SQRT_RATIO);
+                                } else {
+                                    (nextTick, nextTickSqrtRatio) =
+                                        increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (upper, tickToSqrtRatio(upper));
+                                }
+                            }
                         }
                     }
 

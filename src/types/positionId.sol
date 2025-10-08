@@ -6,7 +6,7 @@ import {PoolConfig} from "./poolConfig.sol";
 
 type PositionId is bytes32;
 
-using {validateBounds, salt, tickLower, tickUpper} for PositionId global;
+using {validate, salt, tickLower, tickUpper} for PositionId global;
 
 function salt(PositionId positionId) pure returns (bytes24 v) {
     assembly ("memory-safe") {
@@ -41,26 +41,18 @@ error BoundsOrder();
 error MinMaxBounds();
 /// @notice Thrown when the ticks of the bounds do not align with tick spacing for concentrated pools
 error BoundsTickSpacing();
-/// @notice Thrown when stableswap pool positions are not exactly min/max tick
+/// @notice Thrown when stableswap pool positions are not at the min/max tick for the config
 error StableswapMustBeFullRange();
 
-function validateBounds(PositionId positionId, PoolConfig config) pure {
-    int32 _tickLower = positionId.tickLower();
-    int32 _tickUpper = positionId.tickUpper();
-
-    if (_tickLower >= _tickUpper) revert BoundsOrder();
-
-    int32 _minTick = config.minTick();
-    int32 _maxTick = config.maxTick();
-
-    if (_tickLower < _minTick || _tickUpper > _maxTick) revert MinMaxBounds();
-
+function validate(PositionId positionId, PoolConfig config) pure {
     if (config.isConcentrated()) {
-        // For concentrated liquidity pools, check tick spacing alignment
+        if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();
+        if (positionId.tickLower() < MIN_TICK || positionId.tickUpper() > MAX_TICK) revert MinMaxBounds();
         int32 spacing = int32(config.tickSpacing());
-        if (_tickLower % spacing != 0 || _tickUpper % spacing != 0) revert BoundsTickSpacing();
+        if (positionId.tickLower() % spacing != 0 || positionId.tickUpper() % spacing != 0) revert BoundsTickSpacing();
     } else {
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         // For stableswap pools, positions must be exactly min/max tick
-        if (_tickLower != _minTick || _tickUpper != _maxTick) revert StableswapMustBeFullRange();
+        if (positionId.tickLower() != lower || positionId.tickUpper() != upper) revert StableswapMustBeFullRange();
     }
 }

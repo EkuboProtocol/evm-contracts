@@ -19,10 +19,9 @@ using {
     isConcentrated,
     isStableswap,
     isFullRange,
-    amplificationFactor,
-    centerTick,
-    minTick,
-    maxTick,
+    stableswapAmplificationFactor,
+    stableswapCenterTick,
+    stableswapActiveLiquidityTickRange,
     validate,
     maxLiquidityPerTickConcentratedLiquidity
 } for PoolConfig global;
@@ -31,10 +30,7 @@ using {
 /// @param config The pool config
 /// @return r True if the pool is concentrated liquidity
 function isConcentrated(PoolConfig config) pure returns (bool r) {
-    assembly ("memory-safe") {
-        // Check if bit 31 is set
-        r := shr(31, and(config, 0xffffffff))
-    }
+    r = !config.isStableswap();
 }
 
 /// @notice Checks if this is a stableswap pool
@@ -43,7 +39,7 @@ function isConcentrated(PoolConfig config) pure returns (bool r) {
 function isStableswap(PoolConfig config) pure returns (bool r) {
     assembly ("memory-safe") {
         // Check if bit 31 is not set
-        r := iszero(shr(31, and(config, 0xffffffff)))
+        r := iszero(and(0x80000000, config))
     }
 }
 
@@ -62,7 +58,7 @@ function tickSpacing(PoolConfig config) pure returns (uint32 r) {
 /// @dev Only valid for stableswap pools (isStableswap() == true)
 /// @param config The pool config
 /// @return r The amplification factor (0-127)
-function amplificationFactor(PoolConfig config) pure returns (uint8 r) {
+function stableswapAmplificationFactor(PoolConfig config) pure returns (uint8 r) {
     assembly ("memory-safe") {
         // Extract bits 30-24
         r := and(shr(24, config), 0x7f)
@@ -74,12 +70,12 @@ function amplificationFactor(PoolConfig config) pure returns (uint8 r) {
 /// @dev The 24-bit center tick is scaled by 16 to get the actual tick
 /// @param config The pool config
 /// @return r The center tick
-function centerTick(PoolConfig config) pure returns (int32 r) {
+function stableswapCenterTick(PoolConfig config) pure returns (int32 r) {
     assembly ("memory-safe") {
         // Extract bits 23-0 and sign extend to 32 bits (24-bit signed integer)
-        let centerTick24 := signextend(2, and(config, 0xffffff))
+        let stableswapCenterTick24 := signextend(2, and(config, 0xffffff))
         // Multiply by 16 to scale to actual tick value
-        r := mul(centerTick24, 16)
+        r := mul(stableswapCenterTick24, 16)
     }
 }
 
@@ -111,43 +107,22 @@ function isFullRange(PoolConfig config) pure returns (bool r) {
     }
 }
 
-/// @notice Computes the minimum tick for this pool
+/// @notice Computes the tick range where liquidity is active for stableswap pools
 /// @param config The pool config
-/// @return r The minimum tick
-function minTick(PoolConfig config) pure returns (int32 r) {
-    if (config.isConcentrated()) {
-        // Concentrated pools use the full tick range
-        r = MIN_TICK;
-    } else {
-        // Stableswap pools: center - (MAX_TICK_MAGNITUDE >> amplification)
-        // Clamped to MIN_TICK to ensure valid tick range
-        int32 center = config.centerTick();
-        uint32 range = MAX_TICK_MAGNITUDE >> config.amplificationFactor();
-        int256 result;
-        assembly ("memory-safe") {
-            result := sub(center, range)
-        }
-        r = int32(FixedPointMathLib.max(MIN_TICK, result));
-    }
-}
+/// @return lower The lower tick of the bounds
+/// @return upper The upper tick of the bounds
+function stableswapActiveLiquidityTickRange(PoolConfig config) pure returns (int32 lower, int32 upper) {
+    int32 center = config.stableswapCenterTick();
+    uint8 amp = config.stableswapAmplificationFactor();
 
-/// @notice Computes the maximum tick for this pool
-/// @param config The pool config
-/// @return r The maximum tick
-function maxTick(PoolConfig config) pure returns (int32 r) {
-    if (config.isConcentrated()) {
-        // Concentrated pools use the full tick range
-        r = MAX_TICK;
-    } else {
-        // Stableswap pools: center + (MAX_TICK_MAGNITUDE >> amplification)
-        // Clamped to MAX_TICK to ensure valid tick range
-        int32 center = config.centerTick();
-        uint32 range = MAX_TICK_MAGNITUDE >> config.amplificationFactor();
-        int256 result;
-        assembly ("memory-safe") {
-            result := add(center, range)
-        }
-        r = int32(FixedPointMathLib.min(MAX_TICK, result));
+    assembly ("memory-safe") {
+        let width := shr(amp, MAX_TICK)
+
+        lower := sub(center, width)
+        lower := add(lower, mul(sgt(MIN_TICK, lower), sub(MIN_TICK, lower)))
+
+        upper := add(center, width)
+        upper := sub(upper, mul(sgt(upper, MAX_TICK), sub(upper, MAX_TICK)))
     }
 }
 
@@ -166,19 +141,21 @@ function createPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension) 
 
 /// @notice Creates a PoolConfig for a stableswap pool
 /// @param _fee The fee for the pool
-/// @param _amplificationFactor The amplification factor (0-127)
-/// @param _centerTick The center tick (will be divided by 16 and stored as 24-bit value)
+/// @param _stableswapAmplificationFactor The amplification factor (0-127)
+/// @param _stableswapCenterTick The center tick (will be divided by 16 and stored as 24-bit value)
 /// @param _extension The extension address for the pool
 /// @return c The packed configuration
-function createStableswapPoolConfig(uint64 _fee, uint8 _amplificationFactor, int32 _centerTick, address _extension)
-    pure
-    returns (PoolConfig c)
-{
+function createStableswapPoolConfig(
+    uint64 _fee,
+    uint8 _stableswapAmplificationFactor,
+    int32 _stableswapCenterTick,
+    address _extension
+) pure returns (PoolConfig c) {
     assembly ("memory-safe") {
         // Divide center tick by 16 to get 24-bit representation
-        let centerTick24 := sdiv(_centerTick, 16)
+        let stableswapCenterTick24 := sdiv(_stableswapCenterTick, 16)
         // Pack: bit 31 = 0 (stableswap), bits 30-24 = amplification, bits 23-0 = center tick
-        let typeConfig := or(shl(24, and(_amplificationFactor, 0x7f)), and(centerTick24, 0xffffff))
+        let typeConfig := or(shl(24, and(_stableswapAmplificationFactor, 0x7f)), and(stableswapCenterTick24, 0xffffff))
         c := or(or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff))), typeConfig)
     }
 }
@@ -220,7 +197,10 @@ function maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) pure return
 error InvalidTickSpacing();
 
 /// @notice Thrown when amplification factor exceeds the maximum allowed value
-error InvalidAmplificationFactor();
+error InvalidstableswapAmplificationFactor();
+
+/// @notice Thrown when center tick is not between min and max tick
+error InvalidCenterTick();
 
 /// @notice Validates that a pool config is properly formatted
 /// @param config The config to validate
@@ -231,8 +211,12 @@ function validate(PoolConfig config) pure {
         }
     } else {
         // Stableswap pool: validate amplification factor <= 26
-        if (config.amplificationFactor() > 26) {
-            revert InvalidAmplificationFactor();
+        if (config.stableswapAmplificationFactor() > 26) {
+            revert InvalidstableswapAmplificationFactor();
+        }
+        int32 centerTick = config.stableswapCenterTick();
+        if (centerTick < MIN_TICK || centerTick > MAX_TICK) {
+            revert InvalidCenterTick();
         }
     }
 }

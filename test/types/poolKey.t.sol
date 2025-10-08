@@ -32,7 +32,9 @@ contract PoolKeyTest is Test {
             .validate();
     }
 
-    function test_poolKey_validateTickSpacing_zero_is_valid() public pure {
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_poolKey_validateTickSpacing_zero_is_invalid() public {
+        vm.expectRevert(InvalidTickSpacing.selector);
         PoolKey({token0: address(1), token1: address(2), config: createConcentratedPoolConfig(0, 0, address(0))})
             .validate();
     }

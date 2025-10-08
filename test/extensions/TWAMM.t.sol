@@ -111,7 +111,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         assertEq(pk.token0, orderKey.token0);
         assertEq(pk.token1, orderKey.token1);
         assertEq(pk.config.fee(), orderKey.config.fee());
-        assertEq(pk.config.tickSpacing(), 0);
+        assertEq(pk.config.concentratedTickSpacing(), 0);
         assertEq(pk.config.extension(), twamm);
     }
 

@@ -277,13 +277,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
         // Check that liquidityNet doesn't exceed max liquidity per tick
-        uint128 maxLiquidity = poolConfig.maxLiquidityPerTickConcentratedLiquidity();
+        uint128 maxLiquidity = poolConfig.concentratedMaxLiquidityPerTick();
         if (liquidityNetNext > maxLiquidity) {
             revert MaxLiquidityPerTickExceeded(tick, liquidityNetNext, maxLiquidity);
         }
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.tickSpacing());
+            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.concentratedTickSpacing());
 
             (StorageSlot fplSlot0, StorageSlot fplSlot1) =
                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
@@ -552,13 +552,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.tickSpacing(),
+                                poolKey.config.concentratedTickSpacing(),
                                 params.skipAhead()
                             )
                             : findPrevInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.tickSpacing(),
+                                poolKey.config.concentratedTickSpacing(),
                                 params.skipAhead()
                             );
 

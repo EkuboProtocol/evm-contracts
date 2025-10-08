@@ -213,7 +213,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
             // however many tick spacings were crossed is the fee multiplier
             uint256 feeMultiplierX64 =
-                (FixedPointMathLib.abs(stateAfter.tick() - tickLast) << 64) / poolKey.config.tickSpacing();
+                (FixedPointMathLib.abs(stateAfter.tick() - tickLast) << 64) / poolKey.config.concentratedTickSpacing();
             uint64 poolFee = poolKey.config.fee();
             uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 

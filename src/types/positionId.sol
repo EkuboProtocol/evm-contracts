@@ -48,7 +48,7 @@ function validate(PositionId positionId, PoolConfig config) pure {
     if (config.isConcentrated()) {
         if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();
         if (positionId.tickLower() < MIN_TICK || positionId.tickUpper() > MAX_TICK) revert MinMaxBounds();
-        int32 spacing = int32(config.tickSpacing());
+        int32 spacing = int32(config.concentratedTickSpacing());
         if (positionId.tickLower() % spacing != 0 || positionId.tickUpper() % spacing != 0) revert BoundsTickSpacing();
     } else {
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();

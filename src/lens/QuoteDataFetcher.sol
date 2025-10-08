@@ -52,7 +52,7 @@ contract QuoteDataFetcher is UsesCore {
                     TickDelta[] memory ticks;
                     if (!poolKeys[i].config.isFullRange()) {
                         int256 rangeSize = int256(uint256(minBitmapsSearched))
-                            * int256(uint256(poolKeys[i].config.tickSpacing())) * 256;
+                            * int256(uint256(poolKeys[i].config.concentratedTickSpacing())) * 256;
                         minTick = int256(tick) - rangeSize;
                         maxTick = int256(tick) + rangeSize;
 
@@ -99,7 +99,7 @@ contract QuoteDataFetcher is UsesCore {
         assert(toTick >= fromTick);
 
         if (!config.isFullRange()) {
-            uint32 tickSpacing = config.tickSpacing();
+            uint32 tickSpacing = config.concentratedTickSpacing();
             DynamicArrayLib.DynamicArray memory packedTicks;
 
             while (toTick >= fromTick) {

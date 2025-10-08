@@ -18,7 +18,7 @@ contract PoolConfigTest is Test {
             PoolConfig.unwrap(
                 createConcentratedPoolConfig({
                     _fee: config.fee(),
-                    _tickSpacing: config.tickSpacing(),
+                    _tickSpacing: config.concentratedTickSpacing(),
                     _extension: config.extension()
                 })
             ),
@@ -32,7 +32,7 @@ contract PoolConfigTest is Test {
 
         PoolConfig config = createConcentratedPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
         assertEq(config.fee(), fee);
-        assertEq(config.tickSpacing(), tickSpacing);
+        assertEq(config.concentratedTickSpacing(), tickSpacing);
         assertEq(config.extension(), extension);
         assertTrue(config.isConcentrated(), "should be concentrated");
         assertFalse(config.isFullRange(), "concentrated pools are not full range");
@@ -41,7 +41,7 @@ contract PoolConfigTest is Test {
     function test_createFullRangePoolConfig(uint64 fee, address extension) public pure {
         PoolConfig config = createFullRangePoolConfig(fee, extension);
         assertEq(config.fee(), fee);
-        assertEq(config.tickSpacing(), 0);
+        assertEq(config.concentratedTickSpacing(), 0);
         assertEq(config.stableswapAmplification(), 0);
         assertEq(config.stableswapCenterTick(), 0);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
@@ -70,7 +70,7 @@ contract PoolConfigTest is Test {
 
         PoolConfig config = createConcentratedPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
         assertEq(config.fee(), fee, "fee");
-        assertEq(config.tickSpacing(), expectedTickSpacing, "tickSpacing");
+        assertEq(config.concentratedTickSpacing(), expectedTickSpacing, "tickSpacing");
         assertEq(config.extension(), extension, "extension");
     }
 
@@ -111,11 +111,11 @@ contract PoolConfigTest is Test {
         assertFalse(config.isConcentrated(), "should not be concentrated");
     }
 
-    function test_maxLiquidityPerTickConcentratedLiquidity(PoolConfig config) public pure {
+    function test_concentratedMaxLiquidityPerTick(PoolConfig config) public pure {
         vm.assume(!config.isFullRange());
-        int256 tickSpacing = int256(uint256(config.tickSpacing()));
+        int256 tickSpacing = int256(uint256(config.concentratedTickSpacing()));
 
-        uint256 maxLiquidity = config.maxLiquidityPerTickConcentratedLiquidity();
+        uint256 maxLiquidity = config.concentratedMaxLiquidityPerTick();
 
         if (int32(tickSpacing) > MAX_TICK) {
             assertEq(maxLiquidity, type(uint128).max);

@@ -71,7 +71,9 @@ contract PoolKeyTest is Test {
         PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.config = createConcentratedPoolConfig(
-                poolKey.config.fee(), poolKey.config.tickSpacing(), address(uint160(poolKey.config.extension()) + 1)
+                poolKey.config.fee(),
+                poolKey.config.concentratedTickSpacing(),
+                address(uint160(poolKey.config.extension()) + 1)
             );
         }
         assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
@@ -81,7 +83,7 @@ contract PoolKeyTest is Test {
         PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.config = createConcentratedPoolConfig(
-                poolKey.config.fee() + 1, poolKey.config.tickSpacing(), poolKey.config.extension()
+                poolKey.config.fee() + 1, poolKey.config.concentratedTickSpacing(), poolKey.config.extension()
             );
         }
         assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
@@ -91,7 +93,7 @@ contract PoolKeyTest is Test {
         PoolId id = poolKey.toPoolId();
         unchecked {
             poolKey.config = createConcentratedPoolConfig(
-                poolKey.config.fee(), poolKey.config.tickSpacing() + 1, poolKey.config.extension()
+                poolKey.config.fee(), poolKey.config.concentratedTickSpacing() + 1, poolKey.config.extension()
             );
         }
         assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));

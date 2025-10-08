@@ -26,7 +26,7 @@ function maxBounds(PoolConfig config) pure returns (int32 tickLower, int32 tickU
     if (config.isFullRange()) {
         return (MIN_TICK, MAX_TICK);
     }
-    int32 spacing = int32(config.tickSpacing());
+    int32 spacing = int32(config.concentratedTickSpacing());
 
     return ((MIN_TICK / spacing) * spacing, (MAX_TICK / spacing) * spacing);
 }
@@ -129,11 +129,15 @@ contract Handler is StdUtils, StdAssertions {
             (tickLower, tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         } else {
             (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.config);
-            tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.config.tickSpacing())));
+            tickLower =
+                int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.config.concentratedTickSpacing())));
             // snap to nearest valid tick
-            tickLower = (tickLower / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
-            tickUpper = int32(bound(tickUpper, tickLower + int32(poolKey.config.tickSpacing()), maxTickUpper));
-            tickUpper = (tickUpper / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
+            tickLower = (tickLower / int32(poolKey.config.concentratedTickSpacing()))
+                * int32(poolKey.config.concentratedTickSpacing());
+            tickUpper =
+                int32(bound(tickUpper, tickLower + int32(poolKey.config.concentratedTickSpacing()), maxTickUpper));
+            tickUpper = (tickUpper / int32(poolKey.config.concentratedTickSpacing()))
+                * int32(poolKey.config.concentratedTickSpacing());
         }
 
         try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (

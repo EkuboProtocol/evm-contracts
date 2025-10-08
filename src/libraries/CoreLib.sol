@@ -89,7 +89,7 @@ library CoreLib {
         uint256 value = uint256(core.sload(CoreStorageLayout.savedBalancesSlot(owner, token0, token1, salt)));
 
         savedBalance0 = value >> 128;
-        savedBalance1 = value;
+        savedBalance1 = value & ((1 << 128) - 1);
     }
 
     /// @notice Gets tick information for a specific tick in a pool
@@ -105,8 +105,8 @@ library CoreLib {
     {
         bytes32 data = core.sload(CoreStorageLayout.poolTicksSlot(poolId, tick));
 
-        // takes only least significant 128 bits
-        liquidityDelta = int256(uint256(data));
+        // takes only least significant 128 bits and sign-extends
+        liquidityDelta = int256(int128(uint128(uint256(data))));
         // takes only most significant 128 bits
         liquidityNet = uint256(data) >> 128;
     }

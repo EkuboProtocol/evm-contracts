@@ -196,7 +196,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 (, bytes32 salt, OrderKey memory orderKey, int112 saleRateDelta) =
                     abi.decode(data, (uint256, bytes32, OrderKey, int112));
 
-                (uint64 startTime, uint64 endTime) = (orderKey.config.startTime(), orderKey.config.endTime());
+                (uint64 startTime, uint64 endTime) =
+                    (uint64(orderKey.config.startTime()), uint64(orderKey.config.endTime()));
 
                 if (endTime <= block.timestamp) revert OrderAlreadyEnded();
 

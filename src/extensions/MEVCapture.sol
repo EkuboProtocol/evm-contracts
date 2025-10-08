@@ -64,10 +64,10 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
         external
         override(BaseExtension, IExtension)
     {
-        if (poolKey.isFullRange()) {
+        if (poolKey.config.isFullRange()) {
             revert ConcentratedLiquidityPoolsOnly();
         }
-        if (poolKey.fee() == 0) {
+        if (poolKey.config.fee() == 0) {
             // nothing to multiply == no-op extension
             revert NonzeroFeesOnly();
         }
@@ -213,8 +213,8 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
             // however many tick spacings were crossed is the fee multiplier
             uint256 feeMultiplierX64 =
-                (FixedPointMathLib.abs(stateAfter.tick() - tickLast) << 64) / poolKey.tickSpacing();
-            uint64 poolFee = poolKey.fee();
+                (FixedPointMathLib.abs(stateAfter.tick() - tickLast) << 64) / poolKey.config.tickSpacing();
+            uint64 poolFee = poolKey.config.fee();
             uint64 additionalFee = uint64(FixedPointMathLib.min(type(uint64).max, (feeMultiplierX64 * poolFee) >> 64));
 
             if (additionalFee != 0) {

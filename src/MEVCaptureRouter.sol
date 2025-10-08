@@ -28,7 +28,7 @@ contract MEVCaptureRouter is Router {
         override
         returns (int128 delta0, int128 delta1, PoolState stateAfter)
     {
-        if (poolKey.extension() != MEV_CAPTURE) {
+        if (poolKey.config.extension() != MEV_CAPTURE) {
             (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, params.withDefaultSqrtRatioLimit());
         } else {
             (delta0, delta1, stateAfter) = abi.decode(

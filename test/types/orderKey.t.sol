@@ -78,7 +78,7 @@ contract OrderKeyTest is Test {
         OrderKey memory ok =
             OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
 
-        assertEq(ok.fee(), _fee);
+        assertEq(ok.config.fee(), _fee);
     }
 
     // Test that isToken1 extraction works correctly
@@ -93,7 +93,7 @@ contract OrderKeyTest is Test {
         OrderKey memory ok =
             OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
 
-        assertEq(ok.isToken1(), _isToken1);
+        assertEq(ok.config.isToken1(), _isToken1);
     }
 
     // Test that startTime extraction works correctly
@@ -108,7 +108,7 @@ contract OrderKeyTest is Test {
         OrderKey memory ok =
             OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
 
-        assertEq(ok.startTime(), _startTime);
+        assertEq(ok.config.startTime(), _startTime);
     }
 
     // Test that endTime extraction works correctly
@@ -123,7 +123,7 @@ contract OrderKeyTest is Test {
         OrderKey memory ok =
             OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
 
-        assertEq(ok.endTime(), _endTime);
+        assertEq(ok.config.endTime(), _endTime);
     }
 
     // Test that toPoolKey creates a PoolKey with matching token0, token1, and fee
@@ -143,8 +143,8 @@ contract OrderKeyTest is Test {
 
         assertEq(pk.token0, token0);
         assertEq(pk.token1, token1);
-        assertEq(pk.fee(), _fee);
-        assertEq(pk.extension(), twamm);
+        assertEq(pk.config.fee(), _fee);
+        assertEq(pk.config.extension(), twamm);
     }
 
     // Test that toOrderId changes when token0 changes
@@ -169,8 +169,12 @@ contract OrderKeyTest is Test {
     function test_toOrderId_changesWithFee(OrderKey memory orderKey) public pure {
         OrderId id = orderKey.toOrderId();
         unchecked {
-            orderKey.config =
-                createOrderConfig(orderKey.fee() + 1, orderKey.isToken1(), orderKey.startTime(), orderKey.endTime());
+            orderKey.config = createOrderConfig(
+                orderKey.config.fee() + 1,
+                orderKey.config.isToken1(),
+                orderKey.config.startTime(),
+                orderKey.config.endTime()
+            );
         }
         assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
@@ -178,8 +182,9 @@ contract OrderKeyTest is Test {
     // Test that toOrderId changes when isToken1 changes
     function test_toOrderId_changesWithIsToken1(OrderKey memory orderKey) public pure {
         OrderId id = orderKey.toOrderId();
-        orderKey.config =
-            createOrderConfig(orderKey.fee(), !orderKey.isToken1(), orderKey.startTime(), orderKey.endTime());
+        orderKey.config = createOrderConfig(
+            orderKey.config.fee(), !orderKey.config.isToken1(), orderKey.config.startTime(), orderKey.config.endTime()
+        );
         assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
 
@@ -187,8 +192,12 @@ contract OrderKeyTest is Test {
     function test_toOrderId_changesWithStartTime(OrderKey memory orderKey) public pure {
         OrderId id = orderKey.toOrderId();
         unchecked {
-            orderKey.config =
-                createOrderConfig(orderKey.fee(), orderKey.isToken1(), orderKey.startTime() + 1, orderKey.endTime());
+            orderKey.config = createOrderConfig(
+                orderKey.config.fee(),
+                orderKey.config.isToken1(),
+                orderKey.config.startTime() + 1,
+                orderKey.config.endTime()
+            );
         }
         assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
@@ -197,8 +206,12 @@ contract OrderKeyTest is Test {
     function test_toOrderId_changesWithEndTime(OrderKey memory orderKey) public pure {
         OrderId id = orderKey.toOrderId();
         unchecked {
-            orderKey.config =
-                createOrderConfig(orderKey.fee(), orderKey.isToken1(), orderKey.startTime(), orderKey.endTime() + 1);
+            orderKey.config = createOrderConfig(
+                orderKey.config.fee(),
+                orderKey.config.isToken1(),
+                orderKey.config.startTime(),
+                orderKey.config.endTime() + 1
+            );
         }
         assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }

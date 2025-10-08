@@ -108,15 +108,15 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        if (poolKey.isFullRange()) {
+        if (poolKey.config.isFullRange()) {
             (tickLower, tickUpper) = (MIN_TICK, MAX_TICK);
         } else {
             (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.config);
-            tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.tickSpacing())));
+            tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.config.tickSpacing())));
             // snap to nearest valid tick
-            tickLower = (tickLower / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
-            tickUpper = int32(bound(tickUpper, tickLower + int32(poolKey.tickSpacing()), maxTickUpper));
-            tickUpper = (tickUpper / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
+            tickLower = (tickLower / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
+            tickUpper = int32(bound(tickUpper, tickLower + int32(poolKey.config.tickSpacing()), maxTickUpper));
+            tickUpper = (tickUpper / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
         }
 
         try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
@@ -153,7 +153,7 @@ contract Handler is StdUtils, StdAssertions {
             poolBalances[poolId].amount0 += int256(uint256(amount0));
             poolBalances[poolId].amount1 += int256(uint256(amount1));
         } catch (bytes memory err) {
-            if (poolKey.extension() != address(fae)) {
+            if (poolKey.config.extension() != address(fae)) {
                 assert(err.length == 0);
             } else {
                 bytes4 sig;

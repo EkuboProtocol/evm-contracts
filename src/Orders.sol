@@ -52,14 +52,14 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
         authorizedForNft(id)
         returns (uint112 saleRate)
     {
-        uint256 realStart = FixedPointMathLib.max(block.timestamp, orderKey.startTime());
+        uint256 realStart = FixedPointMathLib.max(block.timestamp, orderKey.config.startTime());
 
         unchecked {
-            if (orderKey.endTime() <= realStart) {
+            if (orderKey.config.endTime() <= realStart) {
                 revert OrderAlreadyEnded();
             }
 
-            saleRate = uint112(computeSaleRate(amount, uint32(orderKey.endTime() - realStart)));
+            saleRate = uint112(computeSaleRate(amount, uint32(orderKey.config.endTime() - realStart)));
 
             if (saleRate > maxSaleRate) {
                 revert MaxSaleRateExceeded();

@@ -153,8 +153,8 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
         onlyCore
     {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
-        if (key.fee() != 0) revert FeeMustBeZero();
-        if (!key.isFullRange()) revert TickSpacingMustBeMaximum();
+        if (key.config.fee() != 0) revert FeeMustBeZero();
+        if (!key.config.isFullRange()) revert FullRangePoolOnly();
 
         address token = key.token1;
 

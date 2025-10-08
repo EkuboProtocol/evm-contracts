@@ -61,9 +61,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
     /// @inheritdoc ICore
     function initializePool(PoolKey memory poolKey, int32 tick) external returns (SqrtRatio sqrtRatio) {
-        poolKey.validatePoolKey();
+        poolKey.validate();
 
-        address extension = poolKey.extension();
+        address extension = poolKey.config.extension();
         if (extension != address(0)) {
             StorageSlot isExtensionRegisteredSlot = CoreStorageLayout.isExtensionRegisteredSlot(extension);
 
@@ -210,7 +210,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     /// @inheritdoc ICore
     function accumulateAsFees(PoolKey memory poolKey, uint128 _amount0, uint128 _amount1) external payable {
         (uint256 id, address lockerAddr) = _requireLocker().parse();
-        require(lockerAddr == poolKey.extension());
+        require(lockerAddr == poolKey.config.extension());
 
         PoolId poolId = poolKey.toPoolId();
 
@@ -350,7 +350,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         Locker locker = _requireLocker();
 
-        IExtension(poolKey.extension()).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
+        IExtension(poolKey.config.extension()).maybeCallBeforeUpdatePosition(
+            locker, poolKey, positionId, liquidityDelta
+        );
 
         PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
@@ -373,7 +375,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             FeesPerLiquidity memory feesPerLiquidityInside;
 
-            if (!poolKey.isFullRange()) {
+            if (!poolKey.config.isFullRange()) {
                 // the position is fully withdrawn
                 if (liquidityNext == 0) {
                     // we need to fetch it before the tick fees per liquidity outside is deleted
@@ -426,7 +428,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, delta0, delta1, state);
         }
 
-        IExtension(poolKey.extension()).maybeCallAfterUpdatePosition(
+        IExtension(poolKey.config.extension()).maybeCallAfterUpdatePosition(
             locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
         );
     }
@@ -450,7 +452,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     {
         Locker locker = _requireLocker();
 
-        IExtension(poolKey.extension()).maybeCallBeforeCollectFees(locker, poolKey, positionId);
+        IExtension(poolKey.config.extension()).maybeCallBeforeCollectFees(locker, poolKey, positionId);
 
         PoolId poolId = poolKey.toPoolId();
 
@@ -461,7 +463,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside;
-        if (poolKey.isFullRange()) {
+        if (poolKey.config.isFullRange()) {
             StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
             feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
@@ -481,7 +483,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         emit PositionFeesCollected(locker.addr(), poolId, positionId, amount0, amount1);
 
-        IExtension(poolKey.extension()).maybeCallAfterCollectFees(locker, poolKey, positionId, amount0, amount1);
+        IExtension(poolKey.config.extension()).maybeCallAfterCollectFees(locker, poolKey, positionId, amount0, amount1);
     }
 
     /// @inheritdoc ICore
@@ -496,7 +498,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             Locker locker = _requireLocker();
 
-            IExtension(poolKey.extension()).maybeCallBeforeSwap(locker, poolKey, params);
+            IExtension(poolKey.config.extension()).maybeCallBeforeSwap(locker, poolKey, params);
 
             PoolId poolId = poolKey.toPoolId();
 
@@ -531,7 +533,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 uint256 inputTokenFeesPerLiquidity;
 
                 // this loads only the input token fees per liquidity
-                if (poolKey.mustLoadFees()) {
+                if (poolKey.config.mustLoadFees()) {
                     inputTokenFeesPerLiquiditySlot =
                         CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing));
                     inputTokenFeesPerLiquidity = uint256(inputTokenFeesPerLiquiditySlot.load());
@@ -542,13 +544,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
-                    if (!poolKey.isFullRange()) {
+                    if (!poolKey.config.isFullRange()) {
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
+                                CoreStorageLayout.tickBitmapsSlot(poolId),
+                                tick,
+                                poolKey.config.tickSpacing(),
+                                params.skipAhead()
                             )
                             : findPrevInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolKey.tickSpacing(), params.skipAhead()
+                                CoreStorageLayout.tickBitmapsSlot(poolId),
+                                tick,
+                                poolKey.config.tickSpacing(),
+                                params.skipAhead()
                             );
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
@@ -575,7 +583,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             // cast is safe because amount is g.t.e. 0
                             // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
                             priceImpactAmount =
-                                amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.fee()));
+                                amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.config.fee()));
                         }
 
                         SqrtRatio sqrtRatioNextFromAmount = isToken1
@@ -605,12 +613,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 );
 
                             if (isExactOut) {
-                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.fee());
+                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.config.fee());
                                 amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
                                 calculatedAmount += beforeFee;
                                 feeAmount = beforeFee - limitCalculatedAmountDelta;
                             } else {
-                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.fee());
+                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.config.fee());
                                 amountRemaining -= SafeCastLib.toInt128(beforeFee);
                                 calculatedAmount += limitCalculatedAmountDelta;
                                 feeAmount = beforeFee - limitSpecifiedAmountDelta;
@@ -632,7 +640,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
 
                             if (isExactOut) {
-                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.fee());
+                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());
                                 calculatedAmount += includingFee;
                                 feeAmount = includingFee - calculatedAmountWithoutFee;
                             } else {
@@ -720,7 +728,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 writePoolState(poolId, stateAfter);
 
-                if (poolKey.mustLoadFees()) {
+                if (poolKey.config.mustLoadFees()) {
                     // this stores only the input token fees per liquidity
                     inputTokenFeesPerLiquiditySlot.store(bytes32(inputTokenFeesPerLiquidity));
                 }
@@ -737,7 +745,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            IExtension(poolKey.extension()).maybeCallAfterSwap(locker, poolKey, params, delta0, delta1, stateAfter);
+            IExtension(poolKey.config.extension()).maybeCallAfterSwap(
+                locker, poolKey, params, delta0, delta1, stateAfter
+            );
         }
     }
 }

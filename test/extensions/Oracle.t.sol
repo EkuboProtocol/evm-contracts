@@ -539,7 +539,7 @@ contract OracleTest is BaseOracleTest {
         vm.expectRevert(IOracle.PairsWithNativeTokenOnly.selector);
         createPool(address(token0), address(token1), 0, createFullRangePoolConfig(0, address(oracle)));
 
-        vm.expectRevert(IOracle.TickSpacingMustBeMaximum.selector);
+        vm.expectRevert(IOracle.FullRangePoolOnly.selector);
         createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createPoolConfig(0, 100, address(oracle)));
 
         vm.expectRevert(IOracle.FeeMustBeZero.selector);

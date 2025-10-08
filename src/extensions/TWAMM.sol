@@ -17,6 +17,7 @@ import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {PoolState} from "../types/poolState.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {OrderKey} from "../types/orderKey.sol";
+import {OrderConfig} from "../types/orderConfig.sol";
 import {OrderState, createOrderState} from "../types/orderState.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -76,31 +77,25 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
     }
 
     /// @inheritdoc ITWAMM
-    function getRewardRateInside(PoolId poolId, uint64 startTime, uint64 endTime, bool isToken1)
-        public
-        view
-        returns (uint256 result)
-    {
-        if (block.timestamp >= endTime) {
-            uint256 rewardRateStart = uint256(
-                TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime).add(LibBit.rawToUint(isToken1)).load()
-            );
+    function getRewardRateInside(PoolId poolId, OrderConfig config) public view returns (uint256 result) {
+        if (block.timestamp >= config.endTime()) {
+            uint256 offset = LibBit.rawToUint(!config.isToken1());
+            uint256 rewardRateStart =
+                uint256(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, config.startTime()).add(offset).load());
 
-            uint256 rewardRateEnd = uint256(
-                TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, endTime).add(LibBit.rawToUint(isToken1)).load()
-            );
+            uint256 rewardRateEnd =
+                uint256(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, config.endTime()).add(offset).load());
 
             unchecked {
                 result = rewardRateEnd - rewardRateStart;
             }
-        } else if (block.timestamp > startTime) {
-            //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
+        } else if (block.timestamp > config.startTime()) {
+            uint256 offset = LibBit.rawToUint(!config.isToken1());
 
-            uint256 rewardRateStart = uint256(
-                TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, startTime).add(LibBit.rawToUint(isToken1)).load()
-            );
-            uint256 rewardRateCurrent =
-                uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).add(LibBit.rawToUint(isToken1)).load());
+            //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
+            uint256 rewardRateStart =
+                uint256(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, config.startTime()).add(offset).load());
+            uint256 rewardRateCurrent = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).add(offset).load());
 
             unchecked {
                 result = rewardRateCurrent - rewardRateStart;
@@ -198,7 +193,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 (, bytes32 salt, OrderKey memory orderKey, int112 saleRateDelta) =
                     abi.decode(data, (uint256, bytes32, OrderKey, int112));
 
-                (uint64 startTime, uint64 endTime) = (orderKey.startTime(), orderKey.endTime());
+                (uint64 startTime, uint64 endTime) = (orderKey.config.startTime(), orderKey.config.endTime());
 
                 if (endTime <= block.timestamp) revert OrderAlreadyEnded();
 
@@ -223,7 +218,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 OrderState order = OrderState.wrap(orderStateSlot.load());
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
-                uint256 rewardRateInside = getRewardRateInside(poolId, startTime, endTime, !orderKey.isToken1());
+                uint256 rewardRateInside = getRewardRateInside(poolId, orderKey.config);
 
                 (uint32 lastUpdateTime, uint112 saleRate, uint112 amountSold) = order.parse();
 
@@ -268,7 +263,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 );
                 orderRewardRateSnapshotSlot.store(bytes32(rewardRateSnapshotAdjusted));
 
-                bool isToken1 = orderKey.isToken1();
+                bool isToken1 = orderKey.config.isToken1();
 
                 if (block.timestamp < startTime) {
                     _updateTime(poolId, startTime, saleRateDelta, isToken1, numOrdersChange);
@@ -320,7 +315,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
                 if (amountDelta < 0) {
                     // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.fee());
+                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.config.fee());
                     if (isToken1) {
                         CORE.accumulateAsFees(poolKey, 0, fee);
                         CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
@@ -358,15 +353,14 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 OrderState order = OrderState.wrap(orderStateSlot.load());
                 uint256 rewardRateSnapshot = uint256(orderRewardRateSnapshotSlot.load());
 
-                uint256 rewardRateInside =
-                    getRewardRateInside(poolId, orderKey.startTime(), orderKey.endTime(), !orderKey.isToken1());
+                uint256 rewardRateInside = getRewardRateInside(poolId, orderKey.config);
 
                 uint256 purchasedAmount = computeRewardAmount(rewardRateInside - rewardRateSnapshot, order.saleRate());
 
                 orderRewardRateSnapshotSlot.store(bytes32(rewardRateInside));
 
                 if (purchasedAmount != 0) {
-                    if (orderKey.isToken1()) {
+                    if (orderKey.config.isToken1()) {
                         CORE.updateSavedBalances(
                             poolKey.token0, poolKey.token1, bytes32(0), -int256(purchasedAmount), 0
                         );
@@ -396,7 +390,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             // this can only happen iff a pool has zero sale rates **and** an execution of virtual orders
             // happens on the uint32 boundary
             if (TwammPoolState.unwrap(state) == bytes32(0)) {
-                if (poolKey.extension() != address(this) || !CORE.poolState(poolId).isInitialized()) {
+                if (poolKey.config.extension() != address(this) || !CORE.poolState(poolId).isInitialized()) {
                     revert PoolNotInitialized();
                 }
             }
@@ -455,7 +449,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             saleRateToken0: state.saleRateToken0(),
                             saleRateToken1: state.saleRateToken1(),
                             timeElapsed: timeElapsed,
-                            fee: poolKey.fee()
+                            fee: poolKey.config.fee()
                         });
 
                         int256 swapDelta0;
@@ -606,7 +600,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         override(BaseExtension, IExtension)
         onlyCore
     {
-        if (!key.isFullRange()) revert TickSpacingMustBeMaximum();
+        if (!key.config.isFullRange()) revert FullRangePoolOnly();
 
         PoolId poolId = key.toPoolId();
 

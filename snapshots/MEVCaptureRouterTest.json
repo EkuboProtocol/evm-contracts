@@ -4,8 +4,8 @@
   "swap 100 wei of eth for token": "54963",
   "swap 100 wei of eth for token full range": "30776",
   "swap 100 wei of token for eth full range": "37055",
-  "swap crossing one tick eth for token1": "66925",
-  "swap crossing one tick token1 for eth": "72965",
-  "swap crossing two ticks eth for token1": "85873",
-  "swap crossing two ticks token1 for eth": "82610"
+  "swap crossing one tick eth for token1": "66913",
+  "swap crossing one tick token1 for eth": "72953",
+  "swap crossing two ticks eth for token1": "85849",
+  "swap crossing two ticks token1 for eth": "82586"
 }

@@ -60,7 +60,7 @@ contract Positions is BasePositions {
         override
         returns (uint128 protocolFee0, uint128 protocolFee1)
     {
-        uint64 fee = poolKey.fee();
+        uint64 fee = poolKey.config.fee();
         if (fee != 0 && WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR != 0) {
             protocolFee0 = computeFee(amount0, fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);
             protocolFee1 = computeFee(amount1, fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);

@@ -250,7 +250,7 @@ contract Handler is StdUtils, StdAssertions {
             token0: poolKey.token0,
             token1: poolKey.token1,
             config: createOrderConfig({
-                _fee: poolKey.fee(),
+                _fee: poolKey.config.fee(),
                 _isToken1: isToken1,
                 _startTime: uint64(startTime),
                 _endTime: uint64(endTime)

@@ -18,7 +18,7 @@ interface IOracle is IExposedStorage, IExtension {
     error FeeMustBeZero();
 
     /// @notice Thrown when the tick spacing is not the maximum allowed value
-    error TickSpacingMustBeMaximum();
+    error FullRangePoolOnly();
 
     /// @notice Thrown when querying data for a future timestamp
     error FutureTime();

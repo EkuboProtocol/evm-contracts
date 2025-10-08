@@ -73,10 +73,9 @@ library TWAMMLib {
             uint256 _rewardRateSnapshot = rewardRateSnapshot(twamm, owner, salt, orderId);
 
             if (saleRate != 0) {
-                (uint64 startTime, uint64 endTime) = (orderKey.startTime(), orderKey.endTime());
+                (uint64 startTime, uint64 endTime) = (orderKey.config.startTime(), orderKey.config.endTime());
 
-                uint256 rewardRateInside =
-                    twamm.getRewardRateInside(poolKey.toPoolId(), startTime, endTime, !orderKey.isToken1());
+                uint256 rewardRateInside = twamm.getRewardRateInside(poolKey.toPoolId(), orderKey.config);
 
                 purchasedAmount = computeRewardAmount(rewardRateInside - _rewardRateSnapshot, saleRate);
 

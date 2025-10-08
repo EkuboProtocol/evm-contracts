@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {FullTest} from "../FullTest.sol";
 import {ITWAMM, TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
@@ -51,7 +51,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_createPool_fails_not_full_range() public {
         vm.expectRevert(ITWAMM.FullRangePoolOnly.selector);
-        createPool(address(token0), address(token1), 0, createPoolConfig(0, 1, address(twamm)));
+        createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 1, address(twamm)));
     }
 
     function test_createPool(uint256 time) public {

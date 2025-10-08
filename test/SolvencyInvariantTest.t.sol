@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PoolConfig, createPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createStableswapPoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
@@ -89,7 +89,23 @@ contract Handler is StdUtils, StdAssertions {
         PoolKey memory poolKey = PoolKey(
             address(token0),
             address(token1),
-            createPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+            createConcentratedPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+        );
+        (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
+        assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
+        if (initialized) allPoolKeys.push(poolKey);
+    }
+
+    function createNewStableswapPool(uint64 fee, int32 tick, uint8 amplification, int32 centerTick, bool withExtension)
+        public
+    {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        centerTick = int32(bound(centerTick, MIN_TICK, MAX_TICK));
+        amplification = uint8(bound(amplification, 0, 26));
+        PoolKey memory poolKey = PoolKey(
+            address(token0),
+            address(token1),
+            createStableswapPoolConfig(fee, amplification, centerTick, withExtension ? address(fae) : address(0))
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
@@ -109,8 +125,8 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        if (poolKey.config.isFullRange()) {
-            (tickLower, tickUpper) = (MIN_TICK, MAX_TICK);
+        if (poolKey.config.isStableswap()) {
+            (tickLower, tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         } else {
             (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.config);
             tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.config.tickSpacing())));

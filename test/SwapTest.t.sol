@@ -11,7 +11,7 @@ import {sqrtRatioToTick} from "../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../src/math/liquidity.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {FullTest} from "./FullTest.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 

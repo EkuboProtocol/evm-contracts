@@ -567,6 +567,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
                     } else {
                         if (poolKey.config.isFullRange()) {
+                            // special case since we don't need to compute min/max tick sqrt ratio
                             (nextTick, nextTickSqrtRatio) =
                                 increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                         } else {

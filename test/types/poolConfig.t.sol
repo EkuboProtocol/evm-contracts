@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {
     PoolConfig,
     createFullRangePoolConfig,
-    createPoolConfig,
+    createConcentratedPoolConfig,
     createStableswapPoolConfig
 } from "../../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
@@ -16,7 +16,7 @@ contract PoolConfigTest is Test {
         vm.assume(config.isConcentrated());
         assertEq(
             PoolConfig.unwrap(
-                createPoolConfig({
+                createConcentratedPoolConfig({
                     _fee: config.fee(),
                     _tickSpacing: config.tickSpacing(),
                     _extension: config.extension()
@@ -30,7 +30,7 @@ contract PoolConfigTest is Test {
         // Mask tick spacing to 31 bits since bit 31 is used for discriminator
         tickSpacing = tickSpacing & 0x7fffffff;
 
-        PoolConfig config = createPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
+        PoolConfig config = createConcentratedPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
         assertEq(config.fee(), fee);
         assertEq(config.tickSpacing(), tickSpacing);
         assertEq(config.extension(), extension);
@@ -42,7 +42,7 @@ contract PoolConfigTest is Test {
         PoolConfig config = createFullRangePoolConfig(fee, extension);
         assertEq(config.fee(), fee);
         assertEq(config.tickSpacing(), 0);
-        assertEq(config.stableswapAmplificationFactor(), 0);
+        assertEq(config.stableswapamplification(), 0);
         assertEq(config.stableswapCenterTick(), 0);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         assertEq(lower, MIN_TICK);
@@ -68,7 +68,7 @@ contract PoolConfigTest is Test {
         // Mask tick spacing to 31 bits since bit 31 is used for discriminator
         uint32 expectedTickSpacing = tickSpacing & 0x7fffffff;
 
-        PoolConfig config = createPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
+        PoolConfig config = createConcentratedPoolConfig({_fee: fee, _tickSpacing: tickSpacing, _extension: extension});
         assertEq(config.fee(), fee, "fee");
         assertEq(config.tickSpacing(), expectedTickSpacing, "tickSpacing");
         assertEq(config.extension(), extension, "extension");
@@ -76,12 +76,12 @@ contract PoolConfigTest is Test {
 
     function test_stableswapPoolConfig(
         uint64 fee,
-        uint8 stableswapAmplificationFactor,
+        uint8 stableswapamplification,
         int32 stableswapCenterTick,
         address extension
     ) public pure {
         // Limit amplification to valid range
-        stableswapAmplificationFactor = uint8(bound(stableswapAmplificationFactor, 0, 26));
+        stableswapamplification = uint8(bound(stableswapamplification, 0, 26));
         // Limit center tick to representable range (24 bits signed, scaled by 16)
         stableswapCenterTick = int32(bound(stableswapCenterTick, MIN_TICK, MAX_TICK));
         // Round to multiple of 16
@@ -89,13 +89,13 @@ contract PoolConfigTest is Test {
 
         PoolConfig config = createStableswapPoolConfig({
             _fee: fee,
-            _stableswapAmplificationFactor: stableswapAmplificationFactor,
+            _stableswapamplification: stableswapamplification,
             _stableswapCenterTick: stableswapCenterTick,
             _extension: extension
         });
 
         assertEq(config.fee(), fee, "fee");
-        assertEq(config.stableswapAmplificationFactor(), stableswapAmplificationFactor, "stableswapAmplificationFactor");
+        assertEq(config.stableswapamplification(), stableswapamplification, "stableswapamplification");
         assertEq(config.stableswapCenterTick(), stableswapCenterTick, "stableswapCenterTick");
 
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();

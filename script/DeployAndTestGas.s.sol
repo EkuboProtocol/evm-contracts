@@ -34,7 +34,7 @@ import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol
 import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {createSwapParameters} from "../src/types/swapParameters.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -131,7 +131,7 @@ contract DeployAndTestGas is Script {
         PoolKey memory ethToken0Pool = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
             token1: address(token0),
-            config: createPoolConfig(1 << 63, 100, address(0)) // 50% fee, tick spacing 100
+            config: createConcentratedPoolConfig(1 << 63, 100, address(0)) // 50% fee, tick spacing 100
         });
         core.initializePool(ethToken0Pool, 0);
         console2.log("ETH/token0 pool initialized");
@@ -141,7 +141,7 @@ contract DeployAndTestGas is Script {
         PoolKey memory ethToken1Pool = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
             token1: address(token1),
-            config: createPoolConfig(1 << 63, 100, address(0)) // 50% fee, tick spacing 100
+            config: createConcentratedPoolConfig(1 << 63, 100, address(0)) // 50% fee, tick spacing 100
         });
         core.initializePool(ethToken1Pool, 0);
         console2.log("ETH/token1 pool initialized");
@@ -154,7 +154,7 @@ contract DeployAndTestGas is Script {
         PoolKey memory token0Token1Pool = PoolKey({
             token0: sortedToken0,
             token1: sortedToken1,
-            config: createPoolConfig(1 << 63, 100, address(0)) // 50% fee, tick spacing 100
+            config: createConcentratedPoolConfig(1 << 63, 100, address(0)) // 50% fee, tick spacing 100
         });
         core.initializePool(token0Token1Pool, 0);
         console2.log("token0/token1 pool initialized");
@@ -164,7 +164,7 @@ contract DeployAndTestGas is Script {
         PoolKey memory ethToken0OraclePool = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
             token1: address(token0),
-            config: createPoolConfig(0, 0, address(oracle)) // 0% fee, tick spacing 0 (both required by Oracle), Oracle extension
+            config: createConcentratedPoolConfig(0, 0, address(oracle)) // 0% fee, tick spacing 0 (both required by Oracle), Oracle extension
         });
         core.initializePool(ethToken0OraclePool, 0);
         console2.log("ETH/token0 Oracle pool initialized");

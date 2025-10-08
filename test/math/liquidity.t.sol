@@ -10,7 +10,7 @@ import {
 } from "../../src/math/liquidity.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, ONE, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 
 int32 constant TICKS_IN_ONE_PERCENT = 9950;
@@ -206,7 +206,7 @@ contract LiquidityTest is Test {
 
     function test_maxLiquidityPerTick_at_min_price_tickSpacing1_overflows() public {
         // For tick spacing 1, calculate max liquidity per tick
-        PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        PoolConfig config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
         uint128 maxLiquidityPerTick = config.maxLiquidityPerTickConcentratedLiquidity();
 
         // IMPORTANT: At extreme prices (near MIN_TICK), attempting to calculate the token amounts
@@ -230,7 +230,7 @@ contract LiquidityTest is Test {
 
     function test_maxLiquidityPerTick_at_max_price_tickSpacing1_overflows() public {
         // For tick spacing 1, calculate max liquidity per tick
-        PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        PoolConfig config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
         uint128 maxLiquidityPerTick = config.maxLiquidityPerTickConcentratedLiquidity();
 
         // IMPORTANT: At extreme prices (near MAX_TICK), attempting to calculate the token amounts
@@ -254,7 +254,7 @@ contract LiquidityTest is Test {
 
     function test_maxLiquidityPerTick_at_mid_price_tickSpacing1() public pure {
         // For tick spacing 1, calculate max liquidity per tick
-        PoolConfig config = createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        PoolConfig config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
         uint128 maxLiquidityPerTick = config.maxLiquidityPerTickConcentratedLiquidity();
 
         // At mid price (tick 0), liquidity is split between both tokens

@@ -6,7 +6,7 @@ import {Core} from "../src/Core.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {TestToken} from "./TestToken.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {Position} from "../src/types/position.sol";
 import {PositionId, createPositionId} from "../src/types/positionId.sol";
@@ -71,8 +71,11 @@ contract PositionExtraDataTest is Test {
         token0.transfer(address(locker), type(uint128).max);
         token1.transfer(address(locker), type(uint128).max);
 
-        poolKey =
-            PoolKey({token0: address(token0), token1: address(token1), config: createPoolConfig(3000, 60, address(0))});
+        poolKey = PoolKey({
+            token0: address(token0),
+            token1: address(token1),
+            config: createConcentratedPoolConfig(3000, 60, address(0))
+        });
 
         core.initializePool(poolKey, 0);
     }

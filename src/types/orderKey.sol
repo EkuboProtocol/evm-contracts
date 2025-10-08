@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "./poolKey.sol";
-import {createPoolConfig} from "./poolConfig.sol";
+import {createConcentratedPoolConfig} from "./poolConfig.sol";
 import {OrderConfig} from "./orderConfig.sol";
 import {OrderId} from "./orderId.sol";
 

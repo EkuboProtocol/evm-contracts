@@ -10,20 +10,20 @@ import {
     BoundsTickSpacing,
     StableswapMustBeFullRange
 } from "../../src/types/positionId.sol";
-import {PoolConfig, createFullRangePoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createFullRangePoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PositionIdTest is Test {
     /// forge-config: default.allow_internal_expect_revert = true
     function test_validate() public {
         createPositionId({_salt: bytes24(0), _tickLower: -1, _tickUpper: 1}).validate(
-            createPoolConfig(0, 1, address(0))
+            createConcentratedPoolConfig(0, 1, address(0))
         );
         createPositionId({_salt: bytes24(0), _tickLower: -2, _tickUpper: 2}).validate(
-            createPoolConfig(0, 2, address(0))
+            createConcentratedPoolConfig(0, 2, address(0))
         );
         createPositionId({_salt: bytes24(0), _tickLower: MIN_TICK, _tickUpper: MAX_TICK}).validate(
-            createPoolConfig(0, MAX_TICK_SPACING, address(0))
+            createConcentratedPoolConfig(0, MAX_TICK_SPACING, address(0))
         );
         createPositionId({_salt: bytes24(0), _tickLower: MIN_TICK, _tickUpper: MAX_TICK}).validate(
             createFullRangePoolConfig(0, address(0))
@@ -37,29 +37,33 @@ contract PositionIdTest is Test {
 
         vm.expectRevert(BoundsOrder.selector);
         createPositionId({_salt: bytes24(0), _tickLower: -1, _tickUpper: -1}).validate(
-            createPoolConfig(0, 1, address(0))
+            createConcentratedPoolConfig(0, 1, address(0))
         );
 
         vm.expectRevert(BoundsOrder.selector);
         createPositionId({_salt: bytes24(0), _tickLower: 1, _tickUpper: -1}).validate(
-            createPoolConfig(0, 1, address(0))
+            createConcentratedPoolConfig(0, 1, address(0))
         );
 
         vm.expectRevert(MinMaxBounds.selector);
         createPositionId({_salt: bytes24(0), _tickLower: MIN_TICK - 1, _tickUpper: MAX_TICK}).validate(
-            createPoolConfig(0, 1, address(0))
+            createConcentratedPoolConfig(0, 1, address(0))
         );
 
         vm.expectRevert(MinMaxBounds.selector);
         createPositionId({_salt: bytes24(0), _tickLower: MIN_TICK, _tickUpper: MAX_TICK + 1}).validate(
-            createPoolConfig(0, 1, address(0))
+            createConcentratedPoolConfig(0, 1, address(0))
         );
 
         vm.expectRevert(BoundsTickSpacing.selector);
-        createPositionId({_salt: bytes24(0), _tickLower: 1, _tickUpper: 0}).validate(createPoolConfig(0, 2, address(0)));
+        createPositionId({_salt: bytes24(0), _tickLower: 1, _tickUpper: 0}).validate(
+            createConcentratedPoolConfig(0, 2, address(0))
+        );
 
         vm.expectRevert(BoundsTickSpacing.selector);
-        createPositionId({_salt: bytes24(0), _tickLower: 0, _tickUpper: 1}).validate(createPoolConfig(0, 2, address(0)));
+        createPositionId({_salt: bytes24(0), _tickLower: 0, _tickUpper: 1}).validate(
+            createConcentratedPoolConfig(0, 2, address(0))
+        );
     }
 
     function test_conversionToAndFrom(PositionId id) public pure {

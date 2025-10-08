@@ -6,7 +6,7 @@ import {CallPoints, addressToCallPoints} from "../../src/types/callPoints.sol";
 import {ExtensionCallPointsLib} from "../../src/libraries/ExtensionCallPointsLib.sol";
 import {IExtension} from "../../src/interfaces/ICore.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "../../src/types/poolState.sol";
@@ -40,7 +40,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 60, address(0x3333))
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         int128 liquidityDelta = 1000;
@@ -75,7 +75,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 60, address(0x3333))
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         int128 liquidityDelta = 1000;
@@ -124,7 +124,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 60, address(0x3333))
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
 
@@ -157,7 +157,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 60, address(0x3333))
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         uint128 amount0 = 1000;
@@ -195,7 +195,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 60, address(0x3333))
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         PoolState stateAfter = createPoolState(SqrtRatio.wrap(100), 1, 1);

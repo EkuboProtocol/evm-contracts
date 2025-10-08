@@ -576,7 +576,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             bool inRange;
                             assembly ("memory-safe") {
-                                inRange := and(iszero(sgt(tick, upper)), iszero(slt(tick, lower)))
+                                inRange := and(slt(tick, upper), iszero(slt(tick, lower)))
                             }
                             if (inRange) {
                                 nextTick = increasing ? upper : lower;
@@ -586,6 +586,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                     (nextTick, nextTickSqrtRatio) =
                                         increasing ? (lower, tickToSqrtRatio(lower)) : (MIN_TICK, MIN_SQRT_RATIO);
                                 } else {
+                                    // tick >= upper implied
                                     (nextTick, nextTickSqrtRatio) =
                                         increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (upper, tickToSqrtRatio(upper));
                                 }

@@ -42,7 +42,7 @@ contract PoolConfigTest is Test {
         PoolConfig config = createFullRangePoolConfig(fee, extension);
         assertEq(config.fee(), fee);
         assertEq(config.tickSpacing(), 0);
-        assertEq(config.stableswapamplification(), 0);
+        assertEq(config.stableswapAmplification(), 0);
         assertEq(config.stableswapCenterTick(), 0);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         assertEq(lower, MIN_TICK);
@@ -76,27 +76,25 @@ contract PoolConfigTest is Test {
 
     function test_stableswapPoolConfig(
         uint64 fee,
-        uint8 stableswapamplification,
+        uint8 stableswapAmplification,
         int32 stableswapCenterTick,
         address extension
     ) public pure {
         // Limit amplification to valid range
-        stableswapamplification = uint8(bound(stableswapamplification, 0, 26));
+        stableswapAmplification = uint8(bound(stableswapAmplification, 0, 26));
         // Limit center tick to representable range (24 bits signed, scaled by 16)
         stableswapCenterTick = int32(bound(stableswapCenterTick, MIN_TICK, MAX_TICK));
-        // Round to multiple of 16
-        stableswapCenterTick = (stableswapCenterTick / 16) * 16;
 
         PoolConfig config = createStableswapPoolConfig({
             _fee: fee,
-            _stableswapamplification: stableswapamplification,
+            _stableswapAmplification: stableswapAmplification,
             _stableswapCenterTick: stableswapCenterTick,
             _extension: extension
         });
 
         assertEq(config.fee(), fee, "fee");
-        assertEq(config.stableswapamplification(), stableswapamplification, "stableswapamplification");
-        assertEq(config.stableswapCenterTick(), stableswapCenterTick, "stableswapCenterTick");
+        assertEq(config.stableswapAmplification(), stableswapAmplification, "stableswapAmplification");
+        assertEq(config.stableswapCenterTick(), (stableswapCenterTick / 16) * 16, "stableswapCenterTick");
 
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         assertGe(lower, MIN_TICK, "lower");
@@ -105,6 +103,11 @@ contract PoolConfigTest is Test {
 
         assertEq(config.extension(), extension, "extension");
         assertTrue(config.isStableswap(), "should be stableswap");
+        assertEq(
+            config.isFullRange(),
+            config.stableswapAmplification() == 0 && config.stableswapCenterTick() == 0,
+            "should be full range only if amp and center tick is 0"
+        );
         assertFalse(config.isConcentrated(), "should not be concentrated");
     }
 

@@ -87,8 +87,8 @@ contract PoolConfigTest is Test {
 
         PoolConfig config = createStableswapPoolConfig({
             _fee: fee,
-            _stableswapAmplification: stableswapAmplification,
-            _stableswapCenterTick: stableswapCenterTick,
+            _amplification: stableswapAmplification,
+            _centerTick: stableswapCenterTick,
             _extension: extension
         });
 

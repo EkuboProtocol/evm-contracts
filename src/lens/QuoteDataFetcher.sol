@@ -50,7 +50,7 @@ contract QuoteDataFetcher is UsesCore {
                     int256 minTick;
                     int256 maxTick;
                     TickDelta[] memory ticks;
-                    if (!poolKeys[i].config.isFullRange()) {
+                    if (poolKeys[i].config.isConcentrated()) {
                         int256 rangeSize = int256(uint256(minBitmapsSearched))
                             * int256(uint256(poolKeys[i].config.concentratedTickSpacing())) * 256;
                         minTick = int256(tick) - rangeSize;
@@ -66,6 +66,13 @@ contract QuoteDataFetcher is UsesCore {
                     } else {
                         minTick = MIN_TICK;
                         maxTick = MAX_TICK;
+
+                        if (liquidity > 0) {
+                            (int32 lower, int32 upper) = poolKeys[i].config.stableswapActiveLiquidityTickRange();
+                            ticks = new TickDelta[](2);
+                            ticks[0] = TickDelta({number: lower, liquidityDelta: int128(liquidity)});
+                            ticks[1] = TickDelta({number: upper, liquidityDelta: -int128(liquidity)});
+                        }
                     }
 
                     results[i] = QuoteData({

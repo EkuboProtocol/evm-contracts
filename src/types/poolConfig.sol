@@ -152,21 +152,19 @@ function createConcentratedPoolConfig(uint64 _fee, uint32 _tickSpacing, address 
 
 /// @notice Creates a PoolConfig for a stableswap pool
 /// @param _fee The fee for the pool
-/// @param _stableswapAmplification The amplification factor (0-127)
-/// @param _stableswapCenterTick The center tick (will be divided by 16 and stored as 24-bit value)
+/// @param _amplification The amplification factor (0-127)
+/// @param _centerTick The center tick (will be divided by 16 and stored as 24-bit value)
 /// @param _extension The extension address for the pool
 /// @return c The packed configuration
-function createStableswapPoolConfig(
-    uint64 _fee,
-    uint8 _stableswapAmplification,
-    int32 _stableswapCenterTick,
-    address _extension
-) pure returns (PoolConfig c) {
+function createStableswapPoolConfig(uint64 _fee, uint8 _amplification, int32 _centerTick, address _extension)
+    pure
+    returns (PoolConfig c)
+{
     assembly ("memory-safe") {
         // Divide center tick by 16 to get 24-bit representation
-        let stableswapCenterTick24 := sdiv(_stableswapCenterTick, 16)
+        let stableswapCenterTick24 := sdiv(_centerTick, 16)
         // Pack: bit 31 = 0 (stableswap), bits 30-24 = amplification, bits 23-0 = center tick
-        let typeConfig := or(shl(24, and(_stableswapAmplification, 0x7f)), and(stableswapCenterTick24, 0xffffff))
+        let typeConfig := or(shl(24, and(_amplification, 0x7f)), and(stableswapCenterTick24, 0xffffff))
         c := or(or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff))), typeConfig)
     }
 }

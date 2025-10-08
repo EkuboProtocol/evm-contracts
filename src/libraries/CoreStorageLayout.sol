@@ -48,7 +48,7 @@ library CoreStorageLayout {
         slot = StorageSlot.wrap(PoolId.unwrap(poolId));
     }
 
-    /// @notice Computes the storage slots of the current fees of a pool
+    /// @notice Computes the storage slots of the current global fees per liquidity of a pool
     /// @param poolId The unique identifier for the pool
     /// @return firstSlot The first of two consecutive storage slots in the Core contract
     function poolFeesPerLiquiditySlot(PoolId poolId) internal pure returns (StorageSlot firstSlot) {

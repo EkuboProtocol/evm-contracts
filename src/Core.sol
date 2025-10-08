@@ -81,6 +81,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         sqrtRatio = tickToSqrtRatio(tick);
         writePoolState(poolId, createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: 0}));
 
+        // initialize these slots so the first swap or deposit on the pool is the same cost as any other swap
+        StorageSlot fplSlot0 = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
+        fplSlot0.store(bytes32(uint256(1)));
+        fplSlot0.next().store(bytes32(uint256(1)));
+
         emit PoolInitialized(poolId, poolKey, tick, sqrtRatio);
 
         IExtension(extension).maybeCallAfterInitializePool(msg.sender, poolKey, tick, sqrtRatio);

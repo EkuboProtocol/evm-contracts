@@ -98,7 +98,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
 
             assembly ("memory-safe") {
                 // subtraction of 1 is safe because sqrtRatio > quotient => sqrtRatio - quotient >= 1
-                sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidity))))
+                sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidityU256))))
             }
 
             sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);

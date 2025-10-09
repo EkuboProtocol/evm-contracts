@@ -36,26 +36,32 @@ function amount0DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint
     returns (uint128 amount0)
 {
     unchecked {
-        uint256 liquidityU256;
+        uint256 liquidityX128;
         assembly ("memory-safe") {
-            liquidityU256 := liquidity
+            liquidityX128 := shl(128, liquidity)
         }
         if (roundUp) {
-            uint256 result0 = FixedPointMathLib.fullMulDivUp(
-                (liquidityU256 << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
-            );
-            uint256 result = FixedPointMathLib.divUp(result0, sqrtRatioLower);
-            if (result > type(uint128).max) revert Amount0DeltaOverflow();
+            uint256 result0 =
+                FixedPointMathLib.fullMulDivUp(liquidityX128, (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper);
             assembly ("memory-safe") {
+                let result := add(div(result0, sqrtRatioLower), iszero(iszero(mod(result0, sqrtRatioLower))))
+                if shr(128, result) {
+                    // cast sig "Amount0DeltaOverflow()"
+                    mstore(0, 0xb4ef2546)
+                    revert(0x1c, 0x04)
+                }
                 amount0 := result
             }
         } else {
-            uint256 result0 = FixedPointMathLib.fullMulDivUnchecked(
-                (liquidityU256 << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
-            );
+            uint256 result0 =
+                FixedPointMathLib.fullMulDivUnchecked(liquidityX128, (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper);
             uint256 result = FixedPointMathLib.rawDiv(result0, sqrtRatioLower);
-            if (result > type(uint128).max) revert Amount0DeltaOverflow();
             assembly ("memory-safe") {
+                if shr(128, result) {
+                    // cast sig "Amount0DeltaOverflow()"
+                    mstore(0, 0xb4ef2546)
+                    revert(0x1c, 0x04)
+                }
                 amount0 := result
             }
         }
@@ -84,19 +90,25 @@ function amount1DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint
 
         if (roundUp) {
             uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidityU256, 128);
-            assembly {
+            assembly ("memory-safe") {
                 // addition is safe from overflow because the result of fullMulDivN will never equal type(uint256).max
                 result :=
                     add(result, iszero(iszero(mulmod(difference, liquidityU256, 0x100000000000000000000000000000000))))
-            }
-            if (result > type(uint128).max) revert Amount1DeltaOverflow();
-            assembly ("memory-safe") {
+                if shr(128, result) {
+                    // cast sig "Amount1DeltaOverflow()"
+                    mstore(0, 0x59d2b24a)
+                    revert(0x1c, 0x04)
+                }
                 amount1 := result
             }
         } else {
             uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidityU256, 128);
-            if (result > type(uint128).max) revert Amount1DeltaOverflow();
             assembly ("memory-safe") {
+                if shr(128, result) {
+                    // cast sig "Amount1DeltaOverflow()"
+                    mstore(0, 0x59d2b24a)
+                    revert(0x1c, 0x04)
+                }
                 amount1 := result
             }
         }

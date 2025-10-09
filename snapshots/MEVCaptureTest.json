@@ -1,14 +1,14 @@
 {
-  "initial_tick_far_from_zero_no_additional_fees": "120342",
-  "initial_tick_far_from_zero_no_additional_fees_output": "120744",
-  "input_token0_move_tick_spacings": "120207",
-  "input_token0_no_movement": "120207",
-  "input_token1_move_tick_spacings": "120101",
-  "input_token1_no_movement": "120101",
-  "output_token0_move_tick_spacings": "120907",
-  "output_token0_no_movement": "120907",
-  "output_token1_move_tick_spacings": "120660",
-  "output_token1_no_movement": "120660",
-  "second_swap_with_additional_fees_gas_price": "103242",
-  "third_swap_accumulates_fees": "117213"
+  "initial_tick_far_from_zero_no_additional_fees": "120336",
+  "initial_tick_far_from_zero_no_additional_fees_output": "120738",
+  "input_token0_move_tick_spacings": "120201",
+  "input_token0_no_movement": "120201",
+  "input_token1_move_tick_spacings": "120095",
+  "input_token1_no_movement": "120095",
+  "output_token0_move_tick_spacings": "120901",
+  "output_token0_no_movement": "120901",
+  "output_token1_move_tick_spacings": "120654",
+  "output_token1_no_movement": "120654",
+  "second_swap_with_additional_fees_gas_price": "103236",
+  "third_swap_accumulates_fees": "117207"
 }

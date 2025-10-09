@@ -26,7 +26,13 @@ import {PoolId} from "./types/poolId.sol";
 import {Locker} from "./types/locker.sol";
 import {computeFee, amountBeforeFee} from "./math/fee.sol";
 import {nextSqrtRatioFromAmount0, nextSqrtRatioFromAmount1} from "./math/sqrtRatio.sol";
-import {amount0Delta, amount1Delta} from "./math/delta.sol";
+import {
+    amount0Delta,
+    amount1Delta,
+    amount0DeltaSorted,
+    amount1DeltaSorted,
+    sortAndConvertToFixedSqrtRatios
+} from "./math/delta.sol";
 import {StorageSlot} from "./types/storageSlot.sol";
 import {LibBit} from "solady/utils/LibBit.sol";
 
@@ -630,14 +636,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         uint128 feeAmount;
 
                         if (hitLimit) {
+                            (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
+                                sortAndConvertToFixedSqrtRatios(limitedNextSqrtRatio, sqrtRatio);
                             (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
                                 ? (
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, !isExactOut),
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, isExactOut)
+                                    amount1DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, !isExactOut),
+                                    amount0DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, isExactOut)
                                 )
                                 : (
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, !isExactOut),
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, isExactOut)
+                                    amount0DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, !isExactOut),
+                                    amount1DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, isExactOut)
                                 );
 
                             if (isExactOut) {

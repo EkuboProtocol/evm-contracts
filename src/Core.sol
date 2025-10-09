@@ -498,12 +498,19 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function swap_1773245541(PoolKey memory poolKey, SwapParameters params)
-        external
-        payable
-        returns (int128 delta0, int128 delta1, PoolState stateAfter)
-    {
+    function swap_6269342730() external payable {
         unchecked {
+            PoolKey memory poolKey;
+            SwapParameters params;
+
+            assembly ("memory-safe") {
+                // No need to clean the parameters as we do with ABI-decoding because:
+                // 1. If poolKey is malformed, the poolId will be incorrect and the pool won't be initialized
+                // 2. SwapParameters uses bitwise operations that mask the relevant bits, handling any dirty upper bits
+                calldatacopy(poolKey, 4, 96)
+                params := calldataload(100)
+            }
+
             SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
             if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
@@ -513,11 +520,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             PoolId poolId = poolKey.toPoolId();
 
-            stateAfter = readPoolState(poolId);
+            PoolState stateAfter = readPoolState(poolId);
 
             if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
             int128 amountRemaining = params.amount();
+
+            int128 delta0;
+            int128 delta1;
 
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
             if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
@@ -803,6 +813,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             IExtension(poolKey.config.extension()).maybeCallAfterSwap(
                 locker, poolKey, params, delta0, delta1, stateAfter
             );
+
+            assembly ("memory-safe") {
+                let free := mload(0x40)
+                mstore(free, delta0)
+                mstore(add(free, 32), delta1)
+                mstore(add(free, 64), stateAfter)
+                return(free, 96)
+            }
         }
     }
 }

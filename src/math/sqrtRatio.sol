@@ -68,10 +68,6 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     pure
     returns (SqrtRatio sqrtRatioNext)
 {
-    if (amount == 0) {
-        return _sqrtRatio;
-    }
-
     uint256 sqrtRatio = _sqrtRatio.toFixed();
 
     unchecked {

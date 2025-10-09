@@ -36,9 +36,13 @@ function amount0DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint
     returns (uint128 amount0)
 {
     unchecked {
+        uint256 liquidityU256;
+        assembly ("memory-safe") {
+            liquidityU256 := liquidity
+        }
         if (roundUp) {
             uint256 result0 = FixedPointMathLib.fullMulDivUp(
-                (uint256(liquidity) << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
+                (liquidityU256 << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
             );
             uint256 result = FixedPointMathLib.divUp(result0, sqrtRatioLower);
             if (result > type(uint128).max) revert Amount0DeltaOverflow();
@@ -47,7 +51,7 @@ function amount0DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint
             }
         } else {
             uint256 result0 = FixedPointMathLib.fullMulDivUnchecked(
-                (uint256(liquidity) << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
+                (liquidityU256 << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
             );
             uint256 result = FixedPointMathLib.rawDiv(result0, sqrtRatioLower);
             if (result > type(uint128).max) revert Amount0DeltaOverflow();
@@ -73,20 +77,24 @@ function amount1DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint
 {
     unchecked {
         uint256 difference = sqrtRatioUpper - sqrtRatioLower;
+        uint256 liquidityU256;
+        assembly ("memory-safe") {
+            liquidityU256 := liquidity
+        }
 
         if (roundUp) {
-            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity, 128);
+            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidityU256, 128);
             assembly {
                 // addition is safe from overflow because the result of fullMulDivN will never equal type(uint256).max
                 result :=
-                    add(result, iszero(iszero(mulmod(difference, liquidity, 0x100000000000000000000000000000000))))
+                    add(result, iszero(iszero(mulmod(difference, liquidityU256, 0x100000000000000000000000000000000))))
             }
             if (result > type(uint128).max) revert Amount1DeltaOverflow();
             assembly ("memory-safe") {
                 amount1 := result
             }
         } else {
-            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidity, 128);
+            uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidityU256, 128);
             if (result > type(uint128).max) revert Amount1DeltaOverflow();
             assembly ("memory-safe") {
                 amount1 := result

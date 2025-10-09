@@ -21,9 +21,12 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     assembly ("memory-safe") {
         liquidityX128 := shl(128, liquidity)
     }
-    uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
 
     if (amount < 0) {
+        uint256 amountAbs;
+        assembly ("memory-safe") {
+            amountAbs := sub(0, amount)
+        }
         unchecked {
             // multiplication will revert on overflow, so we return the maximum value for the type
             if (amountAbs > FixedPointMathLib.rawDiv(type(uint256).max, sqrtRatio)) {
@@ -48,6 +51,10 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
             sqrtRatioNext = toSqrtRatio(resultFixed, true);
         }
     } else {
+        uint256 amountAbs;
+        assembly ("memory-safe") {
+            amountAbs := amount
+        }
         uint256 denominator;
         unchecked {
             uint256 denominatorP1 = FixedPointMathLib.rawDiv(liquidityX128, sqrtRatio);

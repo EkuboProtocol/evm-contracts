@@ -17,7 +17,10 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
 
     uint256 sqrtRatio = _sqrtRatio.toFixed();
 
-    uint256 liquidityX128 = uint256(liquidity) << 128;
+    uint256 liquidityX128;
+    assembly ("memory-safe") {
+        liquidityX128 := shl(128, liquidity)
+    }
     uint256 amountAbs = FixedPointMathLib.abs(int256(amount));
 
     if (amount < 0) {

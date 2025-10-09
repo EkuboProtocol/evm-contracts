@@ -501,311 +501,346 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function swap_1773245541(PoolKey memory poolKey, SwapParameters params)
-        external
-        payable
-        returns (int128 delta0, int128 delta1, PoolState stateAfter)
-    {
+    function swap_6269342730() external payable {
         unchecked {
-            SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
-            if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
+            // allocate a bytes array for all the returndata
+            uint256 returnDataOffset;
+            assembly ("memory-safe") {
+                returnDataOffset := mload(0x40)
+                mstore(0x40, add(returnDataOffset, mul(96, div(calldatasize(), 128))))
+            }
 
-            Locker locker = _requireLocker();
+            for (uint256 i = 4; i < msg.data.length; i += 128) {
+                PoolKey memory poolKey;
+                SwapParameters params;
 
-            IExtension(poolKey.config.extension()).maybeCallBeforeSwap(locker, poolKey, params);
-
-            PoolId poolId = poolKey.toPoolId();
-
-            stateAfter = readPoolState(poolId);
-
-            if (!stateAfter.isInitialized()) revert PoolNotInitialized();
-
-            int128 amountRemaining = params.amount();
-
-            // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
-            if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
-                (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
-
-                bool isToken1 = params.isToken1();
-
-                bool isExactOut = amountRemaining < 0;
-                bool increasing;
                 assembly ("memory-safe") {
-                    increasing := xor(isToken1, isExactOut)
+                    calldatacopy(poolKey, i, 96)
+                    params := calldataload(add(i, 96))
                 }
 
-                if ((sqrtRatioLimit < sqrtRatio) == increasing) {
-                    revert SqrtRatioLimitWrongDirection();
-                }
+                SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
+                if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
-                uint256 calculatedAmount;
+                Locker locker = _requireLocker();
 
-                // fees per liquidity only for the input token
-                uint256 inputTokenFeesPerLiquidity;
+                IExtension(poolKey.config.extension()).maybeCallBeforeSwap(locker, poolKey, params);
 
-                // 0 = not loaded & not updated, 1 = loaded & not updated, 2 = loaded & updated
-                uint256 feesAccessed;
+                PoolId poolId = poolKey.toPoolId();
 
-                while (true) {
-                    int32 nextTick;
-                    bool isInitialized;
-                    SqrtRatio nextTickSqrtRatio;
+                PoolState stateAfter = readPoolState(poolId);
 
-                    // For stableswap pools, determine active liquidity for this step
-                    uint128 stepLiquidity = liquidity;
+                if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
-                    if (poolKey.config.isStableswap()) {
-                        if (poolKey.config.isFullRange()) {
-                            // special case since we don't need to compute min/max tick sqrt ratio
-                            (nextTick, nextTickSqrtRatio) =
-                                increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
-                        } else {
-                            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+                int128 amountRemaining = params.amount();
 
-                            bool inRange;
-                            assembly ("memory-safe") {
-                                inRange := and(slt(tick, upper), iszero(slt(tick, lower)))
-                            }
-                            if (inRange) {
-                                nextTick = increasing ? upper : lower;
-                                nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                int128 delta0;
+                int128 delta1;
+
+                // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
+                if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
+                    (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = stateAfter.parse();
+
+                    bool isToken1 = params.isToken1();
+
+                    bool isExactOut = amountRemaining < 0;
+                    bool increasing;
+                    assembly ("memory-safe") {
+                        increasing := xor(isToken1, isExactOut)
+                    }
+
+                    if ((sqrtRatioLimit < sqrtRatio) == increasing) {
+                        revert SqrtRatioLimitWrongDirection();
+                    }
+
+                    uint256 calculatedAmount;
+
+                    // fees per liquidity only for the input token
+                    uint256 inputTokenFeesPerLiquidity;
+
+                    // 0 = not loaded & not updated, 1 = loaded & not updated, 2 = loaded & updated
+                    uint256 feesAccessed;
+
+                    while (true) {
+                        int32 nextTick;
+                        bool isInitialized;
+                        SqrtRatio nextTickSqrtRatio;
+
+                        // For stableswap pools, determine active liquidity for this step
+                        uint128 stepLiquidity = liquidity;
+
+                        if (poolKey.config.isStableswap()) {
+                            if (poolKey.config.isFullRange()) {
+                                // special case since we don't need to compute min/max tick sqrt ratio
+                                (nextTick, nextTickSqrtRatio) =
+                                    increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                             } else {
-                                if (tick < lower) {
-                                    (nextTick, nextTickSqrtRatio) =
-                                        increasing ? (lower, tickToSqrtRatio(lower)) : (MIN_TICK, MIN_SQRT_RATIO);
-                                } else {
-                                    // tick >= upper implied
-                                    (nextTick, nextTickSqrtRatio) =
-                                        increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (upper, tickToSqrtRatio(upper));
+                                (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+
+                                bool inRange;
+                                assembly ("memory-safe") {
+                                    inRange := and(slt(tick, upper), iszero(slt(tick, lower)))
                                 }
-                                stepLiquidity = 0;
+                                if (inRange) {
+                                    nextTick = increasing ? upper : lower;
+                                    nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                                } else {
+                                    if (tick < lower) {
+                                        (nextTick, nextTickSqrtRatio) =
+                                            increasing ? (lower, tickToSqrtRatio(lower)) : (MIN_TICK, MIN_SQRT_RATIO);
+                                    } else {
+                                        // tick >= upper implied
+                                        (nextTick, nextTickSqrtRatio) =
+                                            increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (upper, tickToSqrtRatio(upper));
+                                    }
+                                    stepLiquidity = 0;
+                                }
                             }
-                        }
-                    } else {
-                        // concentrated liquidity pools use the tick bitmaps
-                        (nextTick, isInitialized) = increasing
-                            ? findNextInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId),
-                                tick,
-                                poolKey.config.concentratedTickSpacing(),
-                                params.skipAhead()
-                            )
-                            : findPrevInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId),
-                                tick,
-                                poolKey.config.concentratedTickSpacing(),
-                                params.skipAhead()
-                            );
-
-                        nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                    }
-
-                    SqrtRatio limitedNextSqrtRatio =
-                        increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
-
-                    SqrtRatio sqrtRatioNext;
-
-                    if (stepLiquidity == 0) {
-                        // if the pool is empty, the swap will always move all the way to the limit price
-                        sqrtRatioNext = limitedNextSqrtRatio;
-                    } else {
-                        // this amount is what moves the price
-                        int128 priceImpactAmount;
-                        if (isExactOut) {
-                            priceImpactAmount = amountRemaining;
                         } else {
-                            // cast is safe because amount is g.t.e. 0
-                            // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
-                            priceImpactAmount =
-                                amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.config.fee()));
-                        }
-
-                        SqrtRatio sqrtRatioNextFromAmount = isToken1
-                            ? nextSqrtRatioFromAmount1(sqrtRatio, stepLiquidity, priceImpactAmount)
-                            : nextSqrtRatioFromAmount0(sqrtRatio, stepLiquidity, priceImpactAmount);
-
-                        bool hitLimit;
-                        assembly ("memory-safe") {
-                            // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
-                            let exceedsUp := and(increasing, gt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
-                            let exceedsDown :=
-                                and(iszero(increasing), lt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
-                            hitLimit := or(exceedsUp, exceedsDown)
-                        }
-
-                        uint128 feeAmount;
-
-                        if (hitLimit) {
-                            (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
-                                sortAndConvertToFixedSqrtRatios(limitedNextSqrtRatio, sqrtRatio);
-                            (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
-                                ? (
-                                    amount1DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, !isExactOut),
-                                    amount0DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, isExactOut)
+                            // concentrated liquidity pools use the tick bitmaps
+                            (nextTick, isInitialized) = increasing
+                                ? findNextInitializedTick(
+                                    CoreStorageLayout.tickBitmapsSlot(poolId),
+                                    tick,
+                                    poolKey.config.concentratedTickSpacing(),
+                                    params.skipAhead()
                                 )
-                                : (
-                                    amount0DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, !isExactOut),
-                                    amount1DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, isExactOut)
+                                : findPrevInitializedTick(
+                                    CoreStorageLayout.tickBitmapsSlot(poolId),
+                                    tick,
+                                    poolKey.config.concentratedTickSpacing(),
+                                    params.skipAhead()
                                 );
 
-                            if (isExactOut) {
-                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.config.fee());
-                                amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
-                                calculatedAmount += beforeFee;
-                                feeAmount = beforeFee - limitCalculatedAmountDelta;
-                            } else {
-                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.config.fee());
-                                amountRemaining -= SafeCastLib.toInt128(beforeFee);
-                                calculatedAmount += limitCalculatedAmountDelta;
-                                feeAmount = beforeFee - limitSpecifiedAmountDelta;
-                            }
+                            nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                        }
 
+                        SqrtRatio limitedNextSqrtRatio =
+                            increasing ? nextTickSqrtRatio.min(sqrtRatioLimit) : nextTickSqrtRatio.max(sqrtRatioLimit);
+
+                        SqrtRatio sqrtRatioNext;
+
+                        if (stepLiquidity == 0) {
+                            // if the pool is empty, the swap will always move all the way to the limit price
                             sqrtRatioNext = limitedNextSqrtRatio;
-                        } else if (sqrtRatioNextFromAmount == sqrtRatio) {
-                            // for an exact output swap, the price should always move since we have to round away from the current price
-                            assert(!isExactOut);
-
-                            // consume the entire input amount as fees since the price did not move
-                            feeAmount = uint128(amountRemaining);
-                            amountRemaining = 0;
-
-                            sqrtRatioNext = sqrtRatio;
                         } else {
-                            uint128 calculatedAmountWithoutFee = isToken1
-                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut)
-                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut);
-
+                            // this amount is what moves the price
+                            int128 priceImpactAmount;
                             if (isExactOut) {
-                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());
-                                calculatedAmount += includingFee;
-                                feeAmount = includingFee - calculatedAmountWithoutFee;
+                                priceImpactAmount = amountRemaining;
                             } else {
-                                calculatedAmount += calculatedAmountWithoutFee;
-                                feeAmount = uint128(amountRemaining - priceImpactAmount);
+                                // cast is safe because amount is g.t.e. 0
+                                // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
+                                priceImpactAmount =
+                                    amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.config.fee()));
                             }
 
-                            amountRemaining = 0;
-                            sqrtRatioNext = sqrtRatioNextFromAmount;
-                        }
+                            SqrtRatio sqrtRatioNextFromAmount = isToken1
+                                ? nextSqrtRatioFromAmount1(sqrtRatio, stepLiquidity, priceImpactAmount)
+                                : nextSqrtRatioFromAmount0(sqrtRatio, stepLiquidity, priceImpactAmount);
 
-                        // compute the change in fees per liquidity first
-                        uint256 deltaFpl;
-                        assembly ("memory-safe") {
-                            deltaFpl := div(shl(128, feeAmount), liquidity)
-                        }
-
-                        // only if it changed do we need to load fees per liquidity
-                        if (deltaFpl != 0) {
-                            if (feesAccessed == 0) {
-                                // this loads only the input token fees per liquidity
-                                inputTokenFeesPerLiquidity = uint256(
-                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
-                                        .load()
-                                );
-                            }
-
-                            inputTokenFeesPerLiquidity += deltaFpl;
-                            feesAccessed = 2;
-                        }
-                    }
-
-                    if (sqrtRatioNext == nextTickSqrtRatio) {
-                        sqrtRatio = sqrtRatioNext;
-                        assembly ("memory-safe") {
-                            // no overflow danger because nextTick is always inside the valid tick bounds
-                            tick := sub(nextTick, iszero(increasing))
-                        }
-
-                        if (isInitialized) {
-                            bytes32 tickValue = CoreStorageLayout.poolTicksSlot(poolId, nextTick).load();
+                            bool hitLimit;
                             assembly ("memory-safe") {
-                                // if increasing, we add the liquidity delta, otherwise we subtract it
-                                let liquidityDelta :=
-                                    mul(signextend(15, tickValue), sub(increasing, iszero(increasing)))
-                                liquidity := add(liquidity, liquidityDelta)
+                                // Branchless limit check: (increasing && next > limit) || (!increasing && next < limit)
+                                let exceedsUp := and(increasing, gt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
+                                let exceedsDown :=
+                                    and(iszero(increasing), lt(sqrtRatioNextFromAmount, limitedNextSqrtRatio))
+                                hitLimit := or(exceedsUp, exceedsDown)
                             }
 
-                            (StorageSlot tickFplFirstSlot, StorageSlot tickFplSecondSlot) =
-                                CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
+                            uint128 feeAmount;
 
-                            if (feesAccessed == 0) {
-                                inputTokenFeesPerLiquidity = uint256(
-                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
-                                        .load()
-                                );
-                                feesAccessed = 1;
+                            if (hitLimit) {
+                                (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
+                                    sortAndConvertToFixedSqrtRatios(limitedNextSqrtRatio, sqrtRatio);
+                                (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
+                                    ? (
+                                        amount1DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, !isExactOut),
+                                        amount0DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, isExactOut)
+                                    )
+                                    : (
+                                        amount0DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, !isExactOut),
+                                        amount1DeltaSorted(sqrtRatioLower, sqrtRatioUpper, stepLiquidity, isExactOut)
+                                    );
+
+                                if (isExactOut) {
+                                    uint128 beforeFee =
+                                        amountBeforeFee(limitCalculatedAmountDelta, poolKey.config.fee());
+                                    amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
+                                    calculatedAmount += beforeFee;
+                                    feeAmount = beforeFee - limitCalculatedAmountDelta;
+                                } else {
+                                    uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.config.fee());
+                                    amountRemaining -= SafeCastLib.toInt128(beforeFee);
+                                    calculatedAmount += limitCalculatedAmountDelta;
+                                    feeAmount = beforeFee - limitSpecifiedAmountDelta;
+                                }
+
+                                sqrtRatioNext = limitedNextSqrtRatio;
+                            } else if (sqrtRatioNextFromAmount == sqrtRatio) {
+                                // for an exact output swap, the price should always move since we have to round away from the current price
+                                assert(!isExactOut);
+
+                                // consume the entire input amount as fees since the price did not move
+                                feeAmount = uint128(amountRemaining);
+                                amountRemaining = 0;
+
+                                sqrtRatioNext = sqrtRatio;
+                            } else {
+                                uint128 calculatedAmountWithoutFee = isToken1
+                                    ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut)
+                                    : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut);
+
+                                if (isExactOut) {
+                                    uint128 includingFee =
+                                        amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());
+                                    calculatedAmount += includingFee;
+                                    feeAmount = includingFee - calculatedAmountWithoutFee;
+                                } else {
+                                    calculatedAmount += calculatedAmountWithoutFee;
+                                    feeAmount = uint128(amountRemaining - priceImpactAmount);
+                                }
+
+                                amountRemaining = 0;
+                                sqrtRatioNext = sqrtRatioNextFromAmount;
                             }
 
-                            // assume input token is token0
-                            uint256 globalFeesPerLiquidity0 = inputTokenFeesPerLiquidity;
-
-                            // load the output token fees per liquidity
-                            uint256 globalFeesPerLiquidity1 = uint256(
-                                CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(!increasing))
-                                    .load()
-                            );
-
-                            // if increasing, flip the values
-                            if (increasing) {
-                                uint256 tmp = globalFeesPerLiquidity0;
-                                globalFeesPerLiquidity0 = globalFeesPerLiquidity1;
-                                globalFeesPerLiquidity1 = tmp;
+                            // compute the change in fees per liquidity first
+                            uint256 deltaFpl;
+                            assembly ("memory-safe") {
+                                deltaFpl := div(shl(128, feeAmount), liquidity)
                             }
 
-                            // store global - tick fpl on the crossed tick
-                            tickFplFirstSlot.store(bytes32(globalFeesPerLiquidity0 - uint256(tickFplFirstSlot.load())));
-                            tickFplSecondSlot.store(
-                                bytes32(globalFeesPerLiquidity1 - uint256(tickFplSecondSlot.load()))
-                            );
+                            // only if it changed do we need to load fees per liquidity
+                            if (deltaFpl != 0) {
+                                if (feesAccessed == 0) {
+                                    // this loads only the input token fees per liquidity
+                                    inputTokenFeesPerLiquidity = uint256(
+                                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(
+                                            LibBit.rawToUint(increasing)
+                                        ).load()
+                                    );
+                                }
+
+                                inputTokenFeesPerLiquidity += deltaFpl;
+                                feesAccessed = 2;
+                            }
                         }
-                    } else if (sqrtRatio != sqrtRatioNext) {
-                        sqrtRatio = sqrtRatioNext;
-                        tick = sqrtRatioToTick(sqrtRatio);
+
+                        if (sqrtRatioNext == nextTickSqrtRatio) {
+                            sqrtRatio = sqrtRatioNext;
+                            assembly ("memory-safe") {
+                                // no overflow danger because nextTick is always inside the valid tick bounds
+                                tick := sub(nextTick, iszero(increasing))
+                            }
+
+                            if (isInitialized) {
+                                bytes32 tickValue = CoreStorageLayout.poolTicksSlot(poolId, nextTick).load();
+                                assembly ("memory-safe") {
+                                    // if increasing, we add the liquidity delta, otherwise we subtract it
+                                    let liquidityDelta :=
+                                        mul(signextend(15, tickValue), sub(increasing, iszero(increasing)))
+                                    liquidity := add(liquidity, liquidityDelta)
+                                }
+
+                                (StorageSlot tickFplFirstSlot, StorageSlot tickFplSecondSlot) =
+                                    CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, nextTick);
+
+                                if (feesAccessed == 0) {
+                                    inputTokenFeesPerLiquidity = uint256(
+                                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(
+                                            LibBit.rawToUint(increasing)
+                                        ).load()
+                                    );
+                                    feesAccessed = 1;
+                                }
+
+                                // assume input token is token0
+                                uint256 globalFeesPerLiquidity0 = inputTokenFeesPerLiquidity;
+
+                                // load the output token fees per liquidity
+                                uint256 globalFeesPerLiquidity1 = uint256(
+                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(
+                                        LibBit.rawToUint(!increasing)
+                                    ).load()
+                                );
+
+                                // if increasing, flip the values
+                                if (increasing) {
+                                    uint256 tmp = globalFeesPerLiquidity0;
+                                    globalFeesPerLiquidity0 = globalFeesPerLiquidity1;
+                                    globalFeesPerLiquidity1 = tmp;
+                                }
+
+                                // store global - tick fpl on the crossed tick
+                                tickFplFirstSlot.store(
+                                    bytes32(globalFeesPerLiquidity0 - uint256(tickFplFirstSlot.load()))
+                                );
+                                tickFplSecondSlot.store(
+                                    bytes32(globalFeesPerLiquidity1 - uint256(tickFplSecondSlot.load()))
+                                );
+                            }
+                        } else if (sqrtRatio != sqrtRatioNext) {
+                            sqrtRatio = sqrtRatioNext;
+                            tick = sqrtRatioToTick(sqrtRatio);
+                        }
+
+                        if (amountRemaining == 0 || sqrtRatio == sqrtRatioLimit) {
+                            break;
+                        }
                     }
 
-                    if (amountRemaining == 0 || sqrtRatio == sqrtRatioLimit) {
-                        break;
+                    int256 calculatedAmountSign;
+                    assembly ("memory-safe") {
+                        calculatedAmountSign := sub(isExactOut, iszero(isExactOut))
+                    }
+                    int128 calculatedAmountDelta = SafeCastLib.toInt128(
+                        FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
+                    );
+
+                    (delta0, delta1) = isToken1
+                        ? (calculatedAmountDelta, params.amount() - amountRemaining)
+                        : (params.amount() - amountRemaining, calculatedAmountDelta);
+
+                    stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
+
+                    writePoolState(poolId, stateAfter);
+
+                    if (feesAccessed == 2) {
+                        // this stores only the input token fees per liquidity
+                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing)).store(
+                            bytes32(inputTokenFeesPerLiquidity)
+                        );
+                    }
+
+                    // payment should be accounted separately
+                    _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
+
+                    assembly ("memory-safe") {
+                        let o := mload(0x40)
+                        mstore(o, shl(96, locker))
+                        mstore(add(o, 20), poolId)
+                        mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
+                        mstore(add(o, 84), stateAfter)
+                        log0(o, 116)
                     }
                 }
 
-                int256 calculatedAmountSign;
-                assembly ("memory-safe") {
-                    calculatedAmountSign := sub(isExactOut, iszero(isExactOut))
-                }
-                int128 calculatedAmountDelta = SafeCastLib.toInt128(
-                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
+                IExtension(poolKey.config.extension()).maybeCallAfterSwap(
+                    locker, poolKey, params, delta0, delta1, stateAfter
                 );
 
-                (delta0, delta1) = isToken1
-                    ? (calculatedAmountDelta, params.amount() - amountRemaining)
-                    : (params.amount() - amountRemaining, calculatedAmountDelta);
-
-                stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
-
-                writePoolState(poolId, stateAfter);
-
-                if (feesAccessed == 2) {
-                    // this stores only the input token fees per liquidity
-                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing)).store(
-                        bytes32(inputTokenFeesPerLiquidity)
-                    );
-                }
-
-                _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
-
                 assembly ("memory-safe") {
-                    let o := mload(0x40)
-                    mstore(o, shl(96, locker))
-                    mstore(add(o, 20), poolId)
-                    mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
-                    mstore(add(o, 84), stateAfter)
-                    log0(o, 116)
+                    let offset := add(returnDataOffset, mul(div(i, 128), 96))
+                    mstore(offset, delta0)
+                    mstore(add(offset, 32), delta1)
+                    mstore(add(offset, 64), stateAfter)
                 }
             }
 
-            IExtension(poolKey.config.extension()).maybeCallAfterSwap(
-                locker, poolKey, params, delta0, delta1, stateAfter
-            );
+            assembly ("memory-safe") {
+                return(returnDataOffset, mul(96, div(calldatasize(), 128)))
+            }
         }
     }
 }

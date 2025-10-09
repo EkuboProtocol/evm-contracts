@@ -29,7 +29,7 @@ import {
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 import {PoolId} from "../types/poolId.sol";
 import {OrderId} from "../types/orderId.sol";
-import {SwapParameters} from "../types/swapParameters.sol";
+import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
 import {LibBit} from "solady/utils/LibBit.sol";
 
@@ -457,11 +457,27 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         if (sqrtRatioNext > corePoolState.sqrtRatio()) {
                             // todo: we could update corePoolState here and avoid calling into core to get it again
                             // however it causes stack too deep and it's not a huge optimization because in cases where two tokens are sold
-                            (swapDelta0, swapDelta1, corePoolState) =
-                                CORE.swap(0, poolKey, int128(uint128(amount1)), true, sqrtRatioNext, 0);
+                            (swapDelta0, swapDelta1, corePoolState) = CORE.swap(
+                                0,
+                                poolKey,
+                                createSwapParameters({
+                                    _sqrtRatioLimit: sqrtRatioNext,
+                                    _amount: int128(uint128(amount1)),
+                                    _isToken1: true,
+                                    _skipAhead: 0
+                                })
+                            );
                         } else if (sqrtRatioNext < corePoolState.sqrtRatio()) {
-                            (swapDelta0, swapDelta1, corePoolState) =
-                                CORE.swap(0, poolKey, int128(uint128(amount0)), false, sqrtRatioNext, 0);
+                            (swapDelta0, swapDelta1, corePoolState) = CORE.swap(
+                                0,
+                                poolKey,
+                                createSwapParameters({
+                                    _sqrtRatioLimit: sqrtRatioNext,
+                                    _amount: int128(uint128(amount0)),
+                                    _isToken1: false,
+                                    _skipAhead: 0
+                                })
+                            );
                         }
 
                         saveDelta0 -= swapDelta0;
@@ -473,11 +489,27 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         rewardDelta1 = swapDelta1 - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
                         if (amount0 != 0) {
-                            (rewardDelta0, rewardDelta1, corePoolState) =
-                                CORE.swap(0, poolKey, int128(uint128(amount0)), false, MIN_SQRT_RATIO, 0);
+                            (rewardDelta0, rewardDelta1, corePoolState) = CORE.swap(
+                                0,
+                                poolKey,
+                                createSwapParameters({
+                                    _sqrtRatioLimit: MIN_SQRT_RATIO,
+                                    _amount: int128(uint128(amount0)),
+                                    _isToken1: false,
+                                    _skipAhead: 0
+                                })
+                            );
                         } else {
-                            (rewardDelta0, rewardDelta1, corePoolState) =
-                                CORE.swap(0, poolKey, int128(uint128(amount1)), true, MAX_SQRT_RATIO, 0);
+                            (rewardDelta0, rewardDelta1, corePoolState) = CORE.swap(
+                                0,
+                                poolKey,
+                                createSwapParameters({
+                                    _sqrtRatioLimit: MAX_SQRT_RATIO,
+                                    _amount: int128(uint128(amount1)),
+                                    _isToken1: true,
+                                    _skipAhead: 0
+                                })
+                            );
                         }
 
                         saveDelta0 -= rewardDelta0;

@@ -116,31 +116,6 @@ library CoreLib {
     /// @param core The core contract instance
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
-    /// @return stateAfter The pool state after the swap
-    function swap(
-        ICore core,
-        uint256 value,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) internal returns (int128 delta0, int128 delta1, PoolState stateAfter) {
-        SwapParameters params = createSwapParameters(sqrtRatioLimit, amount, isToken1, skipAhead);
-        (delta0, delta1, stateAfter) = swap(core, value, poolKey, params);
-    }
-
-    /// @notice Executes a swap against the core contract using assembly optimization
-    /// @dev Uses assembly to make direct call to core contract for gas efficiency
-    /// @param core The core contract instance
-    /// @param value Native token value to send with the swap
-    /// @param poolKey Pool key identifying the pool
     /// @param params The swap parameters to use
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance

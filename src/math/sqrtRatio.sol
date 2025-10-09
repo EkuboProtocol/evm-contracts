@@ -51,20 +51,15 @@ function nextSqrtRatioFromAmount0(SqrtRatio _sqrtRatio, uint128 liquidity, int12
             sqrtRatioNext = toSqrtRatio(resultFixed, true);
         }
     } else {
-        uint256 amountAbs;
+        uint256 sqrtRatioRaw;
         assembly ("memory-safe") {
-            amountAbs := amount
-        }
-        uint256 denominator;
-        unchecked {
-            uint256 denominatorP1 = FixedPointMathLib.rawDiv(liquidityX128, sqrtRatio);
-
             // this can never overflow, amountAbs is limited to 2**128-1 and liquidityX128 / sqrtRatio is limited to (2**128-1 << 128)
             // adding the 2 values can at most equal type(uint256).max
-            denominator = denominatorP1 + amountAbs;
+            let denominator := add(div(liquidityX128, sqrtRatio), amount)
+            sqrtRatioRaw := add(div(liquidityX128, denominator), iszero(iszero(mod(liquidityX128, denominator))))
         }
 
-        sqrtRatioNext = toSqrtRatio(FixedPointMathLib.divUp(liquidityX128, denominator), true);
+        sqrtRatioNext = toSqrtRatio(sqrtRatioRaw, true);
     }
 }
 

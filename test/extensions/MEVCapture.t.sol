@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
@@ -35,8 +35,9 @@ abstract contract BaseMEVCaptureTest is FullTest {
         internal
         returns (PoolKey memory poolKey)
     {
-        poolKey =
-            createPool(address(token0), address(token1), tick, createPoolConfig(fee, tickSpacing, address(mevCapture)));
+        poolKey = createPool(
+            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, tickSpacing, address(mevCapture))
+        );
     }
 }
 
@@ -98,7 +99,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             _token0: address(token0),
             _token1: address(token1),
             tick: 0,
-            config: createPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(mevCapture)})
+            config: createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(mevCapture)})
         });
     }
 

@@ -6,7 +6,7 @@ import {PoolConfig} from "./poolConfig.sol";
 
 type PositionId is bytes32;
 
-using {validateBounds, salt, tickLower, tickUpper} for PositionId global;
+using {validate, salt, tickLower, tickUpper} for PositionId global;
 
 function salt(PositionId positionId) pure returns (bytes24 v) {
     assembly ("memory-safe") {
@@ -37,20 +37,22 @@ function createPositionId(bytes24 _salt, int32 _tickLower, int32 _tickUpper) pur
 
 /// @notice Thrown when the order of the position bounds is invalid, i.e. tickLower >= tickUpper
 error BoundsOrder();
-/// @notice Thrown when the bounds of the position are greater than or less than the min/max tick
+/// @notice Thrown when the bounds of the position are outside the pool's min/max tick range
 error MinMaxBounds();
-/// @notice Thrown when the ticks of the bounds do not align with tick spacing, i.e. tick{Lower,Upper} % tickSpacing != 0
+/// @notice Thrown when the ticks of the bounds do not align with tick spacing for concentrated pools
 error BoundsTickSpacing();
-/// @notice Thrown if the pool is full range only and the position is not full range
-error FullRangeOnlyPool();
+/// @notice Thrown when stableswap pool positions are not at the min/max tick for the config
+error StableswapMustBeFullRange();
 
-function validateBounds(PositionId positionId, PoolConfig config) pure {
-    if (config.isFullRange()) {
-        if (positionId.tickLower() != MIN_TICK || positionId.tickUpper() != MAX_TICK) revert FullRangeOnlyPool();
-    } else {
+function validate(PositionId positionId, PoolConfig config) pure {
+    if (config.isConcentrated()) {
         if (positionId.tickLower() >= positionId.tickUpper()) revert BoundsOrder();
         if (positionId.tickLower() < MIN_TICK || positionId.tickUpper() > MAX_TICK) revert MinMaxBounds();
-        int32 spacing = int32(config.tickSpacing());
+        int32 spacing = int32(config.concentratedTickSpacing());
         if (positionId.tickLower() % spacing != 0 || positionId.tickUpper() % spacing != 0) revert BoundsTickSpacing();
+    } else {
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        // For stableswap pools, positions must be exactly min/max tick
+        if (positionId.tickLower() != lower || positionId.tickUpper() != upper) revert StableswapMustBeFullRange();
     }
 }

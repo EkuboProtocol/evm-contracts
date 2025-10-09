@@ -282,13 +282,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             isUpper ? currentLiquidityDelta - liquidityDelta : currentLiquidityDelta + liquidityDelta;
 
         // Check that liquidityNet doesn't exceed max liquidity per tick
-        uint128 maxLiquidity = poolConfig.maxLiquidityPerTickConcentratedLiquidity();
+        uint128 maxLiquidity = poolConfig.concentratedMaxLiquidityPerTick();
         if (liquidityNetNext > maxLiquidity) {
             revert MaxLiquidityPerTickExceeded(tick, liquidityNetNext, maxLiquidity);
         }
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.tickSpacing());
+            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.concentratedTickSpacing());
 
             (StorageSlot fplSlot0, StorageSlot fplSlot1) =
                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
@@ -351,7 +351,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         payable
         returns (int128 delta0, int128 delta1)
     {
-        positionId.validateBounds(poolKey.config);
+        positionId.validate(poolKey.config);
 
         Locker locker = _requireLocker();
 
@@ -380,7 +380,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             FeesPerLiquidity memory feesPerLiquidityInside;
 
-            if (!poolKey.config.isFullRange()) {
+            if (poolKey.config.isConcentrated()) {
                 // the position is fully withdrawn
                 if (liquidityNext == 0) {
                     // we need to fetch it before the tick fees per liquidity outside is deleted
@@ -407,6 +407,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     writePoolState(poolId, state);
                 }
             } else {
+                // we store the active liquidity in the liquidity slot for stableswap pools
                 state = createPoolState({
                     _sqrtRatio: state.sqrtRatio(),
                     _tick: state.tick(),
@@ -468,11 +469,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         FeesPerLiquidity memory feesPerLiquidityInside;
-        if (poolKey.config.isFullRange()) {
+        if (poolKey.config.isStableswap()) {
+            // Stableswap pools: use global fees per liquidity
             StorageSlot fplFirstSlot = CoreStorageLayout.poolFeesPerLiquiditySlot(poolId);
             feesPerLiquidityInside.value0 = uint256(fplFirstSlot.load());
             feesPerLiquidityInside.value1 = uint256(fplFirstSlot.next().load());
         } else {
+            // Concentrated pools: calculate fees per liquidity inside the position bounds
             feesPerLiquidityInside = _getPoolFeesPerLiquidityInside(
                 poolId, readPoolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
             );
@@ -542,26 +545,53 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     bool isInitialized;
                     SqrtRatio nextTickSqrtRatio;
 
-                    if (!poolKey.config.isFullRange()) {
+                    // For stableswap pools, determine active liquidity for this step
+                    uint128 stepLiquidity = liquidity;
+
+                    if (poolKey.config.isStableswap()) {
+                        if (poolKey.config.isFullRange()) {
+                            // special case since we don't need to compute min/max tick sqrt ratio
+                            (nextTick, nextTickSqrtRatio) =
+                                increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
+                        } else {
+                            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+
+                            bool inRange;
+                            assembly ("memory-safe") {
+                                inRange := and(slt(tick, upper), iszero(slt(tick, lower)))
+                            }
+                            if (inRange) {
+                                nextTick = increasing ? upper : lower;
+                                nextTickSqrtRatio = tickToSqrtRatio(nextTick);
+                            } else {
+                                if (tick < lower) {
+                                    (nextTick, nextTickSqrtRatio) =
+                                        increasing ? (lower, tickToSqrtRatio(lower)) : (MIN_TICK, MIN_SQRT_RATIO);
+                                } else {
+                                    // tick >= upper implied
+                                    (nextTick, nextTickSqrtRatio) =
+                                        increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (upper, tickToSqrtRatio(upper));
+                                }
+                                stepLiquidity = 0;
+                            }
+                        }
+                    } else {
+                        // concentrated liquidity pools use the tick bitmaps
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.tickSpacing(),
+                                poolKey.config.concentratedTickSpacing(),
                                 params.skipAhead()
                             )
                             : findPrevInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.tickSpacing(),
+                                poolKey.config.concentratedTickSpacing(),
                                 params.skipAhead()
                             );
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);
-                    } else {
-                        // we never cross ticks in the full range version
-                        (nextTick, nextTickSqrtRatio) =
-                            increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                     }
 
                     SqrtRatio limitedNextSqrtRatio =
@@ -569,7 +599,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                     SqrtRatio sqrtRatioNext;
 
-                    if (liquidity == 0) {
+                    if (stepLiquidity == 0) {
                         // if the pool is empty, the swap will always move all the way to the limit price
                         sqrtRatioNext = limitedNextSqrtRatio;
                     } else {
@@ -585,8 +615,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         }
 
                         SqrtRatio sqrtRatioNextFromAmount = isToken1
-                            ? nextSqrtRatioFromAmount1(sqrtRatio, liquidity, priceImpactAmount)
-                            : nextSqrtRatioFromAmount0(sqrtRatio, liquidity, priceImpactAmount);
+                            ? nextSqrtRatioFromAmount1(sqrtRatio, stepLiquidity, priceImpactAmount)
+                            : nextSqrtRatioFromAmount0(sqrtRatio, stepLiquidity, priceImpactAmount);
 
                         bool hitLimit;
                         assembly ("memory-safe") {
@@ -602,12 +632,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         if (hitLimit) {
                             (uint128 limitSpecifiedAmountDelta, uint128 limitCalculatedAmountDelta) = isToken1
                                 ? (
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, !isExactOut),
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, isExactOut)
                                 )
                                 : (
-                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, !isExactOut),
-                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, liquidity, isExactOut)
+                                    amount0Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, !isExactOut),
+                                    amount1Delta(limitedNextSqrtRatio, sqrtRatio, stepLiquidity, isExactOut)
                                 );
 
                             if (isExactOut) {
@@ -634,8 +664,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             sqrtRatioNext = sqrtRatio;
                         } else {
                             uint128 calculatedAmountWithoutFee = isToken1
-                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut)
-                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, liquidity, isExactOut);
+                                ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut)
+                                : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut);
 
                             if (isExactOut) {
                                 uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());

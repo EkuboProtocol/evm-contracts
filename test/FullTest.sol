@@ -7,7 +7,7 @@ import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PoolConfig, createFullRangePoolConfig, createPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createFullRangePoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PositionId} from "../src/types/positionId.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {TestToken} from "./TestToken.sol";
@@ -201,7 +201,7 @@ abstract contract FullTest is Test {
     }
 
     function createFullRangePool(int32 tick, uint64 fee) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(tick, fee, 0, CallPoints(false, false, false, false, false, false, false, false));
+        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, address(0)));
     }
 
     function createFullRangePool(int32 tick, uint64 fee, address extension) internal returns (PoolKey memory poolKey) {
@@ -222,15 +222,18 @@ abstract contract FullTest is Test {
 
     // creates a pool of token1/ETH
     function createETHPool(int32 tick, uint64 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
-        poolKey =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), tick, createPoolConfig(fee, tickSpacing, address(0)));
+        poolKey = createPool(
+            NATIVE_TOKEN_ADDRESS, address(token1), tick, createConcentratedPoolConfig(fee, tickSpacing, address(0))
+        );
     }
 
     function createPool(int32 tick, uint64 fee, uint32 tickSpacing, address extension)
         internal
         returns (PoolKey memory poolKey)
     {
-        poolKey = createPool(address(token0), address(token1), tick, createPoolConfig(fee, tickSpacing, extension));
+        poolKey = createPool(
+            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, tickSpacing, extension)
+        );
     }
 
     function createPool(address _token0, address _token1, int32 tick, PoolConfig config)

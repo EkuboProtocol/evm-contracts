@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PoolConfig, createPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createStableswapPoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
@@ -26,7 +26,7 @@ function maxBounds(PoolConfig config) pure returns (int32 tickLower, int32 tickU
     if (config.isFullRange()) {
         return (MIN_TICK, MAX_TICK);
     }
-    int32 spacing = int32(config.tickSpacing());
+    int32 spacing = int32(config.concentratedTickSpacing());
 
     return ((MIN_TICK / spacing) * spacing, (MAX_TICK / spacing) * spacing);
 }
@@ -83,12 +83,29 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     function createNewPool(uint64 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
-        tickSpacing = uint32(bound(tickSpacing, 0, MAX_TICK_SPACING));
+        // Concentrated pools need tick spacing >= 1 to avoid division by zero
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
             address(token0),
             address(token1),
-            createPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+            createConcentratedPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+        );
+        (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
+        assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
+        if (initialized) allPoolKeys.push(poolKey);
+    }
+
+    function createNewStableswapPool(uint64 fee, int32 tick, uint8 amplification, int32 centerTick, bool withExtension)
+        public
+    {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        centerTick = int32(bound(centerTick, MIN_TICK, MAX_TICK));
+        amplification = uint8(bound(amplification, 0, 26));
+        PoolKey memory poolKey = PoolKey(
+            address(token0),
+            address(token1),
+            createStableswapPoolConfig(fee, amplification, centerTick, withExtension ? address(fae) : address(0))
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
@@ -108,15 +125,19 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        if (poolKey.config.isFullRange()) {
-            (tickLower, tickUpper) = (MIN_TICK, MAX_TICK);
+        if (poolKey.config.isStableswap()) {
+            (tickLower, tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         } else {
             (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.config);
-            tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.config.tickSpacing())));
+            tickLower =
+                int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.config.concentratedTickSpacing())));
             // snap to nearest valid tick
-            tickLower = (tickLower / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
-            tickUpper = int32(bound(tickUpper, tickLower + int32(poolKey.config.tickSpacing()), maxTickUpper));
-            tickUpper = (tickUpper / int32(poolKey.config.tickSpacing())) * int32(poolKey.config.tickSpacing());
+            tickLower = (tickLower / int32(poolKey.config.concentratedTickSpacing()))
+                * int32(poolKey.config.concentratedTickSpacing());
+            tickUpper =
+                int32(bound(tickUpper, tickLower + int32(poolKey.config.concentratedTickSpacing()), maxTickUpper));
+            tickUpper = (tickUpper / int32(poolKey.config.concentratedTickSpacing()))
+                * int32(poolKey.config.concentratedTickSpacing());
         }
 
         try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (

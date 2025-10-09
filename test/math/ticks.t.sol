@@ -2,7 +2,6 @@
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {sqrtRatioToTick, tickToSqrtRatio, InvalidTick, toSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";

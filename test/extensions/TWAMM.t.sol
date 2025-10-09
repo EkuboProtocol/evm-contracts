@@ -2,7 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {FullTest} from "../FullTest.sol";
 import {ITWAMM, TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
@@ -11,11 +11,9 @@ import {createOrderConfig} from "../../src/types/orderConfig.sol";
 import {TWAMMStorageLayout} from "../../src/libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {Core} from "../../src/Core.sol";
-import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Test} from "forge-std/Test.sol";
-import {searchForNextInitializedTime, flipTime} from "../../src/math/timeBitmap.sol";
-import {Bitmap} from "../../src/types/bitmap.sol";
+import {searchForNextInitializedTime} from "../../src/math/timeBitmap.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {createTimeInfo} from "../../src/types/timeInfo.sol";
@@ -51,7 +49,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_createPool_fails_not_full_range() public {
         vm.expectRevert(ITWAMM.FullRangePoolOnly.selector);
-        createPool(address(token0), address(token1), 0, createPoolConfig(0, 1, address(twamm)));
+        createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 1, address(twamm)));
     }
 
     function test_createPool(uint256 time) public {
@@ -111,7 +109,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         assertEq(pk.token0, orderKey.token0);
         assertEq(pk.token1, orderKey.token1);
         assertEq(pk.config.fee(), orderKey.config.fee());
-        assertEq(pk.config.tickSpacing(), 0);
+        assertEq(pk.config.concentratedTickSpacing(), 0);
         assertEq(pk.config.extension(), twamm);
     }
 

@@ -2,11 +2,11 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
+import {createStableswapPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {createPositionId} from "../../src/types/positionId.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";
@@ -20,7 +20,6 @@ import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
-import {FullRangeOnlyPool} from "../../src/types/positionId.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -540,16 +539,10 @@ contract OracleTest is BaseOracleTest {
         createPool(address(token0), address(token1), 0, createFullRangePoolConfig(0, address(oracle)));
 
         vm.expectRevert(IOracle.FullRangePoolOnly.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createPoolConfig(0, 100, address(oracle)));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createStableswapPoolConfig(0, 15, 0, address(oracle)));
 
         vm.expectRevert(IOracle.FeeMustBeZero.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createPoolConfig(1, 0, address(oracle)));
-    }
-
-    function test_createPosition_failsForPositionsNotWideEnough() public {
-        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
-        vm.expectRevert(FullRangeOnlyPool.selector);
-        positions.mintAndDeposit{value: 100}(poolKey, -int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING), 100, 100, 0);
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createStableswapPoolConfig(1, 0, 0, address(oracle)));
     }
 
     function test_createPosition(uint256 startTime) public {

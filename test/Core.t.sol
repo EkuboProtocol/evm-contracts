@@ -7,7 +7,7 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createPoolConfig} from "../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
@@ -95,7 +95,7 @@ contract CoreTest is FullTest {
 
         address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
         PoolKey memory key =
-            PoolKey({token0: token0, token1: token1, config: createPoolConfig(fee, tickSpacing, extension)});
+            PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)});
 
         if (callPoints.beforeInitializePool) {
             vm.expectEmit(extension);
@@ -131,7 +131,7 @@ contract CoreTest is FullTest {
         PoolKey memory key = PoolKey({
             token0: address(0),
             token1: address(1),
-            config: createPoolConfig(type(uint64).max / 100, 100, extension)
+            config: createConcentratedPoolConfig(type(uint64).max / 100, 100, extension)
         });
 
         core.initializePool(key, 150);
@@ -140,7 +140,7 @@ contract CoreTest is FullTest {
         key = PoolKey({
             token0: address(0),
             token1: address(1),
-            config: createPoolConfig(type(uint64).max / 100, 100, address(0))
+            config: createConcentratedPoolConfig(type(uint64).max / 100, 100, address(0))
         });
         core.initializePool(key, 300);
         vm.snapshotGasLastCall("initializePool w/o extension");

@@ -4,37 +4,49 @@ pragma solidity =0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {PoolKey, TokensMustBeSorted} from "../../src/types/poolKey.sol";
 import {
-    PoolConfig, InvalidTickSpacing, createPoolConfig, createFullRangePoolConfig
+    PoolConfig,
+    InvalidTickSpacing,
+    createConcentratedPoolConfig,
+    createFullRangePoolConfig
 } from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {MAX_TICK_SPACING} from "../../src/math/constants.sol";
 
 contract PoolKeyTest is Test {
     function test_poolKey_validateTokens_zero_token0() public pure {
-        PoolKey({token0: address(0), token1: address(1), config: createPoolConfig(0, 1, address(0))}).validate();
+        PoolKey({token0: address(0), token1: address(1), config: createConcentratedPoolConfig(0, 1, address(0))})
+            .validate();
     }
 
     /// forge-config: default.allow_internal_expect_revert = true
     function test_poolKey_validateTokens_order() public {
         vm.expectRevert(TokensMustBeSorted.selector);
-        PoolKey({token0: address(2), token1: address(1), config: createPoolConfig(0, 1, address(0))}).validate();
+        PoolKey({token0: address(2), token1: address(1), config: createConcentratedPoolConfig(0, 1, address(0))})
+            .validate();
     }
 
     /// forge-config: default.allow_internal_expect_revert = true
     function test_poolKey_validateTokens_equal() public {
         vm.expectRevert(TokensMustBeSorted.selector);
-        PoolKey({token0: address(2), token1: address(2), config: createPoolConfig(0, 1, address(0))}).validate();
+        PoolKey({token0: address(2), token1: address(2), config: createConcentratedPoolConfig(0, 1, address(0))})
+            .validate();
     }
 
-    function test_poolKey_validateTickSpacing_zero_is_valid() public pure {
-        PoolKey({token0: address(1), token1: address(2), config: createPoolConfig(0, 0, address(0))}).validate();
+    /// forge-config: default.allow_internal_expect_revert = true
+    function test_poolKey_validateTickSpacing_zero_is_invalid() public {
+        vm.expectRevert(InvalidTickSpacing.selector);
+        PoolKey({token0: address(1), token1: address(2), config: createConcentratedPoolConfig(0, 0, address(0))})
+            .validate();
     }
 
     /// forge-config: default.allow_internal_expect_revert = true
     function test_poolKey_validateTickSpacing_max() public {
         vm.expectRevert(InvalidTickSpacing.selector);
-        PoolKey({token0: address(1), token1: address(2), config: createPoolConfig(0, MAX_TICK_SPACING + 1, address(0))})
-            .validate();
+        PoolKey({
+            token0: address(1),
+            token1: address(2),
+            config: createConcentratedPoolConfig(0, MAX_TICK_SPACING + 1, address(0))
+        }).validate();
     }
 
     function test_poolKey_validateTickSpacing_full_range() public pure {
@@ -60,8 +72,10 @@ contract PoolKeyTest is Test {
     function test_toPoolId_changesWithExtension(PoolKey memory poolKey) public pure {
         PoolId id = poolKey.toPoolId();
         unchecked {
-            poolKey.config = createPoolConfig(
-                poolKey.config.fee(), poolKey.config.tickSpacing(), address(uint160(poolKey.config.extension()) + 1)
+            poolKey.config = createConcentratedPoolConfig(
+                poolKey.config.fee(),
+                poolKey.config.concentratedTickSpacing(),
+                address(uint160(poolKey.config.extension()) + 1)
             );
         }
         assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
@@ -70,8 +84,9 @@ contract PoolKeyTest is Test {
     function test_toPoolId_changesWithFee(PoolKey memory poolKey) public pure {
         PoolId id = poolKey.toPoolId();
         unchecked {
-            poolKey.config =
-                createPoolConfig(poolKey.config.fee() + 1, poolKey.config.tickSpacing(), poolKey.config.extension());
+            poolKey.config = createConcentratedPoolConfig(
+                poolKey.config.fee() + 1, poolKey.config.concentratedTickSpacing(), poolKey.config.extension()
+            );
         }
         assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
     }
@@ -79,8 +94,9 @@ contract PoolKeyTest is Test {
     function test_toPoolId_changesWithTickSpacing(PoolKey memory poolKey) public pure {
         PoolId id = poolKey.toPoolId();
         unchecked {
-            poolKey.config =
-                createPoolConfig(poolKey.config.fee(), poolKey.config.tickSpacing() + 1, poolKey.config.extension());
+            poolKey.config = createConcentratedPoolConfig(
+                poolKey.config.fee(), poolKey.config.concentratedTickSpacing() + 1, poolKey.config.extension()
+            );
         }
         assertNotEq(PoolId.unwrap(poolKey.toPoolId()), PoolId.unwrap(id));
     }

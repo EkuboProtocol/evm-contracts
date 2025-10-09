@@ -4,7 +4,7 @@ pragma solidity =0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {PoolConfig, createPoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
@@ -408,7 +408,7 @@ contract CoreStorageLayoutTest is Test {
 
         // Create a realistic pool key and derive pool ID
         PoolKey memory poolKey =
-            PoolKey({token0: token0, token1: token1, config: createPoolConfig(fee, tickSpacing, extension)});
+            PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)});
         PoolId poolId = poolKey.toPoolId();
 
         // Create a position ID

@@ -507,8 +507,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 mstore(0x40, add(returnDataOffset, mul(96, div(calldatasize(), 128))))
             }
 
+            PoolKey memory poolKey;
+
             for (uint256 i = 4; i < msg.data.length; i += 128) {
-                PoolKey memory poolKey;
                 SwapParameters params;
 
                 assembly ("memory-safe") {

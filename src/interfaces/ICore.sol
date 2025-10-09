@@ -275,13 +275,5 @@ interface ICore is IFlashAccountant, IExposedStorage {
 
     /// @notice Executes a swap against a pool
     /// @dev Function name is mined to have a zero function selector for gas efficiency
-    /// @param poolKey Pool key identifying the pool
-    /// @param params Swap parameters containing amount, isToken1, sqrtRatioLimit, and skipAhead
-    /// @return delta0 Change in token0 balance of the pool
-    /// @return delta1 Change in token1 balance of the pool
-    /// @return stateAfter The pool state after the swap
-    function swap_1773245541(PoolKey memory poolKey, SwapParameters params)
-        external
-        payable
-        returns (int128 delta0, int128 delta1, PoolState stateAfter);
+    function swap_6269342730() external payable;
 }

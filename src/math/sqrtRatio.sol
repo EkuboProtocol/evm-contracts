@@ -75,15 +75,18 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     uint256 sqrtRatio = _sqrtRatio.toFixed();
 
     unchecked {
-        uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
-
         uint256 liquidityU256;
         assembly ("memory-safe") {
             liquidityU256 := liquidity
         }
-        uint256 quotient = FixedPointMathLib.rawDiv(shiftedAmountAbs, liquidityU256);
 
         if (amount < 0) {
+            uint256 quotient;
+            assembly ("memory-safe") {
+                let numerator := shl(128, sub(0, amount))
+                quotient := add(div(numerator, liquidityU256), iszero(iszero(mod(numerator, liquidityU256))))
+            }
+
             if (quotient >= sqrtRatio) {
                 // Underflow => return 0
                 return SqrtRatio.wrap(0);
@@ -91,13 +94,12 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
 
             uint256 sqrtRatioNextFixed = sqrtRatio - quotient;
 
-            assembly ("memory-safe") {
-                // subtraction of 1 is safe because sqrtRatio > quotient => sqrtRatio - quotient >= 1
-                sqrtRatioNextFixed := sub(sqrtRatioNextFixed, iszero(iszero(mod(shiftedAmountAbs, liquidityU256))))
-            }
-
             sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);
         } else {
+            uint256 quotient;
+            assembly ("memory-safe") {
+                quotient := div(shl(128, amount), liquidityU256)
+            }
             uint256 sum = sqrtRatio + quotient;
             if (sum < sqrtRatio || sum > type(uint192).max) {
                 return SqrtRatio.wrap(type(uint96).max);

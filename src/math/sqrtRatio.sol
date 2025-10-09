@@ -87,12 +87,7 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
                 quotient := add(div(numerator, liquidityU256), iszero(iszero(mod(numerator, liquidityU256))))
             }
 
-            if (quotient >= sqrtRatio) {
-                // Underflow => return 0
-                return SqrtRatio.wrap(0);
-            }
-
-            uint256 sqrtRatioNextFixed = sqrtRatio - quotient;
+            uint256 sqrtRatioNextFixed = FixedPointMathLib.zeroFloorSub(sqrtRatio, quotient);
 
             sqrtRatioNext = toSqrtRatio(sqrtRatioNextFixed, false);
         } else {

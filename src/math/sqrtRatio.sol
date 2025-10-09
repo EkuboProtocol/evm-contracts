@@ -82,7 +82,11 @@ function nextSqrtRatioFromAmount1(SqrtRatio _sqrtRatio, uint128 liquidity, int12
     unchecked {
         uint256 shiftedAmountAbs = FixedPointMathLib.abs(int256(amount)) << 128;
 
-        uint256 quotient = FixedPointMathLib.rawDiv(shiftedAmountAbs, liquidity);
+        uint256 liquidityU256;
+        assembly ("memory-safe") {
+            liquidityU256 := liquidity
+        }
+        uint256 quotient = FixedPointMathLib.rawDiv(shiftedAmountAbs, liquidityU256);
 
         if (amount < 0) {
             if (quotient >= sqrtRatio) {

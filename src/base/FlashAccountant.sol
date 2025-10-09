@@ -374,9 +374,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         // Note because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
         //      to delegatecall itself more than once in a single call
         unchecked {
-            // We never expect the native token to exceed this supply
-            if (msg.value > type(uint128).max) revert PaymentOverflow();
-
+            // We assume msg.value will never exceed type(uint128).max, so this should never cause an overflow/underflow of debt
             _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }

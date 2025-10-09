@@ -66,22 +66,20 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @param debtChange The change in debt (negative to reduce, positive to increase)
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
-            if debtChange {
-                let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
-                let current := tload(deltaSlot)
+            let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
+            let current := tload(deltaSlot)
 
-                // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
-                let next := add(current, debtChange)
+            // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
+            let next := add(current, debtChange)
 
-                let countChange := sub(iszero(current), iszero(next))
+            let countChange := sub(iszero(current), iszero(next))
 
-                if countChange {
-                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
-                    tstore(nzdCountSlot, add(tload(nzdCountSlot), countChange))
-                }
-
-                tstore(deltaSlot, next)
+            if countChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), countChange))
             }
+
+            tstore(deltaSlot, next)
         }
     }
 

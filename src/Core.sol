@@ -504,7 +504,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             SwapParameters params;
 
             assembly ("memory-safe") {
-                // no need to clean the parameters as we do with ABI-decoding because the pool will not be initialized if it's wrong
+                // No need to clean the parameters as we do with ABI-decoding because:
+                // 1. If poolKey is malformed, the poolId will be incorrect and the pool won't be initialized
+                // 2. SwapParameters uses bitwise operations that mask the relevant bits, handling any dirty upper bits
                 calldatacopy(poolKey, 4, 96)
                 params := calldataload(100)
             }

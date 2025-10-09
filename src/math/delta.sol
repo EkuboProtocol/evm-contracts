@@ -21,14 +21,21 @@ function sortAndConvertToFixedSqrtRatios(SqrtRatio sqrtRatioA, SqrtRatio sqrtRat
     }
 }
 
-/// @dev Assumes that the sqrt ratios are non-zero
+/// @dev Assumes that the sqrt ratios are valid
 function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount0)
 {
-    unchecked {
-        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
+    (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
+    amount0 = amount0DeltaSorted(sqrtRatioLower, sqrtRatioUpper, liquidity, roundUp);
+}
 
+/// @dev Assumes that the sqrt ratios are non-zero and sorted
+function amount0DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint128 liquidity, bool roundUp)
+    pure
+    returns (uint128 amount0)
+{
+    unchecked {
         if (roundUp) {
             uint256 result0 = FixedPointMathLib.fullMulDivUp(
                 (uint256(liquidity) << 128), (sqrtRatioUpper - sqrtRatioLower), sqrtRatioUpper
@@ -47,13 +54,20 @@ function amount0Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquid
     }
 }
 
+/// @dev Assumes that the sqrt ratios are valid
 function amount1Delta(SqrtRatio sqrtRatioA, SqrtRatio sqrtRatioB, uint128 liquidity, bool roundUp)
     pure
     returns (uint128 amount1)
 {
-    unchecked {
-        (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
+    (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) = sortAndConvertToFixedSqrtRatios(sqrtRatioA, sqrtRatioB);
+    amount1 = amount1DeltaSorted(sqrtRatioLower, sqrtRatioUpper, liquidity, roundUp);
+}
 
+function amount1DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint128 liquidity, bool roundUp)
+    pure
+    returns (uint128 amount1)
+{
+    unchecked {
         uint256 difference = sqrtRatioUpper - sqrtRatioLower;
 
         if (roundUp) {

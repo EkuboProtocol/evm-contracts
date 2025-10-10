@@ -128,7 +128,7 @@ library ExtensionCallPointsLib {
             if needCall {
                 let freeMem := mload(0x40)
                 // cast sig "afterSwap(bytes32,(address,address,bytes32),bytes32,bytes32,bytes32)"
-                mstore(freeMem, shl(224, 0x0e2f6ae3))
+                mstore(freeMem, shl(224, 0xa4e8f288))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), params)
@@ -194,8 +194,8 @@ library ExtensionCallPointsLib {
         assembly ("memory-safe") {
             if needCall {
                 let freeMem := mload(0x40)
-                // cast sig "afterUpdatePosition(bytes32, (address,address,bytes32), bytes32, int128, bytes32, bytes32)"
-                mstore(freeMem, shl(224, 0x5e5e3391))
+                // cast sig "afterUpdatePosition(bytes32,(address,address,bytes32),bytes32,int128,bytes32,bytes32)"
+                mstore(freeMem, shl(224, 0x25fa4e69))
                 mstore(add(freeMem, 4), locker)
                 mcopy(add(freeMem, 36), poolKey, 96)
                 mstore(add(freeMem, 132), positionId)

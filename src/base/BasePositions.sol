@@ -240,9 +240,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
                 int128(liquidity)
             );
 
-            (int128 delta0, int128 delta1) = balanceUpdate.parse();
-            uint128 amount0 = uint128(delta0);
-            uint128 amount1 = uint128(delta1);
+            uint128 amount0 = uint128(balanceUpdate.delta0());
+            uint128 amount1 = uint128(balanceUpdate.delta1());
 
             // Use multi-token payment for ERC20-only pools, fall back to individual payments for native token pools
             if (poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
@@ -300,9 +299,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
                     -int128(liquidity)
                 );
 
-                (int128 delta0, int128 delta1) = balanceUpdate.parse();
-                uint128 withdrawnAmount0 = uint128(-delta0);
-                uint128 withdrawnAmount1 = uint128(-delta1);
+                uint128 withdrawnAmount0 = uint128(-balanceUpdate.delta0());
+                uint128 withdrawnAmount1 = uint128(-balanceUpdate.delta1());
 
                 // Collect withdrawal protocol fees
                 (uint128 withdrawalFee0, uint128 withdrawalFee1) =

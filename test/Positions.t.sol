@@ -6,6 +6,7 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
@@ -305,8 +306,8 @@ contract PositionsTest is FullTest {
         assertGt(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
-        assertEq(delta0, 0);
+        PoolBalanceUpdate balanceUpdate = router.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
+        assertEq(balanceUpdate.delta0(), 0);
 
         (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertTrue(sqrtRatio == MAX_SQRT_RATIO);
@@ -318,7 +319,7 @@ contract PositionsTest is FullTest {
         assertEq(p0, 0);
         assertEq(p1, 1000000499999874989827178462785727275);
         assertEq(f0, 0);
-        assertEq(f1, ((uint128(delta1)) / 2) - 1);
+        assertEq(f1, ((uint128(balanceUpdate.delta1())) / 2) - 1);
     }
 
     /// forge-config: default.isolate = true
@@ -333,8 +334,8 @@ contract PositionsTest is FullTest {
         assertGt(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
-        assertEq(delta1, 0);
+        PoolBalanceUpdate balanceUpdate = router.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
+        assertEq(balanceUpdate.delta1(), 0);
 
         (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId()).parse();
         assertTrue(sqrtRatio == MIN_SQRT_RATIO);
@@ -345,7 +346,7 @@ contract PositionsTest is FullTest {
             positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(p0, 1000000499999874989935596106549936381, "principal0");
         assertEq(p1, 0, "principal1");
-        assertEq(f0, ((uint128(delta0)) / 2) - 1, "fees0");
+        assertEq(f0, ((uint128(balanceUpdate.delta0())) / 2) - 1, "fees0");
         assertEq(f1, 0, "fees1");
     }
 

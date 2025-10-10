@@ -31,11 +31,4 @@ contract PoolBalanceUpdateTest is Test {
         assertEq(update.delta0(), delta0, "delta0");
         assertEq(update.delta1(), delta1, "delta1");
     }
-
-    function test_parse(int128 delta0, int128 delta1) public pure {
-        PoolBalanceUpdate update = createPoolBalanceUpdate({_delta0: delta0, _delta1: delta1});
-        (int128 parsedDelta0, int128 parsedDelta1) = update.parse();
-        assertEq(parsedDelta0, delta0, "delta0");
-        assertEq(parsedDelta1, delta1, "delta1");
-    }
 }

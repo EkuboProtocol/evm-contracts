@@ -55,8 +55,7 @@ contract MockExtension is IExtension, BaseLocker {
         PoolKey poolKey,
         PositionId positionId,
         int128 liquidityDelta,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     );
 
@@ -68,8 +67,7 @@ contract MockExtension is IExtension, BaseLocker {
         PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external {
-        (int128 delta0, int128 delta1) = balanceUpdate.parse();
-        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter);
+        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, balanceUpdate, stateAfter);
     }
 
     event BeforeSwapCalled(
@@ -89,8 +87,7 @@ contract MockExtension is IExtension, BaseLocker {
         bool isToken1,
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     );
 
@@ -101,7 +98,6 @@ contract MockExtension is IExtension, BaseLocker {
         PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external {
-        (int128 delta0, int128 delta1) = balanceUpdate.parse();
         emit AfterSwapCalled(
             locker,
             poolKey,
@@ -109,8 +105,7 @@ contract MockExtension is IExtension, BaseLocker {
             params.isToken1(),
             params.sqrtRatioLimit(),
             params.skipAhead(),
-            delta0,
-            delta1,
+            balanceUpdate,
             stateAfter
         );
     }

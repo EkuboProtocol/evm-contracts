@@ -2,6 +2,7 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {PoolConfig, createStableswapPoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
@@ -241,10 +242,10 @@ contract Handler is StdUtils, StdAssertions {
             skipAhead: skipAhead,
             isToken1: isToken1,
             amount: amount
-        }) returns (int128 delta0, int128 delta1) {
+        }) returns (PoolBalanceUpdate balanceUpdate) {
             PoolId poolId = poolKey.toPoolId();
-            poolBalances[poolId].amount0 += delta0;
-            poolBalances[poolId].amount1 += delta1;
+            poolBalances[poolId].amount0 += balanceUpdate.delta0();
+            poolBalances[poolId].amount1 += balanceUpdate.delta1();
         } catch (bytes memory err) {
             bytes4 sig;
             assembly ("memory-safe") {

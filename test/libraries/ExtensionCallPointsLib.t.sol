@@ -293,7 +293,7 @@ contract MockExtension is IExtension {
         _lastPoolKey = poolKey;
         lastPositionId = positionId;
         lastLiquidityDelta = liquidityDelta;
-        (lastDelta0, lastDelta1) = balanceUpdate.parse();
+        (lastDelta0, lastDelta1) = (balanceUpdate.delta0(), balanceUpdate.delta1());
         lastStateAfter = stateAfter;
     }
 

@@ -34,6 +34,7 @@ import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol
 import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {
     createConcentratedPoolConfig,
     createFullRangePoolConfig,
@@ -247,7 +248,7 @@ contract DeployAndTestGas is Script {
 
         // 15. Swap ETH for token0
         console2.log("Swapping ETH for token0...");
-        (int128 delta0_1, int128 delta1_1) = router.swap{value: SWAP_AMOUNT}(
+        PoolBalanceUpdate balanceUpdate1 = router.swap{value: SWAP_AMOUNT}(
             ethToken0Pool,
             createSwapParameters({
                 _isToken1: false,
@@ -257,7 +258,7 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Swap 1 - delta0:", uint128(delta0_1), "delta1:", uint128(-delta1_1));
+        console2.log("Swap 1 - delta0:", uint128(balanceUpdate1.delta0()), "delta1:", uint128(-balanceUpdate1.delta1()));
 
         // 16. Swap ETH for token1
         console2.log("Swapping ETH for token1...");
@@ -304,7 +305,7 @@ contract DeployAndTestGas is Script {
 
         // 19. Swap token0 for token1
         console2.log("Swapping token0 for token1...");
-        uint128 token0SwapAmount = uint128(-delta1_1) / 2; // Use half of received token0
+        uint128 token0SwapAmount = uint128(-balanceUpdate1.delta1()) / 2; // Use half of received token0
         // Determine which token we're swapping and set isToken1 accordingly
         bool isToken1Swap = address(token0) == token0Token1Pool.token1;
         (int128 delta0_3, int128 delta1_3) = router.swap(

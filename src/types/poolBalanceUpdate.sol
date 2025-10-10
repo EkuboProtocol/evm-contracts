@@ -3,30 +3,23 @@ pragma solidity =0.8.30;
 
 type PoolBalanceUpdate is bytes32;
 
-using {delta0, delta1, parse} for PoolBalanceUpdate global;
+using {delta0, delta1} for PoolBalanceUpdate global;
 
-function delta0(PoolBalanceUpdate update) pure returns (int128 _delta0) {
+function delta0(PoolBalanceUpdate update) pure returns (int128 v) {
     assembly ("memory-safe") {
-        _delta0 := signextend(15, update)
+        v := signextend(15, shr(128, update))
     }
 }
 
-function delta1(PoolBalanceUpdate update) pure returns (int128 _delta1) {
+function delta1(PoolBalanceUpdate update) pure returns (int128 v) {
     assembly ("memory-safe") {
-        _delta1 := signextend(15, shr(128, update))
-    }
-}
-
-function parse(PoolBalanceUpdate update) pure returns (int128 _delta0, int128 _delta1) {
-    assembly ("memory-safe") {
-        _delta0 := signextend(15, update)
-        _delta1 := signextend(15, shr(128, update))
+        v := signextend(15, update)
     }
 }
 
 function createPoolBalanceUpdate(int128 _delta0, int128 _delta1) pure returns (PoolBalanceUpdate update) {
     assembly ("memory-safe") {
-        // update = (delta1 << 128) | delta0
-        update := or(shl(128, _delta1), and(_delta0, 0xffffffffffffffffffffffffffffffff))
+        // update = (delta0 << 128) | delta1
+        update := or(shl(128, _delta0), and(_delta1, 0xffffffffffffffffffffffffffffffff))
     }
 }

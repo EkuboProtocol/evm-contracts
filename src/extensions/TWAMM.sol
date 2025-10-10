@@ -15,6 +15,7 @@ import {StorageSlot} from "../types/storageSlot.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {PoolState} from "../types/poolState.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {OrderKey} from "../types/orderKey.sol";
 import {OrderConfig} from "../types/orderConfig.sol";
@@ -452,12 +453,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             fee: poolKey.config.fee()
                         });
 
-                        int256 swapDelta0;
-                        int256 swapDelta1;
+                        PoolBalanceUpdate swapBalanceUpdate;
                         if (sqrtRatioNext > corePoolState.sqrtRatio()) {
-                            // todo: we could update corePoolState here and avoid calling into core to get it again
-                            // however it causes stack too deep and it's not a huge optimization because in cases where two tokens are sold
-                            (swapDelta0, swapDelta1, corePoolState) = CORE.swap(
+                            (swapBalanceUpdate, corePoolState) = CORE.swap(
                                 0,
                                 poolKey,
                                 createSwapParameters({
@@ -468,7 +466,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                 })
                             );
                         } else if (sqrtRatioNext < corePoolState.sqrtRatio()) {
-                            (swapDelta0, swapDelta1, corePoolState) = CORE.swap(
+                            (swapBalanceUpdate, corePoolState) = CORE.swap(
                                 0,
                                 poolKey,
                                 createSwapParameters({
@@ -480,16 +478,17 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             );
                         }
 
-                        saveDelta0 -= swapDelta0;
-                        saveDelta1 -= swapDelta1;
+                        saveDelta0 -= swapBalanceUpdate.delta0();
+                        saveDelta1 -= swapBalanceUpdate.delta1();
 
                         // this cannot overflow or underflow because swapDelta0 is constrained to int128,
                         // and amounts computed from uint112 sale rates cannot exceed uint112.max
-                        rewardDelta0 = swapDelta0 - int256(uint256(amount0));
-                        rewardDelta1 = swapDelta1 - int256(uint256(amount1));
+                        rewardDelta0 = swapBalanceUpdate.delta0() - int256(uint256(amount0));
+                        rewardDelta1 = swapBalanceUpdate.delta1() - int256(uint256(amount1));
                     } else if (amount0 != 0 || amount1 != 0) {
+                        PoolBalanceUpdate swapBalanceUpdate;
                         if (amount0 != 0) {
-                            (rewardDelta0, rewardDelta1, corePoolState) = CORE.swap(
+                            (swapBalanceUpdate, corePoolState) = CORE.swap(
                                 0,
                                 poolKey,
                                 createSwapParameters({
@@ -500,7 +499,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                 })
                             );
                         } else {
-                            (rewardDelta0, rewardDelta1, corePoolState) = CORE.swap(
+                            (swapBalanceUpdate, corePoolState) = CORE.swap(
                                 0,
                                 poolKey,
                                 createSwapParameters({
@@ -512,6 +511,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             );
                         }
 
+                        (rewardDelta0, rewardDelta1) = (swapBalanceUpdate.delta0(), swapBalanceUpdate.delta1());
                         saveDelta0 -= rewardDelta0;
                         saveDelta1 -= rewardDelta1;
                     }

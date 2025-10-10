@@ -10,7 +10,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
-import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {Router, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -274,12 +274,12 @@ contract RouterTest is FullTest {
         route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
         route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
-        Delta[] memory d =
+        PoolBalanceUpdate[] memory d =
             router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: 100})), type(int256).min);
-        assertEq(d[0].amount0, 100);
-        assertEq(d[0].amount1, -49);
-        assertEq(d[1].amount0, -24);
-        assertEq(d[1].amount1, 49);
+        assertEq(d[0].delta0(), 100);
+        assertEq(d[0].delta1(), -49);
+        assertEq(d[1].delta0(), -24);
+        assertEq(d[1].delta1(), 49);
     }
 
     function test_multihopSwap_exactOut(CallPoints memory callPoints) public {
@@ -292,12 +292,12 @@ contract RouterTest is FullTest {
         route[0] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
         route[1] = RouteNode(poolKey, SqrtRatio.wrap(0), 0);
 
-        Delta[] memory d =
+        PoolBalanceUpdate[] memory d =
             router.multihopSwap(Swap(route, TokenAmount({token: address(token0), amount: -100})), type(int256).min);
-        assertEq(d[0].amount0, -100);
-        assertEq(d[0].amount1, 202);
-        assertEq(d[1].amount0, 406);
-        assertEq(d[1].amount1, -202);
+        assertEq(d[0].delta0(), -100);
+        assertEq(d[0].delta1(), 202);
+        assertEq(d[1].delta0(), 406);
+        assertEq(d[1].delta1(), -202);
     }
 
     function test_multiMultihopSwap(CallPoints memory callPoints) public {
@@ -319,16 +319,16 @@ contract RouterTest is FullTest {
         swaps[0] = Swap(route0, TokenAmount({token: address(token0), amount: 100}));
         swaps[1] = Swap(route1, TokenAmount({token: address(token0), amount: -100}));
 
-        Delta[][] memory d = router.multiMultihopSwap(swaps, type(int256).min);
-        assertEq(d[0][0].amount0, 100);
-        assertEq(d[0][0].amount1, -49);
-        assertEq(d[0][1].amount0, -24);
-        assertEq(d[0][1].amount1, 49);
+        PoolBalanceUpdate[][] memory d = router.multiMultihopSwap(swaps, type(int256).min);
+        assertEq(d[0][0].delta0(), 100);
+        assertEq(d[0][0].delta1(), -49);
+        assertEq(d[0][1].delta0(), -24);
+        assertEq(d[0][1].delta1(), 49);
 
-        assertEq(d[1][0].amount0, -100);
-        assertEq(d[1][0].amount1, 202);
-        assertEq(d[1][1].amount0, 406);
-        assertEq(d[1][1].amount1, -202);
+        assertEq(d[1][0].delta0(), -100);
+        assertEq(d[1][0].delta1(), 202);
+        assertEq(d[1][1].delta0(), 406);
+        assertEq(d[1][1].delta1(), -202);
     }
 
     function test_multiMultihopSwap_slippage_input(CallPoints memory callPoints) public {
@@ -456,7 +456,7 @@ contract RouterTest is FullTest {
         swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
 
         vm.recordLogs();
-        Delta[][] memory deltas = router.multiMultihopSwap(swaps, -808);
+        PoolBalanceUpdate[][] memory deltas = router.multiMultihopSwap(swaps, -808);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(logs.length, 6);
         // swap events emit have 0 topics and come from core
@@ -474,8 +474,8 @@ contract RouterTest is FullTest {
 
         // PoolBalanceUpdate is packed as (delta1 << 128) | delta0
         PoolBalanceUpdate balanceUpdate0 = PoolBalanceUpdate.wrap(LibBytes.load(logs[0].data, 52));
-        assertEq(balanceUpdate0.delta0(), deltas[0][0].amount0);
-        assertEq(balanceUpdate0.delta1(), deltas[0][0].amount1);
+        assertEq(balanceUpdate0.delta0(), deltas[0][0].delta0());
+        assertEq(balanceUpdate0.delta1(), deltas[0][0].delta1());
         assertEq(
             PoolState.wrap(LibBytes.load(logs[0].data, 84)).sqrtRatio().toFixed(),
             340284068297894840612141065344447938560
@@ -483,8 +483,8 @@ contract RouterTest is FullTest {
         assertEq(PoolState.wrap(LibBytes.load(logs[0].data, 84)).tick(), 9);
 
         PoolBalanceUpdate balanceUpdate1 = PoolBalanceUpdate.wrap(LibBytes.load(logs[1].data, 52));
-        assertEq(balanceUpdate1.delta0(), deltas[0][1].amount0);
-        assertEq(balanceUpdate1.delta1(), deltas[0][1].amount1);
+        assertEq(balanceUpdate1.delta0(), deltas[0][1].delta0());
+        assertEq(balanceUpdate1.delta1(), deltas[0][1].delta1());
         assertEq(
             PoolState.wrap(LibBytes.load(logs[1].data, 84)).sqrtRatio().toFixed(),
             340280631533626427978182251206462668800
@@ -492,8 +492,8 @@ contract RouterTest is FullTest {
         assertEq(PoolState.wrap(LibBytes.load(logs[1].data, 84)).tick(), -11);
 
         PoolBalanceUpdate balanceUpdate2 = PoolBalanceUpdate.wrap(LibBytes.load(logs[2].data, 52));
-        assertEq(balanceUpdate2.delta0(), deltas[1][0].amount0);
-        assertEq(balanceUpdate2.delta1(), deltas[1][0].amount1);
+        assertEq(balanceUpdate2.delta0(), deltas[1][0].delta0());
+        assertEq(balanceUpdate2.delta1(), deltas[1][0].delta1());
         assertEq(
             PoolState.wrap(LibBytes.load(logs[2].data, 84)).sqrtRatio().toFixed(),
             340282332893229288559183010384991748096
@@ -501,8 +501,8 @@ contract RouterTest is FullTest {
         assertEq(PoolState.wrap(LibBytes.load(logs[2].data, 84)).tick(), -1);
 
         PoolBalanceUpdate balanceUpdate3 = PoolBalanceUpdate.wrap(LibBytes.load(logs[3].data, 52));
-        assertEq(balanceUpdate3.delta0(), deltas[1][1].amount0);
-        assertEq(balanceUpdate3.delta1(), deltas[1][1].amount1);
+        assertEq(balanceUpdate3.delta0(), deltas[1][1].delta0());
+        assertEq(balanceUpdate3.delta1(), deltas[1][1].delta1());
         assertEq(
             PoolState.wrap(LibBytes.load(logs[3].data, 84)).sqrtRatio().toFixed(),
             340278930156329870109718837961959669760

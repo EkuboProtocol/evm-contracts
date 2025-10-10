@@ -41,14 +41,13 @@ contract TestLocker is BaseLocker, UsesCore {
             abi.decode(data, (PoolKey, PositionId, int128));
 
         PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, liquidityDelta);
-        (int128 delta0, int128 delta1) = balanceUpdate.parse();
 
         if (liquidityDelta > 0) {
-            ACCOUNTANT.pay(poolKey.token0, uint128(delta0));
-            ACCOUNTANT.pay(poolKey.token1, uint128(delta1));
+            ACCOUNTANT.pay(poolKey.token0, uint128(balanceUpdate.delta0()));
+            ACCOUNTANT.pay(poolKey.token1, uint128(balanceUpdate.delta1()));
         } else if (liquidityDelta < 0) {
-            ACCOUNTANT.withdraw(poolKey.token0, address(this), uint128(-delta0));
-            ACCOUNTANT.withdraw(poolKey.token1, address(this), uint128(-delta1));
+            ACCOUNTANT.withdraw(poolKey.token0, address(this), uint128(-balanceUpdate.delta0()));
+            ACCOUNTANT.withdraw(poolKey.token1, address(this), uint128(-balanceUpdate.delta1()));
         }
     }
 }

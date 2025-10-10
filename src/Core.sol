@@ -367,14 +367,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         PoolState state = readPoolState(poolId);
         if (!state.isInitialized()) revert PoolNotInitialized();
 
-        int128 delta0;
-        int128 delta1;
-
         if (liquidityDelta != 0) {
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
                 (tickToSqrtRatio(positionId.tickLower()), tickToSqrtRatio(positionId.tickUpper()));
 
-            (delta0, delta1) =
+            (int128 delta0, int128 delta1) =
                 liquidityDeltaToAmountDelta(state.sqrtRatio(), liquidityDelta, sqrtRatioLower, sqrtRatioUpper);
 
             StorageSlot positionSlot = CoreStorageLayout.poolPositionsSlot(poolId, locker.addr(), positionId);
@@ -442,7 +439,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, balanceUpdate, state);
         }
 
-        balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
         IExtension(poolKey.config.extension()).maybeCallAfterUpdatePosition(
             locker, poolKey, positionId, liquidityDelta, balanceUpdate, state
         );
@@ -532,8 +528,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             int128 amountRemaining = params.amount();
 
-            int128 delta0;
-            int128 delta1;
+            PoolBalanceUpdate balanceUpdate;
 
             // 0 swap amount or sqrt ratio limit == sqrt ratio is no-op
             if (amountRemaining != 0 && stateAfter.sqrtRatio() != sqrtRatioLimit) {
@@ -789,9 +784,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
                 );
 
-                (delta0, delta1) = isToken1
-                    ? (calculatedAmountDelta, params.amount() - amountRemaining)
-                    : (params.amount() - amountRemaining, calculatedAmountDelta);
+                balanceUpdate = isToken1
+                    ? createPoolBalanceUpdate(calculatedAmountDelta, params.amount() - amountRemaining)
+                    : createPoolBalanceUpdate(params.amount() - amountRemaining, calculatedAmountDelta);
 
                 stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
 
@@ -804,12 +799,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     );
                 }
 
-                _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
+                _updatePairDebtWithNative(
+                    locker.id(), poolKey.token0, poolKey.token1, balanceUpdate.delta0(), balanceUpdate.delta1()
+                );
 
                 assembly ("memory-safe") {
                     let o := mload(0x40)
-                    // Pack as (delta1 << 128) | delta0 to match PoolBalanceUpdate type
-                    let balanceUpdate := or(shl(128, delta1), and(delta0, 0xffffffffffffffffffffffffffffffff))
                     mstore(o, shl(96, locker))
                     mstore(add(o, 20), poolId)
                     mstore(add(o, 52), balanceUpdate)
@@ -818,7 +813,6 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            PoolBalanceUpdate balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
             IExtension(poolKey.config.extension()).maybeCallAfterSwap(
                 locker, poolKey, params, balanceUpdate, stateAfter
             );

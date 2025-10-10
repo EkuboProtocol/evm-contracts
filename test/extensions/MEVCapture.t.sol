@@ -14,6 +14,7 @@ import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {MEVCaptureRouter} from "../../src/MEVCaptureRouter.sol";
 import {MEVCapturePoolState} from "../../src/types/mevCapturePoolState.sol";
+import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 
 abstract contract BaseMEVCaptureTest is FullTest {
     MEVCapture internal mevCapture;
@@ -111,7 +112,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: false,
@@ -124,8 +125,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("input_token0_no_movement");
 
-        assertEq(delta0, 100_000);
-        assertEq(delta1, -98_049);
+        assertEq(balanceUpdate.delta0(), 100_000);
+        assertEq(balanceUpdate.delta1(), -98_049);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -9634);
     }
@@ -155,7 +156,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: false,
@@ -168,8 +169,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("output_token0_no_movement");
 
-        assertEq(delta0, -100_000);
-        assertEq(delta1, 102_001);
+        assertEq(balanceUpdate.delta0(), -100_000);
+        assertEq(balanceUpdate.delta1(), 102_001);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 9777);
     }
@@ -182,7 +183,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: true,
@@ -195,8 +196,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("input_token1_no_movement");
 
-        assertEq(delta0, -98_049);
-        assertEq(delta1, 100_000);
+        assertEq(balanceUpdate.delta0(), -98_049);
+        assertEq(balanceUpdate.delta1(), 100_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 9633);
     }
@@ -209,7 +210,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: true,
@@ -222,8 +223,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("output_token1_no_movement");
 
-        assertEq(delta0, 102_001);
-        assertEq(delta1, -100_000);
+        assertEq(balanceUpdate.delta0(), 102_001);
+        assertEq(balanceUpdate.delta1(), -100_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -9778);
     }
@@ -238,7 +239,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: false,
@@ -251,8 +252,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("input_token0_move_tick_spacings");
 
-        assertEq(delta0, 500_000);
-        assertEq(delta1, -471_801);
+        assertEq(balanceUpdate.delta0(), 500_000);
+        assertEq(balanceUpdate.delta1(), -471_801);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -47710);
     }
@@ -265,7 +266,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: false,
@@ -278,8 +279,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("output_token0_move_tick_spacings");
 
-        assertEq(delta0, -500_000);
-        assertEq(delta1, 530_648);
+        assertEq(balanceUpdate.delta0(), -500_000);
+        assertEq(balanceUpdate.delta1(), 530_648);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 49375);
     }
@@ -292,7 +293,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: true,
@@ -305,8 +306,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("input_token1_move_tick_spacings");
 
-        assertEq(delta0, -471_801);
-        assertEq(delta1, 500_000);
+        assertEq(balanceUpdate.delta0(), -471_801);
+        assertEq(balanceUpdate.delta1(), 500_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 47709);
     }
@@ -319,7 +320,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: true,
@@ -332,8 +333,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("output_token1_move_tick_spacings");
 
-        assertEq(delta0, 530_648);
-        assertEq(delta1, -500_000);
+        assertEq(balanceUpdate.delta0(), 530_648);
+        assertEq(balanceUpdate.delta1(), -500_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, -49376);
     }
@@ -377,7 +378,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: false,
@@ -390,8 +391,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees");
 
-        assertEq(delta0, 100_000);
-        assertEq(delta1, -197_432);
+        assertEq(balanceUpdate.delta0(), 100_000);
+        assertEq(balanceUpdate.delta1(), -197_432);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 690_300);
     }
@@ -404,7 +405,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: false,
@@ -417,8 +418,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees_output");
 
-        assertEq(delta0, -100_000);
-        assertEq(delta1, 205_416);
+        assertEq(balanceUpdate.delta0(), -100_000);
+        assertEq(balanceUpdate.delta1(), 205_416);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 709_845);
     }
@@ -440,7 +441,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
         coolAllContracts();
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
                 _isToken1: false,
@@ -453,8 +454,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
         vm.snapshotGasLastCall("second_swap_with_additional_fees_gas_price");
 
-        assertEq(delta0, 300_000);
-        assertEq(delta1, -556_308);
+        assertEq(balanceUpdate.delta0(), 300_000);
+        assertEq(balanceUpdate.delta1(), -556_308);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, 642_496);
     }
@@ -509,7 +510,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: type(int128).max,
@@ -519,8 +520,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(delta0, 1_054_639);
-        assertEq(delta1, 0);
+        assertEq(balanceUpdate.delta0(), 1_054_639);
+        assertEq(balanceUpdate.delta1(), 0);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MIN_TICK - 1);
     }
@@ -531,7 +532,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: type(int128).max,
@@ -541,8 +542,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(delta0, 0);
-        assertEq(delta1, 2_123_781);
+        assertEq(balanceUpdate.delta0(), 0);
+        assertEq(balanceUpdate.delta1(), 2_123_781);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MAX_TICK);
     }
@@ -553,7 +554,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: type(int128).min,
@@ -563,8 +564,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(delta0, -993_170);
-        assertEq(delta1, 38785072624969501783380726); // divided by 2**64 (max fee) this is ~ 2e6
+        assertEq(balanceUpdate.delta0(), -993_170);
+        assertEq(balanceUpdate.delta1(), 38785072624969501783380726); // divided by 2**64 (max fee) this is ~ 2e6
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MAX_TICK);
     }
@@ -575,7 +576,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: type(int128).min,
@@ -585,8 +586,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(delta0, 19260097913407553165863219); // divided by 2**64 (max fee) this is ~ 1e6
-        assertEq(delta1, -1_999_999);
+        assertEq(balanceUpdate.delta0(), 19260097913407553165863219); // divided by 2**64 (max fee) this is ~ 1e6
+        assertEq(balanceUpdate.delta1(), -1_999_999);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MIN_TICK - 1);
     }

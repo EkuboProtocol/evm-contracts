@@ -13,6 +13,7 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {FullTest} from "./FullTest.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 
 struct SwapResult {
     int128 consumedAmount;
@@ -82,7 +83,7 @@ contract SwapTest is FullTest {
         assertEq(positionLiquidity, liquidity, "liquidity expected");
 
         // do the actual swap under test
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: isToken1,
             amount: amount,
@@ -91,6 +92,9 @@ contract SwapTest is FullTest {
             calculatedAmountThreshold: type(int128).min,
             recipient: address(0)
         });
+
+        int128 delta0 = balanceUpdate.delta0();
+        int128 delta1 = balanceUpdate.delta1();
 
         current = core.poolState(poolKey.toPoolId()).sqrtRatio();
         (uint128 fees0, uint128 fees1) = positions.collectFees(id, poolKey, MIN_TICK, MAX_TICK, address(this));

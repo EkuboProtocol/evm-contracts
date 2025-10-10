@@ -19,6 +19,7 @@ import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {Locker} from "../src/types/locker.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 
 contract MockExtension is IExtension, BaseLocker {
     using FlashAccountantLib for *;
@@ -54,8 +55,7 @@ contract MockExtension is IExtension, BaseLocker {
         PoolKey poolKey,
         PositionId positionId,
         int128 liquidityDelta,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     );
 
@@ -64,11 +64,10 @@ contract MockExtension is IExtension, BaseLocker {
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external {
-        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter);
+        emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, balanceUpdate, stateAfter);
     }
 
     event BeforeSwapCalled(
@@ -88,8 +87,7 @@ contract MockExtension is IExtension, BaseLocker {
         bool isToken1,
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     );
 
@@ -97,8 +95,7 @@ contract MockExtension is IExtension, BaseLocker {
         Locker locker,
         PoolKey memory poolKey,
         SwapParameters params,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external {
         emit AfterSwapCalled(
@@ -108,8 +105,7 @@ contract MockExtension is IExtension, BaseLocker {
             params.isToken1(),
             params.sqrtRatioLimit(),
             params.skipAhead(),
-            delta0,
-            delta1,
+            balanceUpdate,
             stateAfter
         );
     }

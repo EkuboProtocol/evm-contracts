@@ -18,6 +18,7 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {IPositions} from "../src/interfaces/IPositions.sol";
 import {Orders} from "../src/Orders.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
@@ -197,7 +198,7 @@ contract Handler is StdUtils, StdAssertions {
             skipAhead: skipAhead,
             isToken1: isToken1,
             amount: amount
-        }) returns (int128, int128) {} catch (bytes memory err) {
+        }) returns (PoolBalanceUpdate) {} catch (bytes memory err) {
             bytes4 sig;
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))

@@ -13,6 +13,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {PoolState} from "./types/poolState.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {SwapParameters, createSwapParameters} from "./types/swapParameters.sol";
 
 /// @notice Represents a single hop in a multi-hop swap route
@@ -44,15 +45,6 @@ struct Swap {
     TokenAmount tokenAmount;
 }
 
-/// @notice Represents the change in token balances from a swap
-/// @dev Used to track balance deltas for both tokens in a pool
-struct Delta {
-    /// @notice Change in token0 balance
-    int128 amount0;
-    /// @notice Change in token1 balance
-    int128 amount1;
-}
-
 /// @title Ekubo Protocol Router
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Enables swapping and quoting against pools in Ekubo Protocol
@@ -82,14 +74,13 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool
     /// @param params The parameters of the swap to make
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token0 and token1 balances of the pool
     function _swap(uint256 value, PoolKey memory poolKey, SwapParameters params)
         internal
         virtual
-        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
-        (delta0, delta1, stateAfter) = CORE.swap(value, poolKey, params.withDefaultSqrtRatioLimit());
+        (balanceUpdate, stateAfter) = CORE.swap(value, poolKey, params.withDefaultSqrtRatioLimit());
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
@@ -115,28 +106,28 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
 
                 bool increasing = params.isPriceIncreasing();
 
-                (int128 delta0, int128 delta1,) = _swap(value, poolKey, params);
+                (PoolBalanceUpdate balanceUpdate,) = _swap(value, poolKey, params);
 
-                int128 amountCalculated = params.isToken1() ? -delta0 : -delta1;
+                int128 amountCalculated = params.isToken1() ? -balanceUpdate.delta0() : -balanceUpdate.delta1();
                 if (amountCalculated < calculatedAmountThreshold) {
                     revert SlippageCheckFailed(calculatedAmountThreshold, amountCalculated);
                 }
 
                 if (increasing) {
-                    if (delta0 != 0) {
-                        ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-delta0));
+                    if (balanceUpdate.delta0() != 0) {
+                        ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-balanceUpdate.delta0()));
                     }
-                    if (delta1 != 0) {
-                        ACCOUNTANT.payFrom(swapper, poolKey.token1, uint128(delta1));
+                    if (balanceUpdate.delta1() != 0) {
+                        ACCOUNTANT.payFrom(swapper, poolKey.token1, uint128(balanceUpdate.delta1()));
                     }
                 } else {
-                    if (delta1 != 0) {
-                        ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-delta1));
+                    if (balanceUpdate.delta1() != 0) {
+                        ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-balanceUpdate.delta1()));
                     }
 
-                    if (delta0 != 0) {
+                    if (balanceUpdate.delta0() != 0) {
                         if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
-                            int256 valueDifference = int256(value) - int256(delta0);
+                            int256 valueDifference = int256(value) - int256(balanceUpdate.delta0());
 
                             // refund the overpaid ETH to the swapper
                             if (valueDifference > 0) {
@@ -145,12 +136,12 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                                 SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(uint256(-valueDifference)));
                             }
                         } else {
-                            ACCOUNTANT.payFrom(swapper, poolKey.token0, uint128(delta0));
+                            ACCOUNTANT.payFrom(swapper, poolKey.token0, uint128(balanceUpdate.delta0()));
                         }
                     }
                 }
 
-                result = abi.encode(delta0, delta1);
+                result = abi.encode(balanceUpdate);
             }
         } else if (callType == bytes1(0x01) || callType == bytes1(0x02)) {
             address swapper;
@@ -169,7 +160,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 (, swapper, swaps, calculatedAmountThreshold) = abi.decode(data, (bytes1, address, Swap[], int256));
             }
 
-            Delta[][] memory results = new Delta[][](swaps.length);
+            PoolBalanceUpdate[][] memory results = new PoolBalanceUpdate[][](swaps.length);
 
             unchecked {
                 int256 totalCalculated;
@@ -179,7 +170,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
 
                 for (uint256 i = 0; i < swaps.length; i++) {
                     Swap memory s = swaps[i];
-                    results[i] = new Delta[](s.route.length);
+                    results[i] = new PoolBalanceUpdate[](s.route.length);
 
                     TokenAmount memory tokenAmount = s.tokenAmount;
                     totalSpecified += tokenAmount.amount;
@@ -190,7 +181,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                         bool isToken1 = tokenAmount.token == node.poolKey.token1;
                         require(isToken1 || tokenAmount.token == node.poolKey.token0);
 
-                        (int128 delta0, int128 delta1,) = _swap(
+                        (PoolBalanceUpdate update,) = _swap(
                             0,
                             node.poolKey,
                             createSwapParameters({
@@ -200,14 +191,14 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                                 _skipAhead: node.skipAhead
                             })
                         );
-                        results[i][j] = Delta(delta0, delta1);
+                        results[i][j] = update;
 
                         if (isToken1) {
-                            if (delta1 != tokenAmount.amount) revert PartialSwapsDisallowed();
-                            tokenAmount = TokenAmount({token: node.poolKey.token0, amount: -delta0});
+                            if (update.delta1() != tokenAmount.amount) revert PartialSwapsDisallowed();
+                            tokenAmount = TokenAmount({token: node.poolKey.token0, amount: -update.delta0()});
                         } else {
-                            if (delta0 != tokenAmount.amount) revert PartialSwapsDisallowed();
-                            tokenAmount = TokenAmount({token: node.poolKey.token1, amount: -delta1});
+                            if (update.delta0() != tokenAmount.amount) revert PartialSwapsDisallowed();
+                            tokenAmount = TokenAmount({token: node.poolKey.token1, amount: -update.delta1()});
                         }
                     }
 
@@ -256,9 +247,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         } else if (callType == bytes1(0x03)) {
             (, PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (bytes1, PoolKey, SwapParameters));
 
-            (int128 delta0, int128 delta1, PoolState stateAfter) = _swap(0, poolKey, params);
+            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = _swap(0, poolKey, params);
 
-            revert QuoteReturnValue(delta0, delta1, stateAfter);
+            revert QuoteReturnValue(balanceUpdate, stateAfter);
         }
     }
 
@@ -266,14 +257,13 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param poolKey Pool key identifying the pool to swap against
     /// @param params The swap parameters to execute
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(PoolKey memory poolKey, SwapParameters params, int256 calculatedAmountThreshold)
         public
         payable
-        returns (int128 delta0, int128 delta1)
+        returns (PoolBalanceUpdate balanceUpdate)
     {
-        (delta0, delta1) = swap(poolKey, params, calculatedAmountThreshold, msg.sender);
+        balanceUpdate = swap(poolKey, params, calculatedAmountThreshold, msg.sender);
     }
 
     /// @notice Executes a single-hop swap with a specified recipient
@@ -281,16 +271,15 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param params The swap parameters to execute
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
     /// @param recipient Address to receive the output tokens
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(PoolKey memory poolKey, SwapParameters params, int256 calculatedAmountThreshold, address recipient)
         public
         payable
-        returns (int128 delta0, int128 delta1)
+        returns (PoolBalanceUpdate balanceUpdate)
     {
-        (delta0, delta1) = abi.decode(
+        (balanceUpdate) = abi.decode(
             lock(abi.encode(bytes1(0x00), msg.sender, poolKey, params, calculatedAmountThreshold, recipient)),
-            (int128, int128)
+            (PoolBalanceUpdate)
         );
     }
 
@@ -302,8 +291,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
     /// @param recipient Address to receive the output tokens
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(
         PoolKey memory poolKey,
         bool isToken1,
@@ -312,8 +300,8 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         uint256 skipAhead,
         int256 calculatedAmountThreshold,
         address recipient
-    ) public payable returns (int128 delta0, int128 delta1) {
-        (delta0, delta1) = swap(
+    ) public payable returns (PoolBalanceUpdate balanceUpdate) {
+        balanceUpdate = swap(
             poolKey,
             createSwapParameters({
                 _isToken1: isToken1,
@@ -333,8 +321,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(
         PoolKey memory poolKey,
         bool isToken1,
@@ -342,8 +329,8 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         SqrtRatio sqrtRatioLimit,
         uint256 skipAhead,
         int256 calculatedAmountThreshold
-    ) external payable returns (int128 delta0, int128 delta1) {
-        (delta0, delta1) =
+    ) external payable returns (PoolBalanceUpdate balanceUpdate) {
+        balanceUpdate =
             swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender);
     }
 
@@ -353,28 +340,26 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
         payable
-        returns (int128 delta0, int128 delta1)
+        returns (PoolBalanceUpdate balanceUpdate)
     {
-        (delta0, delta1) = swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, type(int256).min, msg.sender);
+        balanceUpdate = swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, type(int256).min, msg.sender);
     }
 
     /// @notice Executes a single-hop swap using RouteNode and TokenAmount structs
     /// @param node Route node containing pool and swap parameters
     /// @param tokenAmount Token and amount to swap
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(RouteNode memory node, TokenAmount memory tokenAmount, int256 calculatedAmountThreshold)
         public
         payable
-        returns (int128 delta0, int128 delta1)
+        returns (PoolBalanceUpdate balanceUpdate)
     {
-        (delta0, delta1) = swap(
+        balanceUpdate = swap(
             node.poolKey,
             node.poolKey.token1 == tokenAmount.token,
             tokenAmount.amount,
@@ -392,9 +377,10 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     function multihopSwap(Swap memory s, int256 calculatedAmountThreshold)
         external
         payable
-        returns (Delta[] memory result)
+        returns (PoolBalanceUpdate[] memory result)
     {
-        result = abi.decode(lock(abi.encode(bytes1(0x01), msg.sender, s, calculatedAmountThreshold)), (Delta[]));
+        result =
+            abi.decode(lock(abi.encode(bytes1(0x01), msg.sender, s, calculatedAmountThreshold)), (PoolBalanceUpdate[]));
     }
 
     /// @notice Executes multiple multi-hop swaps in a single transaction
@@ -404,16 +390,17 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     function multiMultihopSwap(Swap[] memory swaps, int256 calculatedAmountThreshold)
         external
         payable
-        returns (Delta[][] memory results)
+        returns (PoolBalanceUpdate[][] memory results)
     {
-        results = abi.decode(lock(abi.encode(bytes1(0x02), msg.sender, swaps, calculatedAmountThreshold)), (Delta[][]));
+        results = abi.decode(
+            lock(abi.encode(bytes1(0x02), msg.sender, swaps, calculatedAmountThreshold)), (PoolBalanceUpdate[][])
+        );
     }
 
     /// @notice Error used to return quote values from the quote function
-    /// @param delta0 Change in token0 balance
-    /// @param delta1 Change in token1 balance
+    /// @param balanceUpdate Change in token0 and token1 balance of the pool
     /// @param poolState The state after the swap
-    error QuoteReturnValue(int128 delta0, int128 delta1, PoolState poolState);
+    error QuoteReturnValue(PoolBalanceUpdate balanceUpdate, PoolState poolState);
 
     /// @notice Quotes the result of a swap without executing it
     /// @dev Uses a revert-based mechanism to return the quote without state changes
@@ -447,12 +434,14 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         assembly ("memory-safe") {
             sig := mload(add(revertData, 32))
         }
-        if (sig == QuoteReturnValue.selector && revertData.length == 100) {
+        if (sig == QuoteReturnValue.selector && revertData.length == 68) {
+            PoolBalanceUpdate balanceUpdate;
             assembly ("memory-safe") {
-                delta0 := mload(add(revertData, 36))
-                delta1 := mload(add(revertData, 68))
-                stateAfter := mload(add(revertData, 100))
+                balanceUpdate := mload(add(revertData, 36))
+                stateAfter := mload(add(revertData, 68))
             }
+            delta0 = balanceUpdate.delta0();
+            delta1 = balanceUpdate.delta1();
         } else {
             assembly ("memory-safe") {
                 revert(add(revertData, 32), mload(revertData))

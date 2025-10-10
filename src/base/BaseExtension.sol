@@ -10,6 +10,7 @@ import {PoolState} from "../types/poolState.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {UsesCore} from "./UsesCore.sol";
 import {Locker} from "../types/locker.sol";
+import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 
 /// @title Base Extension
 /// @notice Abstract base contract for creating extensions to the Ekubo Protocol
@@ -53,7 +54,7 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function afterUpdatePosition(Locker, PoolKey memory, PositionId, int128, int128, int128, PoolState)
+    function afterUpdatePosition(Locker, PoolKey memory, PositionId, int128, PoolBalanceUpdate, PoolState)
         external
         virtual
     {
@@ -66,7 +67,7 @@ abstract contract BaseExtension is IExtension, UsesCore {
     }
 
     /// @inheritdoc IExtension
-    function afterSwap(Locker, PoolKey memory, SwapParameters, int128, int128, PoolState) external virtual {
+    function afterSwap(Locker, PoolKey memory, SwapParameters, PoolBalanceUpdate, PoolState) external virtual {
         revert CallPointNotImplemented();
     }
 

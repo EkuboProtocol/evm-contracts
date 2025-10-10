@@ -19,6 +19,7 @@ import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 
 function mevCaptureCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -209,7 +210,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 });
             }
 
-            (int128 delta0, int128 delta1, PoolState stateAfter) = CORE.swap(0, poolKey, params);
+            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
 
             // however many tick spacings were crossed is the fee multiplier
             uint256 feeMultiplierX64 =
@@ -220,36 +221,36 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
             if (additionalFee != 0) {
                 if (params.isExactOut()) {
                     // take an additional fee from the calculated input amount equal to the `additionalFee - poolFee`
-                    if (delta0 > 0) {
-                        uint128 inputAmount = uint128(uint256(int256(delta0)));
+                    if (balanceUpdate.delta0() > 0) {
+                        uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
                         int128 fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
 
                         saveDelta0 += fee;
-                        delta0 += fee;
-                    } else if (delta1 > 0) {
-                        uint128 inputAmount = uint128(uint256(int256(delta1)));
+                        balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
+                    } else if (balanceUpdate.delta1() > 0) {
+                        uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
                         // first remove the fee to get the original input amount before we compute the additional fee
                         inputAmount -= computeFee(inputAmount, poolFee);
                         int128 fee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, additionalFee) - inputAmount);
 
                         saveDelta1 += fee;
-                        delta1 += fee;
+                        balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
                     }
                 } else {
-                    if (delta0 < 0) {
-                        uint128 outputAmount = uint128(uint256(-int256(delta0)));
+                    if (balanceUpdate.delta0() < 0) {
+                        uint128 outputAmount = uint128(uint256(-int256(balanceUpdate.delta0())));
                         int128 fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
 
                         saveDelta0 += fee;
-                        delta0 += fee;
-                    } else if (delta1 < 0) {
-                        uint128 outputAmount = uint128(uint256(-int256(delta1)));
+                        balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
+                    } else if (balanceUpdate.delta1() < 0) {
+                        uint128 outputAmount = uint128(uint256(-int256(balanceUpdate.delta1())));
                         int128 fee = SafeCastLib.toInt128(computeFee(outputAmount, additionalFee));
 
                         saveDelta1 += fee;
-                        delta1 += fee;
+                        balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
                     }
                 }
             }
@@ -258,7 +259,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
             }
 
-            result = abi.encode(delta0, delta1, stateAfter);
+            result = abi.encode(balanceUpdate, stateAfter);
         }
     }
 }

@@ -12,6 +12,7 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
+import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 
 /// @title Core Library
@@ -117,12 +118,11 @@ library CoreLib {
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool
     /// @param params The swap parameters to use
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change to the pool balances that resulted from the swap
     /// @return stateAfter The pool state after the swap
     function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params)
         internal
-        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
         assembly ("memory-safe") {
             let free := mload(0x40)
@@ -136,15 +136,14 @@ library CoreLib {
             // Add SwapParameters
             mstore(add(free, 100), params)
 
-            if iszero(call(gas(), core, value, free, 132, free, 96)) {
+            if iszero(call(gas(), core, value, free, 132, free, 64)) {
                 returndatacopy(free, 0, returndatasize())
                 revert(free, returndatasize())
             }
 
-            // Extract return values
-            delta0 := mload(free)
-            delta1 := mload(add(free, 32))
-            stateAfter := mload(add(free, 64))
+            // Extract return values - balanceUpdate is packed (delta1 << 128 | delta0)
+            balanceUpdate := mload(free)
+            stateAfter := mload(add(free, 32))
         }
     }
 }

@@ -1,23 +1,10 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {CallPoints} from "../src/types/callPoints.sol";
-import {PoolKey} from "../src/types/poolKey.sol";
-import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {createPositionId} from "../src/types/positionId.sol";
-import {Delta, RouteNode} from "../src/Router.sol";
-import {SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING} from "../src/math/constants.sol";
-import {MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
-import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {OrderKey} from "../src/types/orderKey.sol";
 import {getNextLaunchTime, SniperNoSniping, sniperNoSnipingCallPoints} from "../src/SniperNoSniping.sol";
-import {SimpleToken} from "../src/SimpleToken.sol";
-import {computeFee} from "../src/math/fee.sol";
 import {isTimeValid} from "../src/math/time.sol";
-import {BaseLocker} from "../src/base/BaseLocker.sol";
 
 contract SniperNoSnipingTest is BaseOrdersTest {
     using CoreLib for *;

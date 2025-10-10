@@ -260,25 +260,37 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 }
 
                 // Calculate the duration for which the order was active since last update
-                // Must clamp to endTime to avoid overcounting sales beyond the order's end
+                // When block.timestamp >= endTime, must clamp to endTime to avoid overcounting
                 uint32 saleDuration;
-                if (block.timestamp > startTime) {
-                    uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
-                    uint32 secondsSinceOrderStart = uint32(uint64(block.timestamp) - startTime);
-                    uint32 totalOrderDuration = uint32(endTime - startTime);
-                    uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
+                if (block.timestamp >= endTime) {
+                    // Order has ended - use comprehensive clamping to handle edge cases
+                    if (block.timestamp > startTime) {
+                        uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
+                        uint32 secondsSinceOrderStart = uint32(uint64(block.timestamp) - startTime);
+                        uint32 totalOrderDuration = uint32(endTime - startTime);
+                        // Prevent underflow when lastUpdateTime >= endTime
+                        uint32 remainingTimeSinceLastUpdate =
+                            lastUpdateTime >= uint32(endTime) ? 0 : uint32(endTime) - lastUpdateTime;
 
+                        saleDuration = uint32(
+                            FixedPointMathLib.min(
+                                remainingTimeSinceLastUpdate,
+                                FixedPointMathLib.min(
+                                    FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
+                                    totalOrderDuration
+                                )
+                            )
+                        );
+                    } else {
+                        saleDuration = 0;
+                    }
+                } else {
+                    // Order is still active - use simpler calculation (original logic)
                     saleDuration = uint32(
                         FixedPointMathLib.min(
-                            remainingTimeSinceLastUpdate,
-                            FixedPointMathLib.min(
-                                FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
-                                totalOrderDuration
-                            )
+                            uint32(block.timestamp) - lastUpdateTime, uint32(uint64(block.timestamp) - startTime)
                         )
                     );
-                } else {
-                    saleDuration = 0;
                 }
 
                 orderStateSlot.store(

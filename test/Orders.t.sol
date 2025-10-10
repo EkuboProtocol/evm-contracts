@@ -1266,6 +1266,51 @@ contract OrdersTest is BaseOrdersTest {
         assertApproxEqAbs(amountSold, 1e18, 1, "amountSold should equal full order amount, not be overcounted");
     }
 
+    /// @notice Test that stopping an already-stopped ended order doesn't change state
+    /// @dev Verifies that amountSold doesn't increase on subsequent no-op stops
+    function test_double_stop_after_end() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        // Create an order that starts immediately
+        uint64 startTime = uint64(nextValidTime(block.timestamp, block.timestamp));
+        uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 16));
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+        });
+        (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        // Advance past end time
+        vm.warp(endTime + 100);
+
+        // First stop
+        uint112 refund1 = orders.decreaseSaleRate(id, key, initialSaleRate, address(this));
+        (uint256 saleRate1, uint256 amountSold1,,) = orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+
+        // Advance time further
+        vm.warp(endTime + 200);
+
+        // Second stop (should be a no-op since saleRate is already 0)
+        uint112 refund2 = orders.decreaseSaleRate(id, key, 0, address(this));
+        (uint256 saleRate2, uint256 amountSold2,,) = orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+
+        // Verify state didn't change
+        assertEq(saleRate1, 0, "saleRate should be 0 after first stop");
+        assertEq(saleRate2, 0, "saleRate should remain 0 after second stop");
+        assertEq(amountSold1, amountSold2, "amountSold should not increase on second stop");
+        assertEq(refund1, 0, "No refund on first stop (order completed)");
+        assertEq(refund2, 0, "No refund on second stop (already stopped)");
+    }
+
     /// @notice Test documenting that proceeds must be collected before stopping an order
     /// @dev This demonstrates the correct usage pattern: collect proceeds before decreasing sale rate
     function test_collectProceeds_before_stop_order_correct() public {

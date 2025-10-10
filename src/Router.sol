@@ -434,12 +434,14 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         assembly ("memory-safe") {
             sig := mload(add(revertData, 32))
         }
-        if (sig == QuoteReturnValue.selector && revertData.length == 100) {
+        if (sig == QuoteReturnValue.selector && revertData.length == 68) {
+            PoolBalanceUpdate balanceUpdate;
             assembly ("memory-safe") {
-                delta0 := mload(add(revertData, 36))
-                delta1 := mload(add(revertData, 68))
-                stateAfter := mload(add(revertData, 100))
+                balanceUpdate := mload(add(revertData, 36))
+                stateAfter := mload(add(revertData, 68))
             }
+            delta0 = balanceUpdate.delta0();
+            delta1 = balanceUpdate.delta1();
         } else {
             assembly ("memory-safe") {
                 revert(add(revertData, 32), mload(revertData))

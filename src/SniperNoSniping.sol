@@ -12,9 +12,11 @@ import {sqrtRatioToTick} from "./math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK} from "./math/constants.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
-import {PoolKey, Config, toConfig} from "./types/poolKey.sol";
+import {PoolKey} from "./types/poolKey.sol";
+import {PoolConfig, createFullRangePoolConfig, createConcentratedPoolConfig} from "./types/poolConfig.sol";
 import {CallPoints} from "./types/callPoints.sol";
 import {OrderKey} from "./types/orderKey.sol";
+import {OrderConfig, createOrderConfig} from "./types/orderConfig.sol";
 import {createPositionId} from "./types/positionId.sol";
 import {SimpleToken} from "./SimpleToken.sol";
 import {nextValidTime} from "./math/time.sol";
@@ -26,12 +28,9 @@ import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
 
 /// @dev Computes the start and end time for the next batch of launches, given the duration and minimum lead time
 /// @dev Assumes that orderDuration is a power of 16
-function getNextLaunchTime(uint256 orderDuration, uint256 minLeadTime)
-    view
-    returns (uint256 startTime, uint256 endTime)
-{
-    startTime = nextValidTime(block.timestamp, block.timestamp + minLeadTime);
-    endTime = nextValidTime(block.timestamp, startTime + orderDuration - 1);
+function getNextLaunchTime(uint32 orderDuration, uint32 minLeadTime) view returns (uint64 startTime, uint64 endTime) {
+    startTime = uint64(nextValidTime(block.timestamp, block.timestamp + minLeadTime));
+    endTime = uint64(nextValidTime(block.timestamp, startTime + orderDuration - 1));
     startTime = endTime - orderDuration;
 }
 
@@ -63,10 +62,10 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
     ITWAMM public immutable TWAMM;
 
     /// @dev The duration of the sale for any newly created tokens
-    uint256 public immutable ORDER_DURATION;
+    uint32 public immutable ORDER_DURATION;
 
     /// @dev The minimum amount of time in the future that the order must start
-    uint256 public immutable MIN_LEAD_TIME;
+    uint32 public immutable MIN_LEAD_TIME;
 
     /// @dev The total supply that all tokens are created with.
     uint128 public immutable TOKEN_TOTAL_SUPPLY;
@@ -102,7 +101,7 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
     constructor(
         ICore core,
         ITWAMM twamm,
-        uint256 orderDurationMagnitude,
+        uint8 orderDurationMagnitude,
         uint128 tokenTotalSupply,
         uint64 poolFee,
         uint32 tickSpacing
@@ -112,7 +111,7 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
 
         if (orderDurationMagnitude == 0 || orderDurationMagnitude > 5) revert OrderDurationMagnitude();
 
-        ORDER_DURATION = 16 ** orderDurationMagnitude;
+        ORDER_DURATION = uint32(16) ** orderDurationMagnitude;
 
         if ((uint256(tokenTotalSupply) << 32) / ORDER_DURATION > MAX_ABS_VALUE_SALE_RATE_DELTA) {
             revert SaleRateTooLarge();
@@ -140,7 +139,7 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
         poolKey = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
             token1: address(token),
-            config: toConfig(POOL_FEE, 0, address(TWAMM))
+            config: createFullRangePoolConfig(POOL_FEE, address(TWAMM))
         });
     }
 
@@ -158,17 +157,15 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
 
     function getSaleOrderKey(SimpleToken token) public view returns (OrderKey memory orderKey) {
         LaunchInfo li = readLaunchInfo(token);
-        uint256 endTime = li.endTime();
+        uint64 endTime = li.endTime();
         if (endTime == 0) {
             revert TokenNotLaunched();
         }
-        uint256 startTime = endTime - ORDER_DURATION;
+        uint64 startTime = endTime - ORDER_DURATION;
         orderKey = OrderKey({
-            startTime: startTime,
-            endTime: endTime,
-            sellToken: address(token),
-            buyToken: NATIVE_TOKEN_ADDRESS,
-            fee: POOL_FEE
+            token0: NATIVE_TOKEN_ADDRESS,
+            token1: address(token),
+            config: createOrderConfig({_fee: POOL_FEE, _isToken1: true, _startTime: startTime, _endTime: endTime})
         });
     }
 
@@ -184,7 +181,7 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
         poolKey = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
             token1: address(token),
-            config: toConfig(POOL_FEE, GRADUATION_POOL_TICK_SPACING, address(this))
+            config: createConcentratedPoolConfig(POOL_FEE, GRADUATION_POOL_TICK_SPACING, address(this))
         });
     }
 
@@ -218,13 +215,13 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
 
             CORE.pay(address(token), TOKEN_TOTAL_SUPPLY);
 
-            (uint256 startTime, uint256 endTime) =
+            (uint64 startTime, uint64 endTime) =
                 getNextLaunchTime({orderDuration: ORDER_DURATION, minLeadTime: MIN_LEAD_TIME});
 
             PoolKey memory twammPoolKey = PoolKey({
                 token0: NATIVE_TOKEN_ADDRESS,
                 token1: address(token),
-                config: toConfig({_fee: POOL_FEE, _tickSpacing: 0, _extension: address(TWAMM)})
+                config: createFullRangePoolConfig({_fee: POOL_FEE, _extension: address(TWAMM)})
             });
 
             // The initial tick does not matter since we do not add liquidity
@@ -234,11 +231,9 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
                 twamm: TWAMM,
                 salt: bytes32(0),
                 orderKey: OrderKey({
-                    sellToken: address(token),
-                    buyToken: NATIVE_TOKEN_ADDRESS,
-                    fee: POOL_FEE,
-                    startTime: startTime,
-                    endTime: endTime
+                    token0: NATIVE_TOKEN_ADDRESS,
+                    token1: address(token),
+                    config: createOrderConfig({_isToken1: true, _startTime: startTime, _endTime: endTime, _fee: POOL_FEE})
                 }),
                 saleRateDelta: ORDER_SALE_RATE
             });

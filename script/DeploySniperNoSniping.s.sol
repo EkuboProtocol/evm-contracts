@@ -15,7 +15,7 @@ contract DeploySniperNoSniping is Script {
 
         vm.startBroadcast();
 
-        uint256 orderDurationMagnitude = 4;
+        uint8 orderDurationMagnitude = 4;
         uint128 tokenTotalSupply = 69_420_000e18;
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
         uint32 tickSpacing = 1000;

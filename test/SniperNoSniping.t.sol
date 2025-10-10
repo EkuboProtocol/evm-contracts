@@ -2,7 +2,8 @@
 pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {createPositionId} from "../src/types/positionId.sol";
 import {Delta, RouteNode} from "../src/Router.sol";
@@ -39,14 +40,14 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_get_next_launch_time_invariants(uint256 orderDurationMagnitude, uint256 time) public {
-        uint256 orderDuration = 16 ** bound(orderDurationMagnitude, 1, 6);
-        uint256 minLeadTime = orderDuration / 2;
+        uint32 orderDuration = uint32(16) ** uint32(bound(orderDurationMagnitude, 1, 6));
+        uint32 minLeadTime = orderDuration / 2;
 
-        time = bound(time, 0, type(uint256).max - type(uint32).max);
+        time = bound(time, 0, type(uint64).max - type(uint32).max);
 
         vm.warp(time);
 
-        (uint256 startTime, uint256 endTime) = getNextLaunchTime(orderDuration, minLeadTime);
+        (uint64 startTime, uint64 endTime) = getNextLaunchTime(orderDuration, minLeadTime);
 
         assertNotEq(startTime, 0);
         assertNotEq(endTime, 0);

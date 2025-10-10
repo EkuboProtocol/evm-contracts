@@ -1160,6 +1160,78 @@ contract OrdersTest is BaseOrdersTest {
         orders.increaseSellAmount(id, key, 0.5e18, type(uint112).max);
     }
 
+    /// @notice Test that orders can be stopped even after they have ended
+    /// @dev This allows users to clear storage and save gas by stopping ended orders
+    function test_stop_order_after_end() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        // Create an order that starts immediately
+        uint64 startTime = uint64(nextValidTime(block.timestamp, block.timestamp));
+        uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 16));
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+        });
+        (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        // Advance past end time
+        vm.warp(endTime + 10);
+
+        // Collect proceeds first (best practice)
+        uint128 proceeds = orders.collectProceeds(id, key, address(this));
+        assertGt(proceeds, 0, "Should have collected some proceeds");
+
+        // Now stop the order after it has ended - this should succeed
+        uint112 refund = orders.decreaseSaleRate(id, key, initialSaleRate, address(this));
+
+        // Since the order has ended, there should be no refund (all tokens were sold)
+        assertEq(refund, 0, "No refund expected since order completed");
+
+        // Verify the order is now stopped
+        (uint256 saleRateAfter,,,) = orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertEq(saleRateAfter, 0, "Sale rate should be 0 after stopping");
+    }
+
+    /// @notice Test that partially stopping an ended order is not allowed
+    /// @dev Only complete stops (saleRate -> 0) are allowed for ended orders
+    function test_partial_stop_order_after_end_reverts() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        // Create an order that starts immediately
+        uint64 startTime = uint64(nextValidTime(block.timestamp, block.timestamp));
+        uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 16));
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+        });
+        (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        // Advance past end time
+        vm.warp(endTime + 10);
+
+        // Try to partially decrease the sale rate (not to 0) - should revert
+        vm.expectRevert(IOrders.OrderAlreadyEnded.selector);
+        orders.decreaseSaleRate(id, key, initialSaleRate / 2, address(this));
+    }
+
     /// @notice Test documenting that proceeds must be collected before stopping an order
     /// @dev This demonstrates the correct usage pattern: collect proceeds before decreasing sale rate
     function test_collectProceeds_before_stop_order_correct() public {

@@ -196,7 +196,22 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
                 (uint64 startTime, uint64 endTime) = (orderKey.config.startTime(), orderKey.config.endTime());
 
-                if (endTime <= block.timestamp) revert OrderAlreadyEnded();
+                // Allow stopping orders even if they have ended (to clear storage and save gas)
+                // But prevent other modifications to ended orders
+                if (endTime <= block.timestamp) {
+                    // Load order state to check current sale rate
+                    OrderId orderIdTemp = orderKey.toOrderId();
+                    StorageSlot orderStateSlotTemp =
+                        TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner, salt, orderIdTemp);
+                    OrderState orderTemp = OrderState.wrap(orderStateSlotTemp.load());
+                    uint112 currentSaleRate = orderTemp.saleRate();
+
+                    // Only allow if this operation would result in saleRate becoming 0
+                    // Check: currentSaleRate + saleRateDelta == 0
+                    if (int256(uint256(currentSaleRate)) + saleRateDelta != 0) {
+                        revert OrderAlreadyEnded();
+                    }
+                }
 
                 if (
                     !isTimeValid(block.timestamp, startTime) || !isTimeValid(block.timestamp, endTime)
@@ -269,9 +284,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 if (block.timestamp < startTime) {
                     _updateTime(poolId, startTime, saleRateDelta, isToken1, numOrdersChange);
                     _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
-                } else {
-                    // we know block.timestamp < orderKey.endTime because we validate that first
-                    // and we know the order is active, so we have to apply its delta to the current pool state
+                } else if (block.timestamp < endTime) {
+                    // order is currently active, so we have to apply its delta to the current pool state
                     StorageSlot currentStateSlot = TWAMMStorageLayout.twammPoolStateSlot(poolId);
                     TwammPoolState currentState = TwammPoolState.wrap(currentStateSlot.load());
                     (uint32 lastTime, uint112 rate0, uint112 rate1) = currentState.parse();
@@ -295,22 +309,29 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     // only update the end time
                     _updateTime(poolId, endTime, -int256(saleRateDelta), isToken1, numOrdersChange);
                 }
-
-                // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
-                uint256 durationRemaining = endTime - FixedPointMathLib.max(block.timestamp, startTime);
-
-                // the amount required for executing at the next sale rate for the remaining duration of the order
-                uint256 amountRequired =
-                    computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
+                // else: order has ended, no need to update pool state or time info
 
                 // subtract the remaining sell amount to get the delta
                 int256 amountDelta;
 
-                uint256 remainingSellAmount =
-                    computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
+                if (block.timestamp >= endTime) {
+                    // Order has ended, so there's no remaining duration and no refund
+                    // (all tokens were already sold during the order's lifetime)
+                    amountDelta = 0;
+                } else {
+                    // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
+                    uint256 durationRemaining = endTime - FixedPointMathLib.max(block.timestamp, startTime);
 
-                assembly ("memory-safe") {
-                    amountDelta := sub(amountRequired, remainingSellAmount)
+                    // the amount required for executing at the next sale rate for the remaining duration of the order
+                    uint256 amountRequired =
+                        computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
+
+                    uint256 remainingSellAmount =
+                        computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
+
+                    assembly ("memory-safe") {
+                        amountDelta := sub(amountRequired, remainingSellAmount)
+                    }
                 }
 
                 // user is withdrawing tokens, so they need to pay a fee to the liquidity providers

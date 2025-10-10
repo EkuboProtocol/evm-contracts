@@ -808,6 +808,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 assembly ("memory-safe") {
                     let o := mload(0x40)
+                    // Pack as (delta1 << 128) | delta0 to match PoolBalanceUpdate type
                     let balanceUpdate := or(shl(128, delta1), and(delta0, 0xffffffffffffffffffffffffffffffff))
                     mstore(o, shl(96, locker))
                     mstore(add(o, 20), poolId)

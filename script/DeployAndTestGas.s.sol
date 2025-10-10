@@ -34,6 +34,7 @@ import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol
 import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {
     createConcentratedPoolConfig,
     createFullRangePoolConfig,
@@ -247,7 +248,7 @@ contract DeployAndTestGas is Script {
 
         // 15. Swap ETH for token0
         console2.log("Swapping ETH for token0...");
-        (int128 delta0_1, int128 delta1_1) = router.swap{value: SWAP_AMOUNT}(
+        PoolBalanceUpdate balanceUpdate1 = router.swap{value: SWAP_AMOUNT}(
             ethToken0Pool,
             createSwapParameters({
                 _isToken1: false,
@@ -257,11 +258,11 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Swap 1 - delta0:", uint128(delta0_1), "delta1:", uint128(-delta1_1));
+        console2.log("Swap 1 - delta0:", uint128(balanceUpdate1.delta0()), "delta1:", uint128(-balanceUpdate1.delta1()));
 
         // 16. Swap ETH for token1
         console2.log("Swapping ETH for token1...");
-        (int128 delta0_2, int128 delta1_2) = router.swap{value: SWAP_AMOUNT}(
+        PoolBalanceUpdate balanceUpdate2 = router.swap{value: SWAP_AMOUNT}(
             ethToken1Pool,
             createSwapParameters({
                 _isToken1: false,
@@ -271,11 +272,11 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Swap 2 - delta0:", uint128(delta0_2), "delta1:", uint128(-delta1_2));
+        console2.log("Swap 2 - delta0:", uint128(balanceUpdate2.delta0()), "delta1:", uint128(-balanceUpdate2.delta1()));
 
         // 17. Swap ETH for token0 through Oracle pool
         console2.log("Swapping ETH for token0 through Oracle pool...");
-        (int128 delta0_oracle, int128 delta1_oracle) = router.swap{value: SWAP_AMOUNT}(
+        PoolBalanceUpdate balanceUpdateOracle = router.swap{value: SWAP_AMOUNT}(
             ethToken0OraclePool,
             createSwapParameters({
                 _isToken1: false,
@@ -285,12 +286,17 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Oracle swap - delta0:", uint128(delta0_oracle), "delta1:", uint128(-delta1_oracle));
+        console2.log(
+            "Oracle swap - delta0:",
+            uint128(balanceUpdateOracle.delta0()),
+            "delta1:",
+            uint128(-balanceUpdateOracle.delta1())
+        );
 
         // 18. Swap token0 for ETH through Oracle pool
         console2.log("Swapping token0 for ETH through Oracle pool...");
-        uint128 oracleSwapBackAmount = uint128(-delta1_oracle) / 2;
-        (int128 delta0_oracle_back, int128 delta1_oracle_back) = router.swap(
+        uint128 oracleSwapBackAmount = uint128(-balanceUpdateOracle.delta1()) / 2;
+        PoolBalanceUpdate balanceUpdateOracleBack = router.swap(
             ethToken0OraclePool,
             createSwapParameters({
                 _isToken1: true, // isToken1 = true (swapping token1, which is token0)
@@ -300,14 +306,19 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Oracle swap back - delta0:", uint128(-delta0_oracle_back), "delta1:", uint128(delta1_oracle_back));
+        console2.log(
+            "Oracle swap back - delta0:",
+            uint128(-balanceUpdateOracleBack.delta0()),
+            "delta1:",
+            uint128(balanceUpdateOracleBack.delta1())
+        );
 
         // 19. Swap token0 for token1
         console2.log("Swapping token0 for token1...");
-        uint128 token0SwapAmount = uint128(-delta1_1) / 2; // Use half of received token0
+        uint128 token0SwapAmount = uint128(-balanceUpdate1.delta1()) / 2; // Use half of received token0
         // Determine which token we're swapping and set isToken1 accordingly
         bool isToken1Swap = address(token0) == token0Token1Pool.token1;
-        (int128 delta0_3, int128 delta1_3) = router.swap(
+        PoolBalanceUpdate balanceUpdate3 = router.swap(
             token0Token1Pool,
             createSwapParameters({
                 _isToken1: isToken1Swap,
@@ -317,12 +328,12 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Swap 3 - delta0:", uint128(delta0_3), "delta1:", uint128(-delta1_3));
+        console2.log("Swap 3 - delta0:", uint128(balanceUpdate3.delta0()), "delta1:", uint128(-balanceUpdate3.delta1()));
 
         // 20. Swap token0 for token1 in stableswap pool
         console2.log("Swapping token0 for token1 in stableswap pool...");
         uint128 stableSwapAmount = TOKEN_AMOUNT / 100; // 1% of liquidity
-        (int128 delta0_stable, int128 delta1_stable) = router.swap(
+        PoolBalanceUpdate balanceUpdateStable = router.swap(
             stableswapPool,
             createSwapParameters({
                 _isToken1: isToken1Swap,
@@ -332,11 +343,16 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Stableswap - delta0:", uint128(delta0_stable), "delta1:", uint128(-delta1_stable));
+        console2.log(
+            "Stableswap - delta0:",
+            uint128(balanceUpdateStable.delta0()),
+            "delta1:",
+            uint128(-balanceUpdateStable.delta1())
+        );
 
         // 21. Swap token1 for token0 in stableswap pool
         console2.log("Swapping token1 for token0 in stableswap pool...");
-        (int128 delta0_stable_back, int128 delta1_stable_back) = router.swap(
+        PoolBalanceUpdate balanceUpdateStableBack = router.swap(
             stableswapPool,
             createSwapParameters({
                 _isToken1: !isToken1Swap,
@@ -346,7 +362,12 @@ contract DeployAndTestGas is Script {
             }),
             type(int256).min
         );
-        console2.log("Stableswap back - delta0:", uint128(-delta0_stable_back), "delta1:", uint128(delta1_stable_back));
+        console2.log(
+            "Stableswap back - delta0:",
+            uint128(-balanceUpdateStableBack.delta0()),
+            "delta1:",
+            uint128(balanceUpdateStableBack.delta1())
+        );
 
         // 22. Multiple swaps to initialize all slots
         console2.log("Performing multiple small swaps to initialize slots...");
@@ -389,7 +410,7 @@ contract DeployAndTestGas is Script {
         if (token0Balance > 0) {
             // Only swap back a portion to avoid running out of liquidity
             uint128 swapBackAmount = token0Balance / 2;
-            (int128 deltaEth,) = router.swap(
+            PoolBalanceUpdate balanceUpdateToken0Back = router.swap(
                 ethToken0Pool,
                 createSwapParameters({
                     _isToken1: true,
@@ -400,7 +421,7 @@ contract DeployAndTestGas is Script {
                 type(int256).min
             );
             console2.log("Swapped token0 for ETH - amount:", swapBackAmount);
-            console2.log("Received ETH:", uint128(-deltaEth));
+            console2.log("Received ETH:", uint128(-balanceUpdateToken0Back.delta0()));
         }
 
         console2.log("Swapping token1 back to ETH...");
@@ -408,7 +429,7 @@ contract DeployAndTestGas is Script {
         if (token1Balance > 0) {
             // Only swap back a portion to avoid running out of liquidity
             uint128 swapBackAmount = token1Balance / 2;
-            (int128 deltaEth,) = router.swap(
+            PoolBalanceUpdate balanceUpdate = router.swap(
                 ethToken1Pool,
                 createSwapParameters({
                     _isToken1: true,
@@ -419,7 +440,7 @@ contract DeployAndTestGas is Script {
                 type(int256).min
             );
             console2.log("Swapped token1 for ETH - amount:", swapBackAmount);
-            console2.log("Received ETH:", uint128(-deltaEth));
+            console2.log("Received ETH:", uint128(-balanceUpdate.delta0()));
         }
 
         uint256 finalEthBalance = deployer.balance;

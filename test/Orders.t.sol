@@ -1232,6 +1232,40 @@ contract OrdersTest is BaseOrdersTest {
         orders.decreaseSaleRate(id, key, initialSaleRate / 2, address(this));
     }
 
+    /// @notice Test that amountSold is correctly clamped when stopping long after order ends
+    /// @dev Verifies that amountSold doesn't get overcounted beyond the order's end time
+    function test_stop_order_long_after_end_amountSold_clamped() public {
+        vm.warp(1);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        // Create an order that starts immediately
+        uint64 startTime = uint64(nextValidTime(block.timestamp, block.timestamp));
+        uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 16));
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+        });
+        (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        // Advance significantly past end time (1 million seconds)
+        vm.warp(endTime + 1_000_000);
+
+        // Stop the order
+        orders.decreaseSaleRate(id, key, initialSaleRate, address(this));
+
+        // Verify amountSold equals the full order amount (not more)
+        (, uint256 amountSold,,) = orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+        assertApproxEqAbs(amountSold, 1e18, 1, "amountSold should equal full order amount, not be overcounted");
+    }
+
     /// @notice Test documenting that proceeds must be collected before stopping an order
     /// @dev This demonstrates the correct usage pattern: collect proceeds before decreasing sale rate
     function test_collectProceeds_before_stop_order_correct() public {

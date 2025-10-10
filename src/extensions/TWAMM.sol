@@ -259,6 +259,28 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     numOrdersChange := sub(iszero(saleRate), iszero(saleRateNext))
                 }
 
+                // Calculate the duration for which the order was active since last update
+                // Must clamp to endTime to avoid overcounting sales beyond the order's end
+                uint32 saleDuration;
+                if (block.timestamp > startTime) {
+                    uint32 secondsSinceLastUpdate = uint32(block.timestamp) - lastUpdateTime;
+                    uint32 secondsSinceOrderStart = uint32(uint64(block.timestamp) - startTime);
+                    uint32 totalOrderDuration = uint32(endTime - startTime);
+                    uint32 remainingTimeSinceLastUpdate = uint32(endTime) - lastUpdateTime;
+
+                    saleDuration = uint32(
+                        FixedPointMathLib.min(
+                            remainingTimeSinceLastUpdate,
+                            FixedPointMathLib.min(
+                                FixedPointMathLib.min(secondsSinceLastUpdate, secondsSinceOrderStart),
+                                totalOrderDuration
+                            )
+                        )
+                    );
+                } else {
+                    saleDuration = 0;
+                }
+
                 orderStateSlot.store(
                     OrderState.unwrap(
                         createOrderState({
@@ -266,13 +288,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             _saleRate: uint112(saleRateNext),
                             _amountSold: uint112(
                                 amountSold
-                                    + computeAmountFromSaleRate({
-                                        saleRate: saleRate,
-                                        duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime, uint32(uint64(block.timestamp) - startTime)
-                                        ),
-                                        roundUp: false
-                                    })
+                                    + computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false})
                             )
                         })
                     )

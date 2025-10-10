@@ -409,7 +409,7 @@ contract DeployAndTestGas is Script {
         if (token1Balance > 0) {
             // Only swap back a portion to avoid running out of liquidity
             uint128 swapBackAmount = token1Balance / 2;
-            (int128 deltaEth,) = router.swap(
+            PoolBalanceUpdate balanceUpdate = router.swap(
                 ethToken1Pool,
                 createSwapParameters({
                     _isToken1: true,
@@ -420,7 +420,7 @@ contract DeployAndTestGas is Script {
                 type(int256).min
             );
             console2.log("Swapped token1 for ETH - amount:", swapBackAmount);
-            console2.log("Received ETH:", uint128(-deltaEth));
+            console2.log("Received ETH:", uint128(-balanceUpdate.delta0()));
         }
 
         uint256 finalEthBalance = deployer.balance;

@@ -26,26 +26,26 @@ contract RouterTest is FullTest {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
 
-        (int128 delta0, int128 delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: type(int128).min}),
             type(int256).min
         );
-        assertEq(delta0, 0);
-        assertEq(delta1, 0);
+        assertEq(balanceUpdate.delta0(), 0);
+        assertEq(balanceUpdate.delta1(), 0);
     }
 
     function test_noop_sqrt_ratio_limit_equals_price_token1_out(int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
 
-        (int128 delta0, int128 delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: type(int128).min}),
             type(int256).min
         );
-        assertEq(delta0, 0);
-        assertEq(delta1, 0);
+        assertEq(balanceUpdate.delta0(), 0);
+        assertEq(balanceUpdate.delta1(), 0);
     }
 
     function test_reverts_sqrtRatioLimit_wrong_direction(int32 tick) public {
@@ -78,13 +78,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, 100);
         assertEq(delta1, -49);
 
-        (delta0, delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
-        assertEq(delta0, 100);
-        assertEq(delta1, -49);
+        assertEq(balanceUpdate.delta0(), 100);
+        assertEq(balanceUpdate.delta1(), -49);
     }
 
     function test_basicSwap_token0_in_with_recipient(CallPoints memory callPoints) public {
@@ -112,13 +112,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, -100);
         assertEq(delta1, 202);
 
-        (delta0, delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             type(int256).min
         );
-        assertEq(delta0, -100);
-        assertEq(delta1, 202);
+        assertEq(balanceUpdate.delta0(), -100);
+        assertEq(balanceUpdate.delta1(), 202);
     }
 
     function test_basicSwap_token0_out_with_recipient(CallPoints memory callPoints) public {
@@ -142,13 +142,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, -49);
         assertEq(delta1, 100);
 
-        (delta0, delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
         );
-        assertEq(delta0, -49);
-        assertEq(delta1, 100);
+        assertEq(balanceUpdate.delta0(), -49);
+        assertEq(balanceUpdate.delta1(), 100);
     }
 
     function test_basicSwap_token1_out(CallPoints memory callPoints) public {
@@ -162,13 +162,13 @@ contract RouterTest is FullTest {
         assertEq(delta0, 202);
         assertEq(delta1, -100);
 
-        (delta0, delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: -100}),
             type(int256).min
         );
-        assertEq(delta0, 202);
-        assertEq(delta1, -100);
+        assertEq(balanceUpdate.delta0(), 202);
+        assertEq(balanceUpdate.delta1(), -100);
     }
 
     function test_basicSwap_token0_in_slippage_check_failed(CallPoints memory callPoints) public {
@@ -201,13 +201,13 @@ contract RouterTest is FullTest {
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: type(int128).max}),
             type(int256).min
         );
-        assertEq(delta0, type(int128).max);
-        assertEq(delta1, type(int128).min);
+        assertEq(balanceUpdate.delta0(), type(int128).max);
+        assertEq(balanceUpdate.delta1(), type(int128).min);
     }
 
     function test_swap_delta_overflows_int128_container_token1_in() public {
@@ -216,13 +216,13 @@ contract RouterTest is FullTest {
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: type(int128).max}),
             type(int256).min
         );
-        assertEq(delta0, type(int128).min);
-        assertEq(delta1, type(int128).max);
+        assertEq(balanceUpdate.delta0(), type(int128).min);
+        assertEq(balanceUpdate.delta1(), type(int128).max);
     }
 
     function test_basicSwap_token1_in_slippage_check_failed(CallPoints memory callPoints) public {
@@ -255,13 +255,13 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
-        (int128 delta0, int128 delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             type(int256).min
         );
-        assertEq(delta0, -100);
-        assertEq(delta1, 202);
+        assertEq(balanceUpdate.delta0(), -100);
+        assertEq(balanceUpdate.delta1(), 202);
     }
 
     function test_multihopSwap(CallPoints memory callPoints) public {
@@ -516,14 +516,14 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 100);
 
-        (int128 delta0, int128 delta1) = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
             type(int256).min
         );
-        assertEq(delta0, 100);
+        assertEq(balanceUpdate.delta0(), 100);
         // approximately 1x after fee
-        assertEq(delta1, -99);
+        assertEq(balanceUpdate.delta1(), -99);
     }
 
     /// forge-config: default.isolate = true
@@ -741,7 +741,7 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: -1,
@@ -750,8 +750,8 @@ contract RouterTest is FullTest {
             calculatedAmountThreshold: type(int256).min
         });
 
-        assertEq(delta0, 0);
-        assertEq(delta1, 499999875000098127000483558015);
+        assertEq(balanceUpdate.delta0(), 0);
+        assertEq(balanceUpdate.delta1(), 499999875000098127000483558015);
 
         // reaches max tick but does not change liquidity
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
@@ -767,7 +767,7 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: -1,
@@ -776,8 +776,8 @@ contract RouterTest is FullTest {
             calculatedAmountThreshold: type(int256).min
         });
 
-        assertEq(delta0, 499999875000098127108899679808);
-        assertEq(delta1, 0);
+        assertEq(balanceUpdate.delta0(), 499999875000098127108899679808);
+        assertEq(balanceUpdate.delta1(), 0);
 
         // reaches max tick but does not change liquidity
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
@@ -794,7 +794,7 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: -1,
@@ -803,8 +803,8 @@ contract RouterTest is FullTest {
             calculatedAmountThreshold: type(int256).min
         });
 
-        assertEq(delta0, 0);
-        assertEq(delta1, 499999875000098127000483558015);
+        assertEq(balanceUpdate.delta0(), 0);
+        assertEq(balanceUpdate.delta1(), 499999875000098127000483558015);
 
         // reaches max tick but does not change liquidity
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
@@ -820,7 +820,7 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: -1,
@@ -829,8 +829,8 @@ contract RouterTest is FullTest {
             calculatedAmountThreshold: type(int256).min
         });
 
-        assertEq(delta0, 499999875000098127108899679808);
-        assertEq(delta1, 0);
+        assertEq(balanceUpdate.delta0(), 499999875000098127108899679808);
+        assertEq(balanceUpdate.delta1(), 0);
 
         // reaches max tick but does not change liquidity
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
@@ -848,7 +848,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: 1e15, // 0.001 tokens
@@ -860,8 +860,8 @@ contract RouterTest is FullTest {
         // With high amplification (26), the pool behaves more like a constant sum
         // so we get very close to 1:1 exchange rate with minimal slippage
         // Slippage: 0.00005% (0.5 basis points)
-        assertEq(delta0, 1000000000000000);
-        assertEq(delta1, -999999999500000);
+        assertEq(balanceUpdate.delta0(), 1000000000000000);
+        assertEq(balanceUpdate.delta1(), -999999999500000);
     }
 
     function test_stableswap_amplification_26_token1_in() public {
@@ -872,7 +872,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: 1e15, // 0.001 tokens
@@ -884,8 +884,8 @@ contract RouterTest is FullTest {
         // With high amplification (26), the pool behaves more like a constant sum
         // so we get very close to 1:1 exchange rate with minimal slippage
         // Slippage: 0.00009% (0.9 basis points)
-        assertEq(delta0, -999999999138796);
-        assertEq(delta1, 1000000000000000);
+        assertEq(balanceUpdate.delta0(), -999999999138796);
+        assertEq(balanceUpdate.delta1(), 1000000000000000);
     }
 
     function test_stableswap_amplification_1_token0_in() public {
@@ -896,7 +896,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: 1e15, // 0.001 tokens
@@ -908,8 +908,8 @@ contract RouterTest is FullTest {
         // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
         // so we get more slippage compared to amplification 26
         // Slippage: 0.1% (10 basis points) - 200x more than amplification 26
-        assertEq(delta0, 1000000000000000);
-        assertEq(delta1, -999000999001231);
+        assertEq(balanceUpdate.delta0(), 1000000000000000);
+        assertEq(balanceUpdate.delta1(), -999000999001231);
     }
 
     function test_stableswap_amplification_1_token1_in() public {
@@ -920,7 +920,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: 1e15, // 0.001 tokens
@@ -932,8 +932,8 @@ contract RouterTest is FullTest {
         // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
         // so we get more slippage compared to amplification 26
         // Slippage: 0.1% (10 basis points) - 200x more than amplification 26
-        assertEq(delta0, -999000999001231);
-        assertEq(delta1, 1000000000000000);
+        assertEq(balanceUpdate.delta0(), -999000999001231);
+        assertEq(balanceUpdate.delta1(), 1000000000000000);
     }
 
     function test_stableswap_outside_range_no_liquidity() public {
@@ -952,7 +952,7 @@ contract RouterTest is FullTest {
         // Try to swap token1 for token0 (pushing price UP, away from liquidity)
         // Should get 0 output because there's no liquidity above the range
         token1.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: true,
             amount: 1e15,
@@ -962,8 +962,8 @@ contract RouterTest is FullTest {
         });
 
         // No liquidity outside the range, so no swap occurs
-        assertEq(delta0, 0);
-        assertEq(delta1, 0);
+        assertEq(balanceUpdate.delta0(), 0);
+        assertEq(balanceUpdate.delta1(), 0);
     }
 
     function test_stableswap_swap_through_range_boundary() public {
@@ -979,7 +979,7 @@ contract RouterTest is FullTest {
 
         // Perform a large swap that pushes price through the entire range
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: 1e18, // Large swap
@@ -989,8 +989,8 @@ contract RouterTest is FullTest {
         });
 
         // Swap consumes all available liquidity and moves through the entire range
-        assertGt(delta0, 0); // Some token0 was consumed
-        assertLt(delta1, 0); // Some token1 was received
+        assertGt(balanceUpdate.delta0(), 0); // Some token0 was consumed
+        assertLt(balanceUpdate.delta1(), 0); // Some token1 was received
 
         // Verify the pool price moved through the range and stopped at the lower boundary
         (, int32 tick,) = core.poolState(poolKey.toPoolId()).parse();
@@ -1010,7 +1010,7 @@ contract RouterTest is FullTest {
 
         // Swap should work normally inside the range
         token0.approve(address(router), type(uint256).max);
-        (int128 delta0, int128 delta1) = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             isToken1: false,
             amount: 1e15,
@@ -1020,8 +1020,8 @@ contract RouterTest is FullTest {
         });
 
         // Should get normal swap output
-        assertEq(delta0, 1000000000000000);
-        assertLt(delta1, 0); // Received some token1
-        assertGt(delta1, -1000000000000000); // But less than 1:1 due to slippage
+        assertEq(balanceUpdate.delta0(), 1000000000000000);
+        assertLt(balanceUpdate.delta1(), 0); // Received some token1
+        assertGt(balanceUpdate.delta1(), -1000000000000000); // But less than 1:1 due to slippage
     }
 }

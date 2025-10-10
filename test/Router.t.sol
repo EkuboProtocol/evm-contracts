@@ -73,10 +73,10 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 100);
 
-        (int128 delta0, int128 delta1,) =
+        (PoolBalanceUpdate balanceUpdate0,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: false, amount: 100, skipAhead: 0});
-        assertEq(delta0, 100);
-        assertEq(delta1, -49);
+        assertEq(balanceUpdate0.delta0(), 100);
+        assertEq(balanceUpdate0.delta1(), -49);
 
         PoolBalanceUpdate balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
@@ -102,17 +102,17 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
-        (int128 delta0, int128 delta1,) = router.quote({
+        (PoolBalanceUpdate balanceUpdate,) = router.quote({
             poolKey: poolKey,
             sqrtRatioLimit: MAX_SQRT_RATIO,
             isToken1: false,
             amount: -100,
             skipAhead: 0
         });
-        assertEq(delta0, -100);
-        assertEq(delta1, 202);
+        assertEq(balanceUpdate.delta0(), -100);
+        assertEq(balanceUpdate.delta1(), 202);
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
             type(int256).min
@@ -137,12 +137,12 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 100);
 
-        (int128 delta0, int128 delta1,) =
+        (PoolBalanceUpdate balanceUpdate,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MAX_SQRT_RATIO, isToken1: true, amount: 100, skipAhead: 0});
-        assertEq(delta0, -49);
-        assertEq(delta1, 100);
+        assertEq(balanceUpdate.delta0(), -49);
+        assertEq(balanceUpdate.delta1(), 100);
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
             type(int256).min
@@ -157,12 +157,12 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 202);
 
-        (int128 delta0, int128 delta1,) =
+        (PoolBalanceUpdate balanceUpdate,) =
             router.quote({poolKey: poolKey, sqrtRatioLimit: MIN_SQRT_RATIO, isToken1: true, amount: -100, skipAhead: 0});
-        assertEq(delta0, 202);
-        assertEq(delta1, -100);
+        assertEq(balanceUpdate.delta0(), 202);
+        assertEq(balanceUpdate.delta1(), -100);
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        balanceUpdate = router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: -100}),
             type(int256).min

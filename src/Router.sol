@@ -409,11 +409,11 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate The change in pool balances resulting from the swap
+    /// @return stateAfter The state of the pool after the swap is complete
     function quote(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
-        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
         bytes memory revertData = lockAndExpectRevert(
             abi.encode(
@@ -435,13 +435,10 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
             sig := mload(add(revertData, 32))
         }
         if (sig == QuoteReturnValue.selector && revertData.length == 68) {
-            PoolBalanceUpdate balanceUpdate;
             assembly ("memory-safe") {
                 balanceUpdate := mload(add(revertData, 36))
                 stateAfter := mload(add(revertData, 68))
             }
-            delta0 = balanceUpdate.delta0();
-            delta1 = balanceUpdate.delta1();
         } else {
             assembly ("memory-safe") {
                 revert(add(revertData, 32), mload(revertData))

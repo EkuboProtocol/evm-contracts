@@ -136,7 +136,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
-        (int128 delta0, int128 delta1,) = router.quote({
+        (PoolBalanceUpdate balanceUpdate,) = router.quote({
             poolKey: poolKey,
             isToken1: false,
             amount: 100_000,
@@ -144,8 +144,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             skipAhead: 0
         });
 
-        assertEq(delta0, 100_000);
-        assertEq(delta1, -98_049);
+        assertEq(balanceUpdate.delta0(), 100_000);
+        assertEq(balanceUpdate.delta1(), -98_049);
     }
 
     /// forge-config: default.isolate = true

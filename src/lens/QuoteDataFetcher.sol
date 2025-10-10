@@ -5,8 +5,9 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {UsesCore} from "../base/UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {PoolKey} from "../types/poolKey.sol";
+import {PoolConfig} from "../types/poolConfig.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {DynamicArrayLib} from "solady/utils/DynamicArrayLib.sol";
 import {PoolId} from "../types/poolId.sol";
 
@@ -49,9 +50,9 @@ contract QuoteDataFetcher is UsesCore {
                     int256 minTick;
                     int256 maxTick;
                     TickDelta[] memory ticks;
-                    if (poolKeys[i].tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) {
-                        int256 rangeSize =
-                            int256(uint256(minBitmapsSearched)) * int256(uint256(poolKeys[i].tickSpacing())) * 256;
+                    if (poolKeys[i].config.isConcentrated()) {
+                        int256 rangeSize = int256(uint256(minBitmapsSearched))
+                            * int256(uint256(poolKeys[i].config.concentratedTickSpacing())) * 256;
                         minTick = int256(tick) - rangeSize;
                         maxTick = int256(tick) + rangeSize;
 
@@ -61,12 +62,17 @@ contract QuoteDataFetcher is UsesCore {
                         if (maxTick > MAX_TICK) {
                             maxTick = MAX_TICK;
                         }
-                        ticks = _getInitializedTicksInRange(
-                            poolId, int32(minTick), int32(maxTick), poolKeys[i].tickSpacing()
-                        );
+                        ticks = _getInitializedTicksInRange(poolId, int32(minTick), int32(maxTick), poolKeys[i].config);
                     } else {
                         minTick = MIN_TICK;
                         maxTick = MAX_TICK;
+
+                        if (liquidity > 0) {
+                            (int32 lower, int32 upper) = poolKeys[i].config.stableswapActiveLiquidityTickRange();
+                            ticks = new TickDelta[](2);
+                            ticks[0] = TickDelta({number: lower, liquidityDelta: int128(liquidity)});
+                            ticks[1] = TickDelta({number: upper, liquidityDelta: -int128(liquidity)});
+                        }
                     }
 
                     results[i] = QuoteData({
@@ -92,14 +98,15 @@ contract QuoteDataFetcher is UsesCore {
     }
 
     // Returns all the initialized ticks and the liquidity delta of each tick in the given range
-    function _getInitializedTicksInRange(PoolId poolId, int32 fromTick, int32 toTick, uint32 tickSpacing)
+    function _getInitializedTicksInRange(PoolId poolId, int32 fromTick, int32 toTick, PoolConfig config)
         internal
         view
         returns (TickDelta[] memory ticks)
     {
         assert(toTick >= fromTick);
 
-        if (tickSpacing != FULL_RANGE_ONLY_TICK_SPACING) {
+        if (!config.isFullRange()) {
+            uint32 tickSpacing = config.concentratedTickSpacing();
             DynamicArrayLib.DynamicArray memory packedTicks;
 
             while (toTick >= fromTick) {
@@ -141,6 +148,6 @@ contract QuoteDataFetcher is UsesCore {
         view
         returns (TickDelta[] memory ticks)
     {
-        return _getInitializedTicksInRange(poolKey.toPoolId(), fromTick, toTick, poolKey.tickSpacing());
+        return _getInitializedTicksInRange(poolKey.toPoolId(), fromTick, toTick, poolKey.config);
     }
 }

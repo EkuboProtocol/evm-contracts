@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolConfig, createStableswapPoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {Router} from "../src/Router.sol";
-import {isPriceIncreasing} from "../src/math/swap.sol";
+import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
@@ -21,11 +22,11 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-function maxBounds(uint32 tickSpacing) pure returns (int32 tickLower, int32 tickUpper) {
-    if (tickSpacing == FULL_RANGE_ONLY_TICK_SPACING) {
+function maxBounds(PoolConfig config) pure returns (int32 tickLower, int32 tickUpper) {
+    if (config.isFullRange()) {
         return (MIN_TICK, MAX_TICK);
     }
-    int32 spacing = int32(tickSpacing);
+    int32 spacing = int32(config.concentratedTickSpacing());
 
     return ((MIN_TICK / spacing) * spacing, (MAX_TICK / spacing) * spacing);
 }
@@ -82,10 +83,29 @@ contract Handler is StdUtils, StdAssertions {
     }
 
     function createNewPool(uint64 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
-        tickSpacing = uint32(bound(tickSpacing, 0, MAX_TICK_SPACING));
+        // Concentrated pools need tick spacing >= 1 to avoid division by zero
+        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
-            address(token0), address(token1), toConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+            address(token0),
+            address(token1),
+            createConcentratedPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+        );
+        (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
+        assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
+        if (initialized) allPoolKeys.push(poolKey);
+    }
+
+    function createNewStableswapPool(uint64 fee, int32 tick, uint8 amplification, int32 centerTick, bool withExtension)
+        public
+    {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        centerTick = int32(bound(centerTick, MIN_TICK, MAX_TICK));
+        amplification = uint8(bound(amplification, 0, 26));
+        PoolKey memory poolKey = PoolKey(
+            address(token0),
+            address(token1),
+            createStableswapPoolConfig(fee, amplification, centerTick, withExtension ? address(fae) : address(0))
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
@@ -105,15 +125,19 @@ contract Handler is StdUtils, StdAssertions {
     {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        if (poolKey.tickSpacing() == FULL_RANGE_ONLY_TICK_SPACING) {
-            (tickLower, tickUpper) = (MIN_TICK, MAX_TICK);
+        if (poolKey.config.isStableswap()) {
+            (tickLower, tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         } else {
-            (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.tickSpacing());
-            tickLower = int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.tickSpacing())));
+            (int32 maxTickLower, int32 maxTickUpper) = maxBounds(poolKey.config);
+            tickLower =
+                int32(bound(tickLower, maxTickLower, maxTickUpper - int32(poolKey.config.concentratedTickSpacing())));
             // snap to nearest valid tick
-            tickLower = (tickLower / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
-            tickUpper = int32(bound(tickUpper, tickLower + int32(poolKey.tickSpacing()), maxTickUpper));
-            tickUpper = (tickUpper / int32(poolKey.tickSpacing())) * int32(poolKey.tickSpacing());
+            tickLower = (tickLower / int32(poolKey.config.concentratedTickSpacing()))
+                * int32(poolKey.config.concentratedTickSpacing());
+            tickUpper =
+                int32(bound(tickUpper, tickLower + int32(poolKey.config.concentratedTickSpacing()), maxTickUpper));
+            tickUpper = (tickUpper / int32(poolKey.config.concentratedTickSpacing()))
+                * int32(poolKey.config.concentratedTickSpacing());
         }
 
         try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
@@ -136,6 +160,7 @@ contract Handler is StdUtils, StdAssertions {
             if (
                 sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
+                    && sig != ICore.MaxLiquidityPerTickExceeded.selector
             ) {
                 revert UnexpectedError(err);
             }
@@ -149,7 +174,7 @@ contract Handler is StdUtils, StdAssertions {
             poolBalances[poolId].amount0 += int256(uint256(amount0));
             poolBalances[poolId].amount1 += int256(uint256(amount1));
         } catch (bytes memory err) {
-            if (poolKey.extension() != address(fae)) {
+            if (poolKey.config.extension() != address(fae)) {
                 assert(err.length == 0);
             } else {
                 bytes4 sig;
@@ -182,8 +207,7 @@ contract Handler is StdUtils, StdAssertions {
 
             if (
                 // arithmetic overflow can definitely happen in positions contract if liquidity + fees > uint128
-                sig != ICore.MustCollectFeesBeforeWithdrawingAllLiquidity.selector
-                    && sig != SafeCastLib.Overflow.selector && sig != Amount1DeltaOverflow.selector
+                sig != SafeCastLib.Overflow.selector && sig != Amount1DeltaOverflow.selector
                     && sig != Amount0DeltaOverflow.selector && sig != 0x4e487b71
             ) {
                 revert UnexpectedError(err);

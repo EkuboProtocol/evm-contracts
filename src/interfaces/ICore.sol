@@ -9,7 +9,9 @@ import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolId} from "../types/poolId.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @title Extension Interface
 /// @notice Interface for pool extensions that can hook into core operations
@@ -29,22 +31,22 @@ interface IExtension {
     function afterInitializePool(address caller, PoolKey calldata key, int32 tick, SqrtRatio sqrtRatio) external;
 
     /// @notice Called before a position is updated
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the position update
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position that is being updated
     /// @param liquidityDelta The change in liquidity that is being requested for the position
-    function beforeUpdatePosition(address locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
+    function beforeUpdatePosition(Locker locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external;
 
     /// @notice Called after a position is updated
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the position update
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position that was updated
     /// @param liquidityDelta Change in liquidity of the specified position key range
     /// @param delta0 Change in token0 balance of the pool
     /// @param delta1 Change in token1 balance of the pool
     function afterUpdatePosition(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
@@ -54,56 +56,41 @@ interface IExtension {
     ) external;
 
     /// @notice Called before a swap is executed
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    function beforeSwap(
-        address locker,
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external;
+    /// @param params Swap parameters containing amount, isToken1, sqrtRatioLimit, and skipAhead
+    function beforeSwap(Locker locker, PoolKey memory poolKey, SwapParameters params) external;
 
     /// @notice Called after a swap is executed
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock performing the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param params Swap parameters containing amount, isToken1, sqrtRatioLimit, and skipAhead
     /// @param delta0 Change in token0 balance
     /// @param delta1 Change in token1 balance
+    /// @param stateAfter The pool state after the swap
     function afterSwap(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead,
+        SwapParameters params,
         int128 delta0,
         int128 delta1,
         PoolState stateAfter
     ) external;
 
     /// @notice Called before fees are collected from a position
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock collecting fees
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position for which fees will be collected
-    function beforeCollectFees(address locker, PoolKey memory poolKey, PositionId positionId) external;
+    function beforeCollectFees(Locker locker, PoolKey memory poolKey, PositionId positionId) external;
 
     /// @notice Called after fees are collected from a position
-    /// @param locker Address that holds the lock
+    /// @param locker The current holder of the lock collecting fees
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position for which fees were collected
     /// @param amount0 Amount of token0 fees collected
     /// @param amount1 Amount of token1 fees collected
     function afterCollectFees(
-        address locker,
+        Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         uint128 amount0,
@@ -176,17 +163,23 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when trying to operate on an uninitialized pool
     error PoolNotInitialized();
 
-    /// @notice Thrown when trying to withdraw all liquidity without collecting fees first
-    error MustCollectFeesBeforeWithdrawingAllLiquidity();
-
     /// @notice Thrown when sqrt ratio limit is out of valid range
     error SqrtRatioLimitOutOfRange();
 
-    /// @notice Thrown when sqrt ratio limit is invalid for the swap direction
+    /// @notice Thrown when sqrt ratio limit parameter given to swap is not a valid sqrt ratio
     error InvalidSqrtRatioLimit();
+
+    /// @notice Thrown when the sqrt ratio limit is in the wrong direction of the current price
+    error SqrtRatioLimitWrongDirection();
 
     /// @notice Thrown when saved balance tokens are not properly sorted
     error SavedBalanceTokensNotSorted();
+
+    /// @notice Thrown when a position update would cause liquidityNet on a tick to exceed the maximum allowed
+    /// @param tick The tick that would exceed the limit
+    /// @param liquidityNet The resulting liquidityNet that exceeds the limit
+    /// @param maxLiquidityPerTick The maximum allowed liquidity per tick
+    error MaxLiquidityPerTickExceeded(int32 tick, uint128 liquidityNet, uint128 maxLiquidityPerTick);
 
     /// @notice Registers an extension with the core contract
     /// @dev Extensions must call this function to become registered. The call points are validated against the caller address
@@ -236,11 +229,12 @@ interface ICore is IFlashAccountant, IExposedStorage {
         payable;
 
     /// @notice Returns the accumulated fees per liquidity inside the given bounds
-    /// @param poolKey Pool key identifying the pool
+    /// @dev The reason this getter is exposed is that it requires conditional SLOADs for maximum efficiency
+    /// @param poolId The ID of the pool to fetch the fees per liquidity inside
     /// @param tickLower Lower bound of the price range to get the snapshot
     /// @param tickLower Upper bound of the price range to get the snapshot
     /// @return feesPerLiquidity Accumulated fees per liquidity inside the bounds
-    function getPoolFeesPerLiquidityInside(PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
+    function getPoolFeesPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper)
         external
         view
         returns (FeesPerLiquidity memory feesPerLiquidity);
@@ -253,15 +247,22 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param amount1 Amount of token1 to accumulate as fees
     function accumulateAsFees(PoolKey memory poolKey, uint128 amount0, uint128 amount1) external payable;
 
-    /// @notice Updates a liquidity position
+    /// @notice Updates a liquidity position and sets extra data
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position to update
+    /// @param liquidityDelta The change in liquidity
     /// @return delta0 Change in token0 balance
     /// @return delta1 Change in token1 balance
     function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
         payable
         returns (int128 delta0, int128 delta1);
+
+    /// @notice Sets extra data for the position
+    /// @param poolId ID of the pool for which the position exists
+    /// @param positionId The key of the position to set extra data at
+    /// @param extraData The data to set on the position
+    function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external;
 
     /// @notice Collects accumulated fees from a position
     /// @param poolKey Pool key identifying the pool
@@ -273,20 +274,6 @@ interface ICore is IFlashAccountant, IExposedStorage {
         returns (uint128 amount0, uint128 amount1);
 
     /// @notice Executes a swap against a pool
-    /// @dev Function name includes hash to prevent signature collisions
-    /// @param poolKey Pool key identifying the pool
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param sqrtRatioLimit Price limit for the swap
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance of the pool
-    /// @return delta1 Change in token1 balance of the pool
-    /// @return stateAfter The pool state after the swap
-    function swap_611415377(
-        PoolKey memory poolKey,
-        int128 amount,
-        bool isToken1,
-        SqrtRatio sqrtRatioLimit,
-        uint256 skipAhead
-    ) external payable returns (int128 delta0, int128 delta1, PoolState stateAfter);
+    /// @dev Function name is mined to have a zero function selector for gas efficiency
+    function swap_6269342730() external payable;
 }

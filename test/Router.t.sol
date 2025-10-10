@@ -3,45 +3,67 @@ pragma solidity =0.8.30;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
-import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
-import {
-    MIN_SQRT_RATIO,
-    MAX_SQRT_RATIO,
-    MIN_SQRT_RATIO_RAW,
-    MAX_SQRT_RATIO_RAW,
-    SqrtRatio
-} from "../src/types/sqrtRatio.sol";
-import {
-    FULL_RANGE_ONLY_TICK_SPACING,
-    MIN_TICK,
-    MAX_TICK,
-    MAX_TICK_SPACING,
-    NATIVE_TOKEN_ADDRESS
-} from "../src/math/constants.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
-import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
-import {Router, defaultSqrtRatioLimit, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {Router, Delta, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {PoolState} from "../src/types/poolState.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {createSwapParameters} from "../src/types/swapParameters.sol";
 
 contract RouterTest is FullTest {
     using CoreLib for *;
 
-    function test_defaultSqrtRatioLimit(SqrtRatio sqrtRatioLimit, bool isToken1, int128 amount) public pure {
-        SqrtRatio result = defaultSqrtRatioLimit(sqrtRatioLimit, isToken1, amount);
-        if (SqrtRatio.unwrap(sqrtRatioLimit) == 0) {
-            if (isPriceIncreasing(amount, isToken1)) {
-                assertEq(SqrtRatio.unwrap(result), MAX_SQRT_RATIO_RAW);
-            } else {
-                assertEq(SqrtRatio.unwrap(result), MIN_SQRT_RATIO_RAW);
-            }
-        } else {
-            assertEq(SqrtRatio.unwrap(result), SqrtRatio.unwrap(sqrtRatioLimit));
-        }
+    function test_noop_sqrt_ratio_limit_equals_price_token0_out(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+
+        (int128 delta0, int128 delta1) = router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: type(int128).min}),
+            type(int256).min
+        );
+        assertEq(delta0, 0);
+        assertEq(delta1, 0);
+    }
+
+    function test_noop_sqrt_ratio_limit_equals_price_token1_out(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+
+        (int128 delta0, int128 delta1) = router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: type(int128).min}),
+            type(int256).min
+        );
+        assertEq(delta0, 0);
+        assertEq(delta1, 0);
+    }
+
+    function test_reverts_sqrtRatioLimit_wrong_direction(int32 tick) public {
+        tick = int32(bound(tick, MIN_TICK + 1, MAX_TICK - 1));
+        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+
+        vm.expectRevert(ICore.SqrtRatioLimitWrongDirection.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick - 1), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: type(int128).min}),
+            type(int256).min
+        );
+
+        vm.expectRevert(ICore.SqrtRatioLimitWrongDirection.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick + 1), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: type(int128).min}),
+            type(int256).min
+        );
     }
 
     function test_basicSwap_token0_in(CallPoints memory callPoints) public {
@@ -173,7 +195,7 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_delta_overflows_int128_container_token0_in() public {
-        PoolKey memory poolKey = createPool({tick: MAX_TICK, fee: 0, tickSpacing: 0});
+        PoolKey memory poolKey = createFullRangePool({tick: MAX_TICK, fee: 0});
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
@@ -188,7 +210,7 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_delta_overflows_int128_container_token1_in() public {
-        PoolKey memory poolKey = createPool({tick: MIN_TICK, fee: 0, tickSpacing: 0});
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK, fee: 0});
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
@@ -200,40 +222,6 @@ contract RouterTest is FullTest {
         );
         assertEq(delta0, type(int128).min);
         assertEq(delta1, type(int128).max);
-    }
-
-    function test_swap_liquidity_overflow_token0() public {
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
-
-        (, uint128 liquidity0) = createPosition(poolKey, -1, 5, (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity1) = createPosition(poolKey, 0, 6, (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity2) = createPosition(poolKey, 1, 7, (type(uint128).max >> 20), (type(uint128).max >> 20));
-
-        assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
-
-        vm.expectRevert(LiquidityDeltaOverflow.selector);
-        router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(2), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: type(int128).max}),
-            type(int256).min
-        );
-    }
-
-    function test_swap_liquidity_overflow_token1() public {
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 1});
-
-        (, uint128 liquidity0) = createPosition(poolKey, -5, 1, (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity1) = createPosition(poolKey, -6, 0, (type(uint128).max >> 20), (type(uint128).max >> 20));
-        (, uint128 liquidity2) = createPosition(poolKey, -7, -1, (type(uint128).max >> 20), (type(uint128).max >> 20));
-
-        assertGt(uint256(liquidity0) + liquidity1 + liquidity2, type(uint128).max);
-
-        vm.expectRevert(LiquidityDeltaOverflow.selector);
-        router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-2), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: type(int128).max}),
-            type(int256).min
-        );
     }
 
     function test_basicSwap_token1_in_slippage_check_failed(CallPoints memory callPoints) public {
@@ -532,6 +520,7 @@ contract RouterTest is FullTest {
         assertEq(delta1, -99);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_gas() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -547,6 +536,7 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 token0 for token1");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_token_for_eth_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -562,36 +552,79 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 token0 for eth");
     }
 
+    /// forge-config: default.isolate = true
+    function test_swap_cross_two_ticks_eth_for_token1() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+        createPosition(poolKey, -200, 200, 1000, 1000);
+
+        coolAllContracts();
+        router.swap{value: 30000}(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-250), skipAhead: 0}),
+            TokenAmount({token: poolKey.token0, amount: 30000}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), -250);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_cross_two_ticks_token1_for_eth() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+        createPosition(poolKey, -200, 200, 1000, 1000);
+
+        IERC20(poolKey.token1).approve(address(router), type(uint256).max);
+
+        coolAllContracts();
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(250), skipAhead: 0}),
+            TokenAmount({token: poolKey.token1, amount: 30000}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing two ticks token1 for eth");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), 250);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_cross_tick_token1_for_eth() public {
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+        createPosition(poolKey, -200, 200, 1000, 1000);
+
+        IERC20(poolKey.token1).approve(address(router), type(uint256).max);
+
+        coolAllContracts();
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: poolKey.token1, amount: 3500}),
+            type(int256).min
+        );
+        vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), 149);
+    }
+
+    /// forge-config: default.isolate = true
     function test_swap_cross_tick_eth_for_token1() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
 
         coolAllContracts();
-        router.swap{value: 1500}(
+        router.swap{value: 3500}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 1500}),
+            TokenAmount({token: poolKey.token0, amount: 3500}),
             type(int256).min
         );
-        vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
+        vm.snapshotGasLastCall("swap crossing one tick eth for token1");
+
+        assertEq(core.poolState(poolKey.toPoolId()).tick(), -150);
     }
 
-    function test_swap_cross_tick_token1_for_eth() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
-        createPosition(poolKey, -100, 100, 1000, 1000);
-        createPosition(poolKey, -200, 200, 1000, 1000);
-
-        token1.approve(address(router), 1500);
-
-        coolAllContracts();
-        router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 1500}),
-            type(int256).min
-        );
-        vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
-    }
-
+    /// forge-config: default.isolate = true
     function test_swap_eth_for_token_gas() public {
         PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
         createPosition(poolKey, -100, 100, 1000, 1000);
@@ -605,35 +638,98 @@ contract RouterTest is FullTest {
         vm.snapshotGasLastCall("swap 100 wei of eth for token");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_eth_for_token_full_range_pool_gas() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangeETHPool(0, 1 << 63);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
+        // do the swap one time first to set the fees slot
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
         coolAllContracts();
-        router.swap{value: 100}(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
-            type(int256).min
-        );
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_token_for_eth_full_range_pool_gas() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangeETHPool(0, 1 << 63);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
-        token1.approve(address(router), 100);
+        token1.approve(address(router), type(uint256).max);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
         coolAllContracts();
-        router.swap(
-            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
-            type(int256).min
-        );
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
         vm.snapshotGasLastCall("swap 100 wei of token for eth full range");
     }
 
+    /// forge-config: default.isolate = true
+    function test_swap_eth_for_token_stableswap_pool_gas() public {
+        PoolConfig config = createStableswapPoolConfig(1 << 63, 4, 0, address(0));
+        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1000, 1000);
+
+        // do the swap one time first to set the fees slot
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        coolAllContracts();
+        router.swap{value: 100}({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+        vm.snapshotGasLastCall("swap 100 wei of eth for token stableswap");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_token_for_eth_stableswap_pool_gas() public {
+        PoolConfig config = createStableswapPoolConfig(1 << 63, 4, 0, address(0));
+        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1000, 1000);
+
+        token1.approve(address(router), type(uint256).max);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        coolAllContracts();
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
+            calculatedAmountThreshold: type(int256).min
+        });
+        vm.snapshotGasLastCall("swap 100 wei of token for eth stableswap");
+    }
+
     function test_swap_full_range_to_max_price() public {
-        PoolKey memory poolKey = createPool(MAX_TICK - 1, 0, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangePool(MAX_TICK - 1, 0);
 
         (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1, 1e36);
         assertNotEq(liquidity, 0);
@@ -659,7 +755,7 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_full_range_to_min_price() public {
-        PoolKey memory poolKey = createPool(MIN_TICK + 1, 0, FULL_RANGE_ONLY_TICK_SPACING);
+        PoolKey memory poolKey = createFullRangePool(MIN_TICK + 1, 0);
 
         (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1e36, 1);
         assertNotEq(liquidity, 0);
@@ -736,5 +832,190 @@ contract RouterTest is FullTest {
         // crosses the min tick, but liquidity is still not zero
         assertEq(tick, MIN_TICK - 1);
         assertEq(liquidityAfter, 0);
+    }
+
+    function test_stableswap_amplification_26_token0_in() public {
+        // Create stableswap pool with high amplification (26)
+        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With high amplification (26), the pool behaves more like a constant sum
+        // so we get very close to 1:1 exchange rate with minimal slippage
+        // Slippage: 0.00005% (0.5 basis points)
+        assertEq(delta0, 1000000000000000);
+        assertEq(delta1, -999999999500000);
+    }
+
+    function test_stableswap_amplification_26_token1_in() public {
+        // Create stableswap pool with high amplification (26)
+        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With high amplification (26), the pool behaves more like a constant sum
+        // so we get very close to 1:1 exchange rate with minimal slippage
+        // Slippage: 0.00009% (0.9 basis points)
+        assertEq(delta0, -999999999138796);
+        assertEq(delta1, 1000000000000000);
+    }
+
+    function test_stableswap_amplification_1_token0_in() public {
+        // Create stableswap pool with low amplification (1)
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
+        // so we get more slippage compared to amplification 26
+        // Slippage: 0.1% (10 basis points) - 200x more than amplification 26
+        assertEq(delta0, 1000000000000000);
+        assertEq(delta1, -999000999001231);
+    }
+
+    function test_stableswap_amplification_1_token1_in() public {
+        // Create stableswap pool with low amplification (1)
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 1e15, // 0.001 tokens
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
+        // so we get more slippage compared to amplification 26
+        // Slippage: 0.1% (10 basis points) - 200x more than amplification 26
+        assertEq(delta0, -999000999001231);
+        assertEq(delta1, 1000000000000000);
+    }
+
+    function test_stableswap_outside_range_no_liquidity() public {
+        // Create stableswap pool with moderate amplification (10) centered at tick 0
+        // This creates a limited price range
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0));
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+
+        // Initialize pool outside the liquidity range (at upper + 1000 ticks)
+        int32 outsideTick = upper + 1000;
+        PoolKey memory poolKey = createPool(address(token0), address(token1), outsideTick, config);
+
+        // Add liquidity in the active range
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        // Try to swap token1 for token0 (pushing price UP, away from liquidity)
+        // Should get 0 output because there's no liquidity above the range
+        token1.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 1e15,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // No liquidity outside the range, so no swap occurs
+        assertEq(delta0, 0);
+        assertEq(delta1, 0);
+    }
+
+    function test_stableswap_swap_through_range_boundary() public {
+        // Create stableswap pool with moderate amplification (10) centered at tick 0
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0));
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+
+        // Initialize pool just inside the upper boundary
+        PoolKey memory poolKey = createPool(address(token0), address(token1), upper - 100, config);
+
+        // Add liquidity in the active range
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        // Perform a large swap that pushes price through the entire range
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 1e18, // Large swap
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // Swap consumes all available liquidity and moves through the entire range
+        assertGt(delta0, 0); // Some token0 was consumed
+        assertLt(delta1, 0); // Some token1 was received
+
+        // Verify the pool price moved through the range and stopped at the lower boundary
+        (, int32 tick,) = core.poolState(poolKey.toPoolId()).parse();
+        assertLe(tick, lower + 10); // Should be very close to lower boundary
+    }
+
+    function test_stableswap_inside_range_has_liquidity() public {
+        // Create stableswap pool with moderate amplification (10) centered at tick 0
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0));
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+
+        // Initialize pool inside the liquidity range
+        PoolKey memory poolKey = createPool(address(token0), address(token1), (lower + upper) / 2, config);
+
+        // Add liquidity in the active range
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        // Swap should work normally inside the range
+        token0.approve(address(router), type(uint256).max);
+        (int128 delta0, int128 delta1) = router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 1e15,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        // Should get normal swap output
+        assertEq(delta0, 1000000000000000);
+        assertLt(delta1, 0); // Received some token1
+        assertGt(delta1, -1000000000000000); // But less than 1:1 due to slippage
     }
 }

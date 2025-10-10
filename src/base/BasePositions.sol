@@ -48,14 +48,17 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
 
         liquidity = position.liquidity;
 
+        // the sqrt ratio may be 0 (because the pool is uninitialized) but this is
+        // fine since amount0Delta isn't called with it in this case
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
             sqrtRatio, -SafeCastLib.toInt128(position.liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
         );
 
         (principal0, principal1) = (uint128(-delta0), uint128(-delta1));
 
-        FeesPerLiquidity memory feesPerLiquidityInside =
-            CORE.getPoolFeesPerLiquidityInside(poolKey, tickLower, tickUpper);
+        FeesPerLiquidity memory feesPerLiquidityInside = poolKey.config.isFullRange()
+            ? CORE.getPoolFeesPerLiquidity(poolId)
+            : CORE.getPoolFeesPerLiquidityInside(poolId, tickLower, tickUpper);
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
     }
 

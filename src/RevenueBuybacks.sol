@@ -10,6 +10,7 @@ import {IOrders} from "./interfaces/IOrders.sol";
 import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
 import {BuybacksState, createBuybacksState} from "./types/buybacksState.sol";
 import {OrderKey} from "./types/orderKey.sol";
+import {createOrderConfig} from "./types/orderConfig.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 
@@ -72,10 +73,8 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     /// @param fee The fee tier of the pool where the order was executed
     /// @param endTime The end time of the order to collect proceeds from
     /// @return proceeds The amount of buyToken received from the completed order
-    function collect(address token, uint64 fee, uint256 endTime) external returns (uint128 proceeds) {
-        proceeds = ORDERS.collectProceeds(
-            NFT_ID, OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: fee, startTime: 0, endTime: endTime}), owner()
-        );
+    function collect(address token, uint64 fee, uint64 endTime) external returns (uint128 proceeds) {
+        proceeds = ORDERS.collectProceeds(NFT_ID, _createOrderKey(token, fee, 0, endTime), owner());
     }
 
     /// @notice Allows the contract to receive ETH revenue
@@ -88,7 +87,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     /// @param token The revenue token to use for creating the buyback order, or NATIVE_TOKEN_ADDRESS
     /// @return endTime The end time of the order that was created or extended
     /// @return saleRate The sale rate of the order (amount of token sold per second)
-    function roll(address token) public returns (uint256 endTime, uint112 saleRate) {
+    function roll(address token) public returns (uint64 endTime, uint112 saleRate) {
         unchecked {
             BuybacksState state;
             assembly ("memory-safe") {
@@ -112,9 +111,10 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
                     && timeRemaining <= state.lastOrderDuration()
             ) {
                 // handles overflow
-                endTime = block.timestamp + uint256(timeRemaining);
+                endTime = uint64(block.timestamp + timeRemaining);
             } else {
-                endTime = nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration()) - 1);
+                endTime =
+                    uint64(nextValidTime(block.timestamp, block.timestamp + uint256(state.targetOrderDuration()) - 1));
 
                 state = createBuybacksState({
                     _targetOrderDuration: state.targetOrderDuration(),
@@ -132,10 +132,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
 
             if (amountToSpend != 0) {
                 saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
-                    NFT_ID,
-                    OrderKey({sellToken: token, buyToken: BUY_TOKEN, fee: state.fee(), startTime: 0, endTime: endTime}),
-                    uint128(amountToSpend),
-                    type(uint112).max
+                    NFT_ID, _createOrderKey(token, state.fee(), 0, endTime), uint128(amountToSpend), type(uint112).max
                 );
             }
         }
@@ -173,5 +170,20 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
         }
 
         emit Configured(token, state);
+    }
+
+    function _createOrderKey(address token, uint64 fee, uint64 startTime, uint64 endTime)
+        internal
+        view
+        returns (OrderKey memory key)
+    {
+        bool isToken1 = token > BUY_TOKEN;
+        address buyToken = BUY_TOKEN;
+        assembly ("memory-safe") {
+            mstore(add(key, mul(isToken1, 32)), token)
+            mstore(add(key, mul(iszero(isToken1), 32)), buyToken)
+        }
+
+        key.config = createOrderConfig({_fee: fee, _isToken1: isToken1, _startTime: startTime, _endTime: endTime});
     }
 }

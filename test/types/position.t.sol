@@ -18,6 +18,7 @@ contract PositionTest is Test {
     function test_fees_examples() public pure {
         (uint128 fee0, uint128 fee1) = Position({
             liquidity: 100,
+            extraData: bytes16(0),
             feesPerLiquidityInsideLast: FeesPerLiquidity({value0: 1 << 128, value1: 2 << 128})
         }).fees(FeesPerLiquidity({value0: 3 << 128, value1: 5 << 128}));
         assertEq(fee0, 200);
@@ -25,14 +26,18 @@ contract PositionTest is Test {
 
         (fee0, fee1) = Position({
             liquidity: 150,
+            extraData: bytes16(0),
             feesPerLiquidityInsideLast: FeesPerLiquidity({value0: 3 << 127, value1: 2 << 127})
         }).fees(FeesPerLiquidity({value0: 3 << 128, value1: 5 << 128}));
         assertEq(fee0, 225);
         assertEq(fee1, 600);
 
         // rounds down
-        (fee0, fee1) = Position({liquidity: 100, feesPerLiquidityInsideLast: FeesPerLiquidity({value0: 0, value1: 0})})
-            .fees(FeesPerLiquidity({value0: type(uint128).max, value1: type(uint128).max}));
+        (fee0, fee1) = Position({
+            liquidity: 100,
+            extraData: bytes16(0),
+            feesPerLiquidityInsideLast: FeesPerLiquidity({value0: 0, value1: 0})
+        }).fees(FeesPerLiquidity({value0: type(uint128).max, value1: type(uint128).max}));
         assertEq(fee0, 99);
         assertEq(fee1, 99);
     }

@@ -15,21 +15,23 @@ import {
 import {Bitmap} from "../../src/types/bitmap.sol";
 import {RedBlackTreeLib} from "solady/utils/RedBlackTreeLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
 
 contract TimeBitmap {
-    mapping(uint256 => Bitmap) public map;
+    StorageSlot public constant slot = StorageSlot.wrap(0);
 
     function isInitialized(uint256 time) public view returns (bool) {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-        return map[word].isSet(uint8(index));
+        Bitmap bitmap = Bitmap.wrap(uint256(slot.add(word).load()));
+        return bitmap.isSet(uint8(index));
     }
 
     function flip(uint256 time) public {
-        flipTime(map, time);
+        flipTime(slot, time);
     }
 
     function find(uint256 fromTime) public view returns (uint256, bool) {
-        return findNextInitializedTime(map, fromTime);
+        return findNextInitializedTime(slot, fromTime);
     }
 
     function search(uint256 fromTime, uint256 untilTime) public view returns (uint256, bool) {
@@ -41,7 +43,7 @@ contract TimeBitmap {
         view
         returns (uint256, bool)
     {
-        return searchForNextInitializedTime(map, lastVirtualOrderExecutionTime, fromTime, untilTime);
+        return searchForNextInitializedTime(slot, lastVirtualOrderExecutionTime, fromTime, untilTime);
     }
 }
 
@@ -117,6 +119,7 @@ contract TimeBitmapTest is Test {
         vm.stopSnapshotGas();
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_flip() public {
         TimeBitmap tbm = new TimeBitmap();
         tbm.flip(0);
@@ -126,12 +129,14 @@ contract TimeBitmapTest is Test {
         vm.snapshotGasLastCall("flip(16) in same map");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_next() public {
         TimeBitmap tbm = new TimeBitmap();
         tbm.find(0);
         vm.snapshotGasLastCall("next(0)");
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_next_set() public {
         TimeBitmap tbm = new TimeBitmap();
 

@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, toConfig} from "../../src/types/poolKey.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {createStableswapPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {createPositionId} from "../../src/types/positionId.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio, toSqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {
-    MIN_TICK,
-    MAX_TICK,
-    MAX_TICK_SPACING,
-    FULL_RANGE_ONLY_TICK_SPACING,
-    NATIVE_TOKEN_ADDRESS
-} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {oracleCallPoints} from "../../src/extensions/Oracle.sol";
 import {IOracle} from "../../src/interfaces/extensions/IOracle.sol";
@@ -21,13 +16,14 @@ import {OracleLib} from "../../src/libraries/OracleLib.sol";
 import {Observation} from "../../src/types/observation.sol";
 import {Snapshot} from "../../src/types/snapshot.sol";
 import {Counts} from "../../src/types/counts.sol";
+import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {TestToken} from "../TestToken.sol";
 import {amount0Delta} from "../../src/math/delta.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
-import {FullRangeOnlyPool} from "../../src/types/positionId.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {Locker} from "../../src/types/locker.sol";
 
 abstract contract BaseOracleTest is FullTest {
     using CoreLib for *;
@@ -70,12 +66,11 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function createOraclePool(address quoteToken, int32 tick) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
+        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, createFullRangePoolConfig(0, address(oracle)));
     }
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128 liquidity) {
-        PoolKey memory pk =
-            PoolKey(NATIVE_TOKEN_ADDRESS, token, toConfig(0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle)));
+        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, createFullRangePoolConfig(0, address(oracle)));
         {
             (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, MIN_TICK, MAX_TICK);
         }
@@ -141,6 +136,7 @@ contract ManyObservationsOracleTest is BaseOracleTest {
         advanceTime(8);
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_getSnapshots() public {
         uint256[] memory timestamps = new uint256[](6);
         timestamps[0] = startTime;
@@ -540,19 +536,13 @@ contract OracleTest is BaseOracleTest {
 
     function test_createPool_beforeInitializePool_reverts() public {
         vm.expectRevert(IOracle.PairsWithNativeTokenOnly.selector);
-        createPool(address(token0), address(token1), 0, 0, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
+        createPool(address(token0), address(token1), 0, createFullRangePoolConfig(0, address(oracle)));
 
-        vm.expectRevert(IOracle.TickSpacingMustBeMaximum.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 0, 100, address(oracle));
+        vm.expectRevert(IOracle.FullRangePoolOnly.selector);
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createStableswapPoolConfig(0, 15, 0, address(oracle)));
 
         vm.expectRevert(IOracle.FeeMustBeZero.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, 1, FULL_RANGE_ONLY_TICK_SPACING, address(oracle));
-    }
-
-    function test_createPosition_failsForPositionsNotWideEnough() public {
-        PoolKey memory poolKey = createOraclePool(address(token1), 693147);
-        vm.expectRevert(FullRangeOnlyPool.selector);
-        positions.mintAndDeposit{value: 100}(poolKey, -int32(MAX_TICK_SPACING), int32(MAX_TICK_SPACING), 100, 100, 0);
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createStableswapPoolConfig(1, 0, 0, address(oracle)));
     }
 
     function test_createPosition(uint256 startTime) public {
@@ -748,6 +738,7 @@ contract OracleTest is BaseOracleTest {
         assertEq(tickCumulative, (10 * 693147 * 2) + (6 * 693146 / 2) + (5 * 693147), "t=21");
     }
 
+    /// forge-config: default.isolate = true
     function test_getExtrapolatedSnapshots_gas() public {
         oracle.expandCapacity(address(token1), 5);
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
@@ -771,6 +762,7 @@ contract OracleTest is BaseOracleTest {
         vm.snapshotGasLastCall("oracle#getExtrapolatedSnapshots");
     }
 
+    /// forge-config: default.isolate = true
     function test_getExtrapolatedSnapshots() public {
         uint64 poolCreationTime = uint64(advanceTime(5));
 
@@ -857,13 +849,17 @@ contract OracleTest is BaseOracleTest {
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
         oracle.beforeUpdatePosition(
-            address(0), poolKey, createPositionId({_salt: bytes24(0), _tickLower: -100, _tickUpper: 100}), 0
+            Locker.wrap(bytes32(0)),
+            poolKey,
+            createPositionId({_salt: bytes24(0), _tickLower: -100, _tickUpper: 100}),
+            0
         );
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeSwap(address(0), poolKey, 0, false, SqrtRatio.wrap(0), 0);
+        oracle.beforeSwap(Locker.wrap(bytes32(0)), poolKey, createSwapParameters(SqrtRatio.wrap(0), 0, false, 0));
     }
 
+    /// forge-config: default.isolate = true
     function test_gas_swap_on_oracle_pool() public {
         PoolKey memory poolKey = createOraclePool(address(token1), 693147);
         updateOraclePoolLiquidity(address(token1), 1e18);

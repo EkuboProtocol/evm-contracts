@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
+import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
+import {createConcentratedPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, FULL_RANGE_ONLY_TICK_SPACING} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
 import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {MEVCaptureRouter} from "../../src/MEVCaptureRouter.sol";
+import {MEVCapturePoolState} from "../../src/types/mevCapturePoolState.sol";
 
 abstract contract BaseMEVCaptureTest is FullTest {
     MEVCapture internal mevCapture;
@@ -32,7 +35,9 @@ abstract contract BaseMEVCaptureTest is FullTest {
         internal
         returns (PoolKey memory poolKey)
     {
-        poolKey = createPool(address(token0), address(token1), tick, fee, tickSpacing, address(mevCapture));
+        poolKey = createPool(
+            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, tickSpacing, address(mevCapture))
+        );
     }
 }
 
@@ -44,12 +49,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertTrue(core.isExtensionRegistered(address(mevCapture)));
     }
 
-    function getPoolState(PoolId poolId) private view returns (uint32 lastUpdateTime, int32 tickLast) {
-        bytes32 v = mevCapture.sload(PoolId.unwrap(poolId));
-        assembly ("memory-safe") {
-            lastUpdateTime := shr(224, v)
-            tickLast := signextend(31, shr(192, v))
-        }
+    function getPoolState(PoolId poolId) private view returns (MEVCapturePoolState state) {
+        state = MEVCapturePoolState.wrap(mevCapture.sload(PoolId.unwrap(poolId)));
     }
 
     function test_pool_initialization_success(uint256 time, uint64 fee, uint32 tickSpacing, int32 tick, uint32 warp)
@@ -62,36 +63,47 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
         PoolKey memory poolKey = createMEVCapturePool({fee: fee, tickSpacing: tickSpacing, tick: tick});
 
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
-        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
-        assertEq(tickLast, tick);
+        MEVCapturePoolState state = getPoolState(poolKey.toPoolId());
+        assertEq(state.lastUpdateTime(), uint32(vm.getBlockTimestamp()));
+        assertEq(state.tickLast(), tick);
 
         unchecked {
             vm.warp(time + uint256(warp));
         }
         mevCapture.accumulatePoolFees(poolKey);
-        (lastUpdateTime, tickLast) = getPoolState(poolKey.toPoolId());
-        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
-        assertEq(tickLast, tick);
+        state = getPoolState(poolKey.toPoolId());
+        assertEq(state.lastUpdateTime(), uint32(vm.getBlockTimestamp()));
+        assertEq(state.tickLast(), tick);
     }
 
     function test_accumulate_fees_for_any_pool(uint256 time, PoolKey memory poolKey) public {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
         mevCapture.accumulatePoolFees(poolKey);
-        (uint32 lastUpdateTime, int32 tickLast) = getPoolState(poolKey.toPoolId());
-        assertEq(lastUpdateTime, uint32(vm.getBlockTimestamp()));
-        assertEq(tickLast, 0);
+        MEVCapturePoolState state = getPoolState(poolKey.toPoolId());
+        assertEq(state.lastUpdateTime(), uint32(vm.getBlockTimestamp()));
+        assertEq(state.tickLast(), 0);
     }
 
     function test_pool_initialization_validation() public {
         vm.expectRevert(IMEVCapture.ConcentratedLiquidityPoolsOnly.selector);
-        createMEVCapturePool({fee: 1, tickSpacing: FULL_RANGE_ONLY_TICK_SPACING, tick: 0});
+        createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createFullRangePoolConfig({_fee: 1, _extension: address(mevCapture)})
+        });
 
         vm.expectRevert(IMEVCapture.NonzeroFeesOnly.selector);
-        createMEVCapturePool({fee: 0, tickSpacing: 1, tick: 0});
+        createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(mevCapture)})
+        });
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token0_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -101,10 +113,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: 100_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: 100_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -133,6 +147,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(delta1, -98_049);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token0_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -142,10 +157,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: -100_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: -100_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -157,6 +174,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 9777);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token1_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -166,10 +184,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: true,
-            amount: 100_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: true,
+                _amount: 100_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -181,6 +201,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 9633);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token1_no_movement() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -190,10 +211,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: true,
-            amount: -100_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: true,
+                _amount: -100_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -207,6 +230,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
     /// now tests with movement more than one tick spacing
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -216,10 +240,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: 500_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: 500_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -231,6 +257,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, -47710);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -240,10 +267,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: -500_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: -500_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -255,6 +284,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 49375);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_input_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -264,10 +294,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: true,
-            amount: 500_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: true,
+                _amount: 500_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -279,6 +311,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 47709);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_output_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -288,10 +321,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: true,
-            amount: -500_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: true,
+                _amount: -500_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -303,6 +338,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, -49376);
     }
 
+    /// forge-config: default.isolate = true
     function test_extra_fees_are_accumulated_in_next_block() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -333,6 +369,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(amount1, 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_initial_tick_far_from_zero_no_additional_fees() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
@@ -342,10 +379,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: 100_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: 100_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -357,6 +396,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 690_300);
     }
 
+    /// forge-config: default.isolate = true
     function test_swap_initial_tick_far_from_zero_no_additional_fees_output() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
@@ -366,10 +406,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: -100_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: -100_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -381,6 +423,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 709_845);
     }
 
+    /// forge-config: default.isolate = true
     function test_second_swap_with_additional_fees_gas_price() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
@@ -399,10 +442,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         (int128 delta0, int128 delta1) = router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: 300_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: 300_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });
@@ -414,6 +459,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(tick, 642_496);
     }
 
+    /// forge-config: default.isolate = true
     function test_second_swap_after_some_time_gas_price() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
@@ -445,10 +491,12 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         coolAllContracts();
         router.swap({
             poolKey: poolKey,
-            isToken1: false,
-            amount: 500_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
+            params: createSwapParameters({
+                _isToken1: false,
+                _amount: 500_000,
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _skipAhead: 0
+            }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
         });

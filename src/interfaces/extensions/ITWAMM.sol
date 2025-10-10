@@ -6,6 +6,7 @@ import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolKey} from "../../types/poolKey.sol";
 import {OrderKey} from "../../types/orderKey.sol";
+import {OrderConfig} from "../../types/orderConfig.sol";
 import {PoolId} from "../../types/poolId.sol";
 
 /// @title TWAMM Interface
@@ -30,16 +31,13 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     error TimeNumOrdersOverflow();
 
     /// @notice Thrown when tick spacing is not the maximum allowed value
-    error TickSpacingMustBeMaximum();
+    error FullRangePoolOnly();
 
     /// @notice Thrown when trying to modify an order that has already ended
     error OrderAlreadyEnded();
 
     /// @notice Thrown when order timestamps are invalid
     error InvalidTimestamps();
-
-    /// @notice Thrown when trying to cancel an order with uncollected proceeds
-    error MustCollectProceedsBeforeCanceling();
 
     /// @notice Thrown when sale rate delta exceeds maximum allowed value
     error MaxSaleRateDeltaPerTime();
@@ -50,14 +48,9 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @notice Gets the reward rate inside a time range for a specific token
     /// @dev Used to calculate how much of the buy token an order has earned
     /// @param poolId Unique identifier for the pool
-    /// @param startTime Start time of the range
-    /// @param endTime End time of the range
-    /// @param isToken1 True if calculating for token1, false for token0
+    /// @param config The order config that is being checked
     /// @return result The reward rate inside the specified range
-    function getRewardRateInside(PoolId poolId, uint256 startTime, uint256 endTime, bool isToken1)
-        external
-        view
-        returns (uint256 result);
+    function getRewardRateInside(PoolId poolId, OrderConfig config) external view returns (uint256 result);
 
     /// @notice Locks core and executes virtual orders for the given pool key
     /// @dev The pool key must use this extension, which is checked in the locked callback

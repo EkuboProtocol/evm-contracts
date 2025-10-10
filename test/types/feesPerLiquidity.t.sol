@@ -21,4 +21,12 @@ contract FeesPerLiquidityTest is Test {
             assertEq(c.value1, (uint256(amount1) << 128) / liquidity, "amount1");
         }
     }
+
+    function test_feesPerLiquidityFromAmounts_zero_liquidity(uint128 amount0, uint128 amount1) public pure {
+        FeesPerLiquidity memory c = feesPerLiquidityFromAmounts({amount0: amount0, amount1: amount1, liquidity: 0});
+        unchecked {
+            assertEq(c.value0, 0, "amount0");
+            assertEq(c.value1, 0, "amount1");
+        }
+    }
 }

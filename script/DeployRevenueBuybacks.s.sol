@@ -27,8 +27,7 @@ contract DeployRevenueBuybacks is Script {
         RevenueBuybacks revenueBuybacks = new RevenueBuybacks{salt: salt}(owner, orders, buyToken);
 
         // Deploy the positions owner contract with the buybacks contract address
-        PositionsOwner positionsOwner =
-            new PositionsOwner{salt: keccak256(abi.encode(salt, "PositionsOwner"))}(owner, positions, revenueBuybacks);
+        new PositionsOwner{salt: keccak256(abi.encode(salt, "PositionsOwner"))}(owner, positions, revenueBuybacks);
 
         vm.stopBroadcast();
     }

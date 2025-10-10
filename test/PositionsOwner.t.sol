@@ -5,10 +5,12 @@ import {BaseOrdersTest} from "./Orders.t.sol";
 import {PositionsOwner} from "../src/PositionsOwner.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
+import {StorageSlot} from "../src/types/storageSlot.sol";
 
 contract PositionsOwnerTest is BaseOrdersTest {
     PositionsOwner positionsOwner;
@@ -45,7 +47,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
 
         vm.store(
             address(core),
-            CoreStorageLayout.savedBalancesSlot(address(positions), token0, token1, bytes32(0)),
+            StorageSlot.unwrap(CoreStorageLayout.savedBalancesSlot(address(positions), token0, token1, bytes32(0))),
             bytes32(((uint256(amount0Old + amount0) << 128)) | uint256(amount1Old + amount1))
         );
 
@@ -96,7 +98,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -123,7 +125,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token1),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -152,13 +154,13 @@ contract PositionsOwnerTest is BaseOrdersTest {
         PoolKey memory poolKey0 = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
         });
 
         PoolKey memory poolKey1 = PoolKey({
             token0: address(token1),
             token1: address(buybacksToken),
-            config: toConfig({_extension: address(twamm), _fee: poolFee, _tickSpacing: 0})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
         });
 
         positions.maybeInitializePool(poolKey0, 0);

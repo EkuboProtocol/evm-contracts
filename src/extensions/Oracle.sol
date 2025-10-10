@@ -2,20 +2,22 @@
 pragma solidity =0.8.30;
 
 import {CallPoints} from "../types/callPoints.sol";
-import {PoolKey, Config} from "../types/poolKey.sol";
+import {PoolKey, PoolConfig} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
-import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {NATIVE_TOKEN_ADDRESS, FULL_RANGE_ONLY_TICK_SPACING} from "../math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Snapshot, createSnapshot} from "../types/snapshot.sol";
 import {Counts, createCounts} from "../types/counts.sol";
 import {Observation, createObservation} from "../types/observation.sol";
 import {PoolId} from "../types/poolId.sol";
+import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @notice Returns the call points configuration for the Oracle extension
 /// @dev Specifies which hooks the Oracle needs to capture price and liquidity data
@@ -72,7 +74,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @inheritdoc IOracle
     function getPoolKey(address token) public view returns (PoolKey memory) {
-        Config config;
+        PoolConfig config;
         assembly ("memory-safe") {
             config := shl(96, address())
         }
@@ -108,13 +110,19 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 last := sload(or(shl(32, token), index))
             }
 
-            (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
+            PoolState state = CORE.poolState(poolId);
+
+            uint128 liquidity = state.liquidity();
+            uint256 nonZeroLiquidity;
+            assembly ("memory-safe") {
+                nonZeroLiquidity := add(liquidity, iszero(liquidity))
+            }
 
             Snapshot snapshot = createSnapshot({
                 _timestamp: uint32(block.timestamp),
                 _secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative()
-                    + ((uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity))),
-                _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * tick
+                    + uint160(FixedPointMathLib.rawDiv(uint256(timePassed) << 128, nonZeroLiquidity)),
+                _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * state.tick()
             });
 
             uint32 count = c.count();
@@ -145,8 +153,8 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
         onlyCore
     {
         if (key.token0 != NATIVE_TOKEN_ADDRESS) revert PairsWithNativeTokenOnly();
-        if (key.fee() != 0) revert FeeMustBeZero();
-        if (key.tickSpacing() != FULL_RANGE_ONLY_TICK_SPACING) revert TickSpacingMustBeMaximum();
+        if (key.config.fee() != 0) revert FeeMustBeZero();
+        if (!key.config.isFullRange()) revert FullRangePoolOnly();
 
         address token = key.token1;
 
@@ -179,7 +187,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @notice Called before a position is updated to capture price/liquidity snapshot
     /// @dev Inserts a new snapshot if liquidity is changing
-    function beforeUpdatePosition(address, PoolKey memory poolKey, PositionId, int128 liquidityDelta)
+    function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128 liquidityDelta)
         external
         override(BaseExtension, IExtension)
         onlyCore
@@ -191,12 +199,12 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @notice Called before a swap to capture price/liquidity snapshot
     /// @dev Inserts a new snapshot if a swap is occurring
-    function beforeSwap(address, PoolKey memory poolKey, int128 amount, bool, SqrtRatio, uint256)
+    function beforeSwap(Locker, PoolKey memory poolKey, SwapParameters params)
         external
         override(BaseExtension, IExtension)
         onlyCore
     {
-        if (amount != 0) {
+        if (params.amount() != 0) {
             maybeInsertSnapshot(poolKey.toPoolId(), poolKey.token1);
         }
     }
@@ -322,11 +330,14 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 if (logicalIndex == c.count() - 1) {
                     // Use current pool state.
                     PoolId poolId = getPoolKey(token).toPoolId();
-                    (, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
+                    PoolState state = CORE.poolState(poolId);
 
-                    tickCumulative += int64(tick) * int64(uint64(timePassed));
-                    secondsPerLiquidityCumulative +=
-                        (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
+                    tickCumulative += int64(state.tick()) * int64(uint64(timePassed));
+                    secondsPerLiquidityCumulative += uint160(
+                        FixedPointMathLib.rawDiv(
+                            uint256(timePassed) << 128, FixedPointMathLib.max(1, state.liquidity())
+                        )
+                    );
                 } else {
                     // Use the next snapshot.
                     uint256 logicalIndexNext = logicalIndexToStorageIndex(c.index(), c.count(), logicalIndex + 1);
@@ -338,8 +349,10 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                     uint32 timestampDifference = next.timestamp() - snapshot.timestamp();
 
                     tickCumulative += int64(
-                        int256(uint256(timePassed)) * (next.tickCumulative() - snapshot.tickCumulative())
-                            / int256(uint256(timestampDifference))
+                        FixedPointMathLib.rawSDiv(
+                            int256(uint256(timePassed)) * (next.tickCumulative() - snapshot.tickCumulative()),
+                            int256(uint256(timestampDifference))
+                        )
                     );
                     secondsPerLiquidityCumulative += uint160(
                         (

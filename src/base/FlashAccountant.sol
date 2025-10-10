@@ -66,22 +66,20 @@ abstract contract FlashAccountant is IFlashAccountant {
     /// @param debtChange The change in debt (negative to reduce, positive to increase)
     function _accountDebt(uint256 id, address token, int256 debtChange) internal {
         assembly ("memory-safe") {
-            if debtChange {
-                let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
-                let current := tload(deltaSlot)
+            let deltaSlot := add(_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET, add(shl(160, id), token))
+            let current := tload(deltaSlot)
 
-                // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
-                let next := add(current, debtChange)
+            // we know this never overflows because debtChange is only ever derived from 128 bit values in inheriting contracts
+            let next := add(current, debtChange)
 
-                let countChange := sub(iszero(current), iszero(next))
+            let countChange := sub(iszero(current), iszero(next))
 
-                if countChange {
-                    let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
-                    tstore(nzdCountSlot, add(tload(nzdCountSlot), countChange))
-                }
-
-                tstore(deltaSlot, next)
+            if countChange {
+                let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
+                tstore(nzdCountSlot, add(tload(nzdCountSlot), countChange))
             }
+
+            tstore(deltaSlot, next)
         }
     }
 
@@ -148,8 +146,8 @@ abstract contract FlashAccountant is IFlashAccountant {
             tstore(_CURRENT_LOCKER_SLOT, or(shl(160, add(id, 1)), caller()))
 
             let free := mload(0x40)
-            // Prepare call to locked(uint256) -> selector 0xb45a3c0e
-            mstore(free, shl(224, 0xb45a3c0e))
+            // Prepare call to locked_(uint256) -> selector 0
+            mstore(free, 0)
             mstore(add(free, 4), id) // ID argument
 
             calldatacopy(add(free, 36), 4, sub(calldatasize(), 4))
@@ -192,8 +190,8 @@ abstract contract FlashAccountant is IFlashAccountant {
 
             let free := mload(0x40)
 
-            // Prepare call to forwarded(bytes32) -> selector 0xebf5e12c
-            mstore(free, shl(224, 0xebf5e12c))
+            // Prepare call to forwarded_2374103877(bytes32) -> selector 0x01
+            mstore(free, shl(224, 1))
             mstore(add(free, 4), locker)
 
             calldatacopy(add(free, 36), 36, sub(calldatasize(), 36))
@@ -376,9 +374,7 @@ abstract contract FlashAccountant is IFlashAccountant {
         // Note because we use msg.value here, this contract can never be multicallable, i.e. it should never expose the ability
         //      to delegatecall itself more than once in a single call
         unchecked {
-            // We never expect the native token to exceed this supply
-            if (msg.value > type(uint128).max) revert PaymentOverflow();
-
+            // We assume msg.value will never exceed type(uint128).max, so this should never cause an overflow/underflow of debt
             _accountDebt(id, NATIVE_TOKEN_ADDRESS, -int256(msg.value));
         }
     }

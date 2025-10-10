@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
-import {PoolKey, toConfig} from "../src/types/poolKey.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
 import {Router} from "../src/Router.sol";
-import {isPriceIncreasing} from "../src/math/swap.sol";
+import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, FULL_RANGE_ONLY_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SaleRateOverflow} from "../src/math/twamm.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -26,6 +27,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {createOrderConfig} from "../src/types/orderConfig.sol";
 
 contract Handler is StdUtils, StdAssertions {
     using CoreLib for *;
@@ -108,11 +110,8 @@ contract Handler is StdUtils, StdAssertions {
 
     function createNewPool(uint64 fee, int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        PoolKey memory poolKey = PoolKey(
-            address(token0),
-            address(token1),
-            toConfig(fee, FULL_RANGE_ONLY_TICK_SPACING, address(orders.TWAMM_EXTENSION()))
-        );
+        PoolKey memory poolKey =
+            PoolKey(address(token0), address(token1), createFullRangePoolConfig(fee, address(orders.TWAMM_EXTENSION())));
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);
@@ -169,8 +168,7 @@ contract Handler is StdUtils, StdAssertions {
 
             if (
                 // arithmetic overflow can definitely happen in positions contract if liquidity + fees > uint128
-                sig != ICore.MustCollectFeesBeforeWithdrawingAllLiquidity.selector
-                    && sig != SafeCastLib.Overflow.selector && sig != Amount1DeltaOverflow.selector
+                sig != SafeCastLib.Overflow.selector && sig != Amount1DeltaOverflow.selector
                     && sig != Amount0DeltaOverflow.selector && sig != 0x4e487b71
             ) {
                 revert UnexpectedError(err);
@@ -244,15 +242,19 @@ contract Handler is StdUtils, StdAssertions {
             endTime = nextValidTime(vm.getBlockTimestamp(), startTime + approximateDuration);
         }
 
-        (address sellToken, address buyToken) =
-            isToken1 ? (poolKey.token1, poolKey.token0) : (poolKey.token0, poolKey.token1);
+        if (startTime > type(uint64).max || endTime > type(uint64).max) {
+            return;
+        }
 
         OrderKey memory orderKey = OrderKey({
-            sellToken: sellToken,
-            buyToken: buyToken,
-            fee: poolKey.fee(),
-            startTime: startTime,
-            endTime: endTime
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({
+                _fee: poolKey.config.fee(),
+                _isToken1: isToken1,
+                _startTime: uint64(startTime),
+                _endTime: uint64(endTime)
+            })
         });
 
         try orders.increaseSellAmount(ordersId, orderKey, amount, type(uint112).max) returns (uint112 saleRate) {
@@ -282,8 +284,7 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            if (sig != IOrders.OrderAlreadyEnded.selector && sig != ITWAMM.MustCollectProceedsBeforeCanceling.selector)
-            {
+            if (sig != IOrders.OrderAlreadyEnded.selector) {
                 revert UnexpectedError(err);
             }
         }

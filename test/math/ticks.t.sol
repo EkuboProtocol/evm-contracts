@@ -20,6 +20,7 @@ contract TicksTest is Test {
         return tickToSqrtRatio(tick);
     }
 
+    /// forge-config: default.isolate = true
     function test_tickToSqrtRatio_gas() public {
         this.ttsr(0);
         vm.snapshotGasLastCall("tickToSqrtRatio(0)");
@@ -61,19 +62,6 @@ contract TicksTest is Test {
         tickToSqrtRatio(tick);
     }
 
-    function test_tickToSqrtRatio_always_increasing(int32 tick) public pure {
-        tick = boundTick(tick);
-        vm.assume(tick != MAX_TICK);
-        assertLt(SqrtRatio.unwrap(tickToSqrtRatio(tick)), SqrtRatio.unwrap(tickToSqrtRatio(tick + 1)));
-    }
-
-    function test_tickToSqrtRatio_inverse_sqrtRatioToTick(int32 tick) public pure {
-        tick = boundTick(tick);
-        SqrtRatio sqrtRatio = tickToSqrtRatio(tick);
-        int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
-        assertEq(tickCalculated, tick);
-    }
-
     function test_tickToSqrtRatio_example() public pure {
         assertEq(tickToSqrtRatio(-18129342).toFixed(), 39364507096818414277565152436944896);
     }
@@ -86,51 +74,11 @@ contract TicksTest is Test {
         assertEq(sqrtRatioToTick(SqrtRatio.wrap(SqrtRatio.unwrap(MAX_SQRT_RATIO) - 1)), MAX_TICK - 1);
     }
 
-    function test_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(int32 tick) public pure {
-        tick = boundTick(tick);
-        vm.assume(tick < MAX_TICK);
-        SqrtRatio sqrtRatio = SqrtRatio.wrap(SqrtRatio.unwrap(tickToSqrtRatio(tick)) + 1);
-        int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
-        assertEq(tickCalculated, tick);
-    }
-
-    function test_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(int32 tick) public pure {
-        tick = boundTick(tick);
-        vm.assume(tick > MIN_TICK);
-
-        SqrtRatio sqrtRatio = toSqrtRatio(tickToSqrtRatio(tick).toFixed() - 1, false);
-        int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
-        assertEq(tickCalculated, tick - 1);
-    }
-
-    function test_sqrtRatioToTick_within_bounds(uint256 _sqrtRatio) public pure {
-        _sqrtRatio = bound(_sqrtRatio, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed() - 1);
-        SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio, false);
-
-        int32 tick = sqrtRatioToTick(sqrtRatio);
-        assertGe(sqrtRatio.toFixed(), tickToSqrtRatio(tick).toFixed());
-        assertLt(sqrtRatio.toFixed(), tickToSqrtRatio(tick + 1).toFixed());
-    }
-
-    // this takes about 1 hour to run
-    function skip_test_all_tick_values() public pure {
-        uint256 fmp;
-        assembly ("memory-safe") {
-            fmp := mload(0x40)
-        }
-        for (int32 i = MIN_TICK; i <= MAX_TICK; i++) {
-            if (i != MAX_TICK) test_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(i);
-            if (i != MIN_TICK) test_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(i);
-            assembly ("memory-safe") {
-                mstore(0x40, fmp)
-            }
-        }
-    }
-
     function srtt(SqrtRatio sqrtRatio) external pure returns (int32) {
         return sqrtRatioToTick(sqrtRatio);
     }
 
+    /// forge-config: default.isolate = true
     function test_sqrtRatioToTick_gas() public {
         this.srtt(ONE);
         vm.snapshotGasLastCall("sqrtRatioToTick(1)");
@@ -140,5 +88,174 @@ contract TicksTest is Test {
 
         this.srtt(SqrtRatio.wrap(SqrtRatio.unwrap(MAX_SQRT_RATIO) - 1));
         vm.snapshotGasLastCall("sqrtRatioToTick(MAX_SQRT_RATIO)");
+
+        // 1.01
+        this.srtt(toSqrtRatio(ONE.toFixed() * 101 / 100, false));
+        vm.snapshotGasLastCall("sqrtRatioToTick(1.01)");
+
+        // 0.99
+        this.srtt(toSqrtRatio(ONE.toFixed() * 99 / 100, false));
+        vm.snapshotGasLastCall("sqrtRatioToTick(0.99)");
+    }
+
+    // these should be checked by halmos but they take a long time to run
+
+    function test_check_tickToSqrtRatio_always_increasing(int32 tick) public pure {
+        vm.assume(tick >= MIN_TICK && tick < MAX_TICK);
+
+        assertLt(SqrtRatio.unwrap(tickToSqrtRatio(tick)), SqrtRatio.unwrap(tickToSqrtRatio(tick + 1)));
+    }
+
+    function test_check_tickToSqrtRatio_inverse_sqrtRatioToTick_plus_one(int32 tick) public pure {
+        vm.assume(tick >= MIN_TICK && tick < MAX_TICK);
+
+        SqrtRatio sqrtRatio = SqrtRatio.wrap(SqrtRatio.unwrap(tickToSqrtRatio(tick)) + 1);
+        int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
+        assertEq(tickCalculated, tick);
+    }
+
+    function test_check_tickToSqrtRatio_always_valid(int32 tick) public pure {
+        vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
+
+        assertTrue(tickToSqrtRatio(tick).isValid());
+    }
+
+    function test_check_tickToSqrtRatio_inverse_sqrtRatioToTick(int32 tick) public pure {
+        vm.assume(tick >= MIN_TICK && tick <= MAX_TICK);
+
+        SqrtRatio sqrtRatio = tickToSqrtRatio(tick);
+        int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
+        assertEq(tickCalculated, tick);
+    }
+
+    function test_check_tickToSqrtRatio_inverse_sqrtRatioToTick_minus_one(int32 tick) public pure {
+        vm.assume(tick > MIN_TICK && tick <= MAX_TICK);
+
+        SqrtRatio sqrtRatio = toSqrtRatio(tickToSqrtRatio(tick).toFixed() - 1, false);
+        int32 tickCalculated = sqrtRatioToTick(sqrtRatio);
+        assertEq(tickCalculated, tick - 1);
+    }
+
+    function test_check_sqrtRatioToTick_within_bounds_lower(uint256 _sqrtRatio) public pure {
+        _sqrtRatio = bound(_sqrtRatio, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
+        SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio, false);
+
+        int32 tick = sqrtRatioToTick(sqrtRatio);
+        assertTrue(sqrtRatio >= tickToSqrtRatio(tick), "sqrt ratio gte tick to sqrt ratio");
+    }
+
+    function test_check_sqrtRatioToTick_within_bounds_upper(uint256 _sqrtRatio) public pure {
+        _sqrtRatio = bound(_sqrtRatio, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed());
+        SqrtRatio sqrtRatio = toSqrtRatio(_sqrtRatio, false);
+
+        int32 tick = sqrtRatioToTick(sqrtRatio);
+        if (tick == MAX_TICK) {
+            assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
+        } else {
+            assertTrue(sqrtRatio < tickToSqrtRatio(tick + 1), "sqrt ratio lt next tick sqrt ratio");
+        }
+    }
+}
+
+contract SlowTestAllTicksTest is Test {
+    // to run this test, update foundry.toml to uncomment the gas_limit, memory_limit lines and remove the skip_ prefix
+    function try_all_tick_values_in_range(uint32 sliceIndex, uint32 totalSlices) private pure {
+        uint32 size = uint32(MAX_TICK - MIN_TICK) / totalSlices;
+        int32 startingTick = MIN_TICK + int32(sliceIndex * size);
+        int32 endingTick = startingTick + int32(size);
+
+        uint256 fmp;
+
+        assembly ("memory-safe") {
+            fmp := mload(0x40)
+        }
+
+        SqrtRatio sqrtRatioLast = startingTick > MIN_TICK ? tickToSqrtRatio(startingTick - 1) : SqrtRatio.wrap(0);
+        for (int32 i = startingTick; i <= endingTick; i++) {
+            // price is always increasing
+            SqrtRatio sqrtRatio = tickToSqrtRatio(i);
+            assertTrue(sqrtRatio > sqrtRatioLast);
+            sqrtRatioLast = sqrtRatio;
+
+            if (i != MIN_TICK) {
+                SqrtRatio sqrtRatioOneLess = toSqrtRatio(sqrtRatio.toFixed() - 1, false);
+                int32 tickCalculated = sqrtRatioToTick(sqrtRatioOneLess);
+                assertEq(tickCalculated, i - 1);
+            }
+
+            if (i != MAX_TICK) {
+                SqrtRatio sqrtRatioOneMore = SqrtRatio.wrap(SqrtRatio.unwrap(sqrtRatio) + 1);
+                int32 tickCalculated = sqrtRatioToTick(sqrtRatioOneMore);
+                assertEq(tickCalculated, i);
+            }
+
+            assembly ("memory-safe") {
+                mstore(0x40, fmp)
+            }
+        }
+    }
+
+    function test_all_tick_values_0() public pure {
+        try_all_tick_values_in_range(0, 16);
+    }
+
+    function test_all_tick_values_1() public pure {
+        try_all_tick_values_in_range(1, 16);
+    }
+
+    function test_all_tick_values_2() public pure {
+        try_all_tick_values_in_range(2, 16);
+    }
+
+    function test_all_tick_values_3() public pure {
+        try_all_tick_values_in_range(3, 16);
+    }
+
+    function test_all_tick_values_4() public pure {
+        try_all_tick_values_in_range(4, 16);
+    }
+
+    function test_all_tick_values_5() public pure {
+        try_all_tick_values_in_range(5, 16);
+    }
+
+    function test_all_tick_values_6() public pure {
+        try_all_tick_values_in_range(6, 16);
+    }
+
+    function test_all_tick_values_7() public pure {
+        try_all_tick_values_in_range(7, 16);
+    }
+
+    function test_all_tick_values_8() public pure {
+        try_all_tick_values_in_range(8, 16);
+    }
+
+    function test_all_tick_values_9() public pure {
+        try_all_tick_values_in_range(9, 16);
+    }
+
+    function test_all_tick_values_10() public pure {
+        try_all_tick_values_in_range(10, 16);
+    }
+
+    function test_all_tick_values_11() public pure {
+        try_all_tick_values_in_range(11, 16);
+    }
+
+    function test_all_tick_values_12() public pure {
+        try_all_tick_values_in_range(12, 16);
+    }
+
+    function test_all_tick_values_13() public pure {
+        try_all_tick_values_in_range(13, 16);
+    }
+
+    function test_all_tick_values_14() public pure {
+        try_all_tick_values_in_range(14, 16);
+    }
+
+    function test_all_tick_values_15() public pure {
+        try_all_tick_values_in_range(15, 16);
     }
 }

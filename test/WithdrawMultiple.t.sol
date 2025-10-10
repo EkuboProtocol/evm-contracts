@@ -126,7 +126,7 @@ contract WithdrawMultipleTest is Test, ILocker {
         // If we reach here, the test passed
     }
 
-    function locked(uint256) external {
+    function locked_6416899205(uint256) external {
         if (keccak256(bytes(currentAction)) == keccak256("withdrawSingle")) {
             (address token, address to, uint128 amount) = abi.decode(currentData, (address, address, uint128));
 

@@ -2,30 +2,48 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "./poolKey.sol";
+import {OrderConfig} from "./orderConfig.sol";
+import {OrderId} from "./orderId.sol";
+
+using {toOrderId, toPoolKey, buyToken, sellToken} for OrderKey global;
 
 /// @notice Order key structure identifying a TWAMM order
 /// @dev Contains all parameters needed to uniquely identify an order
 struct OrderKey {
-    /// @notice Token being sold
-    address sellToken;
-    /// @notice Token being bought
-    address buyToken;
-    /// @notice Fee tier for the order
-    uint64 fee;
-    /// @notice Start time for the order execution
-    uint256 startTime;
-    /// @notice End time for the order execution
-    uint256 endTime;
+    /// @notice Address of token0 (must be < token1)
+    address token0;
+    /// @notice Address of token1 (must be > token0)
+    address token1;
+    /// @notice Packed configuration containing fee, isToken1, start, and end time
+    OrderConfig config;
 }
 
-using {toOrderId, toPoolKey} for OrderKey global;
+/// @notice Extracts the buy token from an order key
+/// @param ok The order key
+/// @return r The buy token
+function buyToken(OrderKey memory ok) pure returns (address r) {
+    bool _isToken0 = !ok.config.isToken1();
+    assembly ("memory-safe") {
+        r := mload(add(ok, mul(_isToken0, 0x20)))
+    }
+}
+
+/// @notice Extracts the sell token from an order key
+/// @param ok The order key
+/// @return r The sell token
+function sellToken(OrderKey memory ok) pure returns (address r) {
+    bool _isToken1 = ok.config.isToken1();
+    assembly ("memory-safe") {
+        r := mload(add(ok, mul(_isToken1, 0x20)))
+    }
+}
 
 /// @notice Computes the order ID from an order key
 /// @param orderKey The order key
 /// @return id The computed order ID
-function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
+function toOrderId(OrderKey memory orderKey) pure returns (OrderId id) {
     assembly ("memory-safe") {
-        id := keccak256(orderKey, 160)
+        id := keccak256(orderKey, 96)
     }
 }
 
@@ -35,24 +53,9 @@ function toOrderId(OrderKey memory orderKey) pure returns (bytes32 id) {
 /// @param twamm The TWAMM contract address to use as the extension
 /// @return poolKey The corresponding pool key for the order
 function toPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
+    uint64 _fee = orderKey.config.fee();
     assembly ("memory-safe") {
-        poolKey := mload(0x40)
-
-        let sellToken := mload(orderKey)
-        let buyToken := mload(add(orderKey, 32))
-        let fee := mload(add(orderKey, 64))
-
-        let xoredTokens := xor(sellToken, buyToken)
-        let sellIsZero := gt(buyToken, sellToken)
-
-        let token0 := xor(sellToken, mul(xoredTokens, iszero(sellIsZero)))
-        let token1 := xor(sellToken, mul(xoredTokens, sellIsZero))
-
-        mstore(poolKey, token0)
-        mstore(add(poolKey, 32), token1)
-        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, fee)))
-
-        // move free memory pointer forward 96 bytes
-        mstore(0x40, add(poolKey, 96))
+        mcopy(poolKey, orderKey, 64)
+        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, _fee)))
     }
 }

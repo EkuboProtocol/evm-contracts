@@ -22,6 +22,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "./types/poolState.sol";
 import {SwapParameters} from "./types/swapParameters.sol";
 import {TickInfo, createTickInfo} from "./types/tickInfo.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {PoolId} from "./types/poolId.sol";
 import {Locker} from "./types/locker.sol";
 import {computeFee, amountBeforeFee} from "./math/fee.sol";
@@ -352,7 +353,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
         payable
-        returns (int128 delta0, int128 delta1)
+        returns (PoolBalanceUpdate balanceUpdate)
     {
         positionId.validate(poolKey.config);
 
@@ -365,6 +366,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
         if (!state.isInitialized()) revert PoolNotInitialized();
+
+        int128 delta0;
+        int128 delta1;
 
         if (liquidityDelta != 0) {
             (SqrtRatio sqrtRatioLower, SqrtRatio sqrtRatioUpper) =
@@ -434,11 +438,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             _updatePairDebtWithNative(locker.id(), poolKey.token0, poolKey.token1, delta0, delta1);
 
-            emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, delta0, delta1, state);
+            balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
+            emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, balanceUpdate, state);
         }
 
+        balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
         IExtension(poolKey.config.extension()).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta, delta0, delta1, state
+            locker, poolKey, positionId, liquidityDelta, balanceUpdate, state
         );
     }
 
@@ -802,24 +808,25 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 assembly ("memory-safe") {
                     let o := mload(0x40)
+                    let balanceUpdate := or(shl(128, delta1), and(delta0, 0xffffffffffffffffffffffffffffffff))
                     mstore(o, shl(96, locker))
                     mstore(add(o, 20), poolId)
-                    mstore(add(o, 52), or(shl(128, delta0), and(delta1, 0xffffffffffffffffffffffffffffffff)))
+                    mstore(add(o, 52), balanceUpdate)
                     mstore(add(o, 84), stateAfter)
                     log0(o, 116)
                 }
             }
 
+            PoolBalanceUpdate balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
             IExtension(poolKey.config.extension()).maybeCallAfterSwap(
-                locker, poolKey, params, delta0, delta1, stateAfter
+                locker, poolKey, params, balanceUpdate, stateAfter
             );
 
             assembly ("memory-safe") {
                 let free := mload(0x40)
-                mstore(free, delta0)
-                mstore(add(free, 32), delta1)
-                mstore(add(free, 64), stateAfter)
-                return(free, 96)
+                mstore(free, balanceUpdate)
+                mstore(add(free, 32), stateAfter)
+                return(free, 64)
             }
         }
     }

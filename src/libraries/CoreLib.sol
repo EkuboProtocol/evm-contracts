@@ -136,15 +136,16 @@ library CoreLib {
             // Add SwapParameters
             mstore(add(free, 100), params)
 
-            if iszero(call(gas(), core, value, free, 132, free, 96)) {
+            if iszero(call(gas(), core, value, free, 132, free, 64)) {
                 returndatacopy(free, 0, returndatasize())
                 revert(free, returndatasize())
             }
 
-            // Extract return values
-            delta0 := mload(free)
-            delta1 := mload(add(free, 32))
-            stateAfter := mload(add(free, 64))
+            // Extract return values - balanceUpdate is packed (delta1 << 128 | delta0)
+            let balanceUpdate := mload(free)
+            delta0 := signextend(15, balanceUpdate)
+            delta1 := signextend(15, shr(128, balanceUpdate))
+            stateAfter := mload(add(free, 32))
         }
     }
 }

@@ -12,6 +12,7 @@ import {PoolState} from "../types/poolState.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
+import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 
 /// @title Extension Interface
 /// @notice Interface for pool extensions that can hook into core operations
@@ -43,15 +44,13 @@ interface IExtension {
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position that was updated
     /// @param liquidityDelta Change in liquidity of the specified position key range
-    /// @param delta0 Change in token0 balance of the pool
-    /// @param delta1 Change in token1 balance of the pool
+    /// @param balanceUpdate Change in token balances of the pool (delta0 and delta1)
     function afterUpdatePosition(
         Locker locker,
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external;
 
@@ -65,15 +64,13 @@ interface IExtension {
     /// @param locker The current holder of the lock performing the swap
     /// @param poolKey Pool key identifying the pool
     /// @param params Swap parameters containing amount, isToken1, sqrtRatioLimit, and skipAhead
-    /// @param delta0 Change in token0 balance
-    /// @param delta1 Change in token1 balance
+    /// @param balanceUpdate Change in token balances (delta0 and delta1)
     /// @param stateAfter The pool state after the swap
     function afterSwap(
         Locker locker,
         PoolKey memory poolKey,
         SwapParameters params,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external;
 
@@ -118,15 +115,13 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param poolId Unique identifier for the pool
     /// @param positionId Identifier of the position specifying a salt and the bounds
     /// @param liquidityDelta The change in liquidity for the specified pool and position keys
-    /// @param delta0 Change in token0 balance
-    /// @param delta1 Change in token1 balance
+    /// @param balanceUpdate Change in token balances (delta0 and delta1)
     event PositionUpdated(
         address locker,
         PoolId poolId,
         PositionId positionId,
         int128 liquidityDelta,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     );
 
@@ -251,12 +246,11 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @param poolKey Pool key identifying the pool
     /// @param positionId The key of the position to update
     /// @param liquidityDelta The change in liquidity
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate Change in token balances (delta0 and delta1)
     function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
         payable
-        returns (int128 delta0, int128 delta1);
+        returns (PoolBalanceUpdate balanceUpdate);
 
     /// @notice Sets extra data for the position
     /// @param poolId ID of the pool for which the position exists

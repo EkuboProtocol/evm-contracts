@@ -19,6 +19,7 @@ import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {Locker} from "../src/types/locker.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 
 contract MockExtension is IExtension, BaseLocker {
     using FlashAccountantLib for *;
@@ -64,10 +65,10 @@ contract MockExtension is IExtension, BaseLocker {
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external {
+        (int128 delta0, int128 delta1) = balanceUpdate.parse();
         emit AfterUpdatePositionCalled(locker, poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter);
     }
 
@@ -97,10 +98,10 @@ contract MockExtension is IExtension, BaseLocker {
         Locker locker,
         PoolKey memory poolKey,
         SwapParameters params,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external {
+        (int128 delta0, int128 delta1) = balanceUpdate.parse();
         emit AfterSwapCalled(
             locker,
             poolKey,

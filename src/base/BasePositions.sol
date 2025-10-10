@@ -20,6 +20,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseNonfungibleToken} from "./BaseNonfungibleToken.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {PoolId} from "../types/poolId.sol";
+import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 
 /// @title Base Positions Contract
 /// @author Moody Salem <moody@ekubo.org>
@@ -233,12 +234,13 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
             (, address caller, uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
             = abi.decode(data, (bytes1, address, uint256, PoolKey, int32, int32, uint128));
 
-            (int128 delta0, int128 delta1) = CORE.updatePosition(
+            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(
                 poolKey,
                 createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
                 int128(liquidity)
             );
 
+            (int128 delta0, int128 delta1) = balanceUpdate.parse();
             uint128 amount0 = uint128(delta0);
             uint128 amount1 = uint128(delta1);
 
@@ -292,12 +294,13 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
             }
 
             if (liquidity != 0) {
-                (int128 delta0, int128 delta1) = CORE.updatePosition(
+                PoolBalanceUpdate balanceUpdate = CORE.updatePosition(
                     poolKey,
                     createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
                     -int128(liquidity)
                 );
 
+                (int128 delta0, int128 delta1) = balanceUpdate.parse();
                 uint128 withdrawnAmount0 = uint128(-delta0);
                 uint128 withdrawnAmount1 = uint128(-delta1);
 

@@ -14,6 +14,7 @@ import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {UsesCore} from "../src/base/UsesCore.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 
 contract TestLocker is BaseLocker, UsesCore {
     using CoreLib for *;
@@ -39,7 +40,8 @@ contract TestLocker is BaseLocker, UsesCore {
         (PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta) =
             abi.decode(data, (PoolKey, PositionId, int128));
 
-        (int128 delta0, int128 delta1) = CORE.updatePosition(poolKey, positionId, liquidityDelta);
+        PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, liquidityDelta);
+        (int128 delta0, int128 delta1) = balanceUpdate.parse();
 
         if (liquidityDelta > 0) {
             ACCOUNTANT.pay(poolKey.token0, uint128(delta0));

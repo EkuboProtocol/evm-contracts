@@ -12,6 +12,7 @@ import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {PoolState, createPoolState} from "../../src/types/poolState.sol";
 import {SwapParameters} from "../../src/types/swapParameters.sol";
 import {Locker} from "../../src/types/locker.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 
 contract ExtensionCallPointsLibTest is Test {
     using ExtensionCallPointsLib for *;
@@ -84,8 +85,9 @@ contract ExtensionCallPointsLibTest is Test {
         PoolState stateAfter = createPoolState(SqrtRatio.wrap(100), 0, 2000);
 
         // Test when extension should be called
+        PoolBalanceUpdate balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
         IExtension(address(extension)).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta, delta0, delta1, stateAfter
+            locker, poolKey, positionId, liquidityDelta, balanceUpdate, stateAfter
         );
 
         assertEq(extension.afterUpdatePositionCalls(), 1);
@@ -106,8 +108,7 @@ contract ExtensionCallPointsLibTest is Test {
             poolKey,
             positionId,
             liquidityDelta,
-            delta0,
-            delta1,
+            balanceUpdate,
             stateAfter
         );
         assertEq(extension.afterUpdatePositionCalls(), 0);
@@ -205,8 +206,9 @@ contract ExtensionCallPointsLibTest is Test {
         IExtension(address(extension)).maybeCallBeforeUpdatePosition(locker, poolKey, positionId, 1000);
 
         vm.expectRevert("MockExtension: revert");
+        PoolBalanceUpdate revertBalanceUpdate = createPoolBalanceUpdate(500, -300);
         IExtension(address(extension)).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, 1000, 500, -300, stateAfter
+            locker, poolKey, positionId, 1000, revertBalanceUpdate, stateAfter
         );
 
         vm.expectRevert("MockExtension: revert");
@@ -282,8 +284,7 @@ contract MockExtension is IExtension {
         PoolKey memory poolKey,
         PositionId positionId,
         int128 liquidityDelta,
-        int128 delta0,
-        int128 delta1,
+        PoolBalanceUpdate balanceUpdate,
         PoolState stateAfter
     ) external {
         if (shouldRevert) revert("MockExtension: revert");
@@ -292,8 +293,7 @@ contract MockExtension is IExtension {
         _lastPoolKey = poolKey;
         lastPositionId = positionId;
         lastLiquidityDelta = liquidityDelta;
-        lastDelta0 = delta0;
-        lastDelta1 = delta1;
+        (lastDelta0, lastDelta1) = balanceUpdate.parse();
         lastStateAfter = stateAfter;
     }
 
@@ -301,7 +301,7 @@ contract MockExtension is IExtension {
         revert("Not implemented");
     }
 
-    function afterSwap(Locker, PoolKey memory, SwapParameters, int128, int128, PoolState) external pure {
+    function afterSwap(Locker, PoolKey memory, SwapParameters, PoolBalanceUpdate, PoolState) external pure {
         revert("Not implemented");
     }
 

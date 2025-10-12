@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
 pragma solidity =0.8.30;
 
+import {PoolConfig} from "./poolConfig.sol";
+
 /// @notice Order configuration packed into a single bytes32
 /// @dev Contains truncated pool config (12 bytes: fee + pool type), isToken1 (1 bit), padding, start time (8 bytes), and end time (8 bytes)
 /// Layout:
@@ -11,7 +13,7 @@ pragma solidity =0.8.30;
 ///   - Bits 63-0 (64 bits): end time
 type OrderConfig is bytes32;
 
-using {fee, poolTypeConfig, isToken1, startTime, endTime} for OrderConfig global;
+using {fee, poolTypeConfig, isToken1, startTime, endTime, toPoolConfig} for OrderConfig global;
 
 /// @notice Extracts the fee from an order config
 /// @param config The order config
@@ -55,6 +57,18 @@ function startTime(OrderConfig config) pure returns (uint64 r) {
 function endTime(OrderConfig config) pure returns (uint64 r) {
     assembly ("memory-safe") {
         r := and(config, 0xffffffffffffffff)
+    }
+}
+
+/// @notice Converts an OrderConfig to a PoolConfig by combining the truncated pool config with the extension address
+/// @param config The order config
+/// @param twamm The TWAMM extension address
+/// @return poolConfig The full pool config
+function toPoolConfig(OrderConfig config, address twamm) pure returns (PoolConfig poolConfig) {
+    assembly ("memory-safe") {
+        // Combine: extension (160 bits) | truncated pool config (96 bits: fee 64 bits + pool type 32 bits)
+        // The truncated config is already in bits 255-160, so we just need to add the extension in bits 255-96
+        poolConfig := add(shl(96, twamm), shr(160, config))
     }
 }
 

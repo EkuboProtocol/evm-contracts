@@ -13,6 +13,7 @@ type PoolConfig is bytes32;
 
 using {
     fee,
+    poolTypeConfig,
     extension,
     isConcentrated,
     isStableswap,
@@ -32,6 +33,15 @@ using {
 function fee(PoolConfig config) pure returns (uint64 r) {
     assembly ("memory-safe") {
         r := and(shr(32, config), 0xffffffffffffffff)
+    }
+}
+
+/// @notice Extracts the pool type config (lower 32 bits) from a pool config
+/// @param config The pool config
+/// @return r The pool type config (32 bits)
+function poolTypeConfig(PoolConfig config) pure returns (uint32 r) {
+    assembly ("memory-safe") {
+        r := and(config, 0xffffffff)
     }
 }
 

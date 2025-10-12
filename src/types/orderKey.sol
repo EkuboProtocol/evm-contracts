@@ -48,14 +48,16 @@ function toOrderId(OrderKey memory orderKey) pure returns (OrderId id) {
 }
 
 /// @notice Converts an OrderKey to its corresponding PoolKey
-/// @dev Determines the correct token ordering and constructs the pool key with TWAMM as extension
-/// @param orderKey The order key containing sell/buy tokens and fee
+/// @dev Reconstructs the full pool config from the truncated config in OrderConfig
+/// @param orderKey The order key containing sell/buy tokens and truncated pool config
 /// @param twamm The TWAMM contract address to use as the extension
 /// @return poolKey The corresponding pool key for the order
 function toPoolKey(OrderKey memory orderKey, address twamm) pure returns (PoolKey memory poolKey) {
     uint64 _fee = orderKey.config.fee();
+    uint32 _poolTypeConfig = orderKey.config.poolTypeConfig();
     assembly ("memory-safe") {
         mcopy(poolKey, orderKey, 64)
-        mstore(add(poolKey, 64), add(shl(96, twamm), shl(32, _fee)))
+        // Reconstruct full pool config: extension (160 bits) | fee (64 bits) | pool type config (32 bits)
+        mstore(add(poolKey, 64), add(add(shl(96, twamm), shl(32, _fee)), _poolTypeConfig))
     }
 }

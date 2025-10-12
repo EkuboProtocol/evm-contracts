@@ -48,7 +48,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         assertEq(saleRate, (uint256(100) << 32) / 15);
@@ -75,7 +81,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: true,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
         assertEq(saleRate, (uint256(100) << 32) / 15);
@@ -103,13 +115,25 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
         OrderKey memory key1 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: true,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
 
@@ -138,13 +162,25 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
         OrderKey memory key1 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: true,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2e18, type(uint112).max);
 
@@ -172,7 +208,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time + 15, _endTime: time + 31})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time + 15,
+                _endTime: time + 31
+            })
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -209,7 +251,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time + 15, _endTime: time + 31})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time + 15,
+                _endTime: time + 31
+            })
         });
         (uint256 id,) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -255,13 +303,25 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
         OrderKey memory key1 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: time - 1, _endTime: time + 63})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: true,
+                _startTime: time - 1,
+                _endTime: time + 63
+            })
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2e18, type(uint112).max);
 
@@ -316,13 +376,25 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1000, type(uint112).max);
         OrderKey memory key1 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: true,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2000, type(uint112).max);
 
@@ -350,7 +422,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
 
@@ -374,7 +452,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: address(token0),
             token1: address(token1),
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 15})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 15
+            })
         });
 
         vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
@@ -390,7 +474,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: address(token0),
             token1: address(token1),
-            config: createOrderConfig({_fee: 0, _isToken1: false, _startTime: 0, _endTime: time + 16})
+            config: createOrderConfig({_fee: 0, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: time + 16})
         });
         positions.maybeInitializePool(key.toPoolKey(address(twamm)), 0);
 
@@ -411,7 +495,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: address(token0),
             token1: address(token1),
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 1})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 1})
         });
 
         uint256 id = orders.mint();
@@ -452,6 +536,7 @@ contract OrdersTest is BaseOrdersTest {
                 token1: poolKey.token1,
                 config: createOrderConfig({
                     _fee: poolKey.config.fee(),
+                    _poolTypeConfig: 0,
                     _isToken1: true,
                     _startTime: 4294902272,
                     _endTime: 4311744512
@@ -496,6 +581,7 @@ contract OrdersTest is BaseOrdersTest {
                 token1: poolKey.token1,
                 config: createOrderConfig({
                     _fee: poolKey.config.fee(),
+                    _poolTypeConfig: 0,
                     _isToken1: false,
                     _startTime: 4295004176,
                     _endTime: 4295294976
@@ -570,7 +656,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
         });
         coolAllContracts();
         orders.mintAndIncreaseSellAmount(key, 100, 28633115306);
@@ -600,13 +686,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
         });
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
         OrderKey memory key1 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: true, _startTime: 0, _endTime: 16})
         });
         coolAllContracts();
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
@@ -636,13 +722,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key0 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
         });
         orders.mintAndIncreaseSellAmount(key0, 100, 28633115306);
         OrderKey memory key1 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: true, _startTime: 0, _endTime: 16})
         });
         orders.mintAndIncreaseSellAmount(key1, 100, 28633115306);
 
@@ -681,6 +767,7 @@ contract OrdersTest is BaseOrdersTest {
                     token1: poolKey.token1,
                     config: createOrderConfig({
                         _fee: fee,
+                        _poolTypeConfig: 0,
                         _isToken1: false,
                         _startTime: uint64(startTime),
                         _endTime: uint64(endTime)
@@ -696,6 +783,7 @@ contract OrdersTest is BaseOrdersTest {
                     token1: poolKey.token1,
                     config: createOrderConfig({
                         _fee: fee,
+                        _poolTypeConfig: 0,
                         _isToken1: true,
                         _startTime: uint64(startTime),
                         _endTime: uint64(endTime)
@@ -734,7 +822,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -778,7 +872,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -815,7 +915,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -870,7 +976,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -926,7 +1038,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -983,7 +1101,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -1040,7 +1164,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -1094,7 +1224,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -1140,7 +1276,13 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: 0,
+                _isToken1: false,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         });
         (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
 
@@ -1176,7 +1318,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
 
@@ -1219,7 +1361,7 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
         });
         (uint256 id, uint112 saleRate) = orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
 
@@ -1259,14 +1401,14 @@ contract OrdersTest is BaseOrdersTest {
         OrderKey memory key1 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
         });
         (uint256 id1, uint112 saleRate1) = orders.mintAndIncreaseSellAmount(key1, 100, type(uint112).max);
 
         OrderKey memory key2 = OrderKey({
             token0: poolKey.token0,
             token1: poolKey.token1,
-            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+            config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
         });
         (uint256 id2, uint112 saleRate2) = orders.mintAndIncreaseSellAmount(key2, 100, type(uint112).max);
 
@@ -1304,7 +1446,7 @@ contract OrdersTest is BaseOrdersTest {
             OrderKey memory key = OrderKey({
                 token0: poolKey.token0,
                 token1: poolKey.token1,
-                config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 0, _endTime: 16})
+                config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: false, _startTime: 0, _endTime: 16})
             });
             orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
         }
@@ -1313,7 +1455,7 @@ contract OrdersTest is BaseOrdersTest {
             OrderKey memory key = OrderKey({
                 token0: poolKey.token0,
                 token1: poolKey.token1,
-                config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: 16, _endTime: 32})
+                config: createOrderConfig({_fee: fee, _poolTypeConfig: 0, _isToken1: true, _startTime: 16, _endTime: 32})
             });
             orders.mintAndIncreaseSellAmount(key, 100, type(uint112).max);
         }

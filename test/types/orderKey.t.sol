@@ -18,7 +18,7 @@ contract OrderKeyTest is Test {
     ) public pure {
         vm.assume(token0 != token1);
         OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, false, _startTime, _endTime)});
+            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, 0, false, _startTime, _endTime)});
 
         // When isToken1 is false, we're selling token0 and buying token1
         assertEq(ok.buyToken(), token1);
@@ -33,7 +33,7 @@ contract OrderKeyTest is Test {
     ) public pure {
         vm.assume(token0 != token1);
         OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, true, _startTime, _endTime)});
+            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, 0, true, _startTime, _endTime)});
 
         // When isToken1 is true, we're selling token1 and buying token0
         assertEq(ok.buyToken(), token0);
@@ -49,7 +49,7 @@ contract OrderKeyTest is Test {
     ) public pure {
         vm.assume(token0 != token1);
         OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, false, _startTime, _endTime)});
+            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, 0, false, _startTime, _endTime)});
 
         // When isToken1 is false, we're selling token0
         assertEq(ok.sellToken(), token0);
@@ -64,7 +64,7 @@ contract OrderKeyTest is Test {
     ) public pure {
         vm.assume(token0 != token1);
         OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, true, _startTime, _endTime)});
+            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, 0, true, _startTime, _endTime)});
 
         // When isToken1 is true, we're selling token1
         assertEq(ok.sellToken(), token1);
@@ -75,8 +75,11 @@ contract OrderKeyTest is Test {
         public
         pure
     {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0,
+            token1: token1,
+            config: createOrderConfig(_fee, 0, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.fee(), _fee);
     }
@@ -90,8 +93,11 @@ contract OrderKeyTest is Test {
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0,
+            token1: token1,
+            config: createOrderConfig(_fee, 0, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.isToken1(), _isToken1);
     }
@@ -105,8 +111,11 @@ contract OrderKeyTest is Test {
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0,
+            token1: token1,
+            config: createOrderConfig(_fee, 0, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.startTime(), _startTime);
     }
@@ -120,8 +129,11 @@ contract OrderKeyTest is Test {
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0,
+            token1: token1,
+            config: createOrderConfig(_fee, 0, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.endTime(), _endTime);
     }
@@ -136,8 +148,11 @@ contract OrderKeyTest is Test {
         uint64 _endTime,
         address twamm
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0,
+            token1: token1,
+            config: createOrderConfig(_fee, 0, _isToken1, _startTime, _endTime)
+        });
 
         PoolKey memory pk = ok.toPoolKey(twamm);
 
@@ -171,6 +186,7 @@ contract OrderKeyTest is Test {
         unchecked {
             orderKey.config = createOrderConfig(
                 orderKey.config.fee() + 1,
+                orderKey.config.poolTypeConfig(),
                 orderKey.config.isToken1(),
                 orderKey.config.startTime(),
                 orderKey.config.endTime()
@@ -183,7 +199,11 @@ contract OrderKeyTest is Test {
     function test_toOrderId_changesWithIsToken1(OrderKey memory orderKey) public pure {
         OrderId id = orderKey.toOrderId();
         orderKey.config = createOrderConfig(
-            orderKey.config.fee(), !orderKey.config.isToken1(), orderKey.config.startTime(), orderKey.config.endTime()
+            orderKey.config.fee(),
+            orderKey.config.poolTypeConfig(),
+            !orderKey.config.isToken1(),
+            orderKey.config.startTime(),
+            orderKey.config.endTime()
         );
         assertNotEq(OrderId.unwrap(orderKey.toOrderId()), OrderId.unwrap(id));
     }
@@ -194,6 +214,7 @@ contract OrderKeyTest is Test {
         unchecked {
             orderKey.config = createOrderConfig(
                 orderKey.config.fee(),
+                orderKey.config.poolTypeConfig(),
                 orderKey.config.isToken1(),
                 orderKey.config.startTime() + 1,
                 orderKey.config.endTime()
@@ -208,6 +229,7 @@ contract OrderKeyTest is Test {
         unchecked {
             orderKey.config = createOrderConfig(
                 orderKey.config.fee(),
+                orderKey.config.poolTypeConfig(),
                 orderKey.config.isToken1(),
                 orderKey.config.startTime(),
                 orderKey.config.endTime() + 1

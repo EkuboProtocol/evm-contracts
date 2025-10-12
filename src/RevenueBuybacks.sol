@@ -184,6 +184,13 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
             mstore(add(key, mul(iszero(isToken1), 32)), buyToken)
         }
 
-        key.config = createOrderConfig({_fee: fee, _isToken1: isToken1, _startTime: startTime, _endTime: endTime});
+        // Use pool type config 0 for full range pools
+        key.config = createOrderConfig({
+            _fee: fee,
+            _poolTypeConfig: 0,
+            _isToken1: isToken1,
+            _startTime: startTime,
+            _endTime: endTime
+        });
     }
 }

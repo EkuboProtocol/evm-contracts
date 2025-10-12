@@ -24,6 +24,8 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {createTimeInfo} from "../../src/types/timeInfo.sol";
 import {TwammPoolState} from "../../src/types/twammPoolState.sol";
 import {TimeInfo} from "../../src/types/timeInfo.sol";
+import {Orders} from "../../src/Orders.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -104,6 +106,13 @@ contract TWAMMStableswapTest is BaseTWAMMTest {
     using CoreLib for *;
     using TWAMMLib for *;
 
+    Orders internal orders;
+
+    function setUp() public override {
+        BaseTWAMMTest.setUp();
+        orders = new Orders(core, twamm, owner);
+    }
+
     function createStableswapTwammPool(uint64 fee, uint8 amplification, int32 centerTick, int32 tick)
         internal
         returns (PoolKey memory poolKey)
@@ -127,6 +136,104 @@ contract TWAMMStableswapTest is BaseTWAMMTest {
         assertEq(lvoe, uint32(time));
         assertEq(srt0, 0);
         assertEq(srt1, 0);
+    }
+
+    function test_stableswap_orders_work() public {
+        uint64 time = boundTime(1000, 1);
+        vm.warp(time);
+
+        // Create a stableswap pool with amplification factor 10
+        uint64 fee = 0;
+        uint8 amplification = 10;
+        int32 centerTick = 0;
+
+        PoolKey memory poolKey = createStableswapTwammPool(fee, amplification, centerTick, 0);
+
+        // Add liquidity in the stableswap range
+        (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        // Create orders with 2:1 sale rate ratio (selling 2x token1 vs token0)
+        OrderKey memory key0 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: poolKey.config.poolTypeConfig(),
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 63
+            })
+        });
+        (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
+
+        OrderKey memory key1 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: poolKey.config.poolTypeConfig(),
+                _isToken1: true,
+                _startTime: time - 1,
+                _endTime: time + 63
+            })
+        });
+        (uint256 id1,) = orders.mintAndIncreaseSellAmount(key1, 2e18, type(uint112).max);
+
+        // Advance time
+        advanceTime(63);
+
+        // Collect proceeds - both orders should receive some tokens
+        uint256 proceeds0 = orders.collectProceeds(id0, key0, address(this));
+        uint256 proceeds1 = orders.collectProceeds(id1, key1, address(this));
+
+        // Both orders should receive some proceeds
+        assertGt(proceeds0, 0, "Order 0 should receive some tokens");
+        assertGt(proceeds1, 0, "Order 1 should receive some tokens");
+    }
+
+    function test_stableswap_single_sided_order_works() public {
+        uint64 time = boundTime(1000, 1);
+        vm.warp(time);
+
+        // Create a stableswap pool
+        uint64 fee = 0;
+        uint8 amplification = 10;
+        int32 centerTick = 0;
+
+        PoolKey memory poolKey = createStableswapTwammPool(fee, amplification, centerTick, 0);
+
+        // Add liquidity in the stableswap range
+        (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        // Create order selling only token0 (no token1 being sold)
+        OrderKey memory key0 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({
+                _fee: fee,
+                _poolTypeConfig: poolKey.config.poolTypeConfig(),
+                _isToken1: false,
+                _startTime: time - 1,
+                _endTime: time + 63
+            })
+        });
+        (uint256 id0,) = orders.mintAndIncreaseSellAmount(key0, 1e18, type(uint112).max);
+
+        // Advance time
+        advanceTime(63);
+
+        // Collect proceeds
+        uint256 proceeds0 = orders.collectProceeds(id0, key0, address(this));
+
+        // The order should receive some tokens (swapping through the liquidity)
+        assertGt(proceeds0, 0, "Order should receive some tokens from the liquidity pool");
     }
 }
 
@@ -180,7 +287,14 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         returns (uint256)
     {
         return getRewardRateInside(
-            poolId, createOrderConfig({_fee: 0, _startTime: startTime, _endTime: endTime, _isToken1: isToken1})
+            poolId,
+            createOrderConfig({
+                _fee: 0,
+                _poolTypeConfig: 0,
+                _isToken1: isToken1,
+                _startTime: startTime,
+                _endTime: endTime
+            })
         );
     }
 

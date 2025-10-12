@@ -89,6 +89,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
                         token1: address(token1),
                         config: createOrderConfig({
                             _fee: fee,
+                            _poolTypeConfig: 0,
                             _isToken1: false,
                             _startTime: uint64(startTime),
                             _endTime: uint64(endTime)
@@ -99,6 +100,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
                         token1: address(token1),
                         config: createOrderConfig({
                             _fee: fee,
+                            _poolTypeConfig: 0,
                             _isToken1: true,
                             _startTime: uint64(startTime),
                             _endTime: uint64(endTime)
@@ -157,7 +159,13 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             OrderKey({
                 token0: address(token0),
                 token1: address(token1),
-                config: createOrderConfig({_fee: 1000, _isToken1: false, _startTime: 0, _endTime: time + 15})
+                config: createOrderConfig({
+                    _fee: 1000,
+                    _poolTypeConfig: 0,
+                    _isToken1: false,
+                    _startTime: 0,
+                    _endTime: time + 15
+                })
             }),
             10000,
             type(uint112).max
@@ -167,7 +175,13 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             OrderKey({
                 token0: address(token0),
                 token1: address(token1),
-                config: createOrderConfig({_fee: 1000, _isToken1: true, _startTime: time + 31, _endTime: time + 255})
+                config: createOrderConfig({
+                    _fee: 1000,
+                    _poolTypeConfig: 0,
+                    _isToken1: true,
+                    _startTime: time + 31,
+                    _endTime: time + 255
+                })
             }),
             25000,
             type(uint112).max

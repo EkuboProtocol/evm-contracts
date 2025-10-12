@@ -2,7 +2,11 @@
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createConcentratedPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
+import {
+    createConcentratedPoolConfig,
+    createFullRangePoolConfig,
+    createStableswapPoolConfig
+} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {FullTest} from "../FullTest.sol";
 import {ITWAMM, TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
@@ -11,6 +15,7 @@ import {createOrderConfig} from "../../src/types/orderConfig.sol";
 import {TWAMMStorageLayout} from "../../src/libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {Core} from "../../src/Core.sol";
+import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {TWAMMLib} from "../../src/libraries/TWAMMLib.sol";
 import {Test} from "forge-std/Test.sol";
 import {searchForNextInitializedTime} from "../../src/math/timeBitmap.sol";
@@ -19,6 +24,9 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {createTimeInfo} from "../../src/types/timeInfo.sol";
 import {TwammPoolState} from "../../src/types/twammPoolState.sol";
 import {TimeInfo} from "../../src/types/timeInfo.sol";
+import {Orders} from "../../src/Orders.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {ILocker} from "../../src/interfaces/IFlashAccountant.sol";
 
 abstract contract BaseTWAMMTest is FullTest {
     TWAMM internal twamm;
@@ -47,7 +55,7 @@ abstract contract BaseTWAMMTest is FullTest {
 contract TWAMMTest is BaseTWAMMTest {
     using TWAMMLib for *;
 
-    function test_createPool_fails_not_full_range() public {
+    function test_createPool_fails_concentrated_liquidity() public {
         vm.expectRevert(ITWAMM.FullRangePoolOnly.selector);
         createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 1, address(twamm)));
     }
@@ -92,6 +100,249 @@ contract TWAMMTest is BaseTWAMMTest {
         PoolKey memory key = createFullRangePool(0, 0);
         vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         twamm.lockAndExecuteVirtualOrders(key);
+    }
+}
+
+contract TWAMMStableswapTest is BaseTWAMMTest, ILocker {
+    using CoreLib for *;
+    using TWAMMLib for *;
+
+    // State for locked callback
+    string private currentAction;
+    bytes private currentData;
+
+    function createStableswapTwammPool(uint64 fee, uint8 amplification, int32 centerTick, int32 tick)
+        internal
+        returns (PoolKey memory poolKey)
+    {
+        poolKey = createPool(
+            address(token0),
+            address(token1),
+            tick,
+            createStableswapPoolConfig(fee, amplification, centerTick, address(twamm))
+        );
+    }
+
+    function test_createPool_stableswap() public {
+        uint256 time = 1000;
+        vm.warp(time);
+
+        // Create a stableswap pool with amplification factor 10 and center tick 0
+        PoolKey memory key = createStableswapTwammPool(100, 10, 0, 0);
+
+        (uint32 lvoe, uint112 srt0, uint112 srt1) = twamm.poolState(key.toPoolId()).parse();
+        assertEq(lvoe, uint32(time));
+        assertEq(srt0, 0);
+        assertEq(srt1, 0);
+    }
+
+    function locked_6416899205(uint256) external {
+        if (keccak256(bytes(currentAction)) == keccak256("createAndExecuteOrders")) {
+            (
+                PoolKey memory poolKey,
+                bytes32 salt1,
+                bytes32 salt2,
+                OrderKey memory orderKey0,
+                OrderKey memory orderKey1,
+                int112 saleRate0,
+                int112 saleRate1
+            ) = abi.decode(currentData, (PoolKey, bytes32, bytes32, OrderKey, OrderKey, int112, int112));
+
+            // Create orders (only if sale rate is non-zero)
+            if (saleRate0 != 0) {
+                int256 amount0 = core.updateSaleRate(twamm, salt1, orderKey0, saleRate0);
+                if (amount0 > 0) token0.transfer(address(core), uint256(amount0));
+            }
+            if (saleRate1 != 0) {
+                int256 amount1 = core.updateSaleRate(twamm, salt2, orderKey1, saleRate1);
+                if (amount1 > 0) token1.transfer(address(core), uint256(amount1));
+            }
+        } else if (keccak256(bytes(currentAction)) == keccak256("collectProceeds")) {
+            (bytes32 salt, OrderKey memory orderKey) = abi.decode(currentData, (bytes32, OrderKey));
+
+            uint128 proceeds = core.collectProceeds(twamm, salt, orderKey);
+
+            // Store proceeds in currentData for retrieval
+            currentData = abi.encode(proceeds);
+        }
+    }
+
+    function test_stableswap_orders_settle_at_sale_rate_ratio_when_out_of_range() public {
+        uint64 time = boundTime(1000, 1);
+        vm.warp(time);
+
+        // Create a stableswap pool with amplification factor 10
+        // This creates a narrow liquidity range around tick 0
+        uint64 fee = 0;
+        uint8 amplification = 10;
+        int32 centerTick = 0;
+
+        PoolKey memory poolKey = createStableswapTwammPool(fee, amplification, centerTick, 0);
+
+        // Add a small amount of liquidity in the stableswap range
+        // With amplification 10, the liquidity range is narrow
+        (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1000, 1000);
+
+        // Create orders with 2:1 sale rate ratio (selling 2x token1 vs token0)
+        bytes32 salt = bytes32(uint256(1));
+        OrderKey memory orderKey0 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 63})
+        });
+        OrderKey memory orderKey1 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: time - 1, _endTime: time + 63})
+        });
+
+        // Deposit tokens and create orders
+        token0.approve(address(core), type(uint256).max);
+        token1.approve(address(core), type(uint256).max);
+
+        // Create orders using locked callback
+        currentAction = "createAndExecuteOrders";
+        currentData = abi.encode(
+            poolKey,
+            salt,
+            bytes32(uint256(2)),
+            orderKey0,
+            orderKey1,
+            int112(uint112((1e18 << 32) / 64)),
+            int112(uint112((2e18 << 32) / 64))
+        );
+        core.lock();
+
+        // Advance time - orders will push price out of liquidity range
+        // When liquidity becomes 0, orders settle at the ratio of sale rates
+        advanceTime(64);
+
+        // Collect proceeds
+        currentAction = "collectProceeds";
+        currentData = abi.encode(salt, orderKey0);
+        core.lock();
+        uint128 proceeds0 = abi.decode(currentData, (uint128));
+
+        currentData = abi.encode(bytes32(uint256(2)), orderKey1);
+        core.lock();
+        uint128 proceeds1 = abi.decode(currentData, (uint128));
+
+        // When liquidity is 0, orders should settle at the ratio of sale rates
+        // Sale rate ratio is 2:1 (token1:token0), so:
+        // - Order selling 1e18 token0 should receive ~2e18 token1
+        // - Order selling 2e18 token1 should receive ~1e18 token0
+
+        // Check that the ratio is approximately 2:1
+        assertGt(proceeds0, 1.9e18, "Order 0 should receive close to 2e18");
+        assertLt(proceeds0, 2.1e18, "Order 0 should not receive much more than 2e18");
+
+        assertGt(proceeds1, 0.9e18, "Order 1 should receive close to 1e18");
+        assertLt(proceeds1, 1.1e18, "Order 1 should not receive much more than 1e18");
+    }
+
+    function test_stableswap_zero_sale_rate_one_side_receives_nothing() public {
+        uint64 time = boundTime(1000, 1);
+        vm.warp(time);
+
+        // Create a stableswap pool
+        uint64 fee = 0;
+        uint8 amplification = 10;
+        int32 centerTick = 0;
+
+        PoolKey memory poolKey = createStableswapTwammPool(fee, amplification, centerTick, 0);
+
+        // Add liquidity in the stableswap range
+        (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1000, 1000);
+
+        // Create order selling only token0 (no token1 being sold)
+        bytes32 salt = bytes32(uint256(1));
+        OrderKey memory orderKey0 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: time - 1, _endTime: time + 63})
+        });
+
+        token0.approve(address(core), type(uint256).max);
+
+        // Create order using locked callback
+        currentAction = "createAndExecuteOrders";
+        currentData = abi.encode(
+            poolKey,
+            salt,
+            bytes32(0), // unused salt2
+            orderKey0,
+            orderKey0, // unused orderKey1
+            int112(uint112((1e18 << 32) / 64)),
+            int112(0) // zero sale rate for token1
+        );
+        core.lock();
+
+        // Advance time
+        advanceTime(64);
+
+        // When there's zero sale rate on the token1 side and liquidity is 0,
+        // the token0 order should receive no output tokens
+        currentAction = "collectProceeds";
+        currentData = abi.encode(salt, orderKey0);
+        core.lock();
+        uint128 proceeds0 = abi.decode(currentData, (uint128));
+
+        // The order should receive 0 or very close to 0 tokens
+        assertLt(proceeds0, 1e10, "Order should receive essentially nothing when counterparty has zero sale rate");
+    }
+
+    function test_stableswap_both_sides_zero_when_out_of_range() public {
+        uint64 time = boundTime(1000, 1);
+        vm.warp(time);
+
+        // Create a stableswap pool
+        uint64 fee = 0;
+        uint8 amplification = 10;
+        int32 centerTick = 0;
+
+        PoolKey memory poolKey = createStableswapTwammPool(fee, amplification, centerTick, 0);
+
+        // Add liquidity in the stableswap range
+        (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+        createPosition(poolKey, lower, upper, 1000, 1000);
+
+        // Create order selling only token1 (no token0 being sold)
+        bytes32 salt = bytes32(uint256(1));
+        OrderKey memory orderKey1 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: true, _startTime: time - 1, _endTime: time + 63})
+        });
+
+        token1.approve(address(core), type(uint256).max);
+
+        // Create order using locked callback
+        currentAction = "createAndExecuteOrders";
+        currentData = abi.encode(
+            poolKey,
+            bytes32(0), // unused salt1
+            salt,
+            orderKey1, // unused orderKey0
+            orderKey1,
+            int112(0), // zero sale rate for token0
+            int112(uint112((1e18 << 32) / 64))
+        );
+        core.lock();
+
+        // Advance time
+        advanceTime(64);
+
+        // When there's zero sale rate on the token0 side and liquidity is 0,
+        // the token1 order should receive no output tokens
+        currentAction = "collectProceeds";
+        currentData = abi.encode(salt, orderKey1);
+        core.lock();
+        uint128 proceeds1 = abi.decode(currentData, (uint128));
+
+        // The order should receive 0 or very close to 0 tokens
+        assertLt(proceeds1, 1e10, "Order should receive essentially nothing when counterparty has zero sale rate");
     }
 }
 

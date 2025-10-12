@@ -632,7 +632,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
         override(BaseExtension, IExtension)
         onlyCore
     {
-        if (!key.config.isFullRange()) revert FullRangePoolOnly();
+        // Allow both full range and stableswap pools
+        if (key.config.isConcentrated()) revert FullRangePoolOnly();
 
         PoolId poolId = key.toPoolId();
 

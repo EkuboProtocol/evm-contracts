@@ -30,7 +30,7 @@ interface ITWAMM is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @notice Thrown when the number of orders at a time would overflow
     error TimeNumOrdersOverflow();
 
-    /// @notice Thrown when tick spacing is not the maximum allowed value
+    /// @notice Thrown when trying to use TWAMM with a concentrated liquidity pool
     error FullRangePoolOnly();
 
     /// @notice Thrown when trying to modify an order that has already ended

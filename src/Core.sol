@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
@@ -41,6 +41,8 @@ import {LibBit} from "solady/utils/LibBit.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Singleton contract holding all tokens and containing all possible operations in Ekubo Protocol
 /// @dev Implements the core AMM functionality including pools, positions, swaps, and fee collection
+/// @dev Note this code is under the terms of the Ekubo DAO Shared Revenue License 1.0.
+/// @dev The full terms of the license can be found at the contenthash specified at ekubo-license-v1.eth.
 contract Core is ICore, FlashAccountant, ExposedStorage {
     using ExtensionCallPointsLib for *;
 

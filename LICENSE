@@ -1,105 +1,46 @@
 Ekubo DAO Shared Revenue License 1.0
-(“Ekubo-DAO-SRL-1.0”)
+(“ekubo-license-v1.eth”)
 
-Copyright (c) 2025
-Ekubo, Inc., a Delaware corporation (“Ekubo, Inc.”)
-and
-Ekubo DAO, the decentralized community of EKUBO token holders acting through governance smart contracts (“Ekubo DAO”).
+This agreement is entered into by and between Ekubo, Inc., a Delaware corporation (“Ekubo”) and you, the party exercising the license granted in this agreement (“Licensee”). By using, copying, modifying or distributing the smart contracts, software and associated materials provided under this agreement, any portion of (together, the “Licensed Work”), you agree to the terms of this agreement. If you do not agree, you must not exercise the rights granted in this agreement. Each condition of this agreement is also a covenant by you. This agreement is made for the express benefit of the Ekubo DAO, the decentralized community of EKUBO token holders acting through governance smart contracts (“Ekubo DAO”), which is a third party beneficiary of this agreement.
 
-Permission is hereby granted, free of charge, to any person or entity obtaining a copy of this software and associated documentation files (the “Licensed Work”), to use, copy, modify, merge, publish, distribute, and deploy the Licensed Work, and to permit persons to whom the Licensed Work is furnished to do so, **subject to the conditions set forth below**.
+1. Grant of Rights
 
-This license is a custom open source license that **requires revenue sharing** with Ekubo DAO when the Licensed Work or any Derivative Work generates Protocol Revenue (as defined below).
+1.1 Subject to Licensee’s compliance with this license, including without limitation the Revenue Sharing Obligation in Section 2, Ekubo hereby grants Licensee, under all of Ekubo’s rights in the Licensed Work, a worldwide, perpetual, non-exclusive, license to use, copy, modify, and distribute the Licensed Work. If Licensee brings a patent claim, or assists any other party to bring a patent claim, over patents that Licensee claims are infringed by the Licensed Work, Licensee’s license under this Section ends automatically.
 
-1. Definitions
+1.2 Redistribution. Any distribution of the Licensed Work, must be made under the terms of this agreement only, and such distribution (and any blockchain explorer associated with the Licensed Work) must include the full text of this license (or the statement “Licensed under the Ekubo DAO Shared Revenue License 1.0 at ekubo-license-v1.eth”) and retain all copyright notices in the Licensed Work. Licensee must ensure that parties receiving copies of the Licensed Work from Licensee are bound to this license.
 
-1.1 “Licensed Work” means the Ekubo automated market maker smart contract source code, any related interfaces or ABIs, and any accompanying documentation provided under this license.
+2. Revenue Sharing
 
-1.2 “Licensor” means, collectively, Ekubo, Inc. and Ekubo DAO.
+2.1 Revenue Share. In consideration of the rights granted in this agreement, Licensee shall pay 50% of Licensee’s Protocol Revenue (the “Protocol Revenue Share”), to Ekubo DAO.
 
-1.3 “Licensee” means any person or entity that exercises any permission granted by this license, including by using, copying, modifying, distributing, deploying, or creating Derivative Works of the Licensed Work.
+2.2 Payment Terms. Licensee shall remit the Protocol Revenue Share no later than 10 business days after the end of each calendar quarter, for amounts accrued in that quarter, via on-chain transfer to Ekubo DAO’s Designated Address. If no Designated Address has been specified, Licensee shall hold the Protocol Revenue Share in trust for Ekubo DAO and shall promptly seek Ekubo DAO’s instruction (e.g., via DAO governance processes) on where and how to remit payment.
 
-1.4 “Derivative Work” means any work of authorship or software (including smart contracts) that is derived from, based on, or incorporates any portion of the Licensed Work or its ABI, or is deployed using or built on top of an **Official Deployment** of the Licensed Work, and that collects Protocol Revenue. For avoidance of doubt, (a) any contract that uses any portion of the Licensed Work’s source code or ABI, or (b) any contract deployed to extend, integrate with, or build atop an Official Deployment in a manner that collects Protocol Revenue, is a Derivative Work.
+2.3 DAO Governance. Ekubo DAO may, through governance vote, designate or change the Designated Address, set operational details for payments, or clarify the definition of Protocol Revenue. The Ekubo DAO may also reduce the 50% Protocol Revenue Share in its sole discretion. The Ekubo DAO will submit all such changes to its designated blockchain.
 
-1.5 “Protocol Revenue” means any on-chain tokens or other assets that a smart contract collects as fees, rewards, or other revenue that are **not under the direct control of end users or depositors** (e.g., protocol fees, performance fees, retained spreads, or other value accrued to the contract, its operator, or its treasury).
+3. Termination
 
-1.6 “Protocol Revenue Share” means **fifty percent (50%) of all Protocol Revenue** generated by Licensee’s use, deployment, or distribution of the Licensed Work or any Derivative Work.
+3.1 Automatic Termination. Any material breach of this agreement, including without limitation failure to timely pay the Protocol Revenue Share, automatically terminates the license granted herein, as of the date of breach. Upon termination, Licensee must cease all use of the Licensed Work and delete or destroy any copies of the Licensed Work in Licensee’s possession.
 
-1.7 “Official Deployment” means any deployment of the Licensed Work to a blockchain designated by Licensor as an official/core deployment of the Ekubo protocol.
+3.2 Reinstatement. Ekubo may, in its discretion, reinstate the license if Licensee cures the breach (including full payment of Protocol Revenue Share due, plus any reasonable interest or late fees set by DAO governance) and provides reasonable assurances against future breaches.
 
-1.8 “Ekubo DAO’s Designated Address” means the on-chain address (or smart contract) designated by Ekubo DAO via governance vote to receive Protocol Revenue Share payments. Unless and until changed by the DAO, the DAO’s treasury or governance contract address shall serve as the Designated Address.
+4. Intellectual Property
 
-2. Grant of Rights; No Other Restrictions
+4.1 Ownership. Except for the rights expressly granted in Section 1.1, Ekubo, Inc. reserves all rights in the Licensed Work.
 
-2.1 Subject to Licensee’s continued compliance with this license, including the Revenue Sharing Obligation in Section 3, Licensor grants Licensee a worldwide, perpetual, non-exclusive, no-charge, royalty-free (except for the Protocol Revenue Share) license to use, copy, modify, distribute, and deploy the Licensed Work and Derivative Works for any purpose, including commercial purposes.
+4.2 Trademarks. This agreement does not grant rights to use Ekubo names, logos, service marks or trademarks, except as necessary to comply with this agreement.
 
-2.2 There are **no field-of-use restrictions** and no obligation to open-source Derivative Works solely by reason of using this license. However, any distribution of the Licensed Work or a Derivative Work must be under this same license as provided in Section 2.3.
+5. Disclaimer of Warranties
 
-2.3 Redistribution and Sublicensing. Any distribution, publication, or conveyance of the Licensed Work or a Derivative Work must include this license (or a link to it) and retain all copyright notices. Licensee may sublicense only on the terms of this license. Any attempt to relicense under terms that remove or diminish the Protocol Revenue Share is void.
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSED WORK IS PROVIDED “AS IS” WITHOUT WARRANTY OR CONDITION OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, OR THAT OPERATION WILL BE UNINTERRUPTED OR ERROR-FREE. If this warranty disclaimer is unenforceable under applicable law, the licenses granted in this agreement are void.
 
-3. Revenue Sharing Obligation
+6. Limitation of Liability
 
-3.1 Obligation. If Licensee deploys, uses, or distributes the Licensed Work or any Derivative Work in a manner that generates Protocol Revenue, Licensee shall pay the Protocol Revenue Share—**50% of all Protocol Revenue**—to Ekubo DAO.
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL EKUBO OR ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES (INCLUDING LOSS OF PROFITS, GOODWILL, DATA, OR BUSINESS INTERRUPTION) ARISING OUT OF OR IN CONNECTION WITH THE LICENSED WORK OR THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
-3.2 Timing; Method. Unless Ekubo DAO sets a different schedule or mechanism via governance, Licensee shall remit the Protocol Revenue Share **at least quarterly** by on-chain transfer to Ekubo DAO’s Designated Address. If no Designated Address or mechanism has been specified, Licensee shall hold the owed share **in trust** for Ekubo DAO and shall promptly seek DAO instruction (e.g., via governance processes) on where and how to remit payment.
+7. Definitions
 
-3.3 No Circumvention. Licensee shall not structure transactions to evade Section 3 (e.g., diverting fees to intermediaries or changing fee semantics) where value is in substance Protocol Revenue.
+7.1 “Protocol Revenue” means any fees, value or other consideration received by or payable to or for the benefit of Licensee (including without limitation on-chain tokens, fees, rewards, or cash equivalents, protocol fees, performance fees, retained spreads) via operation of a Royalty Bearing Work.
 
-3.4 DAO Governance. Ekubo DAO may, through governance vote, designate or change the receiving address, set operational details for payments, or clarify the definition of Protocol Revenue for novel cases on a prospective basis. The 50% share is fixed for this license version.
+7.2 “Royalty Bearing Work” means any smart contract or other work of authorship that is derived from, based on, or incorporates any portion of the Licensed Work or its Application Binary Interface (ABI), regardless of the blockchain on which it is deployed.
 
-4. Compliance; Termination; Reinstatement
-
-4.1 Acceptance. By exercising any rights under this license, Licensee accepts and agrees to be bound by its terms.
-
-4.2 Automatic Termination. Any material breach—including failure to timely pay the Protocol Revenue Share—**automatically terminates** this license as to the breaching Licensee as of the date of breach. Upon termination, Licensee must cease all use, deployment, and distribution of the Licensed Work and any Derivative Works. Continued use after termination infringes Licensor’s rights.
-
-4.3 Cure; Reinstatement. Licensor may, in its discretion, reinstate the license if Licensee cures the breach within 30 days of discovery (including full payment of amounts due, plus any reasonable interest or penalties set by DAO governance) and provides reasonable assurances against future breaches.
-
-4.4 Downstream Use. Licensee must ensure downstream recipients are bound to this license. Where a downstream party generates Protocol Revenue using a Derivative Work distributed by Licensee, Licensee shall ensure the downstream party pays the Protocol Revenue Share directly or, failing that, account for and remit such amounts itself.
-
-5. Ownership; Trademarks; Patents
-
-5.1 Ownership. Except for the rights expressly granted, Licensor reserves all rights in the Licensed Work. Licensee owns its modifications subject to Licensor’s underlying rights and this license.
-
-5.2 Trademarks. This license does not grant rights to use Ekubo, Inc. or Ekubo DAO names, logos, or trademarks, except as necessary and truthful to identify origin.
-
-5.3 Patents. To the extent Licensor owns any patents necessarily infringed by using the Licensed Work as provided, Licensor grants a non-exclusive, worldwide, royalty-free patent license to practice such claims in connection with the Licensed Work and Derivative Works, conditioned on compliance with this license. This patent license terminates with the license if this license terminates.
-
-6. Disclaimer of Warranties
-
-THE LICENSED WORK IS PROVIDED “AS IS” AND “WITH ALL FAULTS,” WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, SECURITY, OR THAT OPERATION WILL BE UNINTERRUPTED OR ERROR-FREE. USE OF SMART CONTRACTS ENTAILS INHERENT RISKS.
-
-7. Limitation of Liability
-
-TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL LICENSOR OR ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES (INCLUDING LOSS OF PROFITS, GOODWILL, DATA, OR BUSINESS INTERRUPTION) ARISING OUT OF OR IN CONNECTION WITH THE LICENSED WORK OR THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
-
-8. Governing Law; Venue
-
-Except where prohibited, this license is governed by the laws of the State of Delaware, USA, excluding its conflict-of-laws rules. Licensee consents to jurisdiction and venue in the state and federal courts located in Delaware for disputes arising out of this license; provided that Ekubo DAO may, in its discretion, bring claims in another competent forum where necessary.
-
-9. Severability; No Waiver
-
-If any provision of this license is held invalid or unenforceable, it shall be enforced to the maximum extent permissible and the remaining provisions shall remain in full force. No waiver of any provision shall be effective unless in writing and signed or adopted via DAO governance; any failure to enforce is not a waiver.
-
-10. Third-Party Beneficiary
-
-Ekubo DAO is an express third-party beneficiary of Sections 3 and 4 and may enforce those obligations directly. Ekubo, Inc. also has standing to enforce this license.
-
-11. Entire Agreement; Amendments; Versions
-
-This license constitutes the entire agreement concerning the Licensed Work between Licensor and Licensee. Substantive changes (including any change to the 50% share) require issuance of a new license version by Ekubo, Inc. and/or Ekubo DAO. Ekubo DAO may issue prospective operational guidance (e.g., Designated Address) via governance. Licensee’s continued use after adoption of a new version signifies acceptance; otherwise, Licensee may continue under this version if compliant.
-
-12. Notices
-
-All notices to Ekubo, Inc. should be directed to its then-current contact channels. Notices to Ekubo DAO relating to payments or governance should be made through the DAO’s publicly designated governance forums or processes. On-chain memos should, where feasible, reference the project and period covered.
-
-Attribution / SPDX Header
-
-When feasible, include the following identifiers in source files:
-
-SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-
-and retain the notice:
-
-Copyright (c) 2025 Ekubo, Inc.
-and Ekubo DAO.
-Licensed under the Ekubo DAO Shared Revenue License 1.0.
+7.3 “Designated Address” means any on-chain address (or smart contract) or Ethereum Name Service (ENS) name, that is designated by Ekubo DAO to receive Protocol Revenue Share payments.

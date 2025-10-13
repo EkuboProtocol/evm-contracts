@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {BaseLocker} from "./BaseLocker.sol";
@@ -34,6 +34,10 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
     /// @param core The core contract instance
     /// @param owner The owner of the contract (for access control)
     constructor(ICore core, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {}
+
+    uint256 private constant CALL_TYPE_DEPOSIT = 0;
+    uint256 private constant CALL_TYPE_WITHDRAW = 1;
+    uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 2;
 
     /// @inheritdoc IPositions
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
@@ -87,7 +91,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         }
 
         (amount0, amount1) = abi.decode(
-            lock(abi.encode(bytes1(0xdd), msg.sender, id, poolKey, tickLower, tickUpper, liquidity)), (uint128, uint128)
+            lock(abi.encode(CALL_TYPE_DEPOSIT, msg.sender, id, poolKey, tickLower, tickUpper, liquidity)),
+            (uint128, uint128)
         );
     }
 
@@ -122,7 +127,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         bool withFees
     ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
         (amount0, amount1) = abi.decode(
-            lock(abi.encode(bytes1(0xff), id, poolKey, tickLower, tickUpper, liquidity, recipient, withFees)),
+            lock(abi.encode(CALL_TYPE_WITHDRAW, id, poolKey, tickLower, tickUpper, liquidity, recipient, withFees)),
             (uint128, uint128)
         );
     }
@@ -183,7 +188,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         payable
         onlyOwner
     {
-        lock(abi.encode(bytes1(0xee), token0, token1, amount0, amount1, recipient));
+        lock(abi.encode(CALL_TYPE_WITHDRAW_PROTOCOL_FEES, token0, token1, amount0, amount1, recipient));
     }
 
     /// @inheritdoc IPositions
@@ -222,17 +227,11 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
     /// @param data Encoded operation data
     /// @return result Encoded result data
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        bytes1 callType = data[0];
+        uint256 callType = abi.decode(data, (uint256));
 
-        if (callType == 0xee) {
-            (, address token0, address token1, uint128 amount0, uint128 amount1, address recipient) =
-                abi.decode(data, (bytes1, address, address, uint128, uint128, address));
-
-            CORE.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
-            ACCOUNTANT.withdrawTwo(token0, token1, recipient, amount0, amount1);
-        } else if (callType == 0xdd) {
+        if (callType == CALL_TYPE_DEPOSIT) {
             (, address caller, uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
-            = abi.decode(data, (bytes1, address, uint256, PoolKey, int32, int32, uint128));
+            = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128));
 
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(
                 poolKey,
@@ -256,7 +255,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
             }
 
             result = abi.encode(amount0, amount1);
-        } else if (callType == 0xff) {
+        } else if (callType == CALL_TYPE_WITHDRAW) {
             (
                 ,
                 uint256 id,
@@ -266,7 +265,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
                 uint128 liquidity,
                 address recipient,
                 bool withFees
-            ) = abi.decode(data, (bytes1, uint256, PoolKey, int32, int32, uint128, address, bool));
+            ) = abi.decode(data, (uint256, uint256, PoolKey, int32, int32, uint128, address, bool));
 
             uint128 amount0;
             uint128 amount1;
@@ -320,8 +319,15 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
             ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
 
             result = abi.encode(amount0, amount1);
+        } else if (callType == CALL_TYPE_WITHDRAW_PROTOCOL_FEES) {
+            (, address token0, address token1, uint128 amount0, uint128 amount1, address recipient) =
+                abi.decode(data, (uint256, address, address, uint128, uint128, address));
+
+            CORE.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
+            ACCOUNTANT.withdrawTwo(token0, token1, recipient, amount0, amount1);
         } else {
-            revert UnexpectedCallTypeByte(callType);
+            // Will never actually happen
+            revert();
         }
     }
 }

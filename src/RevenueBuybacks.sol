@@ -131,9 +131,9 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
             }
 
             if (amountToSpend != 0) {
-                saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
-                    NFT_ID, _createOrderKey(token, state.fee(), 0, endTime), uint128(amountToSpend), type(uint112).max
-                );
+                saleRate = ORDERS.increaseSellAmount{
+                    value: isEth ? amountToSpend : 0
+                }(NFT_ID, _createOrderKey(token, state.fee(), 0, endTime), uint128(amountToSpend), type(uint112).max);
             }
         }
     }

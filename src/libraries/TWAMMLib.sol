@@ -98,8 +98,9 @@ library TWAMMLib {
                         )
                     );
 
-                    amountSold +=
-                        computeAmountFromSaleRate({saleRate: saleRate, duration: saleDuration, roundUp: false});
+                    amountSold += computeAmountFromSaleRate({
+                        saleRate: saleRate, duration: saleDuration, roundUp: false
+                    });
                 }
                 if (block.timestamp < endTime) {
                     remainingSellAmount = computeAmountFromSaleRate({

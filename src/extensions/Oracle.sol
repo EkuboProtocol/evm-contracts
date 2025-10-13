@@ -224,10 +224,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 }
             }
             c = createCounts({
-                _index: c.index(),
-                _count: c.count(),
-                _capacity: minCapacity,
-                _lastTimestamp: c.lastTimestamp()
+                _index: c.index(), _count: c.count(), _capacity: minCapacity, _lastTimestamp: c.lastTimestamp()
             });
             assembly ("memory-safe") {
                 sstore(token, c)
@@ -355,10 +352,9 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                         )
                     );
                     secondsPerLiquidityCumulative += uint160(
-                        (
-                            uint256(timePassed)
-                                * (next.secondsPerLiquidityCumulative() - snapshot.secondsPerLiquidityCumulative())
-                        ) / timestampDifference
+                        (uint256(timePassed)
+                                * (next.secondsPerLiquidityCumulative() - snapshot.secondsPerLiquidityCumulative()))
+                            / timestampDifference
                     );
                 }
             }

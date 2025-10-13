@@ -128,7 +128,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         // positive is saving, negative is loading
         int256 delta0,
         int256 delta1
-    ) external payable {
+    )
+        external
+        payable
+    {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
         (uint256 id, address lockerAddr) = _requireLocker().parse();
@@ -361,9 +364,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         Locker locker = _requireLocker();
 
-        IExtension(poolKey.config.extension()).maybeCallBeforeUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta
-        );
+        IExtension(poolKey.config.extension())
+            .maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
 
         PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
@@ -441,9 +443,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, balanceUpdate, state);
         }
 
-        IExtension(poolKey.config.extension()).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta, balanceUpdate, state
-        );
+        IExtension(poolKey.config.extension())
+            .maybeCallAfterUpdatePosition(locker, poolKey, positionId, liquidityDelta, balanceUpdate, state);
     }
 
     /// @inheritdoc ICore
@@ -796,9 +797,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (feesAccessed == 2) {
                     // this stores only the input token fees per liquidity
-                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing)).store(
-                        bytes32(inputTokenFeesPerLiquidity)
-                    );
+                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
+                        .store(bytes32(inputTokenFeesPerLiquidity));
                 }
 
                 _updatePairDebtWithNative(
@@ -815,9 +815,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            IExtension(poolKey.config.extension()).maybeCallAfterSwap(
-                locker, poolKey, params, balanceUpdate, stateAfter
-            );
+            IExtension(poolKey.config.extension())
+                .maybeCallAfterSwap(locker, poolKey, params, balanceUpdate, stateAfter);
 
             assembly ("memory-safe") {
                 let free := mload(0x40)

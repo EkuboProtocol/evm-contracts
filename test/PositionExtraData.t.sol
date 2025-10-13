@@ -73,17 +73,13 @@ contract PositionExtraDataTest is Test {
         token1.transfer(address(locker), type(uint128).max);
 
         poolKey = PoolKey({
-            token0: address(token0),
-            token1: address(token1),
-            config: createConcentratedPoolConfig(3000, 60, address(0))
+            token0: address(token0), token1: address(token1), config: createConcentratedPoolConfig(3000, 60, address(0))
         });
 
         core.initializePool(poolKey, 0);
     }
 
-    function test_setExtraData_position_does_not_exist(PoolId poolId, PositionId positionId, bytes16 extraData)
-        public
-    {
+    function test_setExtraData_position_does_not_exist(PoolId poolId, PositionId positionId, bytes16 extraData) public {
         locker.setExtraData(poolId, positionId, extraData);
         Position memory position = core.poolPositions(poolId, address(locker), positionId);
         assertEq(position.liquidity, 0);
@@ -123,9 +119,10 @@ contract PositionExtraDataTest is Test {
         assertEq(position.liquidity, liquidity, "liquidity should still equal what we set");
     }
 
-    function test_setExtraData_stays_when_position_liquidity_is_set_to_zero(uint128 liquidity, bytes16 extraDataNonZero)
-        public
-    {
+    function test_setExtraData_stays_when_position_liquidity_is_set_to_zero(
+        uint128 liquidity,
+        bytes16 extraDataNonZero
+    ) public {
         liquidity = uint128(bound(liquidity, 1, type(uint64).max));
 
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});

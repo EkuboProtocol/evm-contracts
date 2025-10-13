@@ -15,43 +15,38 @@ struct CallPoints {
 using {eq, isValid, toUint8} for CallPoints global;
 
 function eq(CallPoints memory a, CallPoints memory b) pure returns (bool) {
-    return (
-        a.beforeInitializePool == b.beforeInitializePool && a.afterInitializePool == b.afterInitializePool
+    return (a.beforeInitializePool == b.beforeInitializePool && a.afterInitializePool == b.afterInitializePool
             && a.beforeSwap == b.beforeSwap && a.afterSwap == b.afterSwap
             && a.beforeUpdatePosition == b.beforeUpdatePosition && a.afterUpdatePosition == b.afterUpdatePosition
-            && a.beforeCollectFees == b.beforeCollectFees && a.afterCollectFees == b.afterCollectFees
-    );
+            && a.beforeCollectFees == b.beforeCollectFees && a.afterCollectFees == b.afterCollectFees);
 }
 
 function isValid(CallPoints memory a) pure returns (bool) {
-    return (
-        a.beforeInitializePool || a.afterInitializePool || a.beforeSwap || a.afterSwap || a.beforeUpdatePosition
-            || a.afterUpdatePosition || a.beforeCollectFees || a.afterCollectFees
-    );
+    return (a.beforeInitializePool || a.afterInitializePool || a.beforeSwap || a.afterSwap || a.beforeUpdatePosition
+            || a.afterUpdatePosition || a.beforeCollectFees || a.afterCollectFees);
 }
 
 function toUint8(CallPoints memory callPoints) pure returns (uint8 b) {
     assembly ("memory-safe") {
-        b :=
+        b := add(
             add(
                 add(
                     add(
                         add(
                             add(
-                                add(
-                                    add(mload(callPoints), mul(128, mload(add(callPoints, 32)))),
-                                    mul(64, mload(add(callPoints, 64)))
-                                ),
-                                mul(32, mload(add(callPoints, 96)))
+                                add(mload(callPoints), mul(128, mload(add(callPoints, 32)))),
+                                mul(64, mload(add(callPoints, 64)))
                             ),
-                            mul(16, mload(add(callPoints, 128)))
+                            mul(32, mload(add(callPoints, 96)))
                         ),
-                        mul(8, mload(add(callPoints, 160)))
+                        mul(16, mload(add(callPoints, 128)))
                     ),
-                    mul(4, mload(add(callPoints, 192)))
+                    mul(8, mload(add(callPoints, 160)))
                 ),
-                mul(2, mload(add(callPoints, 224)))
-            )
+                mul(4, mload(add(callPoints, 192)))
+            ),
+            mul(2, mload(add(callPoints, 224)))
+        )
     }
 }
 

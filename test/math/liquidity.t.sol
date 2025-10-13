@@ -26,12 +26,13 @@ contract LiquidityTest is Test {
     }
 
     function test_liquidityDeltaToAmountDelta_full_range_mid_price() public pure {
-        (int128 amount0, int128 amount1) = liquidityDeltaToAmountDelta(
-            ONE, // (1 << 128)
-            10000,
-            MIN_SQRT_RATIO,
-            MAX_SQRT_RATIO
-        );
+        (int128 amount0, int128 amount1) =
+            liquidityDeltaToAmountDelta(
+                ONE, // (1 << 128)
+                10000,
+                MIN_SQRT_RATIO,
+                MAX_SQRT_RATIO
+            );
         assertEq(amount0, 10000, "amount0");
         assertEq(amount1, 10000, "amount1");
     }
@@ -42,8 +43,9 @@ contract LiquidityTest is Test {
         uint256 sqrtRatioLowerFixed,
         uint256 sqrtRatioUpperFixed
     ) public view {
-        SqrtRatio sqrtRatio =
-            toSqrtRatio(bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
+        SqrtRatio sqrtRatio = toSqrtRatio(
+            bound(sqrtRatioFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false
+        );
         SqrtRatio sqrtRatioLower =
             toSqrtRatio(bound(sqrtRatioLowerFixed, MIN_SQRT_RATIO.toFixed(), MAX_SQRT_RATIO.toFixed()), false);
         SqrtRatio sqrtRatioUpper =

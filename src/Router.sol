@@ -309,10 +309,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         balanceUpdate = swap(
             poolKey,
             createSwapParameters({
-                _isToken1: isToken1,
-                _amount: amount,
-                _sqrtRatioLimit: sqrtRatioLimit,
-                _skipAhead: skipAhead
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
             }),
             calculatedAmountThreshold,
             recipient
@@ -335,8 +332,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         uint256 skipAhead,
         int256 calculatedAmountThreshold
     ) external payable returns (PoolBalanceUpdate balanceUpdate) {
-        balanceUpdate =
-            swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender);
+        balanceUpdate = swap(
+            poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender
+        );
     }
 
     /// @notice Executes a single-hop swap with no slippage protection
@@ -427,10 +425,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 CALL_TYPE_QUOTE,
                 poolKey,
                 createSwapParameters({
-                    _isToken1: isToken1,
-                    _amount: amount,
-                    _sqrtRatioLimit: sqrtRatioLimit,
-                    _skipAhead: skipAhead
+                    _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
                 })
             )
         );

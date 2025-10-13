@@ -89,10 +89,11 @@ contract TWAMMStorageLayoutTest is Test {
     }
 
     // Test poolTimeInfosSlot uniqueness with different times
-    function test_noStorageLayoutCollisions_poolTimeInfosSlot_uniqueness_time(PoolId poolId, uint64 time0, uint64 time1)
-        public
-        pure
-    {
+    function test_noStorageLayoutCollisions_poolTimeInfosSlot_uniqueness_time(
+        PoolId poolId,
+        uint64 time0,
+        uint64 time1
+    ) public pure {
         vm.assume(time0 != time1);
         bytes32 slot0 = StorageSlot.unwrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time0));
         bytes32 slot1 = StorageSlot.unwrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time1));

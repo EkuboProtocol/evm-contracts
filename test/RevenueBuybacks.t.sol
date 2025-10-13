@@ -221,10 +221,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         address token = isEth ? address(0) : address(token0);
         rb.configure({
-            token: token,
-            targetOrderDuration: targetOrderDuration,
-            minOrderDuration: minOrderDuration,
-            fee: poolFee
+            token: token, targetOrderDuration: targetOrderDuration, minOrderDuration: minOrderDuration, fee: poolFee
         });
 
         if (!isEth) {

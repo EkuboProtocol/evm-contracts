@@ -177,7 +177,9 @@ contract DeployAndTestGas is Script {
 
         // 11. Add liquidity to ETH/token0 pool
         console2.log("Adding liquidity to ETH/token0 pool...");
-        positions.mintAndDepositWithSalt{value: ETH_AMOUNT}(
+        positions.mintAndDepositWithSalt{
+            value: ETH_AMOUNT
+        }(
             bytes32(uint256(0)),
             ethToken0Pool,
             -1000, // tickLower
@@ -190,7 +192,9 @@ contract DeployAndTestGas is Script {
 
         // 12. Add liquidity to ETH/token1 pool
         console2.log("Adding liquidity to ETH/token1 pool...");
-        positions.mintAndDepositWithSalt{value: ETH_AMOUNT}(
+        positions.mintAndDepositWithSalt{
+            value: ETH_AMOUNT
+        }(
             bytes32(uint256(1)),
             ethToken1Pool,
             -1000, // tickLower
@@ -216,7 +220,9 @@ contract DeployAndTestGas is Script {
 
         // 14. Add liquidity to ETH/token0 Oracle pool
         console2.log("Adding liquidity to ETH/token0 Oracle pool...");
-        positions.mintAndDeposit{value: ETH_AMOUNT}(
+        positions.mintAndDeposit{
+            value: ETH_AMOUNT
+        }(
             ethToken0OraclePool,
             MIN_TICK, // tickLower - full range required for Oracle
             MAX_TICK, // tickUpper - full range required for Oracle
@@ -248,13 +254,12 @@ contract DeployAndTestGas is Script {
 
         // 15. Swap ETH for token0
         console2.log("Swapping ETH for token0...");
-        PoolBalanceUpdate balanceUpdate1 = router.swap{value: SWAP_AMOUNT}(
+        PoolBalanceUpdate balanceUpdate1 = router.swap{
+            value: SWAP_AMOUNT
+        }(
             ethToken0Pool,
             createSwapParameters({
-                _isToken1: false,
-                _amount: int128(SWAP_AMOUNT),
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: int128(SWAP_AMOUNT), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             type(int256).min
         );
@@ -262,13 +267,12 @@ contract DeployAndTestGas is Script {
 
         // 16. Swap ETH for token1
         console2.log("Swapping ETH for token1...");
-        PoolBalanceUpdate balanceUpdate2 = router.swap{value: SWAP_AMOUNT}(
+        PoolBalanceUpdate balanceUpdate2 = router.swap{
+            value: SWAP_AMOUNT
+        }(
             ethToken1Pool,
             createSwapParameters({
-                _isToken1: false,
-                _amount: int128(SWAP_AMOUNT),
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: int128(SWAP_AMOUNT), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             type(int256).min
         );
@@ -276,13 +280,12 @@ contract DeployAndTestGas is Script {
 
         // 17. Swap ETH for token0 through Oracle pool
         console2.log("Swapping ETH for token0 through Oracle pool...");
-        PoolBalanceUpdate balanceUpdateOracle = router.swap{value: SWAP_AMOUNT}(
+        PoolBalanceUpdate balanceUpdateOracle = router.swap{
+            value: SWAP_AMOUNT
+        }(
             ethToken0OraclePool,
             createSwapParameters({
-                _isToken1: false,
-                _amount: int128(SWAP_AMOUNT),
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: int128(SWAP_AMOUNT), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             type(int256).min
         );
@@ -375,7 +378,9 @@ contract DeployAndTestGas is Script {
             uint128 smallSwapAmount = SWAP_AMOUNT / 10;
 
             // Swap ETH for token0
-            router.swap{value: smallSwapAmount}(
+            router.swap{
+                value: smallSwapAmount
+            }(
                 ethToken0Pool,
                 createSwapParameters({
                     _isToken1: false,
@@ -387,7 +392,9 @@ contract DeployAndTestGas is Script {
             );
 
             // Swap ETH for token1
-            router.swap{value: smallSwapAmount}(
+            router.swap{
+                value: smallSwapAmount
+            }(
                 ethToken1Pool,
                 createSwapParameters({
                     _isToken1: false,
@@ -413,10 +420,7 @@ contract DeployAndTestGas is Script {
             PoolBalanceUpdate balanceUpdateToken0Back = router.swap(
                 ethToken0Pool,
                 createSwapParameters({
-                    _isToken1: true,
-                    _amount: int128(swapBackAmount),
-                    _sqrtRatioLimit: SqrtRatio.wrap(0),
-                    _skipAhead: 0
+                    _isToken1: true, _amount: int128(swapBackAmount), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
                 }),
                 type(int256).min
             );
@@ -432,10 +436,7 @@ contract DeployAndTestGas is Script {
             PoolBalanceUpdate balanceUpdate = router.swap(
                 ethToken1Pool,
                 createSwapParameters({
-                    _isToken1: true,
-                    _amount: int128(swapBackAmount),
-                    _sqrtRatioLimit: SqrtRatio.wrap(0),
-                    _skipAhead: 0
+                    _isToken1: true, _amount: int128(swapBackAmount), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
                 }),
                 type(int256).min
             );

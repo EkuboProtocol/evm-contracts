@@ -17,9 +17,7 @@ contract PoolConfigTest is Test {
         assertEq(
             PoolConfig.unwrap(
                 createConcentratedPoolConfig({
-                    _fee: config.fee(),
-                    _tickSpacing: config.concentratedTickSpacing(),
-                    _extension: config.extension()
+                    _fee: config.fee(), _tickSpacing: config.concentratedTickSpacing(), _extension: config.extension()
                 })
             ),
             PoolConfig.unwrap(config)
@@ -86,10 +84,7 @@ contract PoolConfigTest is Test {
         stableswapCenterTick = int32(bound(stableswapCenterTick, MIN_TICK, MAX_TICK));
 
         PoolConfig config = createStableswapPoolConfig({
-            _fee: fee,
-            _amplification: stableswapAmplification,
-            _centerTick: stableswapCenterTick,
-            _extension: extension
+            _fee: fee, _amplification: stableswapAmplification, _centerTick: stableswapCenterTick, _extension: extension
         });
 
         assertEq(config.fee(), fee, "fee");

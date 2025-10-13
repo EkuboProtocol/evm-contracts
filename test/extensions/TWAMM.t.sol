@@ -80,9 +80,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_lockAndExecuteVirtualOrders_not_initialized() public {
         PoolKey memory key = PoolKey({
-            token0: address(token0),
-            token1: address(token1),
-            config: createFullRangePoolConfig(0, address(twamm))
+            token0: address(token0), token1: address(token1), config: createFullRangePoolConfig(0, address(twamm))
         });
         vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         twamm.lockAndExecuteVirtualOrders(key);
@@ -222,10 +220,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         StorageSlot initializedTimesBitmap = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
 
         (uint256 time, bool initialized) = searchForNextInitializedTime({
-            slot: initializedTimesBitmap,
-            lastVirtualOrderExecutionTime: 0,
-            fromTime: 30,
-            untilTime: 1000
+            slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
         });
         assertEq(time, 96);
         assertEq(initialized, true);
@@ -233,10 +228,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
         (time, initialized) = searchForNextInitializedTime({
-            slot: initializedTimesBitmap,
-            lastVirtualOrderExecutionTime: 0,
-            fromTime: 30,
-            untilTime: 1000
+            slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
         });
         assertEq(time, 1000);
         assertEq(initialized, false);
@@ -260,10 +252,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         StorageSlot initializedTimesBitmap = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
 
         (uint256 time, bool initialized) = searchForNextInitializedTime({
-            slot: initializedTimesBitmap,
-            lastVirtualOrderExecutionTime: 0,
-            fromTime: 30,
-            untilTime: 1000
+            slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
         });
         assertEq(time, 96);
         assertEq(initialized, true);
@@ -271,10 +260,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
         (time, initialized) = searchForNextInitializedTime({
-            slot: initializedTimesBitmap,
-            lastVirtualOrderExecutionTime: 0,
-            fromTime: 30,
-            untilTime: 1000
+            slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
         });
         assertEq(time, 96);
         assertEq(initialized, true);

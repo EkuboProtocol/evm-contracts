@@ -115,10 +115,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: 100_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -137,11 +134,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         (PoolBalanceUpdate balanceUpdate,) = router.quote({
-            poolKey: poolKey,
-            isToken1: false,
-            amount: 100_000,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0
+            poolKey: poolKey, isToken1: false, amount: 100_000, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0
         });
 
         assertEq(balanceUpdate.delta0(), 100_000);
@@ -159,10 +152,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: -100_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -186,10 +176,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true,
-                _amount: 100_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: true, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -213,10 +200,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true,
-                _amount: -100_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: true, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -242,10 +226,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: 500_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -269,10 +250,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: -500_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: -500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -296,10 +274,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true,
-                _amount: 500_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: true, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -323,10 +298,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true,
-                _amount: -500_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: true, _amount: -500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -381,10 +353,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: 100_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -408,10 +377,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: -100_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -444,10 +410,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: 300_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: 300_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)
@@ -493,10 +456,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         router.swap({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false,
-                _amount: 500_000,
-                _sqrtRatioLimit: SqrtRatio.wrap(0),
-                _skipAhead: 0
+                _isToken1: false, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }),
             calculatedAmountThreshold: type(int256).min,
             recipient: address(this)

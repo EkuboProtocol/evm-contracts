@@ -141,9 +141,9 @@ contract Handler is StdUtils, StdAssertions {
                 * int32(poolKey.config.concentratedTickSpacing());
         }
 
-        try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
-            uint128 liquidity, uint128 result0, uint128 result1
-        ) {
+        try positions.deposit(
+            positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0
+        ) returns (uint128 liquidity, uint128 result0, uint128 result1) {
             if (liquidity > 0) {
                 activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
             }
@@ -194,8 +194,9 @@ contract Handler is StdUtils, StdAssertions {
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees)
-        returns (uint128 amount0, uint128 amount1) {
+        try positions.withdraw(
+            positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees
+        ) returns (uint128 amount0, uint128 amount1) {
             PoolId poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));
@@ -236,12 +237,10 @@ contract Handler is StdUtils, StdAssertions {
 
         skipAhead = bound(skipAhead, 0, type(uint8).max);
 
-        try router.swap{gas: 15000000}({
-            poolKey: poolKey,
-            sqrtRatioLimit: sqrtRatioLimit,
-            skipAhead: skipAhead,
-            isToken1: isToken1,
-            amount: amount
+        try router.swap{
+            gas: 15000000
+        }({
+            poolKey: poolKey, sqrtRatioLimit: sqrtRatioLimit, skipAhead: skipAhead, isToken1: isToken1, amount: amount
         }) returns (PoolBalanceUpdate balanceUpdate) {
             PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += balanceUpdate.delta0();
@@ -256,7 +255,8 @@ contract Handler is StdUtils, StdAssertions {
             if (
                 sig != Router.PartialSwapsDisallowed.selector && sig != 0xffffffff && sig != 0x00000000
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
-                    && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71 && sig != SafeCastLib.Overflow.selector
+                    && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71
+                    && sig != SafeCastLib.Overflow.selector
             ) {
                 revert UnexpectedError(err);
             }

@@ -24,6 +24,9 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     using TWAMMLib for *;
     using FlashAccountantLib for *;
 
+    uint256 private constant CALL_TYPE_CHANGE_SALE_RATE = 0;
+    uint256 private constant CALL_TYPE_COLLECT_PROCEEDS = 1;
+
     /// @notice The TWAMM extension contract that handles order execution
     ITWAMM public immutable TWAMM_EXTENSION;
 
@@ -66,7 +69,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             }
         }
 
-        lock(abi.encode(bytes1(0xdd), msg.sender, id, orderKey, saleRate));
+        lock(abi.encode(CALL_TYPE_CHANGE_SALE_RATE, msg.sender, id, orderKey, saleRate));
     }
 
     /// @inheritdoc IOrders
@@ -79,7 +82,11 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
         refund = uint112(
             uint256(
                 -abi.decode(
-                    lock(abi.encode(bytes1(0xdd), recipient, id, orderKey, -int256(uint256(saleRateDecrease)))),
+                    lock(
+                        abi.encode(
+                            CALL_TYPE_CHANGE_SALE_RATE, recipient, id, orderKey, -int256(uint256(saleRateDecrease))
+                        )
+                    ),
                     (int256)
                 )
             )
@@ -102,7 +109,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
         authorizedForNft(id)
         returns (uint128 proceeds)
     {
-        proceeds = abi.decode(lock(abi.encode(bytes1(0xff), id, orderKey, recipient)), (uint128));
+        proceeds = abi.decode(lock(abi.encode(CALL_TYPE_COLLECT_PROCEEDS, id, orderKey, recipient)), (uint128));
     }
 
     /// @inheritdoc IOrders
@@ -124,10 +131,11 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
     /// @param data Encoded operation data
     /// @return result Encoded result data
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        bytes1 callType = data[0];
-        if (callType == 0xdd) {
+        uint256 callType = abi.decode(data, (uint256));
+
+        if (callType == CALL_TYPE_CHANGE_SALE_RATE) {
             (, address recipientOrPayer, uint256 id, OrderKey memory orderKey, int256 saleRateDelta) =
-                abi.decode(data, (bytes1, address, uint256, OrderKey, int256));
+                abi.decode(data, (uint256, address, uint256, OrderKey, int256));
 
             int256 amount = CORE.updateSaleRate(TWAMM_EXTENSION, bytes32(id), orderKey, int112(saleRateDelta));
 
@@ -148,9 +156,9 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             }
 
             result = abi.encode(amount);
-        } else if (callType == 0xff) {
+        } else if (callType == CALL_TYPE_COLLECT_PROCEEDS) {
             (, uint256 id, OrderKey memory orderKey, address recipient) =
-                abi.decode(data, (bytes1, uint256, OrderKey, address));
+                abi.decode(data, (uint256, uint256, OrderKey, address));
 
             uint128 proceeds = CORE.collectProceeds(TWAMM_EXTENSION, bytes32(id), orderKey);
 
@@ -160,7 +168,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
 
             result = abi.encode(proceeds);
         } else {
-            revert UnexpectedCallTypeByte(callType);
+            revert();
         }
     }
 }

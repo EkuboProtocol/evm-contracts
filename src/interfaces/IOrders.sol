@@ -14,10 +14,6 @@ interface IOrders is IBaseNonfungibleToken {
     /// @notice Thrown when the calculated sale rate exceeds the maximum allowed
     error MaxSaleRateExceeded();
 
-    /// @notice Thrown when an unexpected call type byte is encountered
-    /// @param b The unexpected call type byte
-    error UnexpectedCallTypeByte(bytes1 b);
-
     /// @notice Mints a new NFT and creates a TWAMM order
     /// @param orderKey Key identifying the order parameters
     /// @param amount Amount of tokens to sell over the order duration

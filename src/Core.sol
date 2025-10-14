@@ -648,7 +648,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             hitLimit := or(exceedsUp, exceedsDown)
                         }
 
-                        uint128 feeAmount;
+                        // the change in fees per liquiidty for this iteration
+                        uint256 deltaFpl;
 
                         if (hitLimit) {
                             (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
@@ -667,12 +668,17 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, config.fee());
                                 amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
                                 calculatedAmount += int256(uint256(beforeFee));
-                                feeAmount = beforeFee - limitCalculatedAmountDelta;
+
+                                assembly ("memory-safe") {
+                                    deltaFpl := div(shl(128, sub(beforeFee, limitCalculatedAmountDelta)), liquidity)
+                                }
                             } else {
                                 uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, config.fee());
                                 amountRemaining -= SafeCastLib.toInt128(beforeFee);
                                 calculatedAmount -= int256(uint256(limitCalculatedAmountDelta));
-                                feeAmount = beforeFee - limitSpecifiedAmountDelta;
+                                assembly ("memory-safe") {
+                                    deltaFpl := div(shl(128, sub(beforeFee, limitSpecifiedAmountDelta)), liquidity)
+                                }
                             }
 
                             sqrtRatioNext = limitedNextSqrtRatio;
@@ -681,7 +687,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             assert(!isExactOut);
 
                             // consume the entire input amount as fees since the price did not move
-                            feeAmount = uint128(amountRemaining);
+                            assembly ("memory-safe") {
+                                deltaFpl := div(shl(128, amountRemaining), liquidity)
+                            }
                             amountRemaining = 0;
 
                             sqrtRatioNext = sqrtRatio;
@@ -693,23 +701,21 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             if (isExactOut) {
                                 uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, config.fee());
                                 calculatedAmount += int256(uint256(includingFee));
-                                feeAmount = includingFee - calculatedAmountWithoutFee;
+                                assembly ("memory-safe") {
+                                    deltaFpl := div(shl(128, sub(includingFee, calculatedAmountWithoutFee)), liquidity)
+                                }
                             } else {
                                 calculatedAmount -= int256(uint256(calculatedAmountWithoutFee));
-                                feeAmount = uint128(amountRemaining - priceImpactAmount);
+                                assembly ("memory-safe") {
+                                    deltaFpl := div(shl(128, sub(amountRemaining, priceImpactAmount)), liquidity)
+                                }
                             }
 
                             amountRemaining = 0;
                             sqrtRatioNext = sqrtRatioNextFromAmount;
                         }
 
-                        // compute the change in fees per liquidity first
-                        uint256 deltaFpl;
-                        assembly ("memory-safe") {
-                            deltaFpl := div(shl(128, feeAmount), liquidity)
-                        }
-
-                        // only if it changed do we need to load fees per liquidity
+                        // only if fees per liquidity was updated in this swap iteration
                         if (deltaFpl != 0) {
                             if (feesAccessed == 0) {
                                 // this loads only the input token fees per liquidity

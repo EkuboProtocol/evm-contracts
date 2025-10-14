@@ -549,7 +549,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     revert SqrtRatioLimitWrongDirection();
                 }
 
-                uint256 calculatedAmount;
+                int256 calculatedAmount;
 
                 // fees per liquidity only for the input token
                 uint256 inputTokenFeesPerLiquidity;
@@ -662,12 +662,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             if (isExactOut) {
                                 uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.config.fee());
                                 amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
-                                calculatedAmount += beforeFee;
+                                calculatedAmount += int256(uint256(beforeFee));
                                 feeAmount = beforeFee - limitCalculatedAmountDelta;
                             } else {
                                 uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.config.fee());
                                 amountRemaining -= SafeCastLib.toInt128(beforeFee);
-                                calculatedAmount += limitCalculatedAmountDelta;
+                                calculatedAmount -= int256(uint256(limitCalculatedAmountDelta));
                                 feeAmount = beforeFee - limitSpecifiedAmountDelta;
                             }
 
@@ -688,10 +688,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             if (isExactOut) {
                                 uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());
-                                calculatedAmount += includingFee;
+                                calculatedAmount += int256(uint256(includingFee));
                                 feeAmount = includingFee - calculatedAmountWithoutFee;
                             } else {
-                                calculatedAmount += calculatedAmountWithoutFee;
+                                calculatedAmount -= int256(uint256(calculatedAmountWithoutFee));
                                 feeAmount = uint128(amountRemaining - priceImpactAmount);
                             }
 
@@ -779,13 +779,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
                 }
 
-                int256 calculatedAmountSign;
-                assembly ("memory-safe") {
-                    calculatedAmountSign := sub(isExactOut, iszero(isExactOut))
-                }
-                int128 calculatedAmountDelta = SafeCastLib.toInt128(
-                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
-                );
+                int128 calculatedAmountDelta =
+                    SafeCastLib.toInt128(FixedPointMathLib.max(type(int128).min, calculatedAmount));
 
                 balanceUpdate = isToken1
                     ? createPoolBalanceUpdate(calculatedAmountDelta, params.amount() - amountRemaining)

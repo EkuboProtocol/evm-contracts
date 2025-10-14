@@ -777,27 +777,27 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 feesAccessed = 1;
                             }
 
-                            // assume input token is token0
-                            uint256 globalFeesPerLiquidity0 = inputTokenFeesPerLiquidity;
-
-                            // load the output token fees per liquidity
-                            uint256 globalFeesPerLiquidity1 = uint256(
+                            uint256 globalFeesPerLiquidityOther = uint256(
                                 CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(!increasing))
                                     .load()
                             );
 
-                            // if increasing, flip the values
+                            // if increasing, it means the pool is receiving token1 so the input fees per liquidity is token1
                             if (increasing) {
-                                uint256 tmp = globalFeesPerLiquidity0;
-                                globalFeesPerLiquidity0 = globalFeesPerLiquidity1;
-                                globalFeesPerLiquidity1 = tmp;
+                                tickFplFirstSlot.store(
+                                    bytes32(globalFeesPerLiquidityOther - uint256(tickFplFirstSlot.load()))
+                                );
+                                tickFplSecondSlot.store(
+                                    bytes32(inputTokenFeesPerLiquidity - uint256(tickFplSecondSlot.load()))
+                                );
+                            } else {
+                                tickFplFirstSlot.store(
+                                    bytes32(inputTokenFeesPerLiquidity - uint256(tickFplFirstSlot.load()))
+                                );
+                                tickFplSecondSlot.store(
+                                    bytes32(globalFeesPerLiquidityOther - uint256(tickFplSecondSlot.load()))
+                                );
                             }
-
-                            // store global - tick fpl on the crossed tick
-                            tickFplFirstSlot.store(bytes32(globalFeesPerLiquidity0 - uint256(tickFplFirstSlot.load())));
-                            tickFplSecondSlot.store(
-                                bytes32(globalFeesPerLiquidity1 - uint256(tickFplSecondSlot.load()))
-                            );
                         }
                     } else if (sqrtRatio != sqrtRatioNext) {
                         sqrtRatio = sqrtRatioNext;

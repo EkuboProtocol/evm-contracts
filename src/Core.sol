@@ -816,10 +816,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             IExtension(config.extension()).maybeCallAfterSwap(locker, poolKey, params, balanceUpdate, stateAfter);
 
             assembly ("memory-safe") {
-                let free := mload(0x40)
-                mstore(free, balanceUpdate)
-                mstore(add(free, 32), stateAfter)
-                return(free, 64)
+                mstore(0, balanceUpdate)
+                mstore(32, stateAfter)
+                return(0, 64)
             }
         }
     }

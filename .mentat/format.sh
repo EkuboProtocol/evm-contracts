@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Running formatters and tests..."
+echo "Running formatters..."
 
 # Check if forge is available
 if ! command -v forge &> /dev/null; then
@@ -13,8 +13,4 @@ fi
 echo "Formatting Solidity files..."
 forge fmt
 
-# Run tests (this also updates gas snapshots in snapshots/ directory)
-echo "Running tests..."
-forge test
-
-echo "Format and tests complete!"
+echo "Formatting complete!"

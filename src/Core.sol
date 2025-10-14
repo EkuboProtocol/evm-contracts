@@ -533,7 +533,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
-            int128 amountRemaining = params.amount();
+            int256 amountRemaining = params.amount();
 
             PoolBalanceUpdate balanceUpdate;
 
@@ -627,12 +627,20 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         // this amount is what moves the price
                         int128 priceImpactAmount;
                         if (isExactOut) {
-                            priceImpactAmount = amountRemaining;
+                            assembly ("memory-safe") {
+                                priceImpactAmount := amountRemaining
+                            }
                         } else {
-                            // cast is safe because amount is g.t.e. 0
-                            // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
-                            priceImpactAmount =
-                                amountRemaining - int128(computeFee(uint128(amountRemaining), config.fee()));
+                            uint128 amount;
+                            assembly ("memory-safe") {
+                                // cast is safe because amountRemaining is g.t. 0 and fits in int128
+                                amount := amountRemaining
+                            }
+                            uint128 feeAmount = computeFee(amount, config.fee());
+                            assembly ("memory-safe") {
+                                // feeAmount will never exceed amountRemaining since fee is < 100%
+                                priceImpactAmount := sub(amountRemaining, feeAmount)
+                            }
                         }
 
                         SqrtRatio sqrtRatioNextFromAmount = isToken1
@@ -666,10 +674,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             if (isExactOut) {
                                 uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, config.fee());
-                                amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
                                 calculatedAmount += int256(uint256(beforeFee));
 
                                 assembly ("memory-safe") {
+                                    amountRemaining := add(amountRemaining, limitSpecifiedAmountDelta)
                                     stepFeesPerLiquidity := div(
                                         shl(128, sub(beforeFee, limitCalculatedAmountDelta)),
                                         stepLiquidity
@@ -677,9 +685,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 }
                             } else {
                                 uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, config.fee());
-                                amountRemaining -= SafeCastLib.toInt128(beforeFee);
                                 calculatedAmount -= int256(uint256(limitCalculatedAmountDelta));
                                 assembly ("memory-safe") {
+                                    amountRemaining := sub(amountRemaining, beforeFee)
                                     stepFeesPerLiquidity := div(
                                         shl(128, sub(beforeFee, limitSpecifiedAmountDelta)),
                                         stepLiquidity
@@ -805,9 +813,15 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 int128 calculatedAmountDelta =
                     SafeCastLib.toInt128(FixedPointMathLib.max(type(int128).min, calculatedAmount));
 
+                int128 specifiedAmountDelta;
+                int128 amount = params.amount();
+                assembly ("memory-safe") {
+                    specifiedAmountDelta := sub(amount, amountRemaining)
+                }
+
                 balanceUpdate = isToken1
-                    ? createPoolBalanceUpdate(calculatedAmountDelta, params.amount() - amountRemaining)
-                    : createPoolBalanceUpdate(params.amount() - amountRemaining, calculatedAmountDelta);
+                    ? createPoolBalanceUpdate(calculatedAmountDelta, specifiedAmountDelta)
+                    : createPoolBalanceUpdate(specifiedAmountDelta, calculatedAmountDelta);
 
                 stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
 

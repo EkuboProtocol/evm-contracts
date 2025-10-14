@@ -631,12 +631,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 priceImpactAmount := amountRemaining
                             }
                         } else {
-                            uint128 amount;
+                            uint128 amountU128;
                             assembly ("memory-safe") {
                                 // cast is safe because amountRemaining is g.t. 0 and fits in int128
-                                amount := amountRemaining
+                                amountU128 := amountRemaining
                             }
-                            uint128 feeAmount = computeFee(amount, config.fee());
+                            uint128 feeAmount = computeFee(amountU128, config.fee());
                             assembly ("memory-safe") {
                                 // feeAmount will never exceed amountRemaining since fee is < 100%
                                 priceImpactAmount := sub(amountRemaining, feeAmount)
@@ -814,9 +814,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     SafeCastLib.toInt128(FixedPointMathLib.max(type(int128).min, calculatedAmount));
 
                 int128 specifiedAmountDelta;
-                int128 amount = params.amount();
+                int128 specifiedAmount = params.amount();
                 assembly ("memory-safe") {
-                    specifiedAmountDelta := sub(amount, amountRemaining)
+                    specifiedAmountDelta := sub(specifiedAmount, amountRemaining)
                 }
 
                 balanceUpdate = isToken1

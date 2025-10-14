@@ -332,8 +332,12 @@ abstract contract FlashAccountant is IFlashAccountant {
 
                     tstore(deltaSlot, next)
 
-                    // Perform the token transfer
-                    if iszero(token) {
+                    // Perform the transfer of the withdrawn asset
+                    // Note that these calls can re-enter and even relock with the same ID
+                    // However the nzdCountChange is always applied as a delta at the end, meaning we load the latest value before updating it,
+                    // so it's safe from re-entry
+                    switch token
+                    case 0 {
                         let success := call(gas(), recipient, amount, 0, 0, 0, 0)
                         if iszero(success) {
                             // cast sig "ETHTransferFailed()"
@@ -341,12 +345,10 @@ abstract contract FlashAccountant is IFlashAccountant {
                             revert(0x1c, 4)
                         }
                     }
-
-                    if token {
-                        mstore(0x14, recipient) // Store the `to` argument.
-                        mstore(0x34, amount) // Store the `amount` argument.
-                        mstore(0x00, 0xa9059cbb000000000000000000000000) // `transfer(address,uint256)`.
-                        // Perform the transfer, reverting upon failure.
+                    default {
+                        mstore(0x14, recipient)
+                        mstore(0x34, amount)
+                        mstore(0x00, 0xa9059cbb000000000000000000000000)
                         let success := call(gas(), token, 0, 0x10, 0x44, 0x00, 0x20)
                         if iszero(and(eq(mload(0x00), 1), success)) {
                             if iszero(lt(or(iszero(extcodesize(token)), returndatasize()), success)) {
@@ -354,7 +356,6 @@ abstract contract FlashAccountant is IFlashAccountant {
                                 revert(0x1c, 0x04)
                             }
                         }
-                        mstore(0x34, 0) // Restore the part of the free memory pointer that was overwritten.
                     }
                 }
             }
@@ -364,6 +365,9 @@ abstract contract FlashAccountant is IFlashAccountant {
                 let nzdCountSlot := add(id, _NONZERO_DEBT_COUNT_OFFSET)
                 tstore(nzdCountSlot, add(tload(nzdCountSlot), nzdCountChange))
             }
+
+            // we return from assembly so as to prevent solidity from accessing the free memory pointer after we have written into it
+            return(0, 0)
         }
     }
 

@@ -714,12 +714,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             if (feesAccessed == 0) {
                                 // this loads only the input token fees per liquidity
                                 inputTokenFeesPerLiquidity = uint256(
-                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
-                                        .load()
-                                );
+                                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId)
+                                            .add(LibBit.rawToUint(increasing)).load()
+                                    ) + deltaFpl;
+                            } else {
+                                inputTokenFeesPerLiquidity += deltaFpl;
                             }
 
-                            inputTokenFeesPerLiquidity += deltaFpl;
                             feesAccessed = 2;
                         }
                     }

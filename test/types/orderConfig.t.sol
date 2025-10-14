@@ -7,7 +7,10 @@ import {OrderConfig, createOrderConfig} from "../../src/types/orderConfig.sol";
 contract OrderConfigTest is Test {
     function test_conversionToAndFrom(OrderConfig config) public pure {
         OrderConfig recreated = createOrderConfig({
-            _fee: config.fee(), _isToken1: config.isToken1(), _startTime: config.startTime(), _endTime: config.endTime()
+            _fee: config.fee(),
+            _isToken1: config.isToken1(),
+            _startTime: config.startTime(),
+            _endTime: config.endTime()
         });
 
         // Compare the extracted values rather than raw bytes, since padding and isToken1 byte can vary

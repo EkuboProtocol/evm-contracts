@@ -31,9 +31,8 @@ contract QuoteDataFetcherTest is FullTest {
 
         PoolConfig poolConfigStable =
             createStableswapPoolConfig({_fee: 100, _extension: address(0), _centerTick: 693147, _amplification: 8});
-        PoolKey memory poolKeyStable = createPool({
-            _token0: address(token0), _token1: address(token1), tick: 693147 * 2, config: poolConfigStable
-        });
+        PoolKey memory poolKeyStable =
+            createPool({_token0: address(token0), _token1: address(token1), tick: 693147 * 2, config: poolConfigStable});
         (int32 lowerTickStable, int32 upperTickStable) = poolConfigStable.stableswapActiveLiquidityTickRange();
         (, uint128 liqH) = createPosition(poolKeyStable, lowerTickStable, upperTickStable, 10000, 6000);
         (, uint128 liqI) = createPosition(poolKeyStable, lowerTickStable, upperTickStable, 2000, 15000);

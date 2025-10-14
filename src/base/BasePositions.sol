@@ -230,15 +230,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == CALL_TYPE_DEPOSIT) {
-            (
-                ,
-                address caller,
-                uint256 id,
-                PoolKey memory poolKey,
-                int32 tickLower,
-                int32 tickUpper,
-                uint128 liquidity
-            ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128));
+            (, address caller, uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
+            = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128));
 
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(
                 poolKey,

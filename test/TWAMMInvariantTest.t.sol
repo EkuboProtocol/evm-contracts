@@ -111,9 +111,8 @@ contract Handler is StdUtils, StdAssertions {
 
     function createNewPool(uint64 fee, int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        PoolKey memory poolKey = PoolKey(
-            address(token0), address(token1), createFullRangePoolConfig(fee, address(orders.TWAMM_EXTENSION()))
-        );
+        PoolKey memory poolKey =
+            PoolKey(address(token0), address(token1), createFullRangePoolConfig(fee, address(orders.TWAMM_EXTENSION())));
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);
@@ -129,9 +128,9 @@ contract Handler is StdUtils, StdAssertions {
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        try positions.deposit(
-            positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0
-        ) returns (uint128 liquidity, uint128, uint128) {
+        try positions.deposit(positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0) returns (
+            uint128 liquidity, uint128, uint128
+        ) {
             if (liquidity > 0) {
                 activePositions.push(ActivePosition(poolKey, MIN_TICK, MAX_TICK, liquidity));
             }
@@ -159,9 +158,8 @@ contract Handler is StdUtils, StdAssertions {
 
         liquidity = uint128(bound(liquidity, 0, p.liquidity));
 
-        try positions.withdraw(
-            positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees
-        ) returns (uint128, uint128) {
+        try positions.withdraw(positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees)
+        returns (uint128, uint128) {
             p.liquidity -= liquidity;
         } catch (bytes memory err) {
             bytes4 sig;
@@ -194,12 +192,13 @@ contract Handler is StdUtils, StdAssertions {
 
         skipAhead = bound(skipAhead, 0, type(uint8).max);
 
-        try router.swap{
-            gas: 15000000
-        }({
-            poolKey: poolKey, sqrtRatioLimit: sqrtRatioLimit, skipAhead: skipAhead, isToken1: isToken1, amount: amount
-        }) returns (PoolBalanceUpdate) {}
-        catch (bytes memory err) {
+        try router.swap{gas: 15000000}({
+            poolKey: poolKey,
+            sqrtRatioLimit: sqrtRatioLimit,
+            skipAhead: skipAhead,
+            isToken1: isToken1,
+            amount: amount
+        }) returns (PoolBalanceUpdate) {} catch (bytes memory err) {
             bytes4 sig;
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
@@ -209,8 +208,8 @@ contract Handler is StdUtils, StdAssertions {
             if (
                 sig != Router.PartialSwapsDisallowed.selector && sig != 0xffffffff && sig != 0x00000000
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
-                    && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71
-                    && sig != SafeCastLib.Overflow.selector && sig != SafeTransferLib.TransferFromFailed.selector
+                    && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71 && sig != SafeCastLib.Overflow.selector
+                    && sig != SafeTransferLib.TransferFromFailed.selector
             ) {
                 revert UnexpectedError(err);
             }

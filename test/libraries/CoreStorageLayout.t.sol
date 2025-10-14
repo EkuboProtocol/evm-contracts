@@ -43,8 +43,10 @@ contract CoreStorageLayoutTest is Test {
         bytes32 poolStateSlot0 = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolKey0.toPoolId()));
         bytes32 poolStateSlot1 = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolKey1.toPoolId()));
         assertEq(
-            (poolKey0.token0 == poolKey1.token0 && poolKey0.token1 == poolKey1.token1
-                    && PoolConfig.unwrap(poolKey0.config) == PoolConfig.unwrap(poolKey1.config)),
+            (
+                poolKey0.token0 == poolKey1.token0 && poolKey0.token1 == poolKey1.token1
+                    && PoolConfig.unwrap(poolKey0.config) == PoolConfig.unwrap(poolKey1.config)
+            ),
             (poolStateSlot0 == poolStateSlot1)
         );
     }
@@ -405,9 +407,8 @@ contract CoreStorageLayoutTest is Test {
         vm.assume(tickLower < tickUpper);
 
         // Create a realistic pool key and derive pool ID
-        PoolKey memory poolKey = PoolKey({
-            token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)
-        });
+        PoolKey memory poolKey =
+            PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)});
         PoolId poolId = poolKey.toPoolId();
 
         // Create a position ID

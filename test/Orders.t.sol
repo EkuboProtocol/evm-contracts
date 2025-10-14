@@ -451,7 +451,10 @@ contract OrdersTest is BaseOrdersTest {
                 token0: poolKey.token0,
                 token1: poolKey.token1,
                 config: createOrderConfig({
-                    _fee: poolKey.config.fee(), _isToken1: true, _startTime: 4294902272, _endTime: 4311744512
+                    _fee: poolKey.config.fee(),
+                    _isToken1: true,
+                    _startTime: 4294902272,
+                    _endTime: 4311744512
                 })
             }),
             6849779285538874832820657709,
@@ -492,7 +495,10 @@ contract OrdersTest is BaseOrdersTest {
                 token0: poolKey.token0,
                 token1: poolKey.token1,
                 config: createOrderConfig({
-                    _fee: poolKey.config.fee(), _isToken1: false, _startTime: 4295004176, _endTime: 4295294976
+                    _fee: poolKey.config.fee(),
+                    _isToken1: false,
+                    _startTime: 4295004176,
+                    _endTime: 4295294976
                 })
             }),
             28877500254,
@@ -674,7 +680,10 @@ contract OrdersTest is BaseOrdersTest {
                     token0: poolKey.token0,
                     token1: poolKey.token1,
                     config: createOrderConfig({
-                        _fee: fee, _isToken1: false, _startTime: uint64(startTime), _endTime: uint64(endTime)
+                        _fee: fee,
+                        _isToken1: false,
+                        _startTime: uint64(startTime),
+                        _endTime: uint64(endTime)
                     })
                 }),
                 uint112(100 * (i++)),
@@ -686,7 +695,10 @@ contract OrdersTest is BaseOrdersTest {
                     token0: poolKey.token0,
                     token1: poolKey.token1,
                     config: createOrderConfig({
-                        _fee: fee, _isToken1: true, _startTime: uint64(startTime), _endTime: uint64(endTime)
+                        _fee: fee,
+                        _isToken1: true,
+                        _startTime: uint64(startTime),
+                        _endTime: uint64(endTime)
                     })
                 }),
                 uint112(100 * (i++)),

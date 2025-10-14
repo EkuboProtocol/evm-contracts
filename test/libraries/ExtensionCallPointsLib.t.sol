@@ -59,10 +59,9 @@ contract ExtensionCallPointsLibTest is Test {
 
         // Test when extension should not be called (locker == extension)
         extension.reset();
-        IExtension(address(extension))
-            .maybeCallBeforeUpdatePosition(
-                Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId, liquidityDelta
-            );
+        IExtension(address(extension)).maybeCallBeforeUpdatePosition(
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId, liquidityDelta
+        );
         assertEq(extension.beforeUpdatePositionCalls(), 0);
     }
 
@@ -87,8 +86,9 @@ contract ExtensionCallPointsLibTest is Test {
 
         // Test when extension should be called
         PoolBalanceUpdate balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
-        IExtension(address(extension))
-            .maybeCallAfterUpdatePosition(locker, poolKey, positionId, liquidityDelta, balanceUpdate, stateAfter);
+        IExtension(address(extension)).maybeCallAfterUpdatePosition(
+            locker, poolKey, positionId, liquidityDelta, balanceUpdate, stateAfter
+        );
 
         assertEq(extension.afterUpdatePositionCalls(), 1);
         assertEq(Locker.unwrap(extension.lastLocker()), Locker.unwrap(locker));
@@ -103,15 +103,14 @@ contract ExtensionCallPointsLibTest is Test {
 
         // Test when extension should not be called (locker == extension)
         extension.reset();
-        IExtension(address(extension))
-            .maybeCallAfterUpdatePosition(
-                Locker.wrap(bytes32(uint256(uint160(address(extension))))),
-                poolKey,
-                positionId,
-                liquidityDelta,
-                balanceUpdate,
-                stateAfter
-            );
+        IExtension(address(extension)).maybeCallAfterUpdatePosition(
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))),
+            poolKey,
+            positionId,
+            liquidityDelta,
+            balanceUpdate,
+            stateAfter
+        );
         assertEq(extension.afterUpdatePositionCalls(), 0);
     }
 
@@ -142,8 +141,9 @@ contract ExtensionCallPointsLibTest is Test {
 
         // Test when extension should not be called (locker == extension)
         extension.reset();
-        IExtension(address(extension))
-            .maybeCallBeforeCollectFees(Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId);
+        IExtension(address(extension)).maybeCallBeforeCollectFees(
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId
+        );
         assertEq(extension.beforeCollectFeesCalls(), 0);
     }
 
@@ -178,10 +178,9 @@ contract ExtensionCallPointsLibTest is Test {
 
         // Test when extension should not be called (locker == extension)
         extension.reset();
-        IExtension(address(extension))
-            .maybeCallAfterCollectFees(
-                Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId, amount0, amount1
-            );
+        IExtension(address(extension)).maybeCallAfterCollectFees(
+            Locker.wrap(bytes32(uint256(uint160(address(extension))))), poolKey, positionId, amount0, amount1
+        );
         assertEq(extension.afterCollectFeesCalls(), 0);
     }
 
@@ -208,8 +207,9 @@ contract ExtensionCallPointsLibTest is Test {
 
         vm.expectRevert("MockExtension: revert");
         PoolBalanceUpdate revertBalanceUpdate = createPoolBalanceUpdate(500, -300);
-        IExtension(address(extension))
-            .maybeCallAfterUpdatePosition(locker, poolKey, positionId, 1000, revertBalanceUpdate, stateAfter);
+        IExtension(address(extension)).maybeCallAfterUpdatePosition(
+            locker, poolKey, positionId, 1000, revertBalanceUpdate, stateAfter
+        );
 
         vm.expectRevert("MockExtension: revert");
         IExtension(address(extension)).maybeCallBeforeCollectFees(locker, poolKey, positionId);

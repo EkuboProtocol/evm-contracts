@@ -25,10 +25,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {computeFee} from "../math/fee.sol";
 import {
-    computeNextSqrtRatio,
-    computeAmountFromSaleRate,
-    computeRewardAmount,
-    addSaleRateDelta
+    computeNextSqrtRatio, computeAmountFromSaleRate, computeRewardAmount, addSaleRateDelta
 } from "../math/twamm.sol";
 import {isTimeValid, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
 import {PoolId} from "../types/poolId.sol";
@@ -174,8 +171,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             saleRateDeltaToken0 = _addConstrainSaleRateDelta(saleRateDeltaToken0, saleRateDelta);
         }
 
-        TWAMMStorageLayout.poolTimeInfosSlot(poolId, time)
-            .store(TimeInfo.unwrap(createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1)));
+        TWAMMStorageLayout.poolTimeInfosSlot(poolId, time).store(
+            TimeInfo.unwrap(createTimeInfo(numOrdersNext, saleRateDeltaToken0, saleRateDeltaToken1))
+        );
     }
 
     /// @notice Returns the call points configuration for this extension
@@ -232,11 +230,12 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 uint256 rewardRateSnapshotAdjusted;
                 int256 numOrdersChange;
                 assembly ("memory-safe") {
-                    rewardRateSnapshotAdjusted := mul(
-                        sub(rewardRateInside, div(shl(128, purchasedAmount), saleRateNext)),
-                        // if saleRateNext is zero, write 0 for the reward rate snapshot adjusted
-                        iszero(iszero(saleRateNext))
-                    )
+                    rewardRateSnapshotAdjusted :=
+                        mul(
+                            sub(rewardRateInside, div(shl(128, purchasedAmount), saleRateNext)),
+                            // if saleRateNext is zero, write 0 for the reward rate snapshot adjusted
+                            iszero(iszero(saleRateNext))
+                        )
 
                     // if current is zero, and next is zero, then 1-1 = 0
                     // if current is nonzero, and next is nonzero, then 0-0 = 0
@@ -255,8 +254,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                     + computeAmountFromSaleRate({
                                         saleRate: saleRate,
                                         duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime,
-                                            uint32(uint64(block.timestamp) - startTime)
+                                            uint32(block.timestamp) - lastUpdateTime, uint32(uint64(block.timestamp) - startTime)
                                         ),
                                         roundUp: false
                                     })
@@ -428,11 +426,15 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     uint256 timeElapsed = nextTime - time;
 
                     uint256 amount0 = computeAmountFromSaleRate({
-                        saleRate: state.saleRateToken0(), duration: timeElapsed, roundUp: false
+                        saleRate: state.saleRateToken0(),
+                        duration: timeElapsed,
+                        roundUp: false
                     });
 
                     uint256 amount1 = computeAmountFromSaleRate({
-                        saleRate: state.saleRateToken1(), duration: timeElapsed, roundUp: false
+                        saleRate: state.saleRateToken1(),
+                        duration: timeElapsed,
+                        roundUp: false
                     });
 
                     int256 rewardDelta0;
@@ -519,9 +521,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             rewardRates.value0 = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).load());
                         }
                         rewardRate0Access = 2;
-                        rewardRates.value0 += FixedPointMathLib.rawDiv(
-                            uint256(-rewardDelta0) << 128, state.saleRateToken1()
-                        );
+                        rewardRates.value0 +=
+                            FixedPointMathLib.rawDiv(uint256(-rewardDelta0) << 128, state.saleRateToken1());
                     }
 
                     if (rewardDelta1 < 0) {
@@ -529,9 +530,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             rewardRates.value1 = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).next().load());
                         }
                         rewardRate1Access = 2;
-                        rewardRates.value1 += FixedPointMathLib.rawDiv(
-                            uint256(-rewardDelta1) << 128, state.saleRateToken0()
-                        );
+                        rewardRates.value1 +=
+                            FixedPointMathLib.rawDiv(uint256(-rewardDelta1) << 128, state.saleRateToken0());
                     }
 
                     if (initialized) {
@@ -544,8 +544,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                             rewardRate1Access = 1;
                         }
 
-                        TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, nextTime)
-                            .storeTwo(bytes32(rewardRates.value0), bytes32(rewardRates.value1));
+                        TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, nextTime).storeTwo(
+                            bytes32(rewardRates.value0), bytes32(rewardRates.value1)
+                        );
 
                         StorageSlot timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, nextTime);
                         (, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) =
@@ -635,14 +636,15 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
 
         PoolId poolId = key.toPoolId();
 
-        TWAMMStorageLayout.twammPoolStateSlot(poolId)
-            .store(
-                TwammPoolState.unwrap(
-                    createTwammPoolState({
-                        _lastVirtualOrderExecutionTime: uint32(block.timestamp), _saleRateToken0: 0, _saleRateToken1: 0
-                    })
-                )
-            );
+        TWAMMStorageLayout.twammPoolStateSlot(poolId).store(
+            TwammPoolState.unwrap(
+                createTwammPoolState({
+                    _lastVirtualOrderExecutionTime: uint32(block.timestamp),
+                    _saleRateToken0: 0,
+                    _saleRateToken1: 0
+                })
+            )
+        );
 
         _emitVirtualOrdersExecuted({poolId: poolId, saleRateToken0: 0, saleRateToken1: 0});
     }

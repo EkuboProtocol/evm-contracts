@@ -39,12 +39,13 @@ using {
 
 function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
     assembly ("memory-safe") {
-        r := and(
-            // greater than or equal to TWO_POW_62, i.e. the whole number portion is nonzero
-            gt(and(sqrtRatio, not(BIT_MASK)), TWO_POW_62_MINUS_ONE),
-            // and between min/max sqrt ratio
-            and(iszero(lt(sqrtRatio, MIN_SQRT_RATIO_RAW)), iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW)))
-        )
+        r :=
+            and(
+                // greater than or equal to TWO_POW_62, i.e. the whole number portion is nonzero
+                gt(and(sqrtRatio, not(BIT_MASK)), TWO_POW_62_MINUS_ONE),
+                // and between min/max sqrt ratio
+                and(iszero(lt(sqrtRatio, MIN_SQRT_RATIO_RAW)), iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW)))
+            )
     }
 }
 

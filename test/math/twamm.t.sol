@@ -162,133 +162,133 @@ contract TwammMathTest is Test {
     function test_computeNextSqrtRatio_examples() public pure {
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(10_000 << 128, false),
-                    liquidity: 10_000,
-                    saleRateToken0: 458864027,
-                    saleRateToken1: 280824784,
-                    timeElapsed: 46_800,
-                    fee: 0
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(10_000 << 128, false),
+                liquidity: 10_000,
+                saleRateToken0: 458864027,
+                saleRateToken1: 280824784,
+                timeElapsed: 46_800,
+                fee: 0
+            }).toFixed(),
             714795237151155238153964311638230171648 // 2.1005944081
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio((uint256(1) << 128) / 10_000, false),
-                    liquidity: 1_000_000,
-                    saleRateToken0: 707 << 32,
-                    saleRateToken1: 179 << 32,
-                    timeElapsed: 12,
-                    fee: uint64((uint256(30) << 64) / 10_000)
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio((uint256(1) << 128) / 10_000, false),
+                liquidity: 1_000_000,
+                saleRateToken0: 707 << 32,
+                saleRateToken1: 179 << 32,
+                timeElapsed: 12,
+                fee: uint64((uint256(30) << 64) / 10_000)
+            }).toFixed(),
             762756935888947507319423427130949632 // 0.00224154117297
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
-                    liquidity: 1_000_000,
-                    saleRateToken0: 100_000 << 32,
-                    saleRateToken1: 1 << 32,
-                    timeElapsed: 12,
-                    fee: 1 << 63
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                saleRateToken0: 100_000 << 32,
+                saleRateToken1: 1 << 32,
+                timeElapsed: 12,
+                fee: 1 << 63
+            }).toFixed(),
             212677851090737004084435068911850881024 // 0.625004031255463
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
-                    liquidity: 1_000_000,
-                    saleRateToken0: 100_000 << 32,
-                    saleRateToken1: 1 << 32,
-                    timeElapsed: 12,
-                    fee: 0
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                saleRateToken0: 100_000 << 32,
+                saleRateToken1: 1 << 32,
+                timeElapsed: 12,
+                fee: 0
+            }).toFixed(),
             154676064193352917823625393341053534208 // 0.4545520992
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
-                    liquidity: 1_000_000,
-                    saleRateToken0: 1 << 32,
-                    saleRateToken1: 100_000 << 32,
-                    timeElapsed: 12,
-                    fee: 1 << 63
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                saleRateToken0: 1 << 32,
+                saleRateToken1: 100_000 << 32,
+                timeElapsed: 12,
+                fee: 1 << 63
+            }).toFixed(),
             544448275377366823331338723279895527424 // 1.5999896801
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
-                    liquidity: 1_000_000,
-                    saleRateToken0: 1 << 32,
-                    saleRateToken1: 100_000 << 32,
-                    timeElapsed: 12,
-                    fee: 0
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(uint256(1) << 128, false),
+                liquidity: 1_000_000,
+                saleRateToken0: 1 << 32,
+                saleRateToken1: 100_000 << 32,
+                timeElapsed: 12,
+                fee: 0
+            }).toFixed(),
             748610263916272246100204618056279785472 // 2.1999678405
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(286363514177267035440548892163466107483369185, false),
-                    liquidity: 130385243018985227,
-                    saleRateToken0: 1917585044284,
-                    saleRateToken1: 893194653345642013054241177,
-                    timeElapsed: 360,
-                    fee: 922337203685477580
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(286363514177267035440548892163466107483369185, false),
+                liquidity: 130385243018985227,
+                saleRateToken0: 1917585044284,
+                saleRateToken1: 893194653345642013054241177,
+                timeElapsed: 360,
+                fee: 922337203685477580
+            }).toFixed(),
             286548851173856260703560045093187956263354368 // 842,091.3894737111
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(1 << 128, false),
-                    liquidity: 10,
-                    saleRateToken0: 5000 << 32,
-                    saleRateToken1: 500 << 32,
-                    timeElapsed: 1,
-                    fee: 0
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(1 << 128, false),
+                liquidity: 10,
+                saleRateToken0: 5000 << 32,
+                saleRateToken1: 500 << 32,
+                timeElapsed: 1,
+                fee: 0
+            }).toFixed(),
             107606732706330320687810575739503247360 // ~= 0.316227766
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(286363514177267035440548892163466107483369185, false),
-                    liquidity: 130385243018985227,
-                    saleRateToken0: 1917585044284,
-                    saleRateToken1: 893194653345642013054241177,
-                    timeElapsed: 360,
-                    fee: 922337203685477580
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(286363514177267035440548892163466107483369185, false),
+                liquidity: 130385243018985227,
+                saleRateToken0: 1917585044284,
+                saleRateToken1: 893194653345642013054241177,
+                timeElapsed: 360,
+                fee: 922337203685477580
+            }).toFixed(),
             286548851173856260703560045093187956263354368 // 842,091.3894737111
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(404353500025976246415094160170803, false),
-                    liquidity: 130385243018985227,
-                    saleRateToken0: 893194653345642013054241177,
-                    saleRateToken1: 1917585044284,
-                    timeElapsed: 360,
-                    fee: 922337203685477580
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(404353500025976246415094160170803, false),
+                liquidity: 130385243018985227,
+                saleRateToken0: 893194653345642013054241177,
+                saleRateToken1: 1917585044284,
+                timeElapsed: 360,
+                fee: 922337203685477580
+            }).toFixed(),
             404091968133776522675682963095552 // 842,091.3894737111
         );
 
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(1 << 128, false),
-                    liquidity: 10,
-                    saleRateToken0: 5000 << 32,
-                    saleRateToken1: 500 << 32,
-                    timeElapsed: 1,
-                    fee: 0
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(1 << 128, false),
+                liquidity: 10,
+                saleRateToken0: 5000 << 32,
+                saleRateToken1: 500 << 32,
+                timeElapsed: 1,
+                fee: 0
+            }).toFixed(),
             107606732706330320687810575739503247360 // ~= 0.316227766
         );
     }
@@ -296,13 +296,13 @@ contract TwammMathTest is Test {
     function test_computeNextSqrtRatio_example_from_production() public pure {
         assertEq(
             computeNextSqrtRatio({
-                    sqrtRatio: toSqrtRatio(4182607738901102592 + (148436996701757 << 64), false),
-                    liquidity: 4472135213867,
-                    saleRateToken0: 3728260255814876407785,
-                    saleRateToken1: 1597830095238095,
-                    timeElapsed: 2688,
-                    fee: 9223372036854775
-                }).toFixed(),
+                sqrtRatio: toSqrtRatio(4182607738901102592 + (148436996701757 << 64), false),
+                liquidity: 4472135213867,
+                saleRateToken0: 3728260255814876407785,
+                saleRateToken1: 1597830095238095,
+                timeElapsed: 2688,
+                fee: 9223372036854775
+            }).toFixed(),
             75660834358443397537995245133758464
         );
     }

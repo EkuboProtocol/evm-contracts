@@ -43,10 +43,10 @@ contract PoolKeyTest is Test {
     function test_poolKey_validateTickSpacing_max() public {
         vm.expectRevert(InvalidTickSpacing.selector);
         PoolKey({
-                token0: address(1),
-                token1: address(2),
-                config: createConcentratedPoolConfig(0, MAX_TICK_SPACING + 1, address(0))
-            }).validate();
+            token0: address(1),
+            token1: address(2),
+            config: createConcentratedPoolConfig(0, MAX_TICK_SPACING + 1, address(0))
+        }).validate();
     }
 
     function test_poolKey_validateTickSpacing_full_range() public pure {

@@ -46,7 +46,11 @@ library ExtensionCallPointsLib {
         }
     }
 
-    function shouldCallAfterInitializePool(IExtension extension, address initializer) internal pure returns (bool yes) {
+    function shouldCallAfterInitializePool(IExtension extension, address initializer)
+        internal
+        pure
+        returns (bool yes)
+    {
         assembly ("memory-safe") {
             yes := and(shr(159, extension), iszero(eq(initializer, extension)))
         }

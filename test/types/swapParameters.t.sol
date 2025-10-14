@@ -77,7 +77,10 @@ contract SwapParametersTest is Test {
     {
         skipAhead = bound(skipAhead, 0, type(uint32).max >> 1);
         SwapParameters params = createSwapParameters({
-            _sqrtRatioLimit: sqrtRatioLimit, _amount: amount, _isToken1: isToken1, _skipAhead: skipAhead
+            _sqrtRatioLimit: sqrtRatioLimit,
+            _amount: amount,
+            _isToken1: isToken1,
+            _skipAhead: skipAhead
         });
         assertEq(SqrtRatio.unwrap(params.sqrtRatioLimit()), SqrtRatio.unwrap(sqrtRatioLimit));
         assertEq(params.amount(), amount);
@@ -106,7 +109,10 @@ contract SwapParametersTest is Test {
         vm.assume(skipAhead <= 0xFFFFFF);
 
         SwapParameters params = createSwapParameters({
-            _sqrtRatioLimit: sqrtRatioLimit, _amount: amount, _isToken1: isToken1, _skipAhead: skipAhead
+            _sqrtRatioLimit: sqrtRatioLimit,
+            _amount: amount,
+            _isToken1: isToken1,
+            _skipAhead: skipAhead
         });
         assertEq(SqrtRatio.unwrap(params.sqrtRatioLimit()), SqrtRatio.unwrap(sqrtRatioLimit), "sqrtRatioLimit");
         assertEq(params.amount(), amount, "amount");

@@ -128,10 +128,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         // positive is saving, negative is loading
         int256 delta0,
         int256 delta1
-    )
-        external
-        payable
-    {
+    ) external payable {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
         (uint256 id, address lockerAddr) = _requireLocker().parse();
@@ -364,8 +361,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         Locker locker = _requireLocker();
 
-        IExtension(poolKey.config.extension())
-            .maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
+        IExtension(poolKey.config.extension()).maybeCallBeforeUpdatePosition(
+            locker, poolKey, positionId, liquidityDelta
+        );
 
         PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
@@ -443,8 +441,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, balanceUpdate, state);
         }
 
-        IExtension(poolKey.config.extension())
-            .maybeCallAfterUpdatePosition(locker, poolKey, positionId, liquidityDelta, balanceUpdate, state);
+        IExtension(poolKey.config.extension()).maybeCallAfterUpdatePosition(
+            locker, poolKey, positionId, liquidityDelta, balanceUpdate, state
+        );
     }
 
     /// @inheritdoc ICore
@@ -677,20 +676,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 assembly ("memory-safe") {
                                     calculatedAmount := add(calculatedAmount, beforeFee)
                                     amountRemaining := add(amountRemaining, limitSpecifiedAmountDelta)
-                                    stepFeesPerLiquidity := div(
-                                        shl(128, sub(beforeFee, limitCalculatedAmountDelta)),
-                                        stepLiquidity
-                                    )
+                                    stepFeesPerLiquidity :=
+                                        div(shl(128, sub(beforeFee, limitCalculatedAmountDelta)), stepLiquidity)
                                 }
                             } else {
                                 uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, config.fee());
                                 assembly ("memory-safe") {
                                     calculatedAmount := sub(calculatedAmount, limitCalculatedAmountDelta)
                                     amountRemaining := sub(amountRemaining, beforeFee)
-                                    stepFeesPerLiquidity := div(
-                                        shl(128, sub(beforeFee, limitSpecifiedAmountDelta)),
-                                        stepLiquidity
-                                    )
+                                    stepFeesPerLiquidity :=
+                                        div(shl(128, sub(beforeFee, limitSpecifiedAmountDelta)), stepLiquidity)
                                 }
                             }
 
@@ -715,18 +710,14 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, config.fee());
                                 assembly ("memory-safe") {
                                     calculatedAmount := add(calculatedAmount, includingFee)
-                                    stepFeesPerLiquidity := div(
-                                        shl(128, sub(includingFee, calculatedAmountWithoutFee)),
-                                        stepLiquidity
-                                    )
+                                    stepFeesPerLiquidity :=
+                                        div(shl(128, sub(includingFee, calculatedAmountWithoutFee)), stepLiquidity)
                                 }
                             } else {
                                 assembly ("memory-safe") {
                                     calculatedAmount := sub(calculatedAmount, calculatedAmountWithoutFee)
-                                    stepFeesPerLiquidity := div(
-                                        shl(128, sub(amountRemaining, priceImpactAmount)),
-                                        stepLiquidity
-                                    )
+                                    stepFeesPerLiquidity :=
+                                        div(shl(128, sub(amountRemaining, priceImpactAmount)), stepLiquidity)
                                 }
                             }
 
@@ -739,9 +730,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             if (feesAccessed == 0) {
                                 // this loads only the input token fees per liquidity
                                 inputTokenFeesPerLiquidity = uint256(
-                                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId)
-                                            .add(LibBit.rawToUint(increasing)).load()
-                                    ) + stepFeesPerLiquidity;
+                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
+                                        .load()
+                                ) + stepFeesPerLiquidity;
                             } else {
                                 inputTokenFeesPerLiquidity += stepFeesPerLiquidity;
                             }
@@ -828,8 +819,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (feesAccessed == 2) {
                     // this stores only the input token fees per liquidity
-                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
-                        .store(bytes32(inputTokenFeesPerLiquidity));
+                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing)).store(
+                        bytes32(inputTokenFeesPerLiquidity)
+                    );
                 }
 
                 _updatePairDebtWithNative(locker.id(), token0, token1, balanceUpdate.delta0(), balanceUpdate.delta1());

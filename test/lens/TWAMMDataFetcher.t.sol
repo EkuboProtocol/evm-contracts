@@ -88,14 +88,20 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
                         token0: address(token0),
                         token1: address(token1),
                         config: createOrderConfig({
-                            _fee: fee, _isToken1: false, _startTime: uint64(startTime), _endTime: uint64(endTime)
+                            _fee: fee,
+                            _isToken1: false,
+                            _startTime: uint64(startTime),
+                            _endTime: uint64(endTime)
                         })
                     })
                     : OrderKey({
                         token0: address(token0),
                         token1: address(token1),
                         config: createOrderConfig({
-                            _fee: fee, _isToken1: true, _startTime: uint64(startTime), _endTime: uint64(endTime)
+                            _fee: fee,
+                            _isToken1: true,
+                            _startTime: uint64(startTime),
+                            _endTime: uint64(endTime)
                         })
                     }),
                 10000,

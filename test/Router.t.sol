@@ -103,7 +103,11 @@ contract RouterTest is FullTest {
         token1.approve(address(router), 202);
 
         (PoolBalanceUpdate balanceUpdate,) = router.quote({
-            poolKey: poolKey, sqrtRatioLimit: MAX_SQRT_RATIO, isToken1: false, amount: -100, skipAhead: 0
+            poolKey: poolKey,
+            sqrtRatioLimit: MAX_SQRT_RATIO,
+            isToken1: false,
+            amount: -100,
+            skipAhead: 0
         });
         assertEq(balanceUpdate.delta0(), -100);
         assertEq(balanceUpdate.delta1(), 202);
@@ -561,9 +565,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -200, 200, 1000, 1000);
 
         coolAllContracts();
-        router.swap{
-            value: 30000
-        }(
+        router.swap{value: 30000}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-250), skipAhead: 0}),
             TokenAmount({token: poolKey.token0, amount: 30000}),
             type(int256).min
@@ -618,9 +620,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -200, 200, 1000, 1000);
 
         coolAllContracts();
-        router.swap{
-            value: 3500
-        }(
+        router.swap{value: 3500}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: poolKey.token0, amount: 3500}),
             type(int256).min
@@ -636,9 +636,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         coolAllContracts();
-        router.swap{
-            value: 100
-        }(
+        router.swap{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
             type(int256).min
@@ -652,24 +650,16 @@ contract RouterTest is FullTest {
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
         // do the swap one time first to set the fees slot
-        router.swap{
-            value: 100
-        }({
+        router.swap{value: 100}({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
 
         coolAllContracts();
-        router.swap{
-            value: 100
-        }({
+        router.swap{value: 100}({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
@@ -684,18 +674,14 @@ contract RouterTest is FullTest {
 
         router.swap({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
 
         coolAllContracts();
         router.swap({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
         vm.snapshotGasLastCall("swap 100 wei of token for eth full range");
@@ -709,24 +695,16 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1000, 1000);
 
         // do the swap one time first to set the fees slot
-        router.swap{
-            value: 100
-        }({
+        router.swap{value: 100}({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
 
         coolAllContracts();
-        router.swap{
-            value: 100
-        }({
+        router.swap{value: 100}({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
         vm.snapshotGasLastCall("swap 100 wei of eth for token stableswap");
@@ -743,18 +721,14 @@ contract RouterTest is FullTest {
 
         router.swap({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
 
         coolAllContracts();
         router.swap({
             poolKey: poolKey,
-            params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
+            params: createSwapParameters({_sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100}),
             calculatedAmountThreshold: type(int256).min
         });
         vm.snapshotGasLastCall("swap 100 wei of token for eth stableswap");

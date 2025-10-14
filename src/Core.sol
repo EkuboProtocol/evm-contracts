@@ -506,14 +506,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     function swap_6269342730() external payable {
         unchecked {
             PoolKey memory poolKey;
+            address token0;
+            address token1;
+            PoolConfig config;
+
             SwapParameters params;
 
             assembly ("memory-safe") {
-                // No need to clean the parameters as we do with ABI-decoding because:
-                // 1. If poolKey is malformed, the poolId will be incorrect and the pool won't be initialized
-                // 2. SwapParameters uses bitwise operations that mask the relevant bits, handling any dirty upper bits
-                calldatacopy(poolKey, 4, 96)
+                token0 := calldataload(4)
+                token1 := calldataload(36)
+                config := calldataload(68)
                 params := calldataload(100)
+                calldatacopy(poolKey, 4, 96)
             }
 
             SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
@@ -521,7 +525,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             Locker locker = _requireLocker();
 
-            IExtension(poolKey.config.extension()).maybeCallBeforeSwap(locker, poolKey, params);
+            IExtension(config.extension()).maybeCallBeforeSwap(locker, poolKey, params);
 
             PoolId poolId = poolKey.toPoolId();
 
@@ -565,13 +569,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     // For stableswap pools, determine active liquidity for this step
                     uint128 stepLiquidity = liquidity;
 
-                    if (poolKey.config.isStableswap()) {
-                        if (poolKey.config.isFullRange()) {
+                    if (config.isStableswap()) {
+                        if (config.isFullRange()) {
                             // special case since we don't need to compute min/max tick sqrt ratio
                             (nextTick, nextTickSqrtRatio) =
                                 increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                         } else {
-                            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+                            (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
 
                             bool inRange;
                             assembly ("memory-safe") {
@@ -598,13 +602,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.concentratedTickSpacing(),
+                                config.concentratedTickSpacing(),
                                 params.skipAhead()
                             )
                             : findPrevInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.concentratedTickSpacing(),
+                                config.concentratedTickSpacing(),
                                 params.skipAhead()
                             );
 
@@ -628,7 +632,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             // cast is safe because amount is g.t.e. 0
                             // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
                             priceImpactAmount =
-                                amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.config.fee()));
+                                amountRemaining - int128(computeFee(uint128(amountRemaining), config.fee()));
                         }
 
                         SqrtRatio sqrtRatioNextFromAmount = isToken1
@@ -660,12 +664,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 );
 
                             if (isExactOut) {
-                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.config.fee());
+                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, config.fee());
                                 amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
                                 calculatedAmount += int256(uint256(beforeFee));
                                 feeAmount = beforeFee - limitCalculatedAmountDelta;
                             } else {
-                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.config.fee());
+                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, config.fee());
                                 amountRemaining -= SafeCastLib.toInt128(beforeFee);
                                 calculatedAmount -= int256(uint256(limitCalculatedAmountDelta));
                                 feeAmount = beforeFee - limitSpecifiedAmountDelta;
@@ -687,7 +691,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut);
 
                             if (isExactOut) {
-                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());
+                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, config.fee());
                                 calculatedAmount += int256(uint256(includingFee));
                                 feeAmount = includingFee - calculatedAmountWithoutFee;
                             } else {
@@ -796,9 +800,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         .store(bytes32(inputTokenFeesPerLiquidity));
                 }
 
-                _updatePairDebtWithNative(
-                    locker.id(), poolKey.token0, poolKey.token1, balanceUpdate.delta0(), balanceUpdate.delta1()
-                );
+                _updatePairDebtWithNative(locker.id(), token0, token1, balanceUpdate.delta0(), balanceUpdate.delta1());
 
                 assembly ("memory-safe") {
                     let o := mload(0x40)
@@ -810,8 +812,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            IExtension(poolKey.config.extension())
-                .maybeCallAfterSwap(locker, poolKey, params, balanceUpdate, stateAfter);
+            IExtension(config.extension()).maybeCallAfterSwap(locker, poolKey, params, balanceUpdate, stateAfter);
 
             assembly ("memory-safe") {
                 let free := mload(0x40)

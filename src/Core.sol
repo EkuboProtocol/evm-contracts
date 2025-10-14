@@ -674,9 +674,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             if (isExactOut) {
                                 uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, config.fee());
-                                calculatedAmount += int256(uint256(beforeFee));
-
                                 assembly ("memory-safe") {
+                                    calculatedAmount := add(calculatedAmount, beforeFee)
                                     amountRemaining := add(amountRemaining, limitSpecifiedAmountDelta)
                                     stepFeesPerLiquidity := div(
                                         shl(128, sub(beforeFee, limitCalculatedAmountDelta)),
@@ -685,8 +684,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 }
                             } else {
                                 uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, config.fee());
-                                calculatedAmount -= int256(uint256(limitCalculatedAmountDelta));
                                 assembly ("memory-safe") {
+                                    calculatedAmount := sub(calculatedAmount, limitCalculatedAmountDelta)
                                     amountRemaining := sub(amountRemaining, beforeFee)
                                     stepFeesPerLiquidity := div(
                                         shl(128, sub(beforeFee, limitSpecifiedAmountDelta)),
@@ -714,16 +713,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             if (isExactOut) {
                                 uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, config.fee());
-                                calculatedAmount += int256(uint256(includingFee));
                                 assembly ("memory-safe") {
+                                    calculatedAmount := add(calculatedAmount, includingFee)
                                     stepFeesPerLiquidity := div(
                                         shl(128, sub(includingFee, calculatedAmountWithoutFee)),
                                         stepLiquidity
                                     )
                                 }
                             } else {
-                                calculatedAmount -= int256(uint256(calculatedAmountWithoutFee));
                                 assembly ("memory-safe") {
+                                    calculatedAmount := sub(calculatedAmount, calculatedAmountWithoutFee)
                                     stepFeesPerLiquidity := div(
                                         shl(128, sub(amountRemaining, priceImpactAmount)),
                                         stepLiquidity

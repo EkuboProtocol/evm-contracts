@@ -695,18 +695,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             }
 
                             sqrtRatioNext = limitedNextSqrtRatio;
-                        } else if (sqrtRatioNextFromAmount == sqrtRatio) {
-                            // for an exact output swap, the price should always move since we have to round away from the current price
-                            assert(!isExactOut);
-
-                            // consume the entire input amount as fees since the price did not move
-                            assembly ("memory-safe") {
-                                stepFeesPerLiquidity := div(shl(128, amountRemaining), stepLiquidity)
-                            }
-                            amountRemaining = 0;
-
-                            sqrtRatioNext = sqrtRatio;
-                        } else {
+                        } else if (sqrtRatioNextFromAmount != sqrtRatio) {
                             uint128 calculatedAmountWithoutFee = isToken1
                                 ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut)
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut);
@@ -732,6 +721,16 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                             amountRemaining = 0;
                             sqrtRatioNext = sqrtRatioNextFromAmount;
+                        } else {
+                            // for an exact output swap, the price should always move since we have to round away from the current price
+                            assert(!isExactOut);
+
+                            // consume the entire input amount as fees since the price did not move
+                            assembly ("memory-safe") {
+                                stepFeesPerLiquidity := div(shl(128, amountRemaining), stepLiquidity)
+                            }
+                            amountRemaining = 0;
+                            sqrtRatioNext = sqrtRatio;
                         }
 
                         // only if fees per liquidity was updated in this swap iteration

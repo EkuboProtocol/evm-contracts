@@ -9,13 +9,22 @@ if ! command -v forge &> /dev/null; then
     exit 1
 fi
 
-# Check forge version and warn if it doesn't match CI
+# Check forge version and install correct version if needed
 FORGE_VERSION=$(forge --version | grep -oP 'forge \K[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 EXPECTED_VERSION="1.4.0"
 
 if [ "$FORGE_VERSION" != "$EXPECTED_VERSION" ]; then
-    echo "Warning: Local forge version ($FORGE_VERSION) differs from CI version ($EXPECTED_VERSION)"
-    echo "This may cause formatting differences. Consider running: foundryup --version v$EXPECTED_VERSION"
+    echo "Local forge version ($FORGE_VERSION) differs from CI version ($EXPECTED_VERSION)"
+    echo "Installing forge v$EXPECTED_VERSION to match CI..."
+    
+    if command -v foundryup &> /dev/null; then
+        foundryup --version "v$EXPECTED_VERSION"
+        echo "Successfully installed forge v$EXPECTED_VERSION"
+    else
+        echo "Warning: foundryup not found. Cannot auto-install correct forge version."
+        echo "Please manually run: foundryup --version v$EXPECTED_VERSION"
+        echo "Continuing with current version, but formatting may not match CI."
+    fi
 fi
 
 # Format Solidity files

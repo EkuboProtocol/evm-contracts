@@ -20,15 +20,25 @@ if [ "$FORGE_VERSION" != "$EXPECTED_VERSION" ]; then
     if command -v foundryup &> /dev/null; then
         foundryup --version "v$EXPECTED_VERSION"
         echo "Successfully installed forge v$EXPECTED_VERSION"
+        
+        # Use the newly installed forge from ~/.foundry/bin
+        if [ -f "$HOME/.foundry/bin/forge" ]; then
+            FORGE_BIN="$HOME/.foundry/bin/forge"
+        else
+            FORGE_BIN="forge"
+        fi
     else
         echo "Warning: foundryup not found. Cannot auto-install correct forge version."
         echo "Please manually run: foundryup --version v$EXPECTED_VERSION"
         echo "Continuing with current version, but formatting may not match CI."
+        FORGE_BIN="forge"
     fi
+else
+    FORGE_BIN="forge"
 fi
 
 # Format Solidity files
 echo "Formatting Solidity files..."
-forge fmt
+$FORGE_BIN fmt
 
 echo "Formatting complete!"

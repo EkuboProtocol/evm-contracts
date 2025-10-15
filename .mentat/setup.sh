@@ -8,7 +8,7 @@ if ! command -v forge &> /dev/null; then
     echo "Installing Foundry..."
     curl -L https://foundry.paradigm.xyz | bash
     source ~/.bashrc
-    foundryup -i v1.4.0
+    foundryup
 fi
 
 # Install dependencies

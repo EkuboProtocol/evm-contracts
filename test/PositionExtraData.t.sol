@@ -154,14 +154,8 @@ contract PositionExtraDataTest is Test {
         bytes32 targetStorageSlot = keccak256("target.storage.slot");
 
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
-        address msgSender = address(locker);
 
         bytes16 extraData = bytes16(0xffffffffffffffffffffffffffffffff);
-        PoolId maliciousPoolId;
-        assembly {
-            mstore(0, positionId)
-            maliciousPoolId := sub(sub(targetStorageSlot, keccak256(0, 32)), msgSender)
-        }
 
         bytes32 slotBefore = vm.load(address(core), targetStorageSlot);
 

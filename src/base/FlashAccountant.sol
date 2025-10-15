@@ -129,9 +129,16 @@ abstract contract FlashAccountant is IFlashAccountant {
     }
 
     /// @inheritdoc IFlashAccountant
-    function updateDebt(int256 delta) external {
+    function updateDebt() external {
+        if (msg.data.length != 20) {
+            revert UpdateDebtMessageLength();
+        }
+
         uint256 id = _getLocker().id();
-        if (delta > type(int128).max || delta < type(int128).min) revert UpdateDebtOverflow();
+        int256 delta;
+        assembly ("memory-safe") {
+            delta := signextend(15, shr(128, calldataload(4)))
+        }
         _accountDebt(id, msg.sender, delta);
     }
 

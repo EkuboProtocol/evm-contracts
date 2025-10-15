@@ -148,4 +148,31 @@ contract PositionExtraDataTest is Test {
         locker.setExtraData(poolKey.toPoolId(), positionId, bytes16(uint128(0x1234)));
         vm.snapshotGasLastCall("#setExtraData");
     }
+
+    function test_arbitrary_storage_write() public {
+        bytes32 targetStorageSlot = keccak256("target.storage.slot");
+
+        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+        address msgSender = address(locker);
+
+        bytes16 extraData = bytes16(0xffffffffffffffffffffffffffffffff);
+        PoolId maliciousPoolId;
+        assembly {
+            mstore(0, positionId)
+            maliciousPoolId := sub(sub(targetStorageSlot, keccak256(0, 32)), msgSender)
+        }
+
+        bytes32 slotBefore = vm.load(address(core), targetStorageSlot);
+
+        // With the fix, the storage slot is computed as keccak256(positionId, poolId, owner)
+        // This means we cannot craft inputs to write to arbitrary storage locations
+        // because we cannot find a preimage for a specific hash output
+        locker.setExtraData(maliciousPoolId, positionId, extraData);
+
+        bytes32 slotAfter = vm.load(address(core), targetStorageSlot);
+
+        // Verify the target storage slot was NOT modified
+        assertEq(slotBefore, slotAfter);
+        assertEq(slotBefore, bytes32(0));
+    }
 }

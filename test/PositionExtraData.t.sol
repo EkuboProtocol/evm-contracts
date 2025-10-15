@@ -32,8 +32,8 @@ contract TestLocker is BaseLocker, UsesCore {
         return lock(data);
     }
 
-    function setExtraData(PoolKey memory poolKey, PositionId positionId, bytes16 extraData) external {
-        CORE.setExtraData(poolKey, positionId, extraData);
+    function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external {
+        CORE.setExtraData(poolId, positionId, extraData);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
@@ -79,10 +79,9 @@ contract PositionExtraDataTest is Test {
         core.initializePool(poolKey, 0);
     }
 
-    function test_setExtraData_position_does_not_exist(bytes16 extraData) public {
-        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
-        locker.setExtraData(poolKey, positionId, extraData);
-        Position memory position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
+    function test_setExtraData_position_does_not_exist(PoolId poolId, PositionId positionId, bytes16 extraData) public {
+        locker.setExtraData(poolId, positionId, extraData);
+        Position memory position = core.poolPositions(poolId, address(locker), positionId);
         assertEq(position.liquidity, 0);
         assertEq(position.extraData, extraData);
         assertEq(position.feesPerLiquidityInsideLast.value0, 0);
@@ -93,7 +92,7 @@ contract PositionExtraDataTest is Test {
         liquidity = uint128(bound(liquidity, 1, type(uint64).max));
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
 
-        locker.setExtraData(poolKey, positionId, extraData);
+        locker.setExtraData(poolKey.toPoolId(), positionId, extraData);
 
         locker.doLock(abi.encode(poolKey, positionId, int128(liquidity)));
 
@@ -114,7 +113,7 @@ contract PositionExtraDataTest is Test {
         assertEq(position.extraData, bytes16(0), "extraData should be zero at create");
         assertEq(position.liquidity, liquidity, "liquidity should equal what we set");
 
-        locker.setExtraData(poolKey, positionId, extraData);
+        locker.setExtraData(poolKey.toPoolId(), positionId, extraData);
         position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
         assertEq(position.extraData, extraData, "extraData should change after setExtraData");
         assertEq(position.liquidity, liquidity, "liquidity should still equal what we set");
@@ -130,7 +129,7 @@ contract PositionExtraDataTest is Test {
 
         locker.doLock(abi.encode(poolKey, positionId, int128(liquidity)));
 
-        locker.setExtraData(poolKey, positionId, extraDataNonZero);
+        locker.setExtraData(poolKey.toPoolId(), positionId, extraDataNonZero);
 
         locker.doLock(abi.encode(poolKey, positionId, -int128(liquidity)));
 
@@ -146,7 +145,7 @@ contract PositionExtraDataTest is Test {
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
         locker.doLock(abi.encode(poolKey, positionId, 1));
 
-        locker.setExtraData(poolKey, positionId, bytes16(uint128(0x1234)));
+        locker.setExtraData(poolKey.toPoolId(), positionId, bytes16(uint128(0x1234)));
         vm.snapshotGasLastCall("#setExtraData");
     }
 
@@ -154,28 +153,26 @@ contract PositionExtraDataTest is Test {
         bytes32 targetStorageSlot = keccak256("target.storage.slot");
 
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+        address msgSender = address(locker);
 
         bytes16 extraData = bytes16(0xffffffffffffffffffffffffffffffff);
+        PoolId maliciousPoolId;
+        assembly {
+            mstore(0, positionId)
+            maliciousPoolId := sub(sub(targetStorageSlot, keccak256(0, 32)), msgSender)
+        }
 
         bytes32 slotBefore = vm.load(address(core), targetStorageSlot);
 
-        // With the fix, we can no longer pass an arbitrary PoolId directly
-        // We must pass a PoolKey, which gets validated and hashed to produce the PoolId
-        // This means we cannot craft a PoolId to write to arbitrary storage locations
-
-        // Any valid PoolKey will hash to a legitimate PoolId that doesn't allow arbitrary storage writes
-        // For example, using our test poolKey:
-        locker.setExtraData(poolKey, positionId, extraData);
+        // With the fix, the storage slot is computed as keccak256(positionId, poolId, owner)
+        // This means we cannot craft inputs to write to arbitrary storage locations
+        // because we cannot find a preimage for a specific hash output
+        locker.setExtraData(maliciousPoolId, positionId, extraData);
 
         bytes32 slotAfter = vm.load(address(core), targetStorageSlot);
 
         // Verify the target storage slot was NOT modified
-        // The extraData was written to the legitimate position storage slot, not the target slot
         assertEq(slotBefore, slotAfter);
         assertEq(slotBefore, bytes32(0));
-
-        // Verify the extraData was written to the correct position slot
-        Position memory position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
-        assertEq(position.extraData, extraData);
     }
 }

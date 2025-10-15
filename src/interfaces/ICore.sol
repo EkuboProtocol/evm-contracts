@@ -253,10 +253,10 @@ interface ICore is IFlashAccountant, IExposedStorage {
         returns (PoolBalanceUpdate balanceUpdate);
 
     /// @notice Sets extra data for the position
-    /// @param poolKey Pool key identifying the pool
+    /// @param poolId ID of the pool for which the position exists
     /// @param positionId The key of the position to set extra data at
     /// @param extraData The data to set on the position
-    function setExtraData(PoolKey memory poolKey, PositionId positionId, bytes16 extraData) external;
+    function setExtraData(PoolId poolId, PositionId positionId, bytes16 extraData) external;
 
     /// @notice Collects accumulated fees from a position
     /// @param poolKey Pool key identifying the pool

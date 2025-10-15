@@ -103,8 +103,11 @@ library CoreStorageLayout {
         returns (StorageSlot firstSlot)
     {
         assembly ("memory-safe") {
-            mstore(0, positionId)
-            firstSlot := add(keccak256(0, 32), add(poolId, owner))
+            let free := mload(0x40)
+            mstore(free, positionId)
+            mstore(add(free, 0x20), poolId)
+            mstore(add(free, 0x40), owner)
+            firstSlot := keccak256(free, 0x60)
         }
     }
 

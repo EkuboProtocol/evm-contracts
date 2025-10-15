@@ -107,7 +107,9 @@ library CoreStorageLayout {
             mstore(free, positionId)
             mstore(add(free, 0x20), poolId)
             mstore(add(free, 0x40), owner)
-            firstSlot := keccak256(free, 0x60)
+            mstore(0, keccak256(free, 0x60))
+            mstore(32, 1)
+            firstSlot := keccak256(0, 64)
         }
     }
 

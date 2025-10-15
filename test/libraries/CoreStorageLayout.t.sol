@@ -209,7 +209,7 @@ contract CoreStorageLayoutTest is Test {
         assertNotEq(slot1, slot2);
     }
 
-    function test_noStorageLayoutCollisions_poolPositionsSlot_collision_iff_all_equal(
+    function check_noStorageLayoutCollisions_poolPositionsSlot_collision_iff_all_equal(
         PoolId poolId1,
         PoolId poolId2,
         address owner1,
@@ -226,6 +226,17 @@ contract CoreStorageLayoutTest is Test {
 
         // Slots collide if and only if all parameters are equal
         assertEq(slot1 == slot2, allEqual);
+    }
+
+    function check_noStorageLayoutCollisions_poolPositionsSlot_poolStateSlot(
+        PoolId poolId,
+        address owner,
+        PositionId positionId
+    ) public pure {
+        bytes32 slot0 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId));
+        bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId));
+
+        assertNotEq(slot0, slot1);
     }
 
     function test_noStorageLayoutCollisions_isExtensionRegisteredSlot_poolPositionsSlot(

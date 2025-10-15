@@ -448,7 +448,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function setExtraData(PoolId poolId, PositionId positionId, bytes16 _extraData) external {
+    function setExtraData(PoolKey memory poolKey, PositionId positionId, bytes16 _extraData) external {
+        poolKey.validate();
+        positionId.validate(poolKey.config);
+
+        PoolId poolId = poolKey.toPoolId();
         StorageSlot firstSlot = CoreStorageLayout.poolPositionsSlot(poolId, msg.sender, positionId);
 
         bytes32 extraData;

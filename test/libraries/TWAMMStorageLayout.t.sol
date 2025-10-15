@@ -276,6 +276,27 @@ contract TWAMMStorageLayoutTest is Test {
         // makes it extremely unlikely for slots to be adjacent
     }
 
+    function test_noStorageLayoutCollisions_orderStateSlot_collision_iff_all_equal(
+        bytes32 salt0,
+        bytes32 salt1,
+        address owner0,
+        address owner1,
+        OrderId orderId0,
+        OrderId orderId1
+    ) public pure {
+        bytes32 slot1 = StorageSlot.unwrap(
+            TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner0, salt0, orderId0)
+        );
+        bytes32 slot2 = StorageSlot.unwrap(
+            TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner1, salt1, orderId1)
+        );
+
+        // Slots collide if and only if all parameters are equal
+        assertEq(
+            slot1 == slot2, OrderId.unwrap(orderId0) == OrderId.unwrap(orderId1) && owner0 == owner1 && salt0 == salt1
+        );
+    }
+
     // Test orderStateSlotFollowedByOrderRewardRateSnapshotSlot uniqueness with different salts
     function test_noStorageLayoutCollisions_orderStateSlot_uniqueness_salt(
         address owner,

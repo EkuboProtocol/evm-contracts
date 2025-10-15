@@ -18,8 +18,7 @@ contract ObservationTest is Test {
 
     function test_conversionFromAndTo(uint160 secondsPerLiquidityCumulative, int64 tickCumulative) public pure {
         Observation observation = createObservation({
-            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative,
-            _tickCumulative: tickCumulative
+            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative, _tickCumulative: tickCumulative
         });
         assertEq(observation.secondsPerLiquidityCumulative(), secondsPerLiquidityCumulative);
         assertEq(observation.tickCumulative(), tickCumulative);
@@ -38,8 +37,7 @@ contract ObservationTest is Test {
         }
 
         Observation observation = createObservation({
-            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative,
-            _tickCumulative: tickCumulative
+            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative, _tickCumulative: tickCumulative
         });
         assertEq(
             observation.secondsPerLiquidityCumulative(), secondsPerLiquidityCumulative, "secondsPerLiquidityCumulative"

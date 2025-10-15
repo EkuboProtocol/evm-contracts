@@ -2,12 +2,14 @@
 pragma solidity =0.8.30;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 import {BaseForwardee} from "./base/BaseForwardee.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {toDate, toQuarter} from "./libraries/TimeDescriptor.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Locker} from "./types/locker.sol";
 
 /// @title Time-locked Token Wrapper
@@ -16,6 +18,7 @@ import {Locker} from "./types/locker.sol";
 /// @dev Wrapping and unwrapping happens via Ekubo Core#forward. Implements full ERC20 functionality
 contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     using CoreLib for *;
+    using FlashAccountantLib for *;
 
     /// @notice Thrown when trying to unwrap the token before the token has unlocked
     error TooEarly();
@@ -173,7 +176,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
             delta1: 0
         });
 
-        CORE.updateDebt(-amount);
+        CORE.updateDebt(SafeCastLib.toInt128(-amount));
 
         return bytes("");
     }

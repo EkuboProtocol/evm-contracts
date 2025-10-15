@@ -151,8 +151,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
                 }
 
                 setPoolState({
-                    poolId: poolId,
-                    state: createMEVCapturePoolState({_lastUpdateTime: currentTime, _tickLast: tick})
+                    poolId: poolId, state: createMEVCapturePoolState({_lastUpdateTime: currentTime, _tickLast: tick})
                 });
             }
         }

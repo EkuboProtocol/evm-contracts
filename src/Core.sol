@@ -128,7 +128,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         // positive is saving, negative is loading
         int256 delta0,
         int256 delta1
-    ) external payable {
+    )
+        external
+        payable
+    {
         if (token0 >= token1) revert SavedBalanceTokensNotSorted();
 
         (uint256 id, address lockerAddr) = _requireLocker().parse();
@@ -361,9 +364,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
         Locker locker = _requireLocker();
 
-        IExtension(poolKey.config.extension()).maybeCallBeforeUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta
-        );
+        IExtension(poolKey.config.extension())
+            .maybeCallBeforeUpdatePosition(locker, poolKey, positionId, liquidityDelta);
 
         PoolId poolId = poolKey.toPoolId();
         PoolState state = readPoolState(poolId);
@@ -441,9 +443,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, balanceUpdate, state);
         }
 
-        IExtension(poolKey.config.extension()).maybeCallAfterUpdatePosition(
-            locker, poolKey, positionId, liquidityDelta, balanceUpdate, state
-        );
+        IExtension(poolKey.config.extension())
+            .maybeCallAfterUpdatePosition(locker, poolKey, positionId, liquidityDelta, balanceUpdate, state);
     }
 
     /// @inheritdoc ICore
@@ -505,14 +506,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     function swap_6269342730() external payable {
         unchecked {
             PoolKey memory poolKey;
+            address token0;
+            address token1;
+            PoolConfig config;
+
             SwapParameters params;
 
             assembly ("memory-safe") {
-                // No need to clean the parameters as we do with ABI-decoding because:
-                // 1. If poolKey is malformed, the poolId will be incorrect and the pool won't be initialized
-                // 2. SwapParameters uses bitwise operations that mask the relevant bits, handling any dirty upper bits
-                calldatacopy(poolKey, 4, 96)
+                token0 := calldataload(4)
+                token1 := calldataload(36)
+                config := calldataload(68)
                 params := calldataload(100)
+                calldatacopy(poolKey, 4, 96)
             }
 
             SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
@@ -520,7 +525,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             Locker locker = _requireLocker();
 
-            IExtension(poolKey.config.extension()).maybeCallBeforeSwap(locker, poolKey, params);
+            IExtension(config.extension()).maybeCallBeforeSwap(locker, poolKey, params);
 
             PoolId poolId = poolKey.toPoolId();
 
@@ -528,7 +533,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             if (!stateAfter.isInitialized()) revert PoolNotInitialized();
 
-            int128 amountRemaining = params.amount();
+            int256 amountRemaining = params.amount();
 
             PoolBalanceUpdate balanceUpdate;
 
@@ -548,7 +553,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     revert SqrtRatioLimitWrongDirection();
                 }
 
-                uint256 calculatedAmount;
+                int256 calculatedAmount;
 
                 // fees per liquidity only for the input token
                 uint256 inputTokenFeesPerLiquidity;
@@ -564,13 +569,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     // For stableswap pools, determine active liquidity for this step
                     uint128 stepLiquidity = liquidity;
 
-                    if (poolKey.config.isStableswap()) {
-                        if (poolKey.config.isFullRange()) {
+                    if (config.isStableswap()) {
+                        if (config.isFullRange()) {
                             // special case since we don't need to compute min/max tick sqrt ratio
                             (nextTick, nextTickSqrtRatio) =
                                 increasing ? (MAX_TICK, MAX_SQRT_RATIO) : (MIN_TICK, MIN_SQRT_RATIO);
                         } else {
-                            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+                            (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
 
                             bool inRange;
                             assembly ("memory-safe") {
@@ -597,13 +602,13 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             ? findNextInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.concentratedTickSpacing(),
+                                config.concentratedTickSpacing(),
                                 params.skipAhead()
                             )
                             : findPrevInitializedTick(
                                 CoreStorageLayout.tickBitmapsSlot(poolId),
                                 tick,
-                                poolKey.config.concentratedTickSpacing(),
+                                config.concentratedTickSpacing(),
                                 params.skipAhead()
                             );
 
@@ -622,12 +627,20 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         // this amount is what moves the price
                         int128 priceImpactAmount;
                         if (isExactOut) {
-                            priceImpactAmount = amountRemaining;
+                            assembly ("memory-safe") {
+                                priceImpactAmount := amountRemaining
+                            }
                         } else {
-                            // cast is safe because amount is g.t.e. 0
-                            // then cast back to int128 is also safe because computeFee never returns a value g.t. the input amount
-                            priceImpactAmount =
-                                amountRemaining - int128(computeFee(uint128(amountRemaining), poolKey.config.fee()));
+                            uint128 amountU128;
+                            assembly ("memory-safe") {
+                                // cast is safe because amountRemaining is g.t. 0 and fits in int128
+                                amountU128 := amountRemaining
+                            }
+                            uint128 feeAmount = computeFee(amountU128, config.fee());
+                            assembly ("memory-safe") {
+                                // feeAmount will never exceed amountRemaining since fee is < 100%
+                                priceImpactAmount := sub(amountRemaining, feeAmount)
+                            }
                         }
 
                         SqrtRatio sqrtRatioNextFromAmount = isToken1
@@ -643,7 +656,8 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                             hitLimit := or(exceedsUp, exceedsDown)
                         }
 
-                        uint128 feeAmount;
+                        // the change in fees per liquidity for this step of the iteration
+                        uint256 stepFeesPerLiquidity;
 
                         if (hitLimit) {
                             (uint256 sqrtRatioLower, uint256 sqrtRatioUpper) =
@@ -659,62 +673,78 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 );
 
                             if (isExactOut) {
-                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, poolKey.config.fee());
-                                amountRemaining += SafeCastLib.toInt128(limitSpecifiedAmountDelta);
-                                calculatedAmount += beforeFee;
-                                feeAmount = beforeFee - limitCalculatedAmountDelta;
+                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, config.fee());
+                                assembly ("memory-safe") {
+                                    calculatedAmount := add(calculatedAmount, beforeFee)
+                                    amountRemaining := add(amountRemaining, limitSpecifiedAmountDelta)
+                                    stepFeesPerLiquidity := div(
+                                        shl(128, sub(beforeFee, limitCalculatedAmountDelta)),
+                                        stepLiquidity
+                                    )
+                                }
                             } else {
-                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, poolKey.config.fee());
-                                amountRemaining -= SafeCastLib.toInt128(beforeFee);
-                                calculatedAmount += limitCalculatedAmountDelta;
-                                feeAmount = beforeFee - limitSpecifiedAmountDelta;
+                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, config.fee());
+                                assembly ("memory-safe") {
+                                    calculatedAmount := sub(calculatedAmount, limitCalculatedAmountDelta)
+                                    amountRemaining := sub(amountRemaining, beforeFee)
+                                    stepFeesPerLiquidity := div(
+                                        shl(128, sub(beforeFee, limitSpecifiedAmountDelta)),
+                                        stepLiquidity
+                                    )
+                                }
                             }
 
                             sqrtRatioNext = limitedNextSqrtRatio;
-                        } else if (sqrtRatioNextFromAmount == sqrtRatio) {
-                            // for an exact output swap, the price should always move since we have to round away from the current price
-                            assert(!isExactOut);
-
-                            // consume the entire input amount as fees since the price did not move
-                            feeAmount = uint128(amountRemaining);
-                            amountRemaining = 0;
-
-                            sqrtRatioNext = sqrtRatio;
-                        } else {
+                        } else if (sqrtRatioNextFromAmount != sqrtRatio) {
                             uint128 calculatedAmountWithoutFee = isToken1
                                 ? amount0Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut)
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut);
 
                             if (isExactOut) {
-                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, poolKey.config.fee());
-                                calculatedAmount += includingFee;
-                                feeAmount = includingFee - calculatedAmountWithoutFee;
+                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, config.fee());
+                                assembly ("memory-safe") {
+                                    calculatedAmount := add(calculatedAmount, includingFee)
+                                    stepFeesPerLiquidity := div(
+                                        shl(128, sub(includingFee, calculatedAmountWithoutFee)),
+                                        stepLiquidity
+                                    )
+                                }
                             } else {
-                                calculatedAmount += calculatedAmountWithoutFee;
-                                feeAmount = uint128(amountRemaining - priceImpactAmount);
+                                assembly ("memory-safe") {
+                                    calculatedAmount := sub(calculatedAmount, calculatedAmountWithoutFee)
+                                    stepFeesPerLiquidity := div(
+                                        shl(128, sub(amountRemaining, priceImpactAmount)),
+                                        stepLiquidity
+                                    )
+                                }
                             }
 
                             amountRemaining = 0;
                             sqrtRatioNext = sqrtRatioNextFromAmount;
+                        } else {
+                            // for an exact output swap, the price should always move since we have to round away from the current price
+                            assert(!isExactOut);
+
+                            // consume the entire input amount as fees since the price did not move
+                            assembly ("memory-safe") {
+                                stepFeesPerLiquidity := div(shl(128, amountRemaining), stepLiquidity)
+                            }
+                            amountRemaining = 0;
+                            sqrtRatioNext = sqrtRatio;
                         }
 
-                        // compute the change in fees per liquidity first
-                        uint256 deltaFpl;
-                        assembly ("memory-safe") {
-                            deltaFpl := div(shl(128, feeAmount), liquidity)
-                        }
-
-                        // only if it changed do we need to load fees per liquidity
-                        if (deltaFpl != 0) {
+                        // only if fees per liquidity was updated in this swap iteration
+                        if (stepFeesPerLiquidity != 0) {
                             if (feesAccessed == 0) {
                                 // this loads only the input token fees per liquidity
                                 inputTokenFeesPerLiquidity = uint256(
-                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
-                                        .load()
-                                );
+                                        CoreStorageLayout.poolFeesPerLiquiditySlot(poolId)
+                                            .add(LibBit.rawToUint(increasing)).load()
+                                    ) + stepFeesPerLiquidity;
+                            } else {
+                                inputTokenFeesPerLiquidity += stepFeesPerLiquidity;
                             }
 
-                            inputTokenFeesPerLiquidity += deltaFpl;
                             feesAccessed = 2;
                         }
                     }
@@ -746,27 +776,27 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 feesAccessed = 1;
                             }
 
-                            // assume input token is token0
-                            uint256 globalFeesPerLiquidity0 = inputTokenFeesPerLiquidity;
-
-                            // load the output token fees per liquidity
-                            uint256 globalFeesPerLiquidity1 = uint256(
+                            uint256 globalFeesPerLiquidityOther = uint256(
                                 CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(!increasing))
                                     .load()
                             );
 
-                            // if increasing, flip the values
+                            // if increasing, it means the pool is receiving token1 so the input fees per liquidity is token1
                             if (increasing) {
-                                uint256 tmp = globalFeesPerLiquidity0;
-                                globalFeesPerLiquidity0 = globalFeesPerLiquidity1;
-                                globalFeesPerLiquidity1 = tmp;
+                                tickFplFirstSlot.store(
+                                    bytes32(globalFeesPerLiquidityOther - uint256(tickFplFirstSlot.load()))
+                                );
+                                tickFplSecondSlot.store(
+                                    bytes32(inputTokenFeesPerLiquidity - uint256(tickFplSecondSlot.load()))
+                                );
+                            } else {
+                                tickFplFirstSlot.store(
+                                    bytes32(inputTokenFeesPerLiquidity - uint256(tickFplFirstSlot.load()))
+                                );
+                                tickFplSecondSlot.store(
+                                    bytes32(globalFeesPerLiquidityOther - uint256(tickFplSecondSlot.load()))
+                                );
                             }
-
-                            // store global - tick fpl on the crossed tick
-                            tickFplFirstSlot.store(bytes32(globalFeesPerLiquidity0 - uint256(tickFplFirstSlot.load())));
-                            tickFplSecondSlot.store(
-                                bytes32(globalFeesPerLiquidity1 - uint256(tickFplSecondSlot.load()))
-                            );
                         }
                     } else if (sqrtRatio != sqrtRatioNext) {
                         sqrtRatio = sqrtRatioNext;
@@ -778,17 +808,18 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     }
                 }
 
-                int256 calculatedAmountSign;
+                int128 calculatedAmountDelta =
+                    SafeCastLib.toInt128(FixedPointMathLib.max(type(int128).min, calculatedAmount));
+
+                int128 specifiedAmountDelta;
+                int128 specifiedAmount = params.amount();
                 assembly ("memory-safe") {
-                    calculatedAmountSign := sub(isExactOut, iszero(isExactOut))
+                    specifiedAmountDelta := sub(specifiedAmount, amountRemaining)
                 }
-                int128 calculatedAmountDelta = SafeCastLib.toInt128(
-                    FixedPointMathLib.max(type(int128).min, calculatedAmountSign * int256(calculatedAmount))
-                );
 
                 balanceUpdate = isToken1
-                    ? createPoolBalanceUpdate(calculatedAmountDelta, params.amount() - amountRemaining)
-                    : createPoolBalanceUpdate(params.amount() - amountRemaining, calculatedAmountDelta);
+                    ? createPoolBalanceUpdate(calculatedAmountDelta, specifiedAmountDelta)
+                    : createPoolBalanceUpdate(specifiedAmountDelta, calculatedAmountDelta);
 
                 stateAfter = createPoolState({_sqrtRatio: sqrtRatio, _tick: tick, _liquidity: liquidity});
 
@@ -796,14 +827,11 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
                 if (feesAccessed == 2) {
                     // this stores only the input token fees per liquidity
-                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing)).store(
-                        bytes32(inputTokenFeesPerLiquidity)
-                    );
+                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
+                        .store(bytes32(inputTokenFeesPerLiquidity));
                 }
 
-                _updatePairDebtWithNative(
-                    locker.id(), poolKey.token0, poolKey.token1, balanceUpdate.delta0(), balanceUpdate.delta1()
-                );
+                _updatePairDebtWithNative(locker.id(), token0, token1, balanceUpdate.delta0(), balanceUpdate.delta1());
 
                 assembly ("memory-safe") {
                     let o := mload(0x40)
@@ -815,15 +843,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                 }
             }
 
-            IExtension(poolKey.config.extension()).maybeCallAfterSwap(
-                locker, poolKey, params, balanceUpdate, stateAfter
-            );
+            IExtension(config.extension()).maybeCallAfterSwap(locker, poolKey, params, balanceUpdate, stateAfter);
 
             assembly ("memory-safe") {
-                let free := mload(0x40)
-                mstore(free, balanceUpdate)
-                mstore(add(free, 32), stateAfter)
-                return(free, 64)
+                mstore(0, balanceUpdate)
+                mstore(32, stateAfter)
+                return(0, 64)
             }
         }
     }

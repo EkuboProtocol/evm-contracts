@@ -42,13 +42,12 @@ function createTimeInfo(uint32 _numOrders, int112 _saleRateDeltaToken0, int112 _
 {
     assembly ("memory-safe") {
         // info = (numOrders << 224) | ((saleRateDeltaToken0 & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF) << 112) | (saleRateDeltaToken1 & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
-        info :=
+        info := or(
+            shl(224, _numOrders),
             or(
-                shl(224, _numOrders),
-                or(
-                    shl(112, and(_saleRateDeltaToken0, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF)),
-                    and(_saleRateDeltaToken1, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
-                )
+                shl(112, and(_saleRateDeltaToken0, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF)),
+                and(_saleRateDeltaToken1, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
             )
+        )
     }
 }

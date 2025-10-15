@@ -82,8 +82,11 @@ library TWAMMStorageLayout {
         returns (StorageSlot slot)
     {
         assembly ("memory-safe") {
-            mstore(0, salt)
-            slot := add(owner, add(orderId, keccak256(0, 32)))
+            let free := mload(0x40)
+            mstore(free, owner)
+            mstore(add(free, 0x20), salt)
+            mstore(add(free, 0x40), orderId)
+            slot := keccak256(free, 96)
         }
     }
 }

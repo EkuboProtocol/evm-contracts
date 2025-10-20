@@ -4,7 +4,7 @@ out = "out"
 libs = ["lib"]
 verbosity = 3
 no_match_contract = "SlowTest"
-
+evm_version = 'osaka'
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
 solc = './bin/solc-macos'

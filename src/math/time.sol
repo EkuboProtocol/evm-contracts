@@ -22,9 +22,7 @@ function computeStepSize(uint256 currentTime, uint256 time) pure returns (uint25
 
             let msb := sub(255, clz(diff)) // = index of msb
 
-            msb := sub(msb, mod(msb, 4)) // round down
-
-            msb := sub(msb, mul(gt(msb, 28), sub(msb, 28))) // max of 28
+            msb := sub(msb, mod(msb, 4)) // = round down to multiple of 4
 
             stepSize := shl(msb, 1)
         }

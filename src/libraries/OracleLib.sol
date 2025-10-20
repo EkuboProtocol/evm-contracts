@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {logicalIndexToStorageIndex} from "../extensions/Oracle.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";

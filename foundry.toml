@@ -7,7 +7,7 @@ no_match_contract = "SlowTest"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
-solc = '0.8.30'
+solc = './bin/solc-macos'
 optimizer = true
 optimizer_runs = 9999999
 via_ir = true

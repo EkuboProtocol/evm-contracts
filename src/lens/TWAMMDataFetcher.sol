@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {TWAMMLib} from "../libraries/TWAMMLib.sol";

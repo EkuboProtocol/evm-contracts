@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {FullTest} from "../FullTest.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";

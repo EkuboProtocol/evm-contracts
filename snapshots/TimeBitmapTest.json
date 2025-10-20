@@ -1,7 +1,7 @@
 {
   "flip(0)": "43494",
   "flip(16) in same map": "26406",
-  "next(0)": "2515",
-  "next(0) == 160": "2515",
+  "next(0)": "2504",
+  "next(0) == 160": "2484",
   "timeToBitmapWordAndIndex(150)": "28"
 }

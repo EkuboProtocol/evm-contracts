@@ -26,7 +26,7 @@ function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uin
 function flipTime(StorageSlot slot, uint256 time) {
     (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
     StorageSlot wordSlot = slot.add(word);
-    wordSlot.store(wordSlot.load() ^ bytes32(1 << index));
+    wordSlot.store(wordSlot.load() ^ bytes32(uint256(1) << (255 - index)));
 }
 
 /// @dev Finds the smallest time that is equal to or greater than the given `fromTime`, initialized and stored in the next bitmap

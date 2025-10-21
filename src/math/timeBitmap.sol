@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity >=0.8.30;
 
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {nextValidTime} from "../math/time.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
@@ -46,7 +45,11 @@ function findNextInitializedTime(StorageSlot slot, uint256 fromTime)
 
         isInitialized = nextIndex != 0;
 
-        nextTime = bitmapWordAndIndexToTime(word, FixedPointMathLib.ternary(isInitialized, nextIndex - 1, 255));
+        assembly ("memory-safe") {
+            nextIndex := mod(sub(nextIndex, 1), 256)
+        }
+
+        nextTime = bitmapWordAndIndexToTime(word, nextIndex);
     }
 }
 

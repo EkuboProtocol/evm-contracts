@@ -141,9 +141,9 @@ contract Handler is StdUtils, StdAssertions {
                 * int32(poolKey.config.concentratedTickSpacing());
         }
 
-        try positions.deposit(
-            positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0
-        ) returns (uint128 liquidity, uint128 result0, uint128 result1) {
+        try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
+            uint128 liquidity, uint128 result0, uint128 result1
+        ) {
             if (liquidity > 0) {
                 activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
             }
@@ -196,7 +196,9 @@ contract Handler is StdUtils, StdAssertions {
 
         try positions.withdraw(
             positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees
-        ) returns (uint128 amount0, uint128 amount1) {
+        ) returns (
+            uint128 amount0, uint128 amount1
+        ) {
             PoolId poolId = p.poolKey.toPoolId();
             poolBalances[poolId].amount0 -= int256(uint256(amount0));
             poolBalances[poolId].amount1 -= int256(uint256(amount1));
@@ -241,7 +243,9 @@ contract Handler is StdUtils, StdAssertions {
             gas: 15000000
         }({
             poolKey: poolKey, sqrtRatioLimit: sqrtRatioLimit, skipAhead: skipAhead, isToken1: isToken1, amount: amount
-        }) returns (PoolBalanceUpdate balanceUpdate) {
+        }) returns (
+            PoolBalanceUpdate balanceUpdate
+        ) {
             PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += balanceUpdate.delta0();
             poolBalances[poolId].amount1 += balanceUpdate.delta1();

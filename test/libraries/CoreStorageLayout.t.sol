@@ -220,8 +220,7 @@ contract CoreStorageLayoutTest is Test {
         bytes32 slot1 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId1, owner1, positionId1));
         bytes32 slot2 = StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId2, owner2, positionId2));
 
-        bool allEqual =
-            (PoolId.unwrap(poolId1) == PoolId.unwrap(poolId2)) && (owner1 == owner2)
+        bool allEqual = (PoolId.unwrap(poolId1) == PoolId.unwrap(poolId2)) && (owner1 == owner2)
             && (PositionId.unwrap(positionId1) == PositionId.unwrap(positionId2));
 
         // Slots collide if and only if all parameters are equal

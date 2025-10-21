@@ -129,9 +129,9 @@ contract Handler is StdUtils, StdAssertions {
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        try positions.deposit(
-            positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0
-        ) returns (uint128 liquidity, uint128, uint128) {
+        try positions.deposit(positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0) returns (
+            uint128 liquidity, uint128, uint128
+        ) {
             if (liquidity > 0) {
                 activePositions.push(ActivePosition(poolKey, MIN_TICK, MAX_TICK, liquidity));
             }
@@ -161,7 +161,9 @@ contract Handler is StdUtils, StdAssertions {
 
         try positions.withdraw(
             positionId, p.poolKey, p.tickLower, p.tickUpper, liquidity, address(this), collectFees
-        ) returns (uint128, uint128) {
+        ) returns (
+            uint128, uint128
+        ) {
             p.liquidity -= liquidity;
         } catch (bytes memory err) {
             bytes4 sig;
@@ -198,7 +200,9 @@ contract Handler is StdUtils, StdAssertions {
             gas: 15000000
         }({
             poolKey: poolKey, sqrtRatioLimit: sqrtRatioLimit, skipAhead: skipAhead, isToken1: isToken1, amount: amount
-        }) returns (PoolBalanceUpdate) {}
+        }) returns (
+            PoolBalanceUpdate
+        ) {}
         catch (bytes memory err) {
             bytes4 sig;
             assembly ("memory-safe") {

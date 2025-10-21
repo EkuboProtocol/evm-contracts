@@ -5,6 +5,7 @@ import {Bitmap} from "./types/bitmap.sol";
 import {DropKey} from "./types/dropKey.sol";
 import {ClaimKey} from "./types/claimKey.sol";
 import {DropState} from "./types/dropState.sol";
+import {StorageSlot} from "./types/storageSlot.sol";
 import {IIncentives} from "./interfaces/IIncentives.sol";
 import {IncentivesLib} from "./libraries/IncentivesLib.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
@@ -75,14 +76,11 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
 
         // Check that it is not claimed
         (uint256 word, uint8 bit) = IncentivesLib.claimIndexToStorageIndex(c.index);
-        bytes32 bitmapSlot;
+        StorageSlot bitmapSlot;
         unchecked {
-            bitmapSlot = bytes32(uint256(id) + 1 + word);
+            bitmapSlot = StorageSlot.wrap(bytes32(uint256(id) + 1 + word));
         }
-        Bitmap bitmap;
-        assembly ("memory-safe") {
-            bitmap := sload(bitmapSlot)
-        }
+        Bitmap bitmap = Bitmap.wrap(uint256(bitmapSlot.load()));
         if (bitmap.isSet(bit)) revert AlreadyClaimed();
 
         // Check the proof is valid

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity >=0.8.30;
 
-import {LibBit} from "solady/utils/LibBit.sol";
-
+// Bitmap type where index 0 = MSB (bit 255), index 255 = LSB (bit 0)
+// This ordering allows efficient use of the clz (count leading zeros) opcode
 type Bitmap is uint256;
 
 using {toggle, isSet, leSetBit, geSetBit} for Bitmap global;
@@ -24,9 +24,6 @@ function leSetBit(Bitmap bitmap, uint8 index) pure returns (uint256 v) {
     assembly ("memory-safe") {
         let masked := and(bitmap, not(sub(shl(sub(255, index), 1), 1)))
         v := clz(masked)
-        if eq(v, 256) {
-            v := 256
-        }
     }
 }
 
@@ -35,8 +32,5 @@ function geSetBit(Bitmap bitmap, uint8 index) pure returns (uint256 v) {
     assembly ("memory-safe") {
         let masked := and(bitmap, sub(shl(sub(256, index), 1), 1))
         v := clz(masked)
-        if eq(v, 256) {
-            v := 256
-        }
     }
 }

@@ -39,14 +39,18 @@ function findNextInitializedTime(StorageSlot slot, uint256 fromTime)
         // convert the given time to the bitmap position of the next nearest potential initialized time
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
 
-        // find the index of the previous tick in that word
+        // find the index of the next time in that word
         Bitmap bitmap = Bitmap.wrap(uint256(slot.add(word).load()));
-        uint256 nextIndex = bitmap.geSetBit(uint8(index));
+        // Convert from old (LSB=0) to new (MSB=0) index space
+        uint256 nextIndex = bitmap.geSetBit(uint8(255 - index));
 
-        assembly ("memory-safe") {
-            let noBitsSet := shr(8, nextIndex)
-            isInitialized := iszero(noBitsSet)
-            nextIndex := sub(nextIndex, noBitsSet)
+        // Convert back from new to old index space and handle sentinel
+        if (nextIndex != 256) {
+            nextIndex = 255 - nextIndex;
+            isInitialized = true;
+        } else {
+            nextIndex = 255;
+            isInitialized = false;
         }
 
         nextTime = bitmapWordAndIndexToTime(word, nextIndex);

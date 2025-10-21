@@ -36,7 +36,7 @@ function loadBitmap(StorageSlot slot, uint256 word) view returns (Bitmap bitmap)
 function flipTick(StorageSlot slot, int32 tick, uint32 tickSpacing) {
     (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
     StorageSlot wordSlot = slot.add(word);
-    wordSlot.store(wordSlot.load() ^ bytes32(1 << index));
+    wordSlot.store(wordSlot.load() ^ bytes32(uint256(1) << (255 - index)));
 }
 
 function findNextInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)

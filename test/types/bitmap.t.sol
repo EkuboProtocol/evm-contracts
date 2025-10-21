@@ -24,9 +24,11 @@ contract BitmapTest is Test {
     }
 
     function test_toggle(uint8 bit) public pure {
-        assertEq(Bitmap.unwrap(Bitmap.wrap(0).toggle(bit)), 1 << bit);
+        assertEq(Bitmap.unwrap(Bitmap.wrap(0).toggle(bit)), uint256(1) << (255 - bit));
         assertEq(Bitmap.unwrap(Bitmap.wrap(0).toggle(bit).toggle(bit)), 0);
-        assertEq(Bitmap.unwrap(Bitmap.wrap(type(uint256).max).toggle(bit)), type(uint256).max - (1 << bit));
+        assertEq(
+            Bitmap.unwrap(Bitmap.wrap(type(uint256).max).toggle(bit)), type(uint256).max - (uint256(1) << (255 - bit))
+        );
         assertEq(Bitmap.unwrap(Bitmap.wrap(type(uint256).max).toggle(bit).toggle(bit)), type(uint256).max);
     }
 

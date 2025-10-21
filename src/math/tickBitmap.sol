@@ -56,8 +56,8 @@ function findNextInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSp
             uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
             // if we found one, return it
-            if (nextIndex != 256) {
-                (nextTick, isInitialized) = (bitmapWordAndIndexToTick(word, nextIndex, tickSpacing), true);
+            if (nextIndex != 0) {
+                (nextTick, isInitialized) = (bitmapWordAndIndexToTick(word, nextIndex - 1, tickSpacing), true);
                 break;
             }
 
@@ -95,8 +95,8 @@ function findPrevInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSp
             // find the index of the previous tick in that word
             uint256 prevIndex = bitmap.leSetBit(uint8(index));
 
-            if (prevIndex != 256) {
-                (prevTick, isInitialized) = (bitmapWordAndIndexToTick(word, prevIndex, tickSpacing), true);
+            if (prevIndex != 0) {
+                (prevTick, isInitialized) = (bitmapWordAndIndexToTick(word, prevIndex - 1, tickSpacing), true);
                 break;
             }
 

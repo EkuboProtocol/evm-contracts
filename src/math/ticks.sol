@@ -114,7 +114,6 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32 tick) {
 
         // Integer part of log2 via CLZ: floor(log2(hi)) = 255 - clz(hi)
         uint256 msbHigh;
-        // todo: replace with clz opcode
         assembly ("memory-safe") {
             msbHigh := sub(255, clz(hi))
         }

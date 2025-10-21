@@ -51,8 +51,7 @@ contract QuoteDataFetcher is UsesCore {
                     int256 maxTick;
                     TickDelta[] memory ticks;
                     if (poolKeys[i].config.isConcentrated()) {
-                        int256 rangeSize =
-                            int256(uint256(minBitmapsSearched))
+                        int256 rangeSize = int256(uint256(minBitmapsSearched))
                             * int256(uint256(poolKeys[i].config.concentratedTickSpacing())) * 256;
                         minTick = int256(tick) - rangeSize;
                         maxTick = int256(tick) + rangeSize;

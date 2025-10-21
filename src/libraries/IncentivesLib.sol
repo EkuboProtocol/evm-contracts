@@ -60,7 +60,8 @@ library IncentivesLib {
     function isClaimed(IIncentives incentives, DropKey memory key, uint256 index) internal view returns (bool) {
         (uint256 word, uint8 bit) = claimIndexToStorageIndex(index);
         Bitmap bitmap = getClaimedBitmap(incentives, key, word);
-        return bitmap.isSet(bit);
+        // Convert from old (LSB=0) to new (MSB=0) bit index
+        return bitmap.isSet(uint8(255 - bit));
     }
 
     /// @notice Checks if a claim is available (not claimed and sufficient funds)

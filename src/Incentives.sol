@@ -83,7 +83,8 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
         assembly ("memory-safe") {
             bitmap := sload(bitmapSlot)
         }
-        if (bitmap.isSet(bit)) revert AlreadyClaimed();
+        // Convert from old (LSB=0) to new (MSB=0) bit index
+        if (bitmap.isSet(uint8(255 - bit))) revert AlreadyClaimed();
 
         // Check the proof is valid
         bytes32 leaf = c.toClaimId();
@@ -110,7 +111,8 @@ contract Incentives is IIncentives, ExposedStorage, Multicallable {
         }
 
         // Update claimed bitmap
-        bitmap = bitmap.toggle(bit);
+        // Convert from old (LSB=0) to new (MSB=0) bit index
+        bitmap = bitmap.toggle(uint8(255 - bit));
         assembly ("memory-safe") {
             sstore(bitmapSlot, bitmap)
         }

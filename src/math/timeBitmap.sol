@@ -42,7 +42,8 @@ function findNextInitializedTime(StorageSlot slot, uint256 fromTime)
         // find the index of the next time in that word
         Bitmap bitmap = Bitmap.wrap(uint256(slot.add(word).load()));
         // Convert from old (LSB=0) to new (MSB=0) index space
-        uint256 nextIndex = bitmap.geSetBit(uint8(255 - index));
+        // Finding min oldIndex >= index requires max newIndex <= (255-index)
+        uint256 nextIndex = bitmap.leSetBit(uint8(255 - index));
 
         // Convert back from new to old index space and handle sentinel
         if (nextIndex != 256) {

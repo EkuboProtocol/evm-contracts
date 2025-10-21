@@ -19,7 +19,7 @@ function isSet(Bitmap bitmap, uint8 index) pure returns (bool yes) {
     }
 }
 
-// Returns the index of the most significant bit that is set _and_ less or equally significant to index, or 256 if no such bit exists.
+// Returns the maximum index <= the given index that is set, or 256 if no such bit exists.
 // With the new bit ordering (index 0 = MSB), this returns the maximum j <= index that is set.
 function leSetBit(Bitmap bitmap, uint8 index) pure returns (uint256 v) {
     assembly ("memory-safe") {
@@ -30,7 +30,7 @@ function leSetBit(Bitmap bitmap, uint8 index) pure returns (uint256 v) {
     }
 }
 
-// Returns the index of the least significant bit that is set _and_ more or equally significant to index, or 256 if no such bit exists.
+// Returns the minimum index >= the given index that is set, or 256 if no such bit exists.
 // With the new bit ordering (index 0 = MSB), this returns the minimum j >= index that is set.
 function geSetBit(Bitmap bitmap, uint8 index) pure returns (uint256 v) {
     assembly ("memory-safe") {

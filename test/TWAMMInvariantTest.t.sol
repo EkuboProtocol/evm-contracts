@@ -196,9 +196,7 @@ contract Handler is StdUtils, StdAssertions {
 
         skipAhead = bound(skipAhead, 0, type(uint8).max);
 
-        try router.swap{
-            gas: 15000000
-        }({
+        try router.swap{gas: 15000000}({
             poolKey: poolKey, sqrtRatioLimit: sqrtRatioLimit, skipAhead: skipAhead, isToken1: isToken1, amount: amount
         }) returns (
             PoolBalanceUpdate

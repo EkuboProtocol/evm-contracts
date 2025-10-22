@@ -296,9 +296,7 @@ contract DeployAndTestGas is Script {
 
         // 19. Add liquidity to ETH/token0 pool
         console2.log("Adding liquidity to ETH/token0 pool...");
-        positions.mintAndDepositWithSalt{
-            value: ETH_AMOUNT
-        }(
+        positions.mintAndDepositWithSalt{value: ETH_AMOUNT}(
             bytes32(uint256(0)),
             ethToken0Pool,
             -1000, // tickLower
@@ -311,9 +309,7 @@ contract DeployAndTestGas is Script {
 
         // 20. Add liquidity to ETH/token1 pool
         console2.log("Adding liquidity to ETH/token1 pool...");
-        positions.mintAndDepositWithSalt{
-            value: ETH_AMOUNT
-        }(
+        positions.mintAndDepositWithSalt{value: ETH_AMOUNT}(
             bytes32(uint256(1)),
             ethToken1Pool,
             -1000, // tickLower
@@ -339,9 +335,7 @@ contract DeployAndTestGas is Script {
 
         // 22. Add liquidity to ETH/token0 Oracle pool
         console2.log("Adding liquidity to ETH/token0 Oracle pool...");
-        positions.mintAndDeposit{
-            value: ETH_AMOUNT
-        }(
+        positions.mintAndDeposit{value: ETH_AMOUNT}(
             ethToken0OraclePool,
             MIN_TICK, // tickLower - full range required for Oracle
             MAX_TICK, // tickUpper - full range required for Oracle
@@ -353,9 +347,7 @@ contract DeployAndTestGas is Script {
 
         // 23. Add liquidity to ETH/token0 TWAMM pool
         console2.log("Adding liquidity to ETH/token0 TWAMM pool...");
-        positions.mintAndDeposit{
-            value: ETH_AMOUNT
-        }(
+        positions.mintAndDeposit{value: ETH_AMOUNT}(
             ethToken0TwammPool,
             MIN_TICK, // tickLower - full range required for TWAMM
             MAX_TICK, // tickUpper - full range required for TWAMM
@@ -413,9 +405,7 @@ contract DeployAndTestGas is Script {
 
         // 28. Swap ETH for token0
         console2.log("Swapping ETH for token0...");
-        PoolBalanceUpdate balanceUpdate1 = router.swap{
-            value: SWAP_AMOUNT
-        }(
+        PoolBalanceUpdate balanceUpdate1 = router.swap{value: SWAP_AMOUNT}(
             ethToken0Pool,
             createSwapParameters({
                 _isToken1: false, _amount: int128(SWAP_AMOUNT), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
@@ -426,9 +416,7 @@ contract DeployAndTestGas is Script {
 
         // 29. Swap ETH for token1
         console2.log("Swapping ETH for token1...");
-        PoolBalanceUpdate balanceUpdate2 = router.swap{
-            value: SWAP_AMOUNT
-        }(
+        PoolBalanceUpdate balanceUpdate2 = router.swap{value: SWAP_AMOUNT}(
             ethToken1Pool,
             createSwapParameters({
                 _isToken1: false, _amount: int128(SWAP_AMOUNT), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
@@ -439,9 +427,7 @@ contract DeployAndTestGas is Script {
 
         // 30. Swap ETH for token0 through Oracle pool
         console2.log("Swapping ETH for token0 through Oracle pool...");
-        PoolBalanceUpdate balanceUpdateOracle = router.swap{
-            value: SWAP_AMOUNT
-        }(
+        PoolBalanceUpdate balanceUpdateOracle = router.swap{value: SWAP_AMOUNT}(
             ethToken0OraclePool,
             createSwapParameters({
                 _isToken1: false, _amount: int128(SWAP_AMOUNT), _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
@@ -537,9 +523,7 @@ contract DeployAndTestGas is Script {
             uint128 smallSwapAmount = SWAP_AMOUNT / 10;
 
             // Swap ETH for token0
-            router.swap{
-                value: smallSwapAmount
-            }(
+            router.swap{value: smallSwapAmount}(
                 ethToken0Pool,
                 createSwapParameters({
                     _isToken1: false,
@@ -551,9 +535,7 @@ contract DeployAndTestGas is Script {
             );
 
             // Swap ETH for token1
-            router.swap{
-                value: smallSwapAmount
-            }(
+            router.swap{value: smallSwapAmount}(
                 ethToken1Pool,
                 createSwapParameters({
                     _isToken1: false,

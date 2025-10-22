@@ -21,7 +21,9 @@ contract DeployMEVCapture is Script {
                     keccak256(abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core))),
                     mevCaptureCallPoints()
                 )
-            }(core)
+            }(
+                core
+            )
         );
 
         new MEVCaptureRouter{salt: salt}(core, mevCapture);

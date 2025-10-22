@@ -31,7 +31,9 @@ contract DeployTWAMMStatefulScript is Script {
             salt: findExtensionSalt(
                 salt, keccak256(abi.encodePacked(type(TWAMM).creationCode, abi.encode(core))), twammCallPoints()
             )
-        }(core);
+        }(
+            core
+        );
 
         Orders orders = new Orders{salt: salt}(core, twamm, owner);
         orders.setMetadata(

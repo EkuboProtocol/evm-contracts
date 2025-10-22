@@ -478,6 +478,48 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         vm.snapshotGasLastCall("third_swap_accumulates_fees");
     }
 
+    /// forge-config: default.isolate = true
+    function test_withdraw_after_fees_accumulated() public {
+        PoolKey memory poolKey =
+            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
+        router.swap({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: 300_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+        router.swap({
+            poolKey: poolKey,
+            isToken1: true,
+            amount: 900_000,
+            sqrtRatioLimit: SqrtRatio.wrap(0),
+            skipAhead: 0,
+            calculatedAmountThreshold: type(int256).min,
+            recipient: address(this)
+        });
+
+        advanceTime(1);
+
+        coolAllContracts();
+        positions.withdraw({
+            id: id,
+            poolKey: poolKey,
+            tickLower: 600_000,
+            tickUpper: 800_000,
+            liquidity: liquidity,
+            withFees: true,
+            recipient: address(this)
+        });
+        vm.snapshotGasLastCall("positions withdraw after fees accumulate");
+    }
+
     function test_swap_max_fee_token0_input() public {
         PoolKey memory poolKey =
             createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});

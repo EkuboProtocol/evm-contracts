@@ -121,11 +121,7 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     function locked_6416899205(uint256) external onlyCore {
         PoolKey memory poolKey;
         assembly ("memory-safe") {
-            poolKey := mload(0x40)
-            // points the free memory pointer at pointer + 96
-            mstore(0x40, add(poolKey, 96))
-
-            // copy the poolkey out of calldata at the free memory pointer
+            // copy the poolkey out of calldata
             calldatacopy(poolKey, 36, 96)
         }
 

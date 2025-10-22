@@ -64,8 +64,9 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     function beforeInitializePool(address, PoolKey memory poolKey, int32 tick)
         external
         override(BaseExtension, IExtension)
+        onlyCore
     {
-        if (poolKey.config.isFullRange()) {
+        if (poolKey.config.isStableswap()) {
             revert ConcentratedLiquidityPoolsOnly();
         }
         if (poolKey.config.fee() == 0) {

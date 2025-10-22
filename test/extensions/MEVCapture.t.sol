@@ -2,8 +2,9 @@
 pragma solidity =0.8.30;
 
 import {createSwapParameters} from "../../src/types/swapParameters.sol";
+import {UsesCore} from "../../src/base/UsesCore.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {createConcentratedPoolConfig, createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
@@ -77,6 +78,13 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(state.tickLast(), tick);
     }
 
+    function test_before_initialize_pool_must_be_called_by_core() public {
+        vm.expectRevert(UsesCore.CoreOnly.selector);
+        mevCapture.beforeInitializePool(
+            address(0), PoolKey({token0: address(0), token1: address(1), config: PoolConfig.wrap(bytes32(0))}), 123
+        );
+    }
+
     function test_accumulate_fees_for_any_pool(uint256 time, PoolKey memory poolKey) public {
         // note that you can accumulate fees for any pool at any time, but it is no-op if the pool does not exist
         vm.warp(time);
@@ -86,13 +94,19 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(state.tickLast(), 0);
     }
 
-    function test_pool_initialization_validation() public {
+    function test_pool_initialization_validation(uint64 fee, uint8 amplification, int32 centerTick) public {
+        amplification = uint8(bound(amplification, 0, 26));
+        centerTick = int32(bound(centerTick, MIN_TICK, MAX_TICK));
+
         vm.expectRevert(IMEVCapture.ConcentratedLiquidityPoolsOnly.selector);
         createPool({
             _token0: address(token0),
             _token1: address(token1),
             tick: 0,
-            config: createFullRangePoolConfig({_fee: 1, _extension: address(mevCapture)})
+            // full range is included because
+            config: createStableswapPoolConfig({
+                _fee: fee, _amplification: amplification, _centerTick: centerTick, _extension: address(mevCapture)
+            })
         });
 
         vm.expectRevert(IMEVCapture.NonzeroFeesOnly.selector);

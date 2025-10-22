@@ -64,8 +64,9 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
     function beforeInitializePool(address, PoolKey memory poolKey, int32 tick)
         external
         override(BaseExtension, IExtension)
+        onlyCore
     {
-        if (poolKey.config.isFullRange()) {
+        if (poolKey.config.isStableswap()) {
             revert ConcentratedLiquidityPoolsOnly();
         }
         if (poolKey.config.fee() == 0) {
@@ -102,59 +103,55 @@ contract MEVCapture is IMEVCapture, BaseExtension, BaseForwardee, ExposedStorage
 
     /// @inheritdoc IMEVCapture
     function accumulatePoolFees(PoolKey memory poolKey) public {
-        // the only thing we lock for is accumulating fees, so all we need to encode is the pool key
-        address target = address(CORE);
-        assembly ("memory-safe") {
-            let o := mload(0x40)
-            mstore(o, shl(224, 0xf83d08ba))
-            mcopy(add(o, 4), poolKey, 96)
+        PoolId poolId = poolKey.toPoolId();
+        MEVCapturePoolState state = getPoolState(poolId);
 
-            // If the call failed, pass through the revert
-            if iszero(call(gas(), target, 0, o, 100, 0, 0)) {
-                returndatacopy(o, 0, returndatasize())
-                revert(o, returndatasize())
+        // the only thing we lock for is accumulating fees when the pool has not been updated in this block
+        if (state.lastUpdateTime() != uint32(block.timestamp)) {
+            address target = address(CORE);
+            assembly ("memory-safe") {
+                let o := mload(0x40)
+                mstore(o, shl(224, 0xf83d08ba))
+                mcopy(add(o, 4), poolKey, 96)
+                mstore(add(o, 100), poolId)
+
+                // If the call failed, pass through the revert
+                if iszero(call(gas(), target, 0, o, 132, 0, 0)) {
+                    returndatacopy(o, 0, returndatasize())
+                    revert(o, returndatasize())
+                }
             }
         }
     }
 
     function locked_6416899205(uint256) external onlyCore {
         PoolKey memory poolKey;
+        PoolId poolId;
         assembly ("memory-safe") {
-            poolKey := mload(0x40)
-            // points the free memory pointer at pointer + 96
-            mstore(0x40, add(poolKey, 96))
-
-            // copy the poolkey out of calldata at the free memory pointer
+            // copy the poolkey out of calldata
             calldatacopy(poolKey, 36, 96)
+            poolId := calldataload(132)
         }
 
-        PoolId poolId = poolKey.toPoolId();
+        (int32 tick, uint128 fees0, uint128 fees1) = loadCoreState(poolId, poolKey.token0, poolKey.token1);
 
-        MEVCapturePoolState state = getPoolState(poolId);
-        uint32 lastUpdateTime = state.lastUpdateTime();
-
-        uint32 currentTime = uint32(block.timestamp);
-
-        unchecked {
-            if (lastUpdateTime != currentTime) {
-                (int32 tick, uint128 fees0, uint128 fees1) = loadCoreState(poolId, poolKey.token0, poolKey.token1);
-
-                if (fees0 != 0 || fees1 != 0) {
-                    CORE.accumulateAsFees(poolKey, fees0, fees1);
-                    CORE.updateSavedBalances(
-                        poolKey.token0,
-                        poolKey.token1,
-                        PoolId.unwrap(poolId),
-                        -int256(uint256(fees0)),
-                        -int256(uint256(fees1))
-                    );
-                }
-
-                setPoolState({
-                    poolId: poolId, state: createMEVCapturePoolState({_lastUpdateTime: currentTime, _tickLast: tick})
-                });
+        if (fees0 != 0 || fees1 != 0) {
+            CORE.accumulateAsFees(poolKey, fees0, fees1);
+            unchecked {
+                CORE.updateSavedBalances(
+                    poolKey.token0,
+                    poolKey.token1,
+                    PoolId.unwrap(poolId),
+                    -int256(uint256(fees0)),
+                    -int256(uint256(fees1))
+                );
             }
         }
+
+        setPoolState({
+            poolId: poolId,
+            state: createMEVCapturePoolState({_lastUpdateTime: uint32(block.timestamp), _tickLast: tick})
+        });
     }
 
     function loadCoreState(PoolId poolId, address token0, address token1)

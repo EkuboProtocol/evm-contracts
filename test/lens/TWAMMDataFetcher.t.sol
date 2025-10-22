@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {BaseOrdersTest} from "../Orders.t.sol";
@@ -88,20 +88,14 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
                         token0: address(token0),
                         token1: address(token1),
                         config: createOrderConfig({
-                            _fee: fee,
-                            _isToken1: false,
-                            _startTime: uint64(startTime),
-                            _endTime: uint64(endTime)
+                            _fee: fee, _isToken1: false, _startTime: uint64(startTime), _endTime: uint64(endTime)
                         })
                     })
                     : OrderKey({
                         token0: address(token0),
                         token1: address(token1),
                         config: createOrderConfig({
-                            _fee: fee,
-                            _isToken1: true,
-                            _startTime: uint64(startTime),
-                            _endTime: uint64(endTime)
+                            _fee: fee, _isToken1: true, _startTime: uint64(startTime), _endTime: uint64(endTime)
                         })
                     }),
                 10000,

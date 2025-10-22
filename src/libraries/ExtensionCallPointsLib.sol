@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {IExtension} from "../interfaces/ICore.sol";
@@ -46,11 +46,7 @@ library ExtensionCallPointsLib {
         }
     }
 
-    function shouldCallAfterInitializePool(IExtension extension, address initializer)
-        internal
-        pure
-        returns (bool yes)
-    {
+    function shouldCallAfterInitializePool(IExtension extension, address initializer) internal pure returns (bool yes) {
         assembly ("memory-safe") {
             yes := and(shr(159, extension), iszero(eq(initializer, extension)))
         }

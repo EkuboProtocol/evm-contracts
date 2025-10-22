@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -18,8 +18,7 @@ contract ObservationTest is Test {
 
     function test_conversionFromAndTo(uint160 secondsPerLiquidityCumulative, int64 tickCumulative) public pure {
         Observation observation = createObservation({
-            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative,
-            _tickCumulative: tickCumulative
+            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative, _tickCumulative: tickCumulative
         });
         assertEq(observation.secondsPerLiquidityCumulative(), secondsPerLiquidityCumulative);
         assertEq(observation.tickCumulative(), tickCumulative);
@@ -38,8 +37,7 @@ contract ObservationTest is Test {
         }
 
         Observation observation = createObservation({
-            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative,
-            _tickCumulative: tickCumulative
+            _secondsPerLiquidityCumulative: secondsPerLiquidityCumulative, _tickCumulative: tickCumulative
         });
         assertEq(
             observation.secondsPerLiquidityCumulative(), secondsPerLiquidityCumulative, "secondsPerLiquidityCumulative"

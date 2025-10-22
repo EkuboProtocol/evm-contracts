@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {SqrtRatio, MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW} from "./sqrtRatio.sol";
@@ -47,14 +47,13 @@ function createSwapParameters(SqrtRatio _sqrtRatioLimit, int128 _amount, bool _i
         // p = (sqrtRatioLimit << 160) | (amount << 32) | (isToken1 << 31) | skipAhead
         // Mask each field to ensure dirty bits don't interfere
         // For isToken1, use iszero(iszero()) to convert any non-zero value to 1
-        p :=
+        p := or(
+            shl(160, _sqrtRatioLimit),
             or(
-                shl(160, _sqrtRatioLimit),
-                or(
-                    shl(32, and(_amount, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)),
-                    or(shl(31, iszero(iszero(_isToken1))), and(_skipAhead, 0x7fffffff))
-                )
+                shl(32, and(_amount, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)),
+                or(shl(31, iszero(iszero(_isToken1))), and(_skipAhead, 0x7fffffff))
             )
+        )
     }
 }
 

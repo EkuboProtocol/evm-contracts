@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -103,9 +103,10 @@ contract ERC7726 is IERC7726 {
                 int32 baseTick = getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);
                 int32 quoteTick = getAverageTick(NATIVE_TOKEN_ADDRESS, quoteToken);
 
-                return int32(
-                    FixedPointMathLib.min(MAX_TICK, FixedPointMathLib.max(MIN_TICK, int256(quoteTick - baseTick)))
-                );
+                return
+                    int32(
+                        FixedPointMathLib.min(MAX_TICK, FixedPointMathLib.max(MIN_TICK, int256(quoteTick - baseTick)))
+                    );
             }
         }
     }

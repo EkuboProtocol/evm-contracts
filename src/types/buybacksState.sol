@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 type BuybacksState is bytes32;
@@ -84,16 +84,15 @@ function createBuybacksState(
     uint64 _lastFee
 ) pure returns (BuybacksState state) {
     assembly ("memory-safe") {
-        state :=
+        state := or(
             or(
-                or(
-                    or(and(_targetOrderDuration, 0xFFFFFFFF), shl(32, and(_minOrderDuration, 0xFFFFFFFF))),
-                    shl(64, and(_fee, 0xFFFFFFFFFFFFFFFF))
-                ),
-                or(
-                    or(shl(128, and(_lastEndTime, 0xFFFFFFFF)), shl(160, and(_lastOrderDuration, 0xFFFFFFFF))),
-                    shl(192, _lastFee)
-                )
+                or(and(_targetOrderDuration, 0xFFFFFFFF), shl(32, and(_minOrderDuration, 0xFFFFFFFF))),
+                shl(64, and(_fee, 0xFFFFFFFFFFFFFFFF))
+            ),
+            or(
+                or(shl(128, and(_lastEndTime, 0xFFFFFFFF)), shl(160, and(_lastOrderDuration, 0xFFFFFFFF))),
+                shl(192, _lastFee)
             )
+        )
     }
 }

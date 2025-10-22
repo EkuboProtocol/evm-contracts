@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -156,8 +156,7 @@ contract TimeBitmapTest is Test {
 
     function checkNextTime(TimeBitmap tbm, uint32 fromTime, uint32 expectedTime, bool expectedInitialized)
         private
-        view
-    {}
+        view {}
 
     function test_findNextInitializedTime(uint256 time) public {
         time = (bound(time, 16, type(uint256).max) >> 4) << 4;
@@ -228,9 +227,7 @@ contract TimeBitmapTest is Test {
         tbm.flip(initializedTime);
 
         (uint256 nextTime, bool initialized) = tbm.search({
-            lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime,
-            fromTime: fromTime,
-            untilTime: currentTime
+            lastVirtualOrderExecutionTime: lastVirtualOrderExecutionTime, fromTime: fromTime, untilTime: currentTime
         });
 
         if (initializedTime > fromTime && initializedTime <= currentTime) {

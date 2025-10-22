@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
@@ -221,10 +221,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         address token = isEth ? address(0) : address(token0);
         rb.configure({
-            token: token,
-            targetOrderDuration: targetOrderDuration,
-            minOrderDuration: minOrderDuration,
-            fee: poolFee
+            token: token, targetOrderDuration: targetOrderDuration, minOrderDuration: minOrderDuration, fee: poolFee
         });
 
         if (!isEth) {

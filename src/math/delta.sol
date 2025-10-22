@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -92,8 +92,10 @@ function amount1DeltaSorted(uint256 sqrtRatioLower, uint256 sqrtRatioUpper, uint
             uint256 result = FixedPointMathLib.fullMulDivN(difference, liquidityU256, 128);
             assembly ("memory-safe") {
                 // addition is safe from overflow because the result of fullMulDivN will never equal type(uint256).max
-                result :=
-                    add(result, iszero(iszero(mulmod(difference, liquidityU256, 0x100000000000000000000000000000000))))
+                result := add(
+                    result,
+                    iszero(iszero(mulmod(difference, liquidityU256, 0x100000000000000000000000000000000)))
+                )
                 if shr(128, result) {
                     // cast sig "Amount1DeltaOverflow()"
                     mstore(0, 0x59d2b24a)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
@@ -263,6 +263,22 @@ library FlashAccountantLib {
 
             // Update the free memory pointer to be after the end of the data, aligned to the next 32 byte word
             mstore(0x40, and(add(add(result, add(32, returndatasize())), 31), not(31)))
+        }
+    }
+
+    /// @notice Calls updateDebt optimally
+    /// @param accountant The flash accountant contract to forward through
+    /// @param delta The change in delta for the caller token to effect on the accountant
+    function updateDebt(IFlashAccountant accountant, int128 delta) internal {
+        assembly ("memory-safe") {
+            // cast sig "updateDebt()"
+            mstore(0, 0x17c5da6a)
+            mstore(32, shl(128, delta))
+
+            if iszero(call(gas(), accountant, 0, 28, 20, 0, 0)) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
         }
     }
 }

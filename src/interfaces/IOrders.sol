@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {OrderKey} from "../types/orderKey.sol";
@@ -13,10 +13,6 @@ interface IOrders is IBaseNonfungibleToken {
 
     /// @notice Thrown when the calculated sale rate exceeds the maximum allowed
     error MaxSaleRateExceeded();
-
-    /// @notice Thrown when an unexpected call type byte is encountered
-    /// @param b The unexpected call type byte
-    error UnexpectedCallTypeByte(bytes1 b);
 
     /// @notice Mints a new NFT and creates a TWAMM order
     /// @param orderKey Key identifying the order parameters

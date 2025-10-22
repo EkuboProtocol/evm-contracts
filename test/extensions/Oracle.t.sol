@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {PoolKey} from "../../src/types/poolKey.sol";
@@ -282,8 +282,8 @@ contract OracleTest is BaseOracleTest {
                 uint256 timePassed = FixedPointMathLib.min(time + point.advanceTimeBy, timeToCheck) - time;
 
                 tickCumulativeExpected += int64(uint64(timePassed)) * tick;
-                secondsPerLiquidityCumulativeExpected +=
-                    (uint160(timePassed) << 128) / uint160(FixedPointMathLib.max(1, liquidity));
+                secondsPerLiquidityCumulativeExpected += (uint160(timePassed) << 128)
+                / uint160(FixedPointMathLib.max(1, liquidity));
 
                 // an observation was not written for this, so the seconds per liquidity accumulator can be off from the calculated by the rounding error
                 // since each time we do an addition of time passed / liquidity, we divide and round down

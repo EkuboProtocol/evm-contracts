@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 type Snapshot is bytes32;
@@ -29,13 +29,12 @@ function createSnapshot(uint32 _timestamp, uint160 _secondsPerLiquidityCumulativ
 {
     assembly ("memory-safe") {
         // s = timestamp | (secondsPerLiquidityCumulative << 32) | (tickCumulative << 192)
-        s :=
+        s := or(
             or(
-                or(
-                    and(_timestamp, 0xFFFFFFFF),
-                    shl(32, and(_secondsPerLiquidityCumulative, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
-                ),
-                shl(192, and(_tickCumulative, 0xFFFFFFFFFFFFFFFF))
-            )
+                and(_timestamp, 0xFFFFFFFF),
+                shl(32, and(_secondsPerLiquidityCumulative, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
+            ),
+            shl(192, and(_tickCumulative, 0xFFFFFFFFFFFFFFFF))
+        )
     }
 }

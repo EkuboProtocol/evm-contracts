@@ -1,9 +1,12 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {BaseOracleTest} from "../extensions/Oracle.t.sol";
 import {
-    PriceFetcher, getTimestampsForPeriod, InvalidNumIntervals, InvalidPeriod
+    PriceFetcher,
+    getTimestampsForPeriod,
+    InvalidNumIntervals,
+    InvalidPeriod
 } from "../../src/lens/PriceFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {TestToken} from "../TestToken.sol";

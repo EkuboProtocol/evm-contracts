@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -75,8 +75,9 @@ contract OrderKeyTest is Test {
         public
         pure
     {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.fee(), _fee);
     }
@@ -90,8 +91,9 @@ contract OrderKeyTest is Test {
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.isToken1(), _isToken1);
     }
@@ -105,8 +107,9 @@ contract OrderKeyTest is Test {
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.startTime(), _startTime);
     }
@@ -120,8 +123,9 @@ contract OrderKeyTest is Test {
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)
+        });
 
         assertEq(ok.config.endTime(), _endTime);
     }
@@ -136,8 +140,9 @@ contract OrderKeyTest is Test {
         uint64 _endTime,
         address twamm
     ) public pure {
-        OrderKey memory ok =
-            OrderKey({token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)});
+        OrderKey memory ok = OrderKey({
+            token0: token0, token1: token1, config: createOrderConfig(_fee, _isToken1, _startTime, _endTime)
+        });
 
         PoolKey memory pk = ok.toPoolKey(twamm);
 

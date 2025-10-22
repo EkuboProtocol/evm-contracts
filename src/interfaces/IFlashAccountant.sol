@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Locker} from "../types/locker.sol";
@@ -25,8 +25,8 @@ interface IFlashAccountant {
     error DebtsNotZeroed(uint256 id);
     /// @notice Thrown if the contract receives a payment that exceeds type(uint128).max
     error PaymentOverflow();
-    /// @notice Thrown if the argument to updateDebt is not within the bounds of type(int128)
-    error UpdateDebtOverflow();
+    /// @notice Thrown if the contract receives a call to updateDebt that has a data length != 20
+    error UpdateDebtMessageLength();
 
     /// @notice Creates a lock context and calls back to the caller's locked function
     /// @dev The entrypoint for all operations on the core contract. Any data passed after the
@@ -65,11 +65,12 @@ interface IFlashAccountant {
     ///      For native tokens, uses the NATIVE_TOKEN_ADDRESS constant and transfers ETH directly.
     function withdraw() external;
 
-    /// @notice Updates debt for the current locker, for the token at the calling address
+    /// @notice Updates debt for the current locker and for the token at the calling address
     /// @dev This is for deeply-integrated tokens that allow flash operations via the accountant.
     ///      The calling address is treated as the token address.
-    /// @param delta The change in debt (must fit within int128 bounds)
-    function updateDebt(int256 delta) external;
+    /// @dev The debt change argument is an int128 encoded immediately after the selector.
+    /// @dev The calldata length must be exactly 20 bytes in order to avoid this being called unintentionally.
+    function updateDebt() external;
 
     /// @notice Receives ETH payments and credits them against the current locker's native token debt
     /// @dev This contract can receive ETH as a payment. The received amount is credited as a negative

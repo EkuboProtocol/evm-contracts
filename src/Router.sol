@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
@@ -53,6 +53,11 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     using FlashAccountantLib for *;
     using CoreLib for *;
 
+    uint256 private constant CALL_TYPE_SINGLE_SWAP = 0;
+    uint256 private constant CALL_TYPE_MULTIHOP_SWAP = 1;
+    uint256 private constant CALL_TYPE_MULTI_MULTIHOP_SWAP = 3; // == 1 | 2
+    uint256 private constant CALL_TYPE_QUOTE = 4;
+
     /// @notice Thrown when a swap doesn't consume the full input amount
     error PartialSwapsDisallowed();
 
@@ -84,9 +89,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        bytes1 callType = data[0];
+        uint256 callType = abi.decode(data, (uint256));
 
-        if (callType == bytes1(0x00)) {
+        if (callType == CALL_TYPE_SINGLE_SWAP) {
             // swap
             (
                 ,
@@ -95,7 +100,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 SwapParameters params,
                 int256 calculatedAmountThreshold,
                 address recipient
-            ) = abi.decode(data, (bytes1, address, PoolKey, SwapParameters, int256, address));
+            ) = abi.decode(data, (uint256, address, PoolKey, SwapParameters, int256, address));
 
             unchecked {
                 uint256 value = FixedPointMathLib.ternary(
@@ -143,21 +148,21 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
 
                 result = abi.encode(balanceUpdate);
             }
-        } else if (callType == bytes1(0x01) || callType == bytes1(0x02)) {
+        } else if ((callType & CALL_TYPE_MULTIHOP_SWAP) != 0) {
             address swapper;
             Swap[] memory swaps;
             int256 calculatedAmountThreshold;
 
-            if (callType == bytes1(0x01)) {
+            if (callType == CALL_TYPE_MULTIHOP_SWAP) {
                 Swap memory s;
                 // multihopSwap
-                (, swapper, s, calculatedAmountThreshold) = abi.decode(data, (bytes1, address, Swap, int256));
+                (, swapper, s, calculatedAmountThreshold) = abi.decode(data, (uint256, address, Swap, int256));
 
                 swaps = new Swap[](1);
                 swaps[0] = s;
             } else {
                 // multiMultihopSwap
-                (, swapper, swaps, calculatedAmountThreshold) = abi.decode(data, (bytes1, address, Swap[], int256));
+                (, swapper, swaps, calculatedAmountThreshold) = abi.decode(data, (uint256, address, Swap[], int256));
             }
 
             PoolBalanceUpdate[][] memory results = new PoolBalanceUpdate[][](swaps.length);
@@ -239,13 +244,13 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                 }
             }
 
-            if (callType == bytes1(0x01)) {
+            if (callType == CALL_TYPE_MULTIHOP_SWAP) {
                 result = abi.encode(results[0]);
             } else {
                 result = abi.encode(results);
             }
-        } else if (callType == bytes1(0x03)) {
-            (, PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (bytes1, PoolKey, SwapParameters));
+        } else if (callType == CALL_TYPE_QUOTE) {
+            (, PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (uint256, PoolKey, SwapParameters));
 
             (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = _swap(0, poolKey, params);
 
@@ -278,7 +283,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         returns (PoolBalanceUpdate balanceUpdate)
     {
         (balanceUpdate) = abi.decode(
-            lock(abi.encode(bytes1(0x00), msg.sender, poolKey, params, calculatedAmountThreshold, recipient)),
+            lock(abi.encode(CALL_TYPE_SINGLE_SWAP, msg.sender, poolKey, params, calculatedAmountThreshold, recipient)),
             (PoolBalanceUpdate)
         );
     }
@@ -304,10 +309,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         balanceUpdate = swap(
             poolKey,
             createSwapParameters({
-                _isToken1: isToken1,
-                _amount: amount,
-                _sqrtRatioLimit: sqrtRatioLimit,
-                _skipAhead: skipAhead
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
             }),
             calculatedAmountThreshold,
             recipient
@@ -330,8 +332,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         uint256 skipAhead,
         int256 calculatedAmountThreshold
     ) external payable returns (PoolBalanceUpdate balanceUpdate) {
-        balanceUpdate =
-            swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender);
+        balanceUpdate = swap(
+            poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender
+        );
     }
 
     /// @notice Executes a single-hop swap with no slippage protection
@@ -379,8 +382,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         payable
         returns (PoolBalanceUpdate[] memory result)
     {
-        result =
-            abi.decode(lock(abi.encode(bytes1(0x01), msg.sender, s, calculatedAmountThreshold)), (PoolBalanceUpdate[]));
+        result = abi.decode(
+            lock(abi.encode(CALL_TYPE_MULTIHOP_SWAP, msg.sender, s, calculatedAmountThreshold)), (PoolBalanceUpdate[])
+        );
     }
 
     /// @notice Executes multiple multi-hop swaps in a single transaction
@@ -393,7 +397,8 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         returns (PoolBalanceUpdate[][] memory results)
     {
         results = abi.decode(
-            lock(abi.encode(bytes1(0x02), msg.sender, swaps, calculatedAmountThreshold)), (PoolBalanceUpdate[][])
+            lock(abi.encode(CALL_TYPE_MULTI_MULTIHOP_SWAP, msg.sender, swaps, calculatedAmountThreshold)),
+            (PoolBalanceUpdate[][])
         );
     }
 
@@ -409,21 +414,18 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return delta0 Change in token0 balance
-    /// @return delta1 Change in token1 balance
+    /// @return balanceUpdate The change in pool balances resulting from the swap
+    /// @return stateAfter The state of the pool after the swap is complete
     function quote(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
         external
-        returns (int128 delta0, int128 delta1, PoolState stateAfter)
+        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
         bytes memory revertData = lockAndExpectRevert(
             abi.encode(
-                bytes1(0x03),
+                CALL_TYPE_QUOTE,
                 poolKey,
                 createSwapParameters({
-                    _isToken1: isToken1,
-                    _amount: amount,
-                    _sqrtRatioLimit: sqrtRatioLimit,
-                    _skipAhead: skipAhead
+                    _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
                 })
             )
         );
@@ -435,13 +437,10 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
             sig := mload(add(revertData, 32))
         }
         if (sig == QuoteReturnValue.selector && revertData.length == 68) {
-            PoolBalanceUpdate balanceUpdate;
             assembly ("memory-safe") {
                 balanceUpdate := mload(add(revertData, 36))
                 stateAfter := mload(add(revertData, 68))
             }
-            delta0 = balanceUpdate.delta0();
-            delta1 = balanceUpdate.delta1();
         } else {
             assembly ("memory-safe") {
                 revert(add(revertData, 32), mload(revertData))

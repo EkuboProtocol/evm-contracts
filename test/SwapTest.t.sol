@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -168,12 +168,7 @@ contract SwapTest is FullTest {
 
     function test_swapResult_examples() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100_000,
-            sqrtRatioLimit: ONE,
-            amount: 10_000,
-            isToken1: false,
-            fee: 0
+            sqrtRatio: ONE, liquidity: 100_000, sqrtRatioLimit: ONE, amount: 10_000, isToken1: false, fee: 0
         });
 
         assertEq(result.consumedAmount, 0);
@@ -371,12 +366,7 @@ contract SwapTest is FullTest {
 
     function test_swap_against_liquidity_max_limit_token0_minimum_input() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MIN_SQRT_RATIO,
-            amount: 1,
-            isToken1: false,
-            fee: 1 << 63
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MIN_SQRT_RATIO, amount: 1, isToken1: false, fee: 1 << 63
         });
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == ONE);
@@ -401,12 +391,7 @@ contract SwapTest is FullTest {
 
     function test_swap_against_liquidity_min_limit_token0_minimum_output() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MAX_SQRT_RATIO,
-            amount: -1,
-            isToken1: false,
-            fee: 1 << 63
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MAX_SQRT_RATIO, amount: -1, isToken1: false, fee: 1 << 63
         });
         assertEq(result.consumedAmount, -1);
         assertEq(result.sqrtRatioNext.toFixed(), 340285769778636249866166861115464613888);
@@ -432,12 +417,7 @@ contract SwapTest is FullTest {
 
     function test_swap_against_liquidity_max_limit_token1_minimum_input() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MAX_SQRT_RATIO,
-            amount: 1,
-            isToken1: true,
-            fee: 1 << 63
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MAX_SQRT_RATIO, amount: 1, isToken1: true, fee: 1 << 63
         });
         assertEq(result.consumedAmount, 1);
         assertTrue(result.sqrtRatioNext == ONE);
@@ -462,12 +442,7 @@ contract SwapTest is FullTest {
 
     function test_swap_against_liquidity_min_limit_token1_minimum_output() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MIN_SQRT_RATIO,
-            amount: -1,
-            isToken1: true,
-            fee: 1 << 63
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MIN_SQRT_RATIO, amount: -1, isToken1: true, fee: 1 << 63
         });
         assertEq(result.consumedAmount, -1);
         assertTrue(result.sqrtRatioNext == toSqrtRatio(0xffff583a53b8e4b87bdcf0307f23cc8d, false));
@@ -540,12 +515,7 @@ contract SwapTest is FullTest {
     function test_swap_max_amount_token0() public {
         int128 amount = type(int128).max;
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MIN_SQRT_RATIO,
-            amount: amount,
-            isToken1: false,
-            fee: 0
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MIN_SQRT_RATIO, amount: amount, isToken1: false, fee: 0
         });
         assertEq(result.consumedAmount, 1844629699405272373941017, "consumed");
         assertTrue(result.sqrtRatioNext == MIN_SQRT_RATIO, "sqrtRatioNext");
@@ -555,12 +525,7 @@ contract SwapTest is FullTest {
 
     function test_swap_min_amount_token0() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MIN_SQRT_RATIO,
-            amount: 1,
-            isToken1: false,
-            fee: 0
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MIN_SQRT_RATIO, amount: 1, isToken1: false, fee: 0
         });
         assertEq(result.consumedAmount, 1);
         assertEq(result.sqrtRatioNext.toFixed(), 340278964131297150491869688743818428416);
@@ -586,12 +551,7 @@ contract SwapTest is FullTest {
     function test_swap_max_amount_token1() public {
         int128 amount = type(int128).max;
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MAX_SQRT_RATIO,
-            amount: amount,
-            isToken1: true,
-            fee: 0
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MAX_SQRT_RATIO, amount: amount, isToken1: true, fee: 0
         });
         assertEq(result.consumedAmount, 1844629699405272373741026);
         assertTrue(
@@ -603,12 +563,7 @@ contract SwapTest is FullTest {
 
     function test_swap_min_amount_token1() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MAX_SQRT_RATIO,
-            amount: 1,
-            isToken1: true,
-            fee: 0
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MAX_SQRT_RATIO, amount: 1, isToken1: true, fee: 0
         });
         assertEq(result.consumedAmount, 1);
         SqrtRatio expectedSqrt = toSqrtRatio((uint256(1) << 128) + 0xa7c5ac471b4784230fcf80dc3372, false);
@@ -649,12 +604,7 @@ contract SwapTest is FullTest {
 
     function test_swap_min_fee() public {
         SwapResult memory result = this.swapResult({
-            sqrtRatio: ONE,
-            liquidity: 100000,
-            sqrtRatioLimit: MIN_SQRT_RATIO,
-            amount: 1000,
-            isToken1: false,
-            fee: 1
+            sqrtRatio: ONE, liquidity: 100000, sqrtRatioLimit: MIN_SQRT_RATIO, amount: 1000, isToken1: false, fee: 1
         });
         assertEq(result.consumedAmount, 1000);
         assertEq(result.sqrtRatioNext.toFixed(), 336916570382814150103837273090563244032);

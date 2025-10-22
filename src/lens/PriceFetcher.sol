@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {IOracle} from "../interfaces/extensions/IOracle.sol";
@@ -211,10 +211,11 @@ contract PriceFetcher {
         uint256 queryStartTime = uint256(endTime) - (uint256(numIntervals) * period);
 
         if (queryStartTime >= earliestObservationTime) {
-            return (
-                uint64(queryStartTime),
-                getHistoricalPeriodAverages(baseToken, quoteToken, endTime, numIntervals, period)
-            );
+            return
+                (
+                    uint64(queryStartTime),
+                    getHistoricalPeriodAverages(baseToken, quoteToken, endTime, numIntervals, period)
+                );
         } else {
             startTime = uint64(((earliestObservationTime + (period - 1)) / period) * period);
 

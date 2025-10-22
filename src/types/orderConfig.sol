@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 /// @notice Order configuration packed into a single bytes32
@@ -54,10 +54,9 @@ function createOrderConfig(uint64 _fee, bool _isToken1, uint64 _startTime, uint6
 {
     assembly ("memory-safe") {
         // Mask inputs to ensure only relevant bits are used
-        c :=
-            add(
-                add(shl(192, _fee), add(shl(184, iszero(iszero(_isToken1))), shl(64, and(_startTime, 0xffffffffffffffff)))),
-                and(_endTime, 0xffffffffffffffff)
-            )
+        c := add(
+            add(shl(192, _fee), add(shl(184, iszero(iszero(_isToken1))), shl(64, and(_startTime, 0xffffffffffffffff)))),
+            and(_endTime, 0xffffffffffffffff)
+        )
     }
 }

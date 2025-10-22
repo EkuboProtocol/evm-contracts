@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
@@ -200,7 +200,7 @@ function concentratedMaxLiquidityPerTick(PoolConfig config) pure returns (uint12
 error InvalidTickSpacing();
 
 /// @notice Thrown when amplification factor exceeds the maximum allowed value
-error InvalidstableswapAmplification();
+error InvalidStableswapAmplification();
 
 /// @notice Thrown when center tick is not between min and max tick
 error InvalidCenterTick();
@@ -215,7 +215,7 @@ function validate(PoolConfig config) pure {
     } else {
         // Stableswap pool: validate amplification factor <= 26
         if (config.stableswapAmplification() > 26) {
-            revert InvalidstableswapAmplification();
+            revert InvalidStableswapAmplification();
         }
         int32 centerTick = config.stableswapCenterTick();
         if (centerTick < MIN_TICK || centerTick > MAX_TICK) {

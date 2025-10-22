@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {FullTest, MockExtension} from "./FullTest.sol";
@@ -94,8 +94,9 @@ contract CoreTest is FullTest {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
 
         address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
-        PoolKey memory key =
-            PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)});
+        PoolKey memory key = PoolKey({
+            token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)
+        });
 
         if (callPoints.beforeInitializePool) {
             vm.expectEmit(extension);

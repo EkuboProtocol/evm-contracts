@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -72,9 +72,12 @@ contract ExposedStorageTest is Test {
             }
         }
 
-        (bool success, bytes memory result) = address(tt).call(
-            abi.encodePacked(useTransient ? IExposedStorage.tload.selector : IExposedStorage.sload.selector, slotsOnly)
-        );
+        (bool success, bytes memory result) = address(tt)
+            .call(
+                abi.encodePacked(
+                    useTransient ? IExposedStorage.tload.selector : IExposedStorage.sload.selector, slotsOnly
+                )
+            );
 
         assertTrue(success);
         assertEq(result.length, slotsOnly.length);
@@ -108,9 +111,7 @@ contract ExposedStorageTest is Test {
         assertEq(tt.sload(slot), value);
     }
 
-    function test_storageSlot_sload_two(bytes32 slotValue0, bytes32 slotValue1, bytes32 value0, bytes32 value1)
-        public
-    {
+    function test_storageSlot_sload_two(bytes32 slotValue0, bytes32 slotValue1, bytes32 value0, bytes32 value1) public {
         TestTarget tt = new TestTarget();
         StorageSlot slot0 = StorageSlot.wrap(slotValue0);
         StorageSlot slot1 = StorageSlot.wrap(slotValue1);

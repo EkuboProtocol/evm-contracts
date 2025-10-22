@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -23,9 +23,7 @@ contract TimeInfoTest is Test {
         pure
     {
         TimeInfo info = createTimeInfo({
-            _numOrders: numOrders,
-            _saleRateDeltaToken0: saleRateDeltaToken0,
-            _saleRateDeltaToken1: saleRateDeltaToken1
+            _numOrders: numOrders, _saleRateDeltaToken0: saleRateDeltaToken0, _saleRateDeltaToken1: saleRateDeltaToken1
         });
         assertEq(info.numOrders(), numOrders);
         assertEq(info.saleRateDeltaToken0(), saleRateDeltaToken0);
@@ -48,9 +46,7 @@ contract TimeInfoTest is Test {
         }
 
         TimeInfo info = createTimeInfo({
-            _numOrders: numOrders,
-            _saleRateDeltaToken0: saleRateDeltaToken0,
-            _saleRateDeltaToken1: saleRateDeltaToken1
+            _numOrders: numOrders, _saleRateDeltaToken0: saleRateDeltaToken0, _saleRateDeltaToken1: saleRateDeltaToken1
         });
         assertEq(info.numOrders(), numOrders, "numOrders");
         assertEq(info.saleRateDeltaToken0(), saleRateDeltaToken0, "saleRateDeltaToken0");
@@ -59,9 +55,7 @@ contract TimeInfoTest is Test {
 
     function test_parse(uint32 numOrders, int112 saleRateDeltaToken0, int112 saleRateDeltaToken1) public pure {
         TimeInfo info = createTimeInfo({
-            _numOrders: numOrders,
-            _saleRateDeltaToken0: saleRateDeltaToken0,
-            _saleRateDeltaToken1: saleRateDeltaToken1
+            _numOrders: numOrders, _saleRateDeltaToken0: saleRateDeltaToken0, _saleRateDeltaToken1: saleRateDeltaToken1
         });
 
         (uint32 n, int112 delta0, int112 delta1) = info.parse();

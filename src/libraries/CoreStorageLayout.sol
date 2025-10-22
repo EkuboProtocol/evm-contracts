@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {PoolId} from "../types/poolId.sol";
@@ -103,8 +103,13 @@ library CoreStorageLayout {
         returns (StorageSlot firstSlot)
     {
         assembly ("memory-safe") {
-            mstore(0, positionId)
-            firstSlot := add(keccak256(0, 32), add(poolId, owner))
+            let free := mload(0x40)
+            mstore(free, positionId)
+            mstore(add(free, 0x20), poolId)
+            mstore(add(free, 0x40), owner)
+            mstore(0, keccak256(free, 0x60))
+            mstore(32, 1)
+            firstSlot := keccak256(0, 64)
         }
     }
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -73,17 +73,13 @@ contract PositionExtraDataTest is Test {
         token1.transfer(address(locker), type(uint128).max);
 
         poolKey = PoolKey({
-            token0: address(token0),
-            token1: address(token1),
-            config: createConcentratedPoolConfig(3000, 60, address(0))
+            token0: address(token0), token1: address(token1), config: createConcentratedPoolConfig(3000, 60, address(0))
         });
 
         core.initializePool(poolKey, 0);
     }
 
-    function test_setExtraData_position_does_not_exist(PoolId poolId, PositionId positionId, bytes16 extraData)
-        public
-    {
+    function test_setExtraData_position_does_not_exist(PoolId poolId, PositionId positionId, bytes16 extraData) public {
         locker.setExtraData(poolId, positionId, extraData);
         Position memory position = core.poolPositions(poolId, address(locker), positionId);
         assertEq(position.liquidity, 0);
@@ -123,9 +119,10 @@ contract PositionExtraDataTest is Test {
         assertEq(position.liquidity, liquidity, "liquidity should still equal what we set");
     }
 
-    function test_setExtraData_stays_when_position_liquidity_is_set_to_zero(uint128 liquidity, bytes16 extraDataNonZero)
-        public
-    {
+    function test_setExtraData_stays_when_position_liquidity_is_set_to_zero(
+        uint128 liquidity,
+        bytes16 extraDataNonZero
+    ) public {
         liquidity = uint128(bound(liquidity, 1, type(uint64).max));
 
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
@@ -150,5 +147,32 @@ contract PositionExtraDataTest is Test {
 
         locker.setExtraData(poolKey.toPoolId(), positionId, bytes16(uint128(0x1234)));
         vm.snapshotGasLastCall("#setExtraData");
+    }
+
+    function test_arbitrary_storage_write() public {
+        bytes32 targetStorageSlot = keccak256("target.storage.slot");
+
+        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+        address msgSender = address(locker);
+
+        bytes16 extraData = bytes16(0xffffffffffffffffffffffffffffffff);
+        PoolId maliciousPoolId;
+        assembly {
+            mstore(0, positionId)
+            maliciousPoolId := sub(sub(targetStorageSlot, keccak256(0, 32)), msgSender)
+        }
+
+        bytes32 slotBefore = vm.load(address(core), targetStorageSlot);
+
+        // With the fix, the storage slot is computed as keccak256(positionId, poolId, owner)
+        // This means we cannot craft inputs to write to arbitrary storage locations
+        // because we cannot find a preimage for a specific hash output
+        locker.setExtraData(maliciousPoolId, positionId, extraData);
+
+        bytes32 slotAfter = vm.load(address(core), targetStorageSlot);
+
+        // Verify the target storage slot was NOT modified
+        assertEq(slotBefore, slotAfter);
+        assertEq(slotBefore, bytes32(0));
     }
 }

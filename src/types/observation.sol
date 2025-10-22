@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 type Observation is bytes32;
@@ -17,10 +17,7 @@ function tickCumulative(Observation observation) pure returns (int64 t) {
     }
 }
 
-function createObservation(uint160 _secondsPerLiquidityCumulative, int64 _tickCumulative)
-    pure
-    returns (Observation o)
-{
+function createObservation(uint160 _secondsPerLiquidityCumulative, int64 _tickCumulative) pure returns (Observation o) {
     assembly ("memory-safe") {
         // o = (secondsPerLiquidityCumulative << 96) | tickCumulative
         o := or(shl(96, _secondsPerLiquidityCumulative), and(_tickCumulative, 0xFFFFFFFFFFFFFFFF))

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -89,10 +89,11 @@ contract TWAMMStorageLayoutTest is Test {
     }
 
     // Test poolTimeInfosSlot uniqueness with different times
-    function test_noStorageLayoutCollisions_poolTimeInfosSlot_uniqueness_time(PoolId poolId, uint64 time0, uint64 time1)
-        public
-        pure
-    {
+    function test_noStorageLayoutCollisions_poolTimeInfosSlot_uniqueness_time(
+        PoolId poolId,
+        uint64 time0,
+        uint64 time1
+    ) public pure {
         vm.assume(time0 != time1);
         bytes32 slot0 = StorageSlot.unwrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time0));
         bytes32 slot1 = StorageSlot.unwrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time1));
@@ -273,6 +274,27 @@ contract TWAMMStorageLayoutTest is Test {
         assertNotEq(slot0, slot1);
         // Note: We don't check consecutive slots because the keccak256(salt) in the calculation
         // makes it extremely unlikely for slots to be adjacent
+    }
+
+    function test_noStorageLayoutCollisions_orderStateSlot_collision_iff_all_equal(
+        bytes32 salt0,
+        bytes32 salt1,
+        address owner0,
+        address owner1,
+        OrderId orderId0,
+        OrderId orderId1
+    ) public pure {
+        bytes32 slot1 = StorageSlot.unwrap(
+            TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner0, salt0, orderId0)
+        );
+        bytes32 slot2 = StorageSlot.unwrap(
+            TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(owner1, salt1, orderId1)
+        );
+
+        // Slots collide if and only if all parameters are equal
+        assertEq(
+            slot1 == slot2, OrderId.unwrap(orderId0) == OrderId.unwrap(orderId1) && owner0 == owner1 && salt0 == salt1
+        );
     }
 
     // Test orderStateSlotFollowedByOrderRewardRateSnapshotSlot uniqueness with different salts

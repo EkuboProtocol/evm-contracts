@@ -208,9 +208,7 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
 
             // todo: enforce an immutable configurable bytes prefix on the token address for branding and DDOS protection
             SimpleToken token = new SimpleToken{salt: EfficientHashLib.hash(bytes32(uint256(uint160(creator))), salt)}({
-                symbolPacked: symbolPacked,
-                namePacked: namePacked,
-                totalSupply: TOKEN_TOTAL_SUPPLY
+                symbolPacked: symbolPacked, namePacked: namePacked, totalSupply: TOKEN_TOTAL_SUPPLY
             });
 
             CORE.pay(address(token), TOKEN_TOTAL_SUPPLY);
@@ -233,7 +231,9 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
                 orderKey: OrderKey({
                     token0: NATIVE_TOKEN_ADDRESS,
                     token1: address(token),
-                    config: createOrderConfig({_isToken1: true, _startTime: startTime, _endTime: endTime, _fee: POOL_FEE})
+                    config: createOrderConfig({
+                        _isToken1: true, _startTime: startTime, _endTime: endTime, _fee: POOL_FEE
+                    })
                 }),
                 saleRateDelta: ORDER_SALE_RATE
             });

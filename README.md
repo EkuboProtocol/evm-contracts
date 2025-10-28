@@ -66,9 +66,17 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 
 ## License
 
-This project is licensed under the `ekubo-license-v1.eth` license. At a high level, all contracts are made available to use without warranty or guarantees, but any revenue collected **MUST** be split with the Ekubo DAO. The software license applies even if you use Core contracts that have already been deployed to the chain. We designed the license to enable self-service deployment of the smart contracts to any chain. See the [LICENSE](LICENSE) file for details.
+This project uses the **Ekubo DAO Shared Revenue License 1.0** (`ekubo-license-v1.eth`).
 
-For any comments or questions, please reach out in the developer channel of the [Discord](https://discord.ekubo.org).
+You can **use, modify, and build on** this code — as long as you **share 50% of any protocol revenue** from your deployed or derivative version (“Royalty Bearing Work”) with **Ekubo DAO** each quarter.
+
+- Must include this license or the line:
+  _“Licensed under the Ekubo DAO Shared Revenue License 1.0 at ekubo-license-v1.eth.”_
+- Failing to pay or comply **automatically ends the license**.
+- Ekubo DAO can update payment details or revenue definitions through governance.
+- Software is provided **as-is**, with **no warranties**.
+
+See the [full license](./LICENSE).
 
 ## Links
 

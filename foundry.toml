@@ -19,6 +19,7 @@ runs = 1
 
 [profile.ci]
 verbosity = 3
+solc = '0.8.31-pre.1'
 
 # [profile.ci.fuzz]
 # runs = 100000

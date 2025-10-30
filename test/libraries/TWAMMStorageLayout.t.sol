@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {TWAMMStorageLayout} from "../../src/libraries/TWAMMStorageLayout.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {OrderId} from "../../src/types/orderId.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {PoolConfig} from "../../src/types/poolConfig.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 
 contract TWAMMStorageLayoutTest is Test {
@@ -295,6 +297,25 @@ contract TWAMMStorageLayoutTest is Test {
         assertEq(
             slot1 == slot2, OrderId.unwrap(orderId0) == OrderId.unwrap(orderId1) && owner0 == owner1 && salt0 == salt1
         );
+    }
+
+    function test_noStorageLayoutCollisions_orderStateSlot_twammPoolState(uint160 salt, address owner, OrderId orderId)
+        public
+        pure
+    {
+        bytes32 slot1 = StorageSlot.unwrap(
+            TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(
+                owner, bytes32(uint256(salt)), orderId
+            )
+        );
+        bytes32 slot2 = StorageSlot.unwrap(
+            TWAMMStorageLayout.twammPoolStateSlot(
+                PoolKey({token0: owner, token1: address(salt), config: PoolConfig.wrap(OrderId.unwrap(orderId))})
+                    .toPoolId()
+            )
+        );
+
+        assertNotEq(slot1, slot2);
     }
 
     // Test orderStateSlotFollowedByOrderRewardRateSnapshotSlot uniqueness with different salts

@@ -25,6 +25,8 @@ library TWAMMStorageLayout {
     /// @dev Generated using: cast keccak "TWAMMStorageLayout#REWARD_RATES_BEFORE_OFFSET"
     uint256 internal constant REWARD_RATES_BEFORE_OFFSET =
         0x6a7cb7181a18ced052a38531ee9ccb088f76cd0fb0c4475d55c480aebfae7b2b;
+    /// @dev Generated using: cast keccak "TWAMMStorageLayout#ORDER_STATE_OFFSET"
+    uint256 internal constant ORDER_STATE_OFFSET = 0xdc028e0b30217dc4c47f0ed37f8e3d64faf5fcf0199e7e05f83775072aa91e8d;
 
     /// @notice Computes the storage slot of the TWAMM pool state
     /// @param poolId The unique identifier for the pool
@@ -86,7 +88,7 @@ library TWAMMStorageLayout {
             mstore(free, owner)
             mstore(add(free, 0x20), salt)
             mstore(add(free, 0x40), orderId)
-            slot := keccak256(free, 96)
+            slot := add(keccak256(free, 96), ORDER_STATE_OFFSET)
         }
     }
 }

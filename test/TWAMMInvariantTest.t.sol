@@ -269,8 +269,10 @@ contract Handler is StdUtils, StdAssertions {
                 sig := mload(add(err, 32))
             }
             // 0xc902643d == SaleRateDeltaOverflow()
-            if (sig != SaleRateOverflow.selector && sig != ITWAMM.MaxSaleRateDeltaPerTime.selector && sig != 0xc902643d)
-            {
+            if (
+                sig != SaleRateOverflow.selector && sig != ITWAMM.MaxSaleRateDeltaPerTime.selector
+                    && sig != SafeCastLib.Overflow.selector && sig != 0xc902643d
+            ) {
                 revert UnexpectedError(err);
             }
         }
@@ -288,7 +290,7 @@ contract Handler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            if (sig != IOrders.OrderAlreadyEnded.selector) {
+            if (sig != IOrders.OrderAlreadyEnded.selector && sig != SafeCastLib.Overflow.selector) {
                 revert UnexpectedError(err);
             }
         }

@@ -119,10 +119,9 @@ contract PositionExtraDataTest is Test {
         assertEq(position.liquidity, liquidity, "liquidity should still equal what we set");
     }
 
-    function test_setExtraData_stays_when_position_liquidity_is_set_to_zero(
-        uint128 liquidity,
-        bytes16 extraDataNonZero
-    ) public {
+    function test_setExtraData_stays_when_position_liquidity_is_set_to_zero(uint128 liquidity, bytes16 extraDataNonZero)
+        public
+    {
         liquidity = uint128(bound(liquidity, 1, type(uint64).max));
 
         PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});

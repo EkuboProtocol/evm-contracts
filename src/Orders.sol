@@ -12,6 +12,7 @@ import {OrderKey} from "./types/orderKey.sol";
 import {computeSaleRate} from "./math/twamm.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
@@ -137,7 +138,8 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             (, address recipientOrPayer, uint256 id, OrderKey memory orderKey, int256 saleRateDelta) =
                 abi.decode(data, (uint256, address, uint256, OrderKey, int256));
 
-            int256 amount = CORE.updateSaleRate(TWAMM_EXTENSION, bytes32(id), orderKey, int112(saleRateDelta));
+            int256 amount =
+                CORE.updateSaleRate(TWAMM_EXTENSION, bytes32(id), orderKey, SafeCastLib.toInt112(saleRateDelta));
 
             if (amount != 0) {
                 address sellToken = orderKey.sellToken();

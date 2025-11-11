@@ -17,6 +17,9 @@ interface IPositions is IBaseNonfungibleToken {
     /// @notice Thrown when deposit amount would cause overflow
     error DepositOverflow();
 
+    /// @notice Thrown when the specified withdraw liquidity amount overflows type(int128).max
+    error WithdrawOverflow();
+
     /// @notice Gets the liquidity, principal amounts, and accumulated fees for a position
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool

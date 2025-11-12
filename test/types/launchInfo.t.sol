@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {LaunchInfo, createLaunchInfo} from "../../src/types/launchInfo.sol";

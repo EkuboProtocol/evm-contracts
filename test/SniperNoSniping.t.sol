@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";

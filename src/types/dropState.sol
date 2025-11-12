@@ -53,13 +53,3 @@ function getRemaining(DropState state) pure returns (uint128 remaining) {
         remaining = state.funded() - state.claimed();
     }
 }
-
-/// @notice Creates a new drop state with the given funded and claimed amounts
-/// @param _funded The funded amount
-/// @param _claimed The claimed amount
-/// @return state The new drop state
-function toDropState(uint128 _funded, uint128 _claimed) pure returns (DropState state) {
-    assembly ("memory-safe") {
-        state := or(shl(128, _funded), _claimed)
-    }
-}

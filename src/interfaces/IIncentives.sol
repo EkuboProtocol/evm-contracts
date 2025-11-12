@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {DropKey} from "../types/dropKey.sol";
 import {ClaimKey} from "../types/claimKey.sol";

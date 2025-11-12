@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {TWAMMStorageLayout} from "../../src/libraries/TWAMMStorageLayout.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {OrderId} from "../../src/types/orderId.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {PoolConfig} from "../../src/types/poolConfig.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 
 contract TWAMMStorageLayoutTest is Test {
@@ -89,11 +91,10 @@ contract TWAMMStorageLayoutTest is Test {
     }
 
     // Test poolTimeInfosSlot uniqueness with different times
-    function test_noStorageLayoutCollisions_poolTimeInfosSlot_uniqueness_time(
-        PoolId poolId,
-        uint64 time0,
-        uint64 time1
-    ) public pure {
+    function test_noStorageLayoutCollisions_poolTimeInfosSlot_uniqueness_time(PoolId poolId, uint64 time0, uint64 time1)
+        public
+        pure
+    {
         vm.assume(time0 != time1);
         bytes32 slot0 = StorageSlot.unwrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time0));
         bytes32 slot1 = StorageSlot.unwrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time1));
@@ -295,6 +296,25 @@ contract TWAMMStorageLayoutTest is Test {
         assertEq(
             slot1 == slot2, OrderId.unwrap(orderId0) == OrderId.unwrap(orderId1) && owner0 == owner1 && salt0 == salt1
         );
+    }
+
+    function test_noStorageLayoutCollisions_orderStateSlot_twammPoolState(uint160 salt, address owner, OrderId orderId)
+        public
+        pure
+    {
+        bytes32 slot1 = StorageSlot.unwrap(
+            TWAMMStorageLayout.orderStateSlotFollowedByOrderRewardRateSnapshotSlot(
+                owner, bytes32(uint256(salt)), orderId
+            )
+        );
+        bytes32 slot2 = StorageSlot.unwrap(
+            TWAMMStorageLayout.twammPoolStateSlot(
+                PoolKey({token0: owner, token1: address(salt), config: PoolConfig.wrap(OrderId.unwrap(orderId))})
+                    .toPoolId()
+            )
+        );
+
+        assertNotEq(slot1, slot2);
     }
 
     // Test orderStateSlotFollowedByOrderRewardRateSnapshotSlot uniqueness with different salts

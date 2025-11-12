@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {BaseLocker} from "./BaseLocker.sol";
 import {UsesCore} from "./UsesCore.sol";
@@ -273,6 +273,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
                 address recipient,
                 bool withFees
             ) = abi.decode(data, (uint256, uint256, PoolKey, int32, int32, uint128, address, bool));
+
+            if (liquidity > uint128(type(int128).max)) revert WithdrawOverflow();
 
             uint128 amount0;
             uint128 amount1;

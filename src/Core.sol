@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {CallPoints, addressToCallPoints} from "./types/callPoints.sol";
 import {PoolKey} from "./types/poolKey.sol";
@@ -737,11 +737,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         if (stepFeesPerLiquidity != 0) {
                             if (feesAccessed == 0) {
                                 // this loads only the input token fees per liquidity
-                                inputTokenFeesPerLiquidity =
-                                    uint256(
-                                            CoreStorageLayout.poolFeesPerLiquiditySlot(poolId)
-                                                .add(LibBit.rawToUint(increasing)).load()
-                                        ) + stepFeesPerLiquidity;
+                                inputTokenFeesPerLiquidity = uint256(
+                                    CoreStorageLayout.poolFeesPerLiquiditySlot(poolId).add(LibBit.rawToUint(increasing))
+                                        .load()
+                                ) + stepFeesPerLiquidity;
                             } else {
                                 inputTokenFeesPerLiquidity += stepFeesPerLiquidity;
                             }

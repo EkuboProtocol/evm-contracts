@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 /// @title Base Nonfungible Token Interface
 /// @notice Interface for the base NFT functionality used by Positions and Orders contracts

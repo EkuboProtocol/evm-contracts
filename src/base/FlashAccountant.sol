@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
@@ -235,16 +235,18 @@ abstract contract FlashAccountant is IFlashAccountant {
 
                 let returnLocation := add(free, sub(i, 4))
 
+                let success := staticcall(gas(), token, 0x10, 0x24, returnLocation, 0x20)
+
                 let tokenBalance :=
-                    mul( // The arguments of `mul` are evaluated from right to left.
+                    mul(
                         mload(returnLocation),
-                        and( // The arguments of `and` are evaluated from right to left.
+                        and(
                             gt(returndatasize(), 0x1f), // At least 32 bytes returned.
-                            staticcall(gas(), token, 0x10, 0x24, returnLocation, 0x20)
+                            success
                         )
                     )
 
-                tstore(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token), add(tokenBalance, 1))
+                tstore(add(_PAYMENT_TOKEN_ADDRESS_OFFSET, token), add(tokenBalance, success))
             }
 
             return(free, sub(calldatasize(), 4))

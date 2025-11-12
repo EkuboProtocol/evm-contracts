@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 type MEVCapturePoolState is bytes32;
 
@@ -19,7 +19,7 @@ function tickLast(MEVCapturePoolState state) pure returns (int32 v) {
 
 function createMEVCapturePoolState(uint32 _lastUpdateTime, int32 _tickLast) pure returns (MEVCapturePoolState s) {
     assembly ("memory-safe") {
-        // s = (lastUpdateTime << 224) | (tickLast << 192)
+        // s = (lastUpdateTime << 224) | tickLast
         s := or(shl(224, _lastUpdateTime), and(_tickLast, 0xffffffff))
     }
 }

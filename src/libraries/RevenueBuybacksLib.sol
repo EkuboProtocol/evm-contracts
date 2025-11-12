@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {IRevenueBuybacks} from "../interfaces/IRevenueBuybacks.sol";
 import {BuybacksState} from "../types/buybacksState.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 
-/// @title Oracle Library
-/// @notice Library providing helper methods for accessing Oracle data
+/// @title Revenue Buybacks Library
+/// @notice Library providing helper methods for accessing Revenue Buybacks state
 library RevenueBuybacksLib {
     using ExposedStorageLib for *;
 

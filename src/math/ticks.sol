@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {MAX_TICK_MAGNITUDE} from "./constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -114,10 +114,8 @@ function sqrtRatioToTick(SqrtRatio sqrtRatio) pure returns (int32 tick) {
 
         // Integer part of log2 via CLZ: floor(log2(hi)) = 255 - clz(hi)
         uint256 msbHigh;
-        // todo: replace with clz opcode
-        uint256 clz_hi = LibBit.clz(hi);
         assembly ("memory-safe") {
-            msbHigh := sub(255, clz_hi)
+            msbHigh := sub(255, clz(hi))
         }
 
         // Reduce once so X ∈ [2^127, 2^128)  (Q1.127 mantissa)

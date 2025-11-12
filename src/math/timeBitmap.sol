@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {Bitmap} from "../types/bitmap.sol";
 import {nextValidTime} from "../math/time.sol";
@@ -43,10 +43,10 @@ function findNextInitializedTime(StorageSlot slot, uint256 fromTime)
         Bitmap bitmap = Bitmap.wrap(uint256(slot.add(word).load()));
         uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
+        isInitialized = nextIndex != 0;
+
         assembly ("memory-safe") {
-            let noBitsSet := shr(8, nextIndex)
-            isInitialized := iszero(noBitsSet)
-            nextIndex := sub(nextIndex, noBitsSet)
+            nextIndex := mod(sub(nextIndex, 1), 256)
         }
 
         nextTime = bitmapWordAndIndexToTime(word, nextIndex);

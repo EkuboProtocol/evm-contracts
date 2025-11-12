@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {isTimeValid, computeStepSize, nextValidTime} from "../../src/math/time.sol";
@@ -27,10 +27,10 @@ contract TimeTest is Test {
             uint256(1) << 28,
             "max-u32max, max"
         );
-        assertEq(computeStepSize(0, type(uint256).max), uint256(1) << 28, "0, type(uint256).max");
+        assertEq(computeStepSize(0, type(uint256).max), uint256(1) << 252, "0, type(uint256).max");
         assertEq(computeStepSize(7553, 7936), 256, "7553, 7936");
         assertEq(computeStepSize(7553, 8192), 256, "7553, 8192");
-        assertEq(computeStepSize(4026531839, 4294967295), 268435456, "4026531839, 4294967295");
+        assertEq(computeStepSize(4026531839, 4294967295), uint256(1) << 28, "4026531839, 4294967295");
         assertEq(
             computeStepSize(
                 115792089237316195423570985008687907853269984665640564039457584007908834672640,
@@ -49,18 +49,8 @@ contract TimeTest is Test {
             assertEq(stepSize, 16);
         } else if (time - currentTime < 256) {
             assertEq(stepSize, 16);
-        } else if (time - currentTime < 4096) {
-            assertEq(stepSize, 256);
-        } else if (time - currentTime < 65536) {
-            assertEq(stepSize, 4096);
-        } else if (time - currentTime < 1048576) {
-            assertEq(stepSize, 65536);
-        } else if (time - currentTime < 16777216) {
-            assertEq(stepSize, 1048576);
-        } else if (time - currentTime < 268435456) {
-            assertEq(stepSize, 16777216);
         } else {
-            assertEq(stepSize, 268435456);
+            assertEq(stepSize, 1 << ((FixedPointMathLib.log2(time - currentTime) / 4) * 4));
         }
     }
 
@@ -120,9 +110,9 @@ contract TimeTest is Test {
     }
 
     function test_isTimeValid_invariants(uint256 currentTime, uint256 time) public pure {
-        bool valid = isTimeValid(currentTime, time);
+        currentTime = bound(currentTime, 0, type(uint256).max - 255);
         assertEq(
-            valid,
+            isTimeValid(currentTime, time),
             (time % computeStepSize(currentTime, time) == 0)
                 && (time < currentTime || time - currentTime <= type(uint32).max)
         );

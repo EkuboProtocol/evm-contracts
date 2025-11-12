@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -19,17 +19,12 @@ function computeStepSize(uint256 currentTime, uint256 time) pure returns (uint25
         switch gt(time, add(currentTime, 255))
         case 1 {
             let diff := sub(time, currentTime)
-            let shift := 2
 
-            // add 1 if diff greater than each power of (16**n)-1
-            // diff greater than 7th power is not a valid time
-            shift := add(shift, gt(diff, sub(shl(12, 1), 1)))
-            shift := add(shift, gt(diff, sub(shl(16, 1), 1)))
-            shift := add(shift, gt(diff, sub(shl(20, 1), 1)))
-            shift := add(shift, gt(diff, sub(shl(24, 1), 1)))
-            shift := add(shift, gt(diff, sub(shl(28, 1), 1)))
+            let msb := sub(255, clz(diff)) // = index of msb
 
-            stepSize := shl(mul(shift, 4), 1)
+            msb := sub(msb, mod(msb, 4)) // = round down to multiple of 4
+
+            stepSize := shl(msb, 1)
         }
         default { stepSize := 16 }
     }

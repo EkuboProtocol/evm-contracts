@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {PositionsOwner} from "../src/PositionsOwner.sol";

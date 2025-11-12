@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.30;
+pragma solidity >=0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {Bitmap} from "../../src/types/bitmap.sol";
@@ -44,9 +44,9 @@ contract BitmapTest is Test {
 
     function test_leSetBit(Bitmap bitmap, uint8 index) public pure {
         uint256 prev = bitmap.leSetBit(index);
-        if (prev != 256) {
-            assertLe(prev, index);
-            assertTrue(bitmap.isSet(uint8(prev)));
+        if (prev != 0) {
+            assertLe(prev - 1, index);
+            assertTrue(bitmap.isSet(uint8(prev - 1)));
             for (uint256 i = index; i > prev; i--) {
                 assertFalse(bitmap.isSet(uint8(i)));
             }
@@ -61,9 +61,16 @@ contract BitmapTest is Test {
 
     function test_geSetBit(Bitmap bitmap, uint8 index) public pure {
         uint256 next = bitmap.geSetBit(index);
-        assertGe(next, index);
-        if (next != 256) assertTrue(bitmap.isSet(uint8(next)));
-        for (uint256 i = index; i < next; i++) {
+
+        if (next != 0) {
+            assertGt(next, index);
+            assertTrue(bitmap.isSet(uint8(next - 1)));
+        } else {
+            // for the following loop
+            next = 256;
+        }
+
+        for (uint256 i = index; i < next - 1; i++) {
             assertFalse(bitmap.isSet(uint8(i)));
         }
     }

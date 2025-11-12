@@ -4,10 +4,10 @@ out = "out"
 libs = ["lib"]
 verbosity = 3
 no_match_contract = "SlowTest"
-
+evm_version = 'osaka'
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
-solc = '0.8.30'
+solc = './bin/solc-macos'
 optimizer = true
 optimizer_runs = 9999999
 via_ir = true
@@ -19,6 +19,7 @@ runs = 1
 
 [profile.ci]
 verbosity = 3
+solc = '0.8.31-pre.1'
 
 # [profile.ci.fuzz]
 # runs = 100000

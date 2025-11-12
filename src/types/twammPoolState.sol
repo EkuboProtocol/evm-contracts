@@ -50,8 +50,8 @@ function createTwammPoolState(uint32 _lastVirtualOrderExecutionTime, uint112 _sa
     assembly ("memory-safe") {
         // s = (lastVirtualOrderExecutionTime) | (saleRateToken0 << 32) | (saleRateToken1 << 144)
         s := or(
-            or(and(_lastVirtualOrderExecutionTime, 0xffffffff), shl(32, shr(144, shl(144, _saleRateToken0)))),
-            shl(144, shr(144, shl(144, _saleRateToken1)))
+            or(and(_lastVirtualOrderExecutionTime, 0xffffffff), shr(112, shl(144, _saleRateToken0))),
+            shl(144, _saleRateToken1)
         )
     }
 }

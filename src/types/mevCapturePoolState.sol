@@ -19,7 +19,7 @@ function tickLast(MEVCapturePoolState state) pure returns (int32 v) {
 
 function createMEVCapturePoolState(uint32 _lastUpdateTime, int32 _tickLast) pure returns (MEVCapturePoolState s) {
     assembly ("memory-safe") {
-        // s = (lastUpdateTime << 224) | (tickLast << 192)
+        // s = (lastUpdateTime << 224) | tickLast
         s := or(shl(224, _lastUpdateTime), and(_tickLast, 0xffffffff))
     }
 }

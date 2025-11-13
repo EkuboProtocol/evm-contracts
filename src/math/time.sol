@@ -4,19 +4,19 @@ pragma solidity >=0.8.30;
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 // For any given time `t`, there are up to 106 times that are greater than `t` and valid according to `isTimeValid`
-uint256 constant MAX_NUM_VALID_TIMES = 106;
+uint256 constant MAX_NUM_VALID_TIMES = 91;
 
 // If we constrain the sale rate delta to this value, then the current sale rate will never overflow
 uint256 constant MAX_ABS_VALUE_SALE_RATE_DELTA = type(uint112).max / MAX_NUM_VALID_TIMES;
 
 /// @dev Returns the step size, i.e. the value of which the order end or start time must be a multiple of, based on the current time and the specified time
-///      The step size is equal to 16 ** (max(1, floor(log base 16 of (time - currentTime))))
-///      Assumes currentTime < type(uint256).max - 255
+///      The step size has a minimum of 256 seconds and increases in powers of 16 as the gap to `time` grows.
+///      Assumes currentTime < type(uint256).max - 4095
 /// @param currentTime The current block timestamp
 /// @param time The time for which the step size is being computed, based on how far in the future it is from currentTime
 function computeStepSize(uint256 currentTime, uint256 time) pure returns (uint256 stepSize) {
     assembly ("memory-safe") {
-        switch gt(time, add(currentTime, 255))
+        switch gt(time, add(currentTime, 4095))
         case 1 {
             let diff := sub(time, currentTime)
 
@@ -26,7 +26,7 @@ function computeStepSize(uint256 currentTime, uint256 time) pure returns (uint25
 
             stepSize := shl(msb, 1)
         }
-        default { stepSize := 16 }
+        default { stepSize := 256 }
     }
 }
 

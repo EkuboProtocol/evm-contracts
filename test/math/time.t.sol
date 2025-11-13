@@ -6,22 +6,36 @@ import {isTimeValid, computeStepSize, nextValidTime} from "../../src/math/time.s
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TimeTest is Test {
-    function test_computeStepSize_boundaries(uint256 time) public pure {
-        time = bound(time, 0, type(uint256).max - type(uint32).max);
+    function test_computeStepSize_boundaries(uint256 currentTime) public pure {
+        currentTime = bound(currentTime, 0, type(uint256).max - type(uint32).max);
 
         unchecked {
-            for (uint256 i = 1; i < 8; i++) {
-                uint256 expectedStepSize = FixedPointMathLib.max(16, 1 << (i * 4));
-                uint256 expectedStepSizePrevious = FixedPointMathLib.max(16, 1 << ((i - 1) * 4));
-                assertEq(computeStepSize(time, time + expectedStepSize), expectedStepSize);
-                assertEq(computeStepSize(time + 1, time + expectedStepSize), expectedStepSizePrevious);
+            for (uint256 i = 0; i < 8; i++) {
+                uint256 time = currentTime + (1 << (i * 4));
+                assertEq(
+                    computeStepSize(currentTime, time),
+                    FixedPointMathLib.max(256, 1 << (i * 4)),
+                    "step size at boundary"
+                );
+                assertEq(
+                    computeStepSize(currentTime + 1, time),
+                    FixedPointMathLib.max(256, 1 << ((i - 1) * 4)),
+                    "step size if time advanced by 1"
+                );
+                if (currentTime != 0) {
+                    assertEq(
+                        computeStepSize(currentTime - 1, time),
+                        FixedPointMathLib.max(256, 1 << (i * 4)),
+                        "step size if time decreased by 1"
+                    );
+                }
             }
         }
     }
 
     function test_computeStepSize() public pure {
-        assertEq(computeStepSize(0, 4), 16, "0, 4");
-        assertEq(computeStepSize(4, 0), 16, "4, 0");
+        assertEq(computeStepSize(0, 4), 256, "0, 4");
+        assertEq(computeStepSize(4, 0), 256, "4, 0");
         assertEq(
             computeStepSize(type(uint256).max - type(uint32).max, type(uint256).max),
             uint256(1) << 28,
@@ -42,50 +56,53 @@ contract TimeTest is Test {
     }
 
     function test_computeStepSize_invariants(uint256 currentTime, uint256 time) public pure {
-        currentTime = bound(currentTime, 0, type(uint256).max - 255);
+        currentTime = bound(currentTime, 0, type(uint256).max - type(uint16).max);
         uint256 stepSize = computeStepSize(currentTime, time);
 
         if (time < currentTime) {
-            assertEq(stepSize, 16);
-        } else if (time - currentTime < 256) {
-            assertEq(stepSize, 16);
+            assertEq(stepSize, 256, "time lt currentTime");
+        } else if (time - currentTime < 4096) {
+            assertEq(stepSize, 256, "time is within 4096 of currentTime");
         } else {
             assertEq(stepSize, 1 << ((FixedPointMathLib.log2(time - currentTime) / 4) * 4));
         }
     }
 
     function test_isTimeValid_past_or_close_time() public pure {
-        assertTrue(isTimeValid(0, 16));
-        assertTrue(isTimeValid(8, 16));
-        assertTrue(isTimeValid(9, 16));
-        assertTrue(isTimeValid(15, 16));
-        assertTrue(isTimeValid(16, 16));
-        assertTrue(isTimeValid(17, 16));
-        assertTrue(isTimeValid(12345678, 16));
-        assertTrue(isTimeValid(12345678, 32));
+        assertTrue(isTimeValid(0, 256));
+        assertTrue(isTimeValid(8, 256));
+        assertTrue(isTimeValid(9, 256));
+        assertTrue(isTimeValid(15, 256));
+        assertTrue(isTimeValid(16, 256));
+        assertTrue(isTimeValid(17, 256));
+        assertTrue(isTimeValid(255, 256));
+        assertTrue(isTimeValid(256, 256));
+        assertTrue(isTimeValid(257, 256));
+        assertTrue(isTimeValid(12345678, 256));
+        assertTrue(isTimeValid(12345678, 512));
         assertTrue(isTimeValid(12345678, 0));
     }
 
     function test_isTimeValid_future_times_near() public pure {
-        assertTrue(isTimeValid(0, 16));
-        assertTrue(isTimeValid(8, 16));
-        assertTrue(isTimeValid(9, 16));
-        assertTrue(isTimeValid(0, 32));
-        assertTrue(isTimeValid(31, 32));
-
         assertTrue(isTimeValid(0, 256));
-        assertTrue(isTimeValid(0, 240));
-        assertFalse(isTimeValid(0, 272));
-        assertTrue(isTimeValid(16, 256));
-        assertTrue(isTimeValid(16, 240));
-        assertFalse(isTimeValid(16, 272));
-
+        assertTrue(isTimeValid(8, 256));
+        assertTrue(isTimeValid(9, 256));
         assertTrue(isTimeValid(0, 512));
-        assertFalse(isTimeValid(0, 496));
-        assertFalse(isTimeValid(0, 528));
-        assertTrue(isTimeValid(16, 512));
-        assertFalse(isTimeValid(16, 496));
-        assertFalse(isTimeValid(16, 528));
+        assertTrue(isTimeValid(31, 512));
+
+        assertTrue(isTimeValid(0, 4096));
+        assertTrue(isTimeValid(0, 4096 - 256));
+        assertFalse(isTimeValid(0, 4096 + 256));
+        assertTrue(isTimeValid(256, 4096));
+        assertTrue(isTimeValid(256, 4096 - 256));
+        assertFalse(isTimeValid(256, 4096 + 256));
+
+        assertTrue(isTimeValid(0, 131_072));
+        assertFalse(isTimeValid(0, 131_072 - 256));
+        assertFalse(isTimeValid(0, 131_072 - 152));
+        assertTrue(isTimeValid(16, 131_072));
+        assertFalse(isTimeValid(16, 131_072 - 256));
+        assertFalse(isTimeValid(16, 131_072 - 512));
     }
 
     function test_isTimeValid_future_times_near_second_boundary() public pure {
@@ -119,10 +136,13 @@ contract TimeTest is Test {
     }
 
     function test_nextValidTime_examples() public pure {
-        assertEq(nextValidTime(0, 15), 16);
-        assertEq(nextValidTime(0, 16), 32);
+        assertEq(nextValidTime(0, 15), 256);
+        assertEq(nextValidTime(0, 16), 256);
+        assertEq(nextValidTime(0, 255), 256);
+        assertEq(nextValidTime(0, 256), 512);
+
         assertEq(nextValidTime(1, 300), 512);
-        assertEq(nextValidTime(7847, 7487), 7488);
+        assertEq(nextValidTime(7679, 7679), 7680);
         assertEq(
             nextValidTime(
                 // difference is 4026531840, next valid time does not exist
@@ -141,7 +161,7 @@ contract TimeTest is Test {
         assertTrue(isTimeValid(currentTime, nextValid), "always valid");
         if (time < currentTime) {
             // we just snap to the next multiple of 16
-            assertEq(nextValid, ((time / 16) + 1) * 16);
+            assertEq(nextValid, ((time / 256) + 1) * 256);
         } else if (nextValid != 0) {
             assertGt(nextValid, time);
             uint256 diff = nextValid - time;

@@ -23,7 +23,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         uint64[] memory times = getAllValidFutureTimes(currentTime);
 
         assertGt(times[0], currentTime);
-        assertLe(times[0], currentTime + 16);
+        assertLe(times[0], currentTime + 256);
 
         for (uint256 i = 0; i < times.length; i++) {
             if (i != 0) {
@@ -32,22 +32,22 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             assertTrue(isTimeValid(currentTime, times[i]), "valid");
         }
 
-        assertTrue(times.length == MAX_NUM_VALID_TIMES - 1 || times.length == MAX_NUM_VALID_TIMES);
+        assertLt(MAX_NUM_VALID_TIMES - times.length, 2, "length bounds");
     }
 
     function test_getAllValidFutureTimes_example() public pure {
         uint64[] memory times = getAllValidFutureTimes(1);
-        assertEq(times[0], 16);
-        assertEq(times[1], 32);
-        assertEq(times[14], 240);
-        assertEq(times[15], 256);
-        assertEq(times[16], 512);
-        assertEq(times[29], 3840);
-        assertEq(times[30], 4096);
-        assertEq(times[31], 8192);
-        assertEq(times[44], 61440);
-        assertEq(times[45], 65536);
-        assertEq(times[46], 131072);
+        assertEq(times[0], 256);
+        assertEq(times[1], 512);
+        assertEq(times[14], 3840);
+        assertEq(times[15], 4096);
+        assertEq(times[16], 8192);
+        assertEq(times[29], 61440);
+        assertEq(times[30], 65536);
+        assertEq(times[31], 131072);
+        assertEq(times[44], 983040);
+        assertEq(times[45], 1048576);
+        assertEq(times[46], 2097152);
         assertEq(times[times.length - 2], 4026531840);
         assertEq(times[times.length - 1], 4294967296);
     }
@@ -106,14 +106,17 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
 
             startTime = nextValidTime(time, endTime);
             if (startTime == 0 || startTime > type(uint64).max) break;
-
-            lastTime = FixedPointMathLib.max(startTime, lastTime);
         }
 
         PoolState memory result = tdf.getPoolState(poolKey);
-        assertEq(result.saleRateDeltas.length, MAX_NUM_VALID_TIMES);
+        uint64[] memory expectedTimes = getAllValidFutureTimes(result.lastVirtualOrderExecutionTime);
+        assertTrue(
+            result.saleRateDeltas.length == expectedTimes.length
+                || result.saleRateDeltas.length + 1 == expectedTimes.length,
+            "unexpected saleRateDeltas length"
+        );
         assertEq(result.liquidity, 0);
-        assertEq(result.saleRateDeltas[MAX_NUM_VALID_TIMES - 1].time, lastTime);
+        assertEq(result.saleRateDeltas[result.saleRateDeltas.length - 1].time, lastTime);
 
         for (uint256 i = 1; i < result.saleRateDeltas.length; i += 2) {
             int256 delta;
@@ -151,7 +154,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             OrderKey({
                 token0: address(token0),
                 token1: address(token1),
-                config: createOrderConfig({_fee: 1000, _isToken1: false, _startTime: 0, _endTime: time + 15})
+                config: createOrderConfig({_fee: 1000, _isToken1: false, _startTime: 0, _endTime: time + 255})
             }),
             10000,
             type(uint112).max
@@ -161,7 +164,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
             OrderKey({
                 token0: address(token0),
                 token1: address(token1),
-                config: createOrderConfig({_fee: 1000, _isToken1: true, _startTime: time + 31, _endTime: time + 255})
+                config: createOrderConfig({_fee: 1000, _isToken1: true, _startTime: time + 511, _endTime: time + 1023})
             }),
             25000,
             type(uint112).max
@@ -172,20 +175,20 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         assertEq(result.sqrtRatio.toFixed(), 481231811499356508032916671135276335104);
         assertEq(result.liquidity, 0);
         assertEq(result.lastVirtualOrderExecutionTime, time);
-        assertEq(result.saleRateToken0, (uint112(10000) << 32) / 15);
+        assertEq(result.saleRateToken0, (uint112(10000) << 32) / 255);
         assertEq(result.saleRateToken1, 0);
         assertEq(result.saleRateDeltas.length, 3);
-        assertEq(result.saleRateDeltas[0].time, time + 15);
-        assertEq(result.saleRateDeltas[0].saleRateDelta0, -int112((uint112(10000) << 32) / 15));
+        assertEq(result.saleRateDeltas[0].time, time + 255);
+        assertEq(result.saleRateDeltas[0].saleRateDelta0, -int112((uint112(10000) << 32) / 255));
         assertEq(result.saleRateDeltas[0].saleRateDelta1, 0);
-        assertEq(result.saleRateDeltas[1].time, time + 31);
+        assertEq(result.saleRateDeltas[1].time, time + 511);
         assertEq(result.saleRateDeltas[1].saleRateDelta0, 0);
-        assertEq(result.saleRateDeltas[1].saleRateDelta1, int112((uint112(25000) << 32) / 224));
-        assertEq(result.saleRateDeltas[2].time, time + 255);
+        assertEq(result.saleRateDeltas[1].saleRateDelta1, int112((uint112(25000) << 32) / 512));
+        assertEq(result.saleRateDeltas[2].time, time + 1023);
         assertEq(result.saleRateDeltas[2].saleRateDelta0, 0);
-        assertEq(result.saleRateDeltas[2].saleRateDelta1, -((int112(25000) << 32) / 224));
+        assertEq(result.saleRateDeltas[2].saleRateDelta1, -((int112(25000) << 32) / 512));
 
-        advanceTime(15);
+        advanceTime(255);
         PoolState memory resultNext = tdf.getPoolState(poolKey);
         assertEq(result.tick, resultNext.tick);
         assertEq(result.sqrtRatio.toFixed(), resultNext.sqrtRatio.toFixed());
@@ -199,15 +202,15 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         assertEq(result.tick, -88722836);
         assertEq(result.sqrtRatio.toFixed(), 18447191164202170524);
         assertEq(result.liquidity, 0);
-        assertEq(result.lastVirtualOrderExecutionTime, time + 15);
+        assertEq(result.lastVirtualOrderExecutionTime, time + 255);
         assertEq(result.saleRateToken0, 0);
         assertEq(result.saleRateToken1, 0);
         assertEq(result.saleRateDeltas.length, 2);
-        assertEq(result.saleRateDeltas[0].time, time + 31);
+        assertEq(result.saleRateDeltas[0].time, time + 511);
         assertEq(result.saleRateDeltas[0].saleRateDelta0, 0);
-        assertEq(result.saleRateDeltas[0].saleRateDelta1, int112((uint112(25000) << 32) / 224));
-        assertEq(result.saleRateDeltas[1].time, time + 255);
+        assertEq(result.saleRateDeltas[0].saleRateDelta1, int112((uint112(25000) << 32) / 512));
+        assertEq(result.saleRateDeltas[1].time, time + 1023);
         assertEq(result.saleRateDeltas[1].saleRateDelta0, 0);
-        assertEq(result.saleRateDeltas[1].saleRateDelta1, -((int112(25000) << 32) / 224));
+        assertEq(result.saleRateDeltas[1].saleRateDelta1, -((int112(25000) << 32) / 512));
     }
 }

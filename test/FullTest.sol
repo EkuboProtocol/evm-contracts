@@ -255,7 +255,8 @@ abstract contract FullTest is Test {
         (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, tickLower, tickUpper, amount0, amount1, 0);
     }
 
-    function advanceTime(uint32 by) internal returns (uint256 next) {
+    function advanceTime(uint256 by) internal returns (uint256 next) {
+        require(by <= type(uint32).max, "advanceTime called with by > type(uint32).max");
         next = vm.getBlockTimestamp() + by;
         vm.warp(next);
     }

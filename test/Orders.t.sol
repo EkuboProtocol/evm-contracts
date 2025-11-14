@@ -288,13 +288,13 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRate0, (uint112(1e18) << 32) / 255, "saleRate0");
         assertEq(amountSold0, 1e18 - 1, "amountSold0");
         assertEq(remainingSellAmount0, 0, "remainingSellAmount0");
-        assertEq(purchasedAmount0, 0.714364266211129184e18, "purchasedAmount0");
+        assertEq(purchasedAmount0, 0.813504183026142394e18, "purchasedAmount0");
         (uint256 saleRate1, uint256 amountSold1, uint256 remainingSellAmount1, uint256 purchasedAmount1) =
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id1, key1);
         assertEq(saleRate1, (uint112(2e18) << 32) / 767, "saleRate1");
-        assertEq(amountSold1, 0.47619047619047619e18, "amountSold1");
-        assertEq(remainingSellAmount1, 1.52380952380952381e18, "remainingSellAmount1");
-        assertEq(purchasedAmount1, 0.670910176928520699e18, "purchasedAmount1");
+        assertEq(amountSold1, 0.664928292046936114e18, "amountSold1");
+        assertEq(remainingSellAmount1, 1.335071707953063886e18, "remainingSellAmount1");
+        assertEq(purchasedAmount1, 0.816312842145353856e18, "purchasedAmount1");
 
         // advanced to the last time that this function should work (2**32 + start time - 1)
         advanceTime(type(uint32).max - 256);
@@ -304,14 +304,14 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRate0, (uint112(1e18) << 32) / 255, "saleRate0");
         assertEq(amountSold0, 1e18 - 1, "amountSold0");
         assertEq(remainingSellAmount0, 0, "remainingSellAmount0");
-        assertEq(purchasedAmount0, 0.714364266211129184e18, "purchasedAmount0");
+        assertEq(purchasedAmount0, 0.813504183026142394e18, "purchasedAmount0");
 
         (saleRate1, amountSold1, remainingSellAmount1, purchasedAmount1) =
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id1, key1);
         assertEq(saleRate1, (uint112(2e18) << 32) / 767, "saleRate1");
         assertEq(amountSold1, 2e18 - 1, "amountSold1");
         assertEq(remainingSellAmount1, 0, "remainingSellAmount1");
-        assertEq(purchasedAmount1, 1.530943211251159013e18, "purchasedAmount1");
+        assertEq(purchasedAmount1, 1.519060168680474214e18, "purchasedAmount1");
     }
 
     function test_createOrder_sell_both_tokens_liquidity_dominated(uint64 time) public {

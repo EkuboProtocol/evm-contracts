@@ -13,15 +13,6 @@ contract DeployTWAMMStatefulScript is Script {
     function run() public {
         address owner = vm.getWallets()[0];
 
-        string memory ordersBaseUrl;
-        if (block.chainid == 1) {
-            ordersBaseUrl = vm.envOr("BASE_URL", string("https://eth-mainnet-api.ekubo.org/orders/nft/"));
-        } else if (block.chainid == 11155111) {
-            ordersBaseUrl = vm.envOr("BASE_URL", string("https://eth-sepolia-api.ekubo.org/orders/nft/"));
-        } else {
-            revert UnrecognizedChainId(block.chainid);
-        }
-
         bytes32 salt = vm.envOr("SALT", bytes32(0x0));
         Core core = Core(payable(vm.envAddress("CORE_ADDRESS")));
 
@@ -39,7 +30,7 @@ contract DeployTWAMMStatefulScript is Script {
         orders.setMetadata(
             vm.envOr("ORDERS_CONTRACT_NAME", string("Ekubo DCA Orders")),
             vm.envOr("ORDERS_CONTRACT_SYMBOL", string("ekuOrd")),
-            ordersBaseUrl
+            vm.envOr("BASE_URL", string("https://prod-api.ekubo.org/orders/nft/"))
         );
 
         vm.stopBroadcast();

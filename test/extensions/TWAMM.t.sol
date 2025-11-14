@@ -31,7 +31,7 @@ abstract contract BaseTWAMMTest is FullTest {
     }
 
     function boundTime(uint256 time, uint32 offset) internal pure returns (uint64) {
-        return uint64(((bound(time, offset, type(uint64).max - type(uint32).max - 2 * offset) / 16) * 16) + offset);
+        return uint64(((bound(time, offset, type(uint64).max - type(uint32).max - 2 * offset) / 256) * 256) + offset);
     }
 
     function createTwammPool(uint64 fee, int32 tick) internal returns (PoolKey memory poolKey) {
@@ -206,11 +206,11 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     function test_updateTime_flips_time() public {
         PoolId poolId = PoolId.wrap(bytes32(0));
 
-        _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
+        _updateTime({poolId: poolId, time: 512, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
 
         {
             (uint32 numOrders, int112 delta0, int112 delta1) =
-                TimeInfo.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 96).load()).parse();
+                TimeInfo.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 512).load()).parse();
 
             assertEq(numOrders, 1);
             assertEq(delta0, 100);
@@ -222,10 +222,10 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         (uint256 time, bool initialized) = searchForNextInitializedTime({
             slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
         });
-        assertEq(time, 96);
+        assertEq(time, 512);
         assertEq(initialized, true);
 
-        _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
+        _updateTime({poolId: poolId, time: 512, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
         (time, initialized) = searchForNextInitializedTime({
             slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
@@ -237,12 +237,12 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     function test_updateTime_flips_time_two_orders_one_removed() public {
         PoolId poolId = PoolId.wrap(bytes32(0));
 
-        _updateTime({poolId: poolId, time: 96, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
-        _updateTime({poolId: poolId, time: 96, saleRateDelta: 55, isToken1: true, numOrdersChange: 1});
+        _updateTime({poolId: poolId, time: 768, saleRateDelta: 100, isToken1: false, numOrdersChange: 1});
+        _updateTime({poolId: poolId, time: 768, saleRateDelta: 55, isToken1: true, numOrdersChange: 1});
 
         {
             (uint32 numOrders, int112 delta0, int112 delta1) =
-                TimeInfo.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 96).load()).parse();
+                TimeInfo.wrap(TWAMMStorageLayout.poolTimeInfosSlot(poolId, 768).load()).parse();
 
             assertEq(numOrders, 2);
             assertEq(delta0, 100);
@@ -254,15 +254,15 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         (uint256 time, bool initialized) = searchForNextInitializedTime({
             slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
         });
-        assertEq(time, 96);
+        assertEq(time, 768);
         assertEq(initialized, true);
 
-        _updateTime({poolId: poolId, time: 96, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
+        _updateTime({poolId: poolId, time: 768, saleRateDelta: -100, isToken1: false, numOrdersChange: -1});
 
         (time, initialized) = searchForNextInitializedTime({
             slot: initializedTimesBitmap, lastVirtualOrderExecutionTime: 0, fromTime: 30, untilTime: 1000
         });
-        assertEq(time, 96);
+        assertEq(time, 768);
         assertEq(initialized, true);
     }
 
@@ -308,16 +308,16 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
     function test_updateTime_flip_time_overflows_uint32() public {
         PoolId poolId = PoolId.wrap(bytes32(0));
 
-        uint256 time = uint256(type(uint32).max) + 17;
-        assert(time % 16 == 0);
+        uint256 time = uint256(type(uint32).max) + 257;
+        assert(time % 256 == 0);
 
         _updateTime({poolId: poolId, time: time, saleRateDelta: 1, isToken1: false, numOrdersChange: 1});
 
         (uint256 nextTime, bool initialized) = searchForNextInitializedTime({
             slot: TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId),
             lastVirtualOrderExecutionTime: time,
-            fromTime: time - 15,
-            untilTime: time + 15
+            fromTime: time - 255,
+            untilTime: time + 255
         });
         assertEq(nextTime, time);
         assertEq(initialized, true);

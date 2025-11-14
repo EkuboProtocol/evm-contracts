@@ -35,7 +35,7 @@ contract TimeBitmap {
     }
 
     function search(uint256 fromTime, uint256 untilTime) public view returns (uint256, bool) {
-        return search(type(uint256).max - 255, fromTime, untilTime);
+        return search(type(uint256).max - 4095, fromTime, untilTime);
     }
 
     function search(uint256 lastVirtualOrderExecutionTime, uint256 fromTime, uint256 untilTime)
@@ -59,7 +59,7 @@ contract TimeBitmapHandler is StdUtils, StdAssertions {
     }
 
     function flip(uint32 time) public {
-        time = (time >> 4) << 4;
+        time = (time >> 8) << 8;
 
         tbm.flip(time);
         if (tbm.isInitialized(time)) {
@@ -87,12 +87,12 @@ contract TimeBitmapHandler is StdUtils, StdAssertions {
                 // check the next from this time is the time after it
                 uint256 nextTime = initializedTimes[(i + 1) % initializedTimes.length] - 1;
 
-                (uint256 nextFound, bool nextFoundInitialized) = tbm.find(time + 16);
+                (uint256 nextFound, bool nextFoundInitialized) = tbm.find(time + 256);
                 if (nextFoundInitialized) {
                     assertEq(nextFound, nextTime);
                 }
 
-                assertLe(nextFound - time, 4096);
+                assertLe(nextFound - time, 65536);
             }
         }
     }
@@ -125,8 +125,8 @@ contract TimeBitmapTest is Test {
         tbm.flip(0);
         vm.snapshotGasLastCall("flip(0)");
 
-        tbm.flip(16);
-        vm.snapshotGasLastCall("flip(16) in same map");
+        tbm.flip(256);
+        vm.snapshotGasLastCall("flip(256) in same map");
     }
 
     /// forge-config: default.isolate = true
@@ -140,9 +140,9 @@ contract TimeBitmapTest is Test {
     function test_gas_next_set() public {
         TimeBitmap tbm = new TimeBitmap();
 
-        tbm.flip(160);
+        tbm.flip(2560);
         tbm.find(0);
-        vm.snapshotGasLastCall("next(0) == 160");
+        vm.snapshotGasLastCall("next(0) == 2560");
     }
 
     function test_timeToBitmapWordAndIndex_bitmapWordAndIndexToTime(uint32 time) public pure {
@@ -150,8 +150,8 @@ contract TimeBitmapTest is Test {
         uint256 calculatedTime = bitmapWordAndIndexToTime(word, index);
 
         assertLe(calculatedTime, time);
-        assertLt(time - calculatedTime, 16);
-        assertEq(calculatedTime % 16, 0);
+        assertLt(time - calculatedTime, 256);
+        assertEq(calculatedTime % 256, 0);
     }
 
     function checkNextTime(TimeBitmap tbm, uint32 fromTime, uint32 expectedTime, bool expectedInitialized)
@@ -159,7 +159,7 @@ contract TimeBitmapTest is Test {
         view {}
 
     function test_findNextInitializedTime(uint256 time) public {
-        time = (bound(time, 16, type(uint256).max) >> 4) << 4;
+        time = (bound(time, 256, type(uint256).max) >> 8) << 8;
 
         TimeBitmap tbm = new TimeBitmap();
         tbm.flip(time);
@@ -168,7 +168,7 @@ contract TimeBitmapTest is Test {
         assertEq(nextTime, time);
         assertEq(initialized, true);
 
-        (nextTime, initialized) = tbm.find(time + 15);
+        (nextTime, initialized) = tbm.find(time + 255);
         assertEq(nextTime, time);
         assertEq(initialized, true);
     }
@@ -177,7 +177,7 @@ contract TimeBitmapTest is Test {
         TimeBitmap tbm = new TimeBitmap();
 
         (uint256 nextTime, bool initialized) = tbm.find(type(uint256).max);
-        assertEq(nextTime, (type(uint256).max >> 4) << 4);
+        assertEq(nextTime, (type(uint256).max >> 8) << 8);
         assertFalse(initialized);
     }
 
@@ -242,72 +242,72 @@ contract TimeBitmapTest is Test {
     function test_searchForNextInitializedTime() public {
         TimeBitmap tbm = new TimeBitmap();
 
-        tbm.flip(16);
-        tbm.flip(96);
-        tbm.flip(800);
-        tbm.flip(992);
-        tbm.flip(8_992);
-        tbm.flip(10_000);
-        tbm.flip(type(uint32).max - 15);
+        tbm.flip(256);
+        tbm.flip(6 * 256);
+        tbm.flip(50 * 256);
+        tbm.flip(62 * 256);
+        tbm.flip(562 * 256);
+        tbm.flip(625 * 256);
+        tbm.flip(type(uint32).max - 4095);
 
-        (uint256 time, bool initialized) = tbm.search(0, 32);
-        assertEq(time, 16);
+        (uint256 time, bool initialized) = tbm.search(0, 512);
+        assertEq(time, 256);
         assertTrue(initialized);
 
-        (time, initialized) = tbm.search(96, 100);
-        assertEq(time, 100);
+        (time, initialized) = tbm.search(6 * 256, 6 * 256 + 64);
+        assertEq(time, 6 * 256 + 64);
         assertFalse(initialized);
 
-        (time, initialized) = tbm.search(96, 500);
-        assertEq(time, 500);
+        (time, initialized) = tbm.search(6 * 256, 31 * 256 + 64);
+        assertEq(time, 31 * 256 + 64);
         assertFalse(initialized);
 
-        (time, initialized) = tbm.search(150, 500);
-        assertEq(time, 500);
+        (time, initialized) = tbm.search(10 * 256 - 10, 31 * 256 + 64);
+        assertEq(time, 31 * 256 + 64);
         assertFalse(initialized);
 
-        (time, initialized) = tbm.search(150, 1000);
-        assertEq(time, 800);
+        (time, initialized) = tbm.search(10 * 256 - 10, 62 * 256 + 5181);
+        assertEq(time, 50 * 256);
         assertTrue(initialized);
 
-        (time, initialized) = tbm.search(800, 1000);
-        assertEq(time, 992);
+        (time, initialized) = tbm.search(50 * 256, 62 * 256 + 5181);
+        assertEq(time, 62 * 256);
         assertTrue(initialized);
 
-        (time, initialized) = tbm.search(1500, 8991);
-        assertEq(time, 8_991);
+        (time, initialized) = tbm.search(93 * 256 + 140, 562 * 256 - 10);
+        assertEq(time, 562 * 256 - 10);
         assertFalse(initialized);
 
-        (time, initialized) = tbm.search(1500, 25000);
-        assertEq(time, 8_992);
+        (time, initialized) = tbm.search(93 * 256 + 140, 1000 * 256);
+        assertEq(time, 562 * 256);
         assertTrue(initialized);
 
-        (time, initialized) = tbm.search(8_992, 9_999);
-        assertEq(time, 9_999);
+        (time, initialized) = tbm.search(562 * 256, 625 * 256 - 1);
+        assertEq(time, 625 * 256 - 1);
         assertFalse(initialized);
 
-        (time, initialized) = tbm.search(9_999, type(uint32).max);
-        assertEq(time, 10_000);
+        (time, initialized) = tbm.search(625 * 256 - 1, type(uint32).max);
+        assertEq(time, 625 * 256);
         assertTrue(initialized);
     }
 
     function test_timesAreFoundInRange() public {
         TimeBitmap tbm = new TimeBitmap();
 
-        tbm.flip(16);
-        tbm.flip(96);
-        tbm.flip(800);
-        tbm.flip(992);
-        tbm.flip(8_992);
-        tbm.flip(10_000);
+        tbm.flip(256);
+        tbm.flip(6 * 256);
+        tbm.flip(50 * 256);
+        tbm.flip(62 * 256);
+        tbm.flip(562 * 256);
+        tbm.flip(625 * 256);
 
-        uint256[] memory finds = findTimesInRange(tbm, 0, 15003);
-        assertEq(finds[0], 16);
-        assertEq(finds[1], 96);
-        assertEq(finds[2], 800);
-        assertEq(finds[3], 992);
-        assertEq(finds[4], 8_992);
-        assertEq(finds[5], 10_000);
-        assertEq(finds.length, 6);
+        uint256[] memory finds = findTimesInRange(tbm, 0, 240_048);
+        assertEq(finds.length, 6, "len");
+        assertEq(finds[0], 256, "t0");
+        assertEq(finds[1], 6 * 256, "t1");
+        assertEq(finds[2], 50 * 256, "t2");
+        assertEq(finds[3], 62 * 256, "t3");
+        assertEq(finds[4], 562 * 256, "t4");
+        assertEq(finds[5], 625 * 256, "t5");
     }
 }

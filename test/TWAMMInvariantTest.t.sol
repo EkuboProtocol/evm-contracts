@@ -232,7 +232,7 @@ contract Handler is StdUtils, StdAssertions {
 
         if (amount == 0) return;
 
-        approximateDuration = uint24(bound(approximateDuration, 16, type(uint24).max));
+        approximateDuration = uint24(bound(approximateDuration, 256, type(uint24).max));
 
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
         uint256 startTime;

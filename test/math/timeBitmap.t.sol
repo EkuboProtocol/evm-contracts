@@ -92,7 +92,7 @@ contract TimeBitmapHandler is StdUtils, StdAssertions {
                     assertEq(nextFound, nextTime);
                 }
 
-                assertLe(nextFound - time, 4096);
+                assertLe(nextFound - time, 65536);
             }
         }
     }

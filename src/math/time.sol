@@ -3,7 +3,7 @@ pragma solidity >=0.8.30;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-// For any given time `t`, there are up to 106 times that are greater than `t` and valid according to `isTimeValid`
+// For any given time `t`, there are up to 91 times that are greater than `t` and valid according to `isTimeValid`
 uint256 constant MAX_NUM_VALID_TIMES = 91;
 
 // If we constrain the sale rate delta to this value, then the current sale rate will never overflow

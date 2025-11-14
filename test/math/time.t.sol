@@ -2,7 +2,7 @@
 pragma solidity >=0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {isTimeValid, computeStepSize, nextValidTime} from "../../src/math/time.sol";
+import {isTimeValid, computeStepSize, nextValidTime, MAX_NUM_VALID_TIMES} from "../../src/math/time.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract TimeTest is Test {
@@ -31,6 +31,20 @@ contract TimeTest is Test {
                 }
             }
         }
+    }
+
+    function test_MAX_NUM_VALID_TIMES_is_consistent_with_nextValidTime(uint256 time) public {
+        time = bound(time, 1, type(uint256).max - type(uint32).max);
+        uint256 nextTime = time;
+        uint256 numValidTimes;
+        while (nextTime != 0) {
+            nextTime = nextValidTime(time, nextTime);
+            if (nextTime != 0) {
+                numValidTimes++;
+            }
+        }
+
+        assertTrue(numValidTimes == MAX_NUM_VALID_TIMES || numValidTimes == MAX_NUM_VALID_TIMES - 1);
     }
 
     function test_computeStepSize() public pure {

@@ -22,7 +22,7 @@ contract PositionsTest is FullTest {
         positions.setMetadata("Ekubo Positions", "ekuPo", "ekubo://positions/");
         assertEq(positions.name(), "Ekubo Positions");
         assertEq(positions.symbol(), "ekuPo");
-        assertEq(positions.tokenURI(1), "ekubo://positions/1");
+        assertEq(positions.tokenURI(1), "ekubo://positions/31337/0x2e234DAe75C793f67A35089C9d99245E1C58470b/1");
     }
 
     function test_saltToId(address minter, bytes32 salt) public {

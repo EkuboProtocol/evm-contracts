@@ -63,7 +63,16 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     /// @param id The token ID to get the URI for
     /// @return The complete URI for the token
     function tokenURI(uint256 id) public view virtual override returns (string memory) {
-        return string(abi.encodePacked(baseUrl, LibString.toString(id)));
+        return string(
+            abi.encodePacked(
+                baseUrl,
+                LibString.toString(block.chainid),
+                "/",
+                LibString.toHexStringChecksummed(address(this)),
+                "/",
+                LibString.toString(id)
+            )
+        );
     }
 
     /// @notice Modifier to ensure the caller is authorized to perform actions on a specific token

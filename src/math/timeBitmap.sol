@@ -9,8 +9,8 @@ import {StorageSlot} from "../types/storageSlot.sol";
 // Always rounds the time down
 function timeToBitmapWordAndIndex(uint256 time) pure returns (uint256 word, uint256 index) {
     assembly ("memory-safe") {
-        word := shr(12, time)
-        index := and(shr(4, time), 0xff)
+        word := shr(16, time)
+        index := and(shr(8, time), 0xff)
     }
 }
 
@@ -18,7 +18,7 @@ function timeToBitmapWordAndIndex(uint256 time) pure returns (uint256 word, uint
 /// @dev Assumes word is less than 2**252 and index is less than 2**8
 function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uint256 time) {
     assembly ("memory-safe") {
-        time := add(shl(12, word), shl(4, index))
+        time := add(shl(16, word), shl(8, index))
     }
 }
 

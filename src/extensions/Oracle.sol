@@ -61,12 +61,12 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     /// @notice Emits a snapshot event for off-chain indexing
     /// @dev Uses assembly for gas-efficient event emission
     /// @param token The token address for the snapshot
-    /// @param encodedSnapshot The encoded snapshot data
-    function _emitSnapshotEvent(address token, bytes32 encodedSnapshot) private {
+    /// @param snapshot The snapshot that was just written
+    function _emitSnapshotEvent(address token, Snapshot snapshot) private {
         unchecked {
             assembly ("memory-safe") {
                 mstore(0, shl(96, token))
-                mstore(20, encodedSnapshot)
+                mstore(20, snapshot)
                 log0(0, 52)
             }
         }
@@ -141,7 +141,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 sstore(or(shl(32, token), index), snapshot)
             }
 
-            _emitSnapshotEvent(token, Snapshot.unwrap(snapshot));
+            _emitSnapshotEvent(token, snapshot);
         }
     }
 
@@ -182,7 +182,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             sstore(shl(32, token), snapshot)
         }
 
-        _emitSnapshotEvent(token, Snapshot.unwrap(snapshot));
+        _emitSnapshotEvent(token, snapshot);
     }
 
     /// @notice Called before a position is updated to capture price/liquidity snapshot

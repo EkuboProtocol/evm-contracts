@@ -30,7 +30,7 @@ Ekubo Core encodes a concrete AMM design:
 - With **concentrated liquidity** over price ranges, similar in spirit to Uniswap v3‑style positions.
 - At a **very fine tick size** of 1/100th of a basis point, enabling precise market‑maker control.
 
-Additional pool configurations (such as stableswap‑style and full-range pools) are also supported, but the key point is that:
+Core also supports additional pool configurations, such as stableswap‑style curves and full‑range pools. Across all of these configurations, the key point is that:
 
 - The **curve logic and pool mechanics live in Core itself.**
 - Licensees do **not** ship their own AMM math; they all rely on this shared implementation.
@@ -93,7 +93,7 @@ From a user’s point of view:
 
 Extensions are **separate contracts** that integrate with Core to add reusable features. They are not new AMMs and they are not tied one‑to‑one with licensees. Instead, they provide functionality that **any** licensee can use.
 
-In this version of the protocol, three extensions are shipped alongside Core:
+In the reference implementation of this version of the protocol, three extensions are shipped alongside Core (additional extensions can be added over time):
 
 - **Oracle** – efficiently records and exposes on‑chain price history for any token pair, perfect for bootstrapping new lending markets.
 - **TWAMM (Time‑Weighted AMM)** – lets users place orders that execute gradually over time, smoothing execution and reducing market impact.
@@ -136,14 +136,14 @@ This reduces both engineering and operational complexity, and makes Ekubo a more
 
 ### 6.3 Gas Efficiency Across Licensees
 
-When two white‑labeled AMMs are implemented as separate deployments, moving value between them requires at least:
+When users create trades that execute swaps on multiple AMM protocols, moving tokens between them requires at least one additional transfer, but often in practice incurs multiple additional token transfers:
 
-- An ERC‑20 transfer out of AMM A.
-- An ERC‑20 transfer into AMM B.
+- An ERC‑20 transfer out of AMM A to some intermediary router contract.
+- A separate ERC‑20 transfer from that intermediary into AMM B.
 
-Even if this all happens in one transaction, those extra token transfers cost gas.
+Even though this happens in one transaction, those token transfers cost a lot of gas.
 
-When both licensees sit on top of the same Core:
+When two Ekubo Protocol licensees use the same Core contract:
 
 - Tokens never need to leave Core just to move from “licensee A” logic to “licensee B” logic.
 - Different licensees can even point at the **exact same pool**, but set up different revenue models externally (for example, by configuring different protocol‑fee parameters on their positions contracts).
@@ -180,6 +180,7 @@ Legally, the only global requirement is **revenue sharing** as defined in the Ek
 - Licensees that collect protocol revenue (for example, by setting a non‑zero protocol‑fee share on the positions contract) share a portion of that revenue with Ekubo DAO.
 - This revenue‑sharing arrangement can be negotiated with the Ekubo DAO when necessary.
 - If a licensee chooses **not** to collect any protocol revenue (e.g., allows LPs to keep 100% of fees), then there is no protocol revenue to share with Ekubo DAO.
+- Core does not enforce that a user's positions must pay any protocol fees; there can be completely free deployments of Ekubo Protocol, but the user must depend on the tooling offered by such deployment
 
 Crucially, the notion of a **“protocol fee”** is **externalized** from Core itself:
 

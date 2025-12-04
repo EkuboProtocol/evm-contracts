@@ -417,10 +417,7 @@ contract CreateTestTransactions is Script {
             PoolBalanceUpdate balanceUpdateToken0Back = router.swap(
                 ethToken0Pool,
                 createSwapParameters({
-                    _isToken1: true,
-                    _amount: int128(swapBackAmount),
-                    _sqrtRatioLimit: defaultUpperLimit,
-                    _skipAhead: 0
+                    _isToken1: true, _amount: int128(swapBackAmount), _sqrtRatioLimit: defaultUpperLimit, _skipAhead: 0
                 }),
                 type(int256).min
             );
@@ -435,10 +432,7 @@ contract CreateTestTransactions is Script {
             PoolBalanceUpdate balanceUpdate = router.swap(
                 ethToken1Pool,
                 createSwapParameters({
-                    _isToken1: true,
-                    _amount: int128(swapBackAmount),
-                    _sqrtRatioLimit: defaultUpperLimit,
-                    _skipAhead: 0
+                    _isToken1: true, _amount: int128(swapBackAmount), _sqrtRatioLimit: defaultUpperLimit, _skipAhead: 0
                 }),
                 type(int256).min
             );

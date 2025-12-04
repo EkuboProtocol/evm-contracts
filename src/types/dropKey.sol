@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.31;
 
 /// @notice A drop is specified by an owner, token and a root
 /// @dev The owner can reclaim the drop token at any time

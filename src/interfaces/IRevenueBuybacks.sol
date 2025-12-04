@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity ^0.8.0;
 
 import {IOrders} from "./IOrders.sol";
 import {BuybacksState} from "../types/buybacksState.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.31;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey, PoolConfig} from "../types/poolKey.sol";

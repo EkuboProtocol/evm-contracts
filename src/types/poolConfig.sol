@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.31;
 
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
 

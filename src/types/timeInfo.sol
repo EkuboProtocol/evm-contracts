@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.31;
 
 /// @notice Packed representation of time-specific order information
 /// @dev Bit layout (256 bits total):

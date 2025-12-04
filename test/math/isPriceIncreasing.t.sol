@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.31;
 
 import {Test} from "forge-std/Test.sol";
 import {isPriceIncreasing} from "../../src/math/isPriceIncreasing.sol";

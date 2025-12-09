@@ -6,6 +6,7 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {createSwapParameters} from "../src/types/swapParameters.sol";
 import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
@@ -13,6 +14,10 @@ import {Positions} from "../src/Positions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
+import {StorageSlot} from "../src/types/storageSlot.sol";
+import {PoolState, createPoolState} from "../src/types/poolState.sol";
+import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
 
 contract PositionsTest is FullTest {
     using CoreLib for *;
@@ -387,6 +392,62 @@ contract PositionsTest is FullTest {
         (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 0);
         assertEq(f1, 0);
+    }
+
+    function test_getPositionFeesAndLiquidity_stableswap_returns_fees_outside_range() public {
+        MockExtension fae = createAndRegisterExtension();
+
+        PoolConfig config =
+            createStableswapPoolConfig({_fee: 1 << 63, _amplification: 20, _centerTick: 0, _extension: address(fae)});
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, lower, upper, 1e6, 1e6);
+        assertGt(liquidity, 0);
+
+        token0.approve(address(fae), 1000);
+        token1.approve(address(fae), 2000);
+        fae.accumulateFees(poolKey, 1000, 2000);
+
+        (,,, uint128 viewFees0, uint128 viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
+        assertEq(viewFees0, 999);
+        assertEq(viewFees1, 1999);
+
+        (uint128 collect0, uint128 collect1) = positions.collectFees(id, poolKey, lower, upper);
+        assertEq(collect0, viewFees0);
+        assertEq(collect1, viewFees1);
+
+        // swap to max price
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: false, _skipAhead: 0
+            }),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        (,,, viewFees0, viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
+        assertEq(viewFees0, 0);
+        assertEq(viewFees1, 1000042);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: true, _skipAhead: 0
+            }),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        (,,, viewFees0, viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
+        assertEq(viewFees0, 2000042);
+        assertEq(viewFees1, 1000042);
+
+        (collect0, collect1) = positions.collectFees(id, poolKey, lower, upper);
+        assertEq(collect0, viewFees0);
+        assertEq(collect1, viewFees1);
     }
 
     /// forge-config: default.isolate = true

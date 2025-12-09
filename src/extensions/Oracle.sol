@@ -18,6 +18,8 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
+import {OracleStorageLayout} from "../libraries/OracleStorageLayout.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 /// @notice Returns the call points configuration for the Oracle extension
 /// @dev Specifies which hooks the Oracle needs to capture price and liquidity data
@@ -94,10 +96,8 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     /// @param token The token address for the oracle data
     function maybeInsertSnapshot(PoolId poolId, address token) private {
         unchecked {
-            Counts c;
-            assembly ("memory-safe") {
-                c := sload(token)
-            }
+            StorageSlot countsSlot = OracleStorageLayout.countsSlot(token);
+            Counts c = Counts.wrap(countsSlot.load());
 
             uint32 timePassed = uint32(block.timestamp) - c.lastTimestamp();
             if (timePassed == 0) return;
@@ -105,10 +105,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             uint32 index = c.index();
 
             // we know count is always g.t. 0 in the places this is called
-            Snapshot last;
-            assembly ("memory-safe") {
-                last := sload(or(shl(32, token), index))
-            }
+            Snapshot last = Snapshot.wrap(OracleStorageLayout.snapshotSlot(token, index).load());
 
             PoolState state = CORE.poolState(poolId);
 
@@ -136,10 +133,8 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             uint32 lastTimestamp = uint32(block.timestamp);
 
             c = createCounts({_index: index, _count: count, _capacity: capacity, _lastTimestamp: lastTimestamp});
-            assembly ("memory-safe") {
-                sstore(token, c)
-                sstore(or(shl(32, token), index), snapshot)
-            }
+            countsSlot.store(Counts.unwrap(c));
+            OracleStorageLayout.snapshotSlot(token, index).store(Snapshot.unwrap(snapshot));
 
             _emitSnapshotEvent(token, snapshot);
         }
@@ -162,10 +157,8 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
         //  remember we have the capacity since the snapshot storage has been initialized
         uint32 lastTimestamp = uint32(block.timestamp);
 
-        Counts c;
-        assembly ("memory-safe") {
-            c := sload(token)
-        }
+        StorageSlot countsSlot = OracleStorageLayout.countsSlot(token);
+        Counts c = Counts.wrap(countsSlot.load());
 
         c = createCounts({
             _index: 0,
@@ -177,10 +170,8 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
         Snapshot snapshot =
             createSnapshot({_timestamp: lastTimestamp, _secondsPerLiquidityCumulative: 0, _tickCumulative: 0});
 
-        assembly ("memory-safe") {
-            sstore(token, c)
-            sstore(shl(32, token), snapshot)
-        }
+        countsSlot.store(Counts.unwrap(c));
+        OracleStorageLayout.snapshotSlot(token, 0).store(Snapshot.unwrap(snapshot));
 
         _emitSnapshotEvent(token, snapshot);
     }
@@ -211,24 +202,18 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
 
     /// @inheritdoc IOracle
     function expandCapacity(address token, uint32 minCapacity) external returns (uint32 capacity) {
-        Counts c;
-        assembly ("memory-safe") {
-            c := sload(token)
-        }
+        StorageSlot countsSlot = OracleStorageLayout.countsSlot(token);
+        Counts c = Counts.wrap(countsSlot.load());
 
         if (c.capacity() < minCapacity) {
             for (uint256 i = c.capacity(); i < minCapacity; i++) {
-                assembly ("memory-safe") {
-                    // Simply initialize the slot, it will be overwritten when the index is reached
-                    sstore(or(shl(32, token), i), 1)
-                }
+                // Simply initialize the slot, it will be overwritten when the index is reached
+                OracleStorageLayout.snapshotSlot(token, i).store(bytes32(uint256(1)));
             }
             c = createCounts({
                 _index: c.index(), _count: c.count(), _capacity: minCapacity, _lastTimestamp: c.lastTimestamp()
             });
-            assembly ("memory-safe") {
-                sstore(token, c)
-            }
+            countsSlot.store(Counts.unwrap(c));
         }
 
         capacity = c.capacity();
@@ -265,10 +250,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             while (left < right) {
                 uint256 mid = (left + right + 1) >> 1;
                 uint256 storageIndex = logicalIndexToStorageIndex(c.index(), c.count(), mid);
-                Snapshot midSnapshot;
-                assembly ("memory-safe") {
-                    midSnapshot := sload(or(shl(32, token), storageIndex))
-                }
+                Snapshot midSnapshot = Snapshot.wrap(OracleStorageLayout.snapshotSlot(token, storageIndex).load());
                 if (current - midSnapshot.timestamp() >= targetDiff) {
                     left = mid;
                 } else {
@@ -277,9 +259,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             }
 
             uint256 resultIndex = logicalIndexToStorageIndex(c.index(), c.count(), left);
-            assembly ("memory-safe") {
-                snapshot := sload(or(shl(32, token), resultIndex))
-            }
+            snapshot = Snapshot.wrap(OracleStorageLayout.snapshotSlot(token, resultIndex).load());
             if (current - snapshot.timestamp() < targetDiff) {
                 revert NoPreviousSnapshotExists(token, time);
             }
@@ -295,10 +275,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     {
         if (time > block.timestamp) revert FutureTime();
 
-        Counts c;
-        assembly ("memory-safe") {
-            c := sload(token)
-        }
+        Counts c = Counts.wrap(OracleStorageLayout.countsSlot(token).load());
         count = c.count();
         (logicalIndex, snapshot) = searchRangeForPrevious(c, token, time, 0, count);
     }
@@ -338,10 +315,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
                 } else {
                     // Use the next snapshot.
                     uint256 logicalIndexNext = logicalIndexToStorageIndex(c.index(), c.count(), logicalIndex + 1);
-                    Snapshot next;
-                    assembly ("memory-safe") {
-                        next := sload(or(shl(32, token), logicalIndexNext))
-                    }
+                    Snapshot next = Snapshot.wrap(OracleStorageLayout.snapshotSlot(token, logicalIndexNext).load());
 
                     uint32 timestampDifference = next.timestamp() - snapshot.timestamp();
 
@@ -369,10 +343,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
     {
         if (atTime > block.timestamp) revert FutureTime();
 
-        Counts c;
-        assembly ("memory-safe") {
-            c := sload(token)
-        }
+        Counts c = Counts.wrap(OracleStorageLayout.countsSlot(token).load());
         (uint256 logicalIndex, Snapshot snapshot) = searchRangeForPrevious(c, token, atTime, 0, c.count());
         (secondsPerLiquidityCumulative, tickCumulative) =
             extrapolateSnapshotInternal(c, token, atTime, logicalIndex, snapshot);
@@ -390,10 +361,7 @@ contract Oracle is IOracle, ExposedStorage, BaseExtension {
             uint256 endTime = timestamps[timestamps.length - 1];
             if (endTime < startTime) revert EndTimeLessThanStartTime();
 
-            Counts c;
-            assembly ("memory-safe") {
-                c := sload(token)
-            }
+            Counts c = Counts.wrap(OracleStorageLayout.countsSlot(token).load());
             (uint256 indexFirst,) = searchRangeForPrevious(c, token, startTime, 0, c.count());
             (uint256 indexLast,) = searchRangeForPrevious(c, token, endTime, indexFirst, c.count());
 

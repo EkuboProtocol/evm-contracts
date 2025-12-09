@@ -93,10 +93,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             unchecked {
                 result = rewardRateEnd - rewardRateStart;
             }
-        } else if (block.timestamp > config.startTime()) {
+        } else if (block.timestamp >= config.startTime()) {
             uint256 offset = LibBit.rawToUint(!config.isToken1());
 
-            //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
             uint256 rewardRateStart =
                 uint256(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, config.startTime()).add(offset).load());
             uint256 rewardRateCurrent = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).add(offset).load());
@@ -105,7 +104,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 result = rewardRateCurrent - rewardRateStart;
             }
         } else {
-            // less than or equal to start time
+            // less than start time
             // returns 0
         }
     }

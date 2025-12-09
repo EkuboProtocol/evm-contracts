@@ -10,12 +10,15 @@ import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
+import {TWAMMStorageLayout} from "../src/libraries/TWAMMStorageLayout.sol";
 import {Orders} from "../src/Orders.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
-import {TwammPoolState} from "../src/types/twammPoolState.sol";
-import {createOrderConfig} from "../src/types/orderConfig.sol";
+import {TwammPoolState, createTwammPoolState} from "../src/types/twammPoolState.sol";
+import {OrderConfig, createOrderConfig} from "../src/types/orderConfig.sol";
+import {computeRewardAmount} from "../src/math/twamm.sol";
+import {OrderId} from "../src/types/orderId.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     uint32 internal constant MIN_TWAMM_DURATION = 256;
@@ -1162,6 +1165,54 @@ contract OrdersTest is BaseOrdersTest {
         // Try to update after end - should revert
         vm.expectRevert(IOrders.OrderAlreadyEnded.selector);
         orders.increaseSellAmount(id, key, 0.5e18, type(uint112).max);
+    }
+
+    function test_collectProceeds_start_time_equals_block_timestamp(uint64 startingTime) public {
+        startingTime = uint64(bound(startingTime, 0, type(uint64).max - type(uint32).max));
+        vm.warp(startingTime);
+
+        uint64 fee = 0;
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        PoolId poolId = poolKey.toPoolId();
+
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e21, 1e21);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        uint64 attackOrderStartTime =
+            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), time: vm.getBlockTimestamp()}));
+
+        uint64 targetOrderEndTime =
+            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), time: attackOrderStartTime}));
+
+        OrderConfig targetOrderConfig =
+            createOrderConfig({_fee: fee, _isToken1: true, _startTime: 0, _endTime: targetOrderEndTime});
+
+        OrderKey memory targetOrderKey =
+            OrderKey({token0: poolKey.token0, token1: poolKey.token1, config: targetOrderConfig});
+
+        (uint256 targetOrderId, uint112 targetOrderSaleRate) =
+            orders.mintAndIncreaseSellAmount({orderKey: targetOrderKey, amount: 1e18, maxSaleRate: type(uint112).max});
+
+        vm.warp(attackOrderStartTime);
+
+        OrderConfig attackOrderConfig = createOrderConfig({
+            _fee: fee, _isToken1: true, _startTime: attackOrderStartTime, _endTime: targetOrderEndTime
+        });
+
+        OrderKey memory attackOrderKey =
+            OrderKey({token0: poolKey.token0, token1: poolKey.token1, config: attackOrderConfig});
+
+        (uint256 attackOrderId, uint112 attackOrderSaleRate) =
+            orders.mintAndIncreaseSellAmount({orderKey: attackOrderKey, amount: 1e18, maxSaleRate: type(uint112).max});
+
+        advanceTime(1);
+
+        uint128 attackProceeds = orders.collectProceeds(attackOrderId, attackOrderKey, address(this));
+        uint128 targetProceeds = orders.collectProceeds(attackOrderId, targetOrderKey, address(this));
     }
 
     /// @notice Test documenting that proceeds must be collected before stopping an order

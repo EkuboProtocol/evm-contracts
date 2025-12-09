@@ -14,6 +14,9 @@ interface IPositions is IBaseNonfungibleToken {
     /// @param minLiquidity The minimum liquidity required
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
 
+    /// @notice Thrown when price moves during the beforeUpdatePosition extension call causing the desired deposit amounts to be exceeded
+    error DepositFailedDueToPriceMovement();
+
     /// @notice Thrown when deposit amount would cause overflow
     error DepositOverflow();
 

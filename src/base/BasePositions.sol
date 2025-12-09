@@ -61,7 +61,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
 
         (principal0, principal1) = (uint128(-delta0), uint128(-delta1));
 
-        FeesPerLiquidity memory feesPerLiquidityInside = poolKey.config.isFullRange()
+        FeesPerLiquidity memory feesPerLiquidityInside = poolKey.config.isStableswap()
             ? CORE.getPoolFeesPerLiquidity(poolId)
             : CORE.getPoolFeesPerLiquidityInside(poolId, tickLower, tickUpper);
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
@@ -77,22 +77,21 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         uint128 maxAmount1,
         uint128 minLiquidity
     ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        SqrtRatio sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
-
-        liquidity =
-            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
-
-        if (liquidity < minLiquidity) {
-            revert DepositFailedDueToSlippage(liquidity, minLiquidity);
-        }
-
-        if (liquidity > uint128(type(int128).max)) {
-            revert DepositOverflow();
-        }
-
-        (amount0, amount1) = abi.decode(
-            lock(abi.encode(CALL_TYPE_DEPOSIT, msg.sender, id, poolKey, tickLower, tickUpper, liquidity)),
-            (uint128, uint128)
+        (liquidity, amount0, amount1) = abi.decode(
+            lock(
+                abi.encode(
+                    CALL_TYPE_DEPOSIT,
+                    msg.sender,
+                    id,
+                    poolKey,
+                    tickLower,
+                    tickUpper,
+                    maxAmount0,
+                    maxAmount1,
+                    minLiquidity
+                )
+            ),
+            (uint128, uint128, uint128)
         );
     }
 
@@ -237,8 +236,23 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
                 PoolKey memory poolKey,
                 int32 tickLower,
                 int32 tickUpper,
-                uint128 liquidity
-            ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128));
+                uint128 maxAmount0,
+                uint128 maxAmount1,
+                uint128 minLiquidity
+            ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128, uint128, uint128));
+
+            SqrtRatio sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
+
+            uint128 liquidity =
+                maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
+
+            if (liquidity < minLiquidity) {
+                revert DepositFailedDueToSlippage(liquidity, minLiquidity);
+            }
+
+            if (liquidity > uint128(type(int128).max)) {
+                revert DepositOverflow();
+            }
 
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(
                 poolKey,
@@ -248,6 +262,8 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
 
             uint128 amount0 = uint128(balanceUpdate.delta0());
             uint128 amount1 = uint128(balanceUpdate.delta1());
+
+            if (amount0 > maxAmount0 || amount1 > maxAmount1) revert DepositFailedDueToPriceMovement();
 
             // Use multi-token payment for ERC20-only pools, fall back to individual payments for native token pools
             if (poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
@@ -261,7 +277,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
                 }
             }
 
-            result = abi.encode(amount0, amount1);
+            result = abi.encode(liquidity, amount0, amount1);
         } else if (callType == CALL_TYPE_WITHDRAW) {
             (
                 ,

@@ -143,7 +143,8 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                sig != IPositions.DepositOverflow.selector && sig != IPositions.DepositFailedDueToPriceMovement.selector
+                    && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
                     && sig != SafeTransferLib.TransferFromFailed.selector

@@ -480,6 +480,21 @@ contract PositionsTest is FullTest {
         vm.snapshotGasLastCall("withdraw eth");
     }
 
+    /// forge-config: default.isolate = true
+    function test_mintAndDeposit_eth_pool_gas_free() public {
+        positions = Positions(address(new FreePositions(core, address(this))));
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        token1.approve(address(positions), 100);
+
+        coolAllContracts();
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, 0);
+        vm.snapshotGasLastCall("mintAndDeposit eth (free)");
+
+        coolAllContracts();
+        positions.withdraw(id, poolKey, -100, 100, liquidity);
+        vm.snapshotGasLastCall("withdraw eth (free)");
+    }
+
     function test_burn_can_be_minted() public {
         uint256 id = positions.mint(bytes32(0));
         positions.burn(id);

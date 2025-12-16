@@ -4,7 +4,6 @@ pragma solidity =0.8.31;
 import {BasePositions} from "./base/BasePositions.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {computeFee} from "./math/fee.sol";
 
 /// @title Ekubo Protocol Free Positions
 /// @author Moody Salem <moody@ekubo.org>

@@ -11,6 +11,7 @@ import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
+import {FreePositions} from "../src/FreePositions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -583,6 +584,59 @@ contract PositionsTest is FullTest {
         assertApproxEqAbs(
             finalProtocolFees1, expectedSwapProtocolFee1 + expectedWithdrawalFee1, 2, "Final protocol fees0"
         );
+    }
+
+    function test_free_positions(uint64 poolFee, uint64 swapFeesAmount0, uint64 swapFeesAmount1) public {
+        MockExtension fae = createAndRegisterExtension();
+
+        FreePositions testPositions = new FreePositions(core, owner);
+
+        PoolKey memory poolKey = createPool(0, poolFee, 100, address(fae));
+
+        // Approve tokens for the test positions contract
+        token0.approve(address(testPositions), type(uint256).max);
+        token1.approve(address(testPositions), type(uint256).max);
+
+        // Test 1: Mint and deposit should work regardless of protocol fee parameters
+        (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) =
+            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, 0);
+
+        assertGt(id, 0, "Position ID should be greater than 0");
+        assertGt(liquidity, 0, "Liquidity should be greater than 0");
+        assertGt(amount0, 0, "Amount0 should be greater than 0");
+        assertGt(amount1, 0, "Amount1 should be greater than 0");
+
+        token0.approve(address(fae), swapFeesAmount0);
+        token1.approve(address(fae), swapFeesAmount1);
+        fae.accumulateFees(poolKey, swapFeesAmount0, swapFeesAmount1);
+
+        (uint128 protocolFeesBeforeCollect0, uint128 protocolFeesBeforeCollect1) =
+            testPositions.getProtocolFees(address(token0), address(token1));
+        assertEq(protocolFeesBeforeCollect0, 0);
+        assertEq(protocolFeesBeforeCollect1, 0);
+
+        (uint128 collectedFees0, uint128 collectedFees1) = testPositions.collectFees(id, poolKey, -100, 100);
+
+        (uint128 protocolFeesAfterCollect0, uint128 protocolFeesAfterCollect1) =
+            testPositions.getProtocolFees(address(token0), address(token1));
+
+        assertApproxEqAbs(protocolFeesAfterCollect0, 0, 1, "Protocol fees 0 should be fraction of swap fees");
+        assertApproxEqAbs(protocolFeesAfterCollect1, 0, 1, "Protocol fees 1 should be fraction of swap fees");
+
+        assertApproxEqAbs(collectedFees0, swapFeesAmount0, 1, "swap fees are not modified");
+        assertApproxEqAbs(collectedFees1, swapFeesAmount1, 1, "swap fees are not modified");
+
+        // Test 5: Withdraw liquidity and verify withdrawal fees are handled correctly
+        (uint128 withdrawn0, uint128 withdrawn1) = testPositions.withdraw(id, poolKey, -100, 100, liquidity);
+
+        assertApproxEqAbs(withdrawn0, amount0, 1, "Should receive amount0");
+        assertApproxEqAbs(withdrawn1, amount1, 1, "Should receive amount1");
+
+        (uint128 finalProtocolFees0, uint128 finalProtocolFees1) =
+            testPositions.getProtocolFees(address(token0), address(token1));
+
+        assertEq(finalProtocolFees0, 0, "Final protocol fees0");
+        assertEq(finalProtocolFees1, 0, "Final protocol fees0");
     }
 
     function test_withdraw_without_fees_burns_fees() public {

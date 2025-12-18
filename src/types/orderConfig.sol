@@ -45,6 +45,7 @@ function endTime(OrderConfig config) pure returns (uint64 r) {
 
 /// @notice Creates an OrderConfig from individual components
 /// @param _fee The fee of the TWAMM pool
+/// @param _isToken1 True iff the order is selling token1
 /// @param _startTime The start time of the order
 /// @param _endTime The end time of the order
 /// @return c The packed configuration

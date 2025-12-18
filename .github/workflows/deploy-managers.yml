@@ -41,6 +41,9 @@ on:
         default: "0"
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   deploy-managers:
     name: Deploy Positions and Orders
@@ -48,6 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install Foundry
@@ -71,6 +75,12 @@ jobs:
           ORDERS_BASE_URL: ${{ inputs.orders_base_url }}
           SWAP_PROTOCOL_FEE_X64: ${{ inputs.swap_protocol_fee_x64 }}
           WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR: ${{ inputs.withdrawal_protocol_fee_denominator }}
+
+      - name: Commit broadcast artifacts
+        run: |
+          git add broadcast
+          git commit -m "chore: update broadcast artifacts" || echo "No broadcast changes to commit."
+          git push
 
       - name: Upload broadcast artifacts
         uses: actions/upload-artifact@v4

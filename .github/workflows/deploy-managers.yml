@@ -18,7 +18,7 @@ on:
       salt:
         description: CREATE2 salt used for deterministic deployments
         required: false
-        default: "0x81385ba264a7f8c1b8208abaa20f59081c2afc5415c2b57c383f951930ff6faa"
+        default: "0x62d821daca42db3616c4c007011ee7400e1baed68cf9020002d62c47d304d99f"
         type: string
       positions_base_url:
         description: Metadata base URL for positions
@@ -41,6 +41,9 @@ on:
         default: "0"
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   deploy-managers:
     name: Deploy Positions and Orders
@@ -48,6 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install Foundry
@@ -71,6 +75,12 @@ jobs:
           ORDERS_BASE_URL: ${{ inputs.orders_base_url }}
           SWAP_PROTOCOL_FEE_X64: ${{ inputs.swap_protocol_fee_x64 }}
           WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR: ${{ inputs.withdrawal_protocol_fee_denominator }}
+
+      - name: Commit broadcast artifacts
+        run: |
+          git add broadcast
+          git commit -m "chore: update broadcast artifacts" || echo "No broadcast changes to commit."
+          git push
 
       - name: Upload broadcast artifacts
         uses: actions/upload-artifact@v4

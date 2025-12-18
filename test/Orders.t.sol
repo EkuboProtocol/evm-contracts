@@ -1218,6 +1218,40 @@ contract OrdersTest is BaseOrdersTest {
         uint128 targetProceeds = orders.collectProceeds(attackOrderId, targetOrderKey, address(this));
     }
 
+    function test_amountSold_update_before_start_after_delay(uint64 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        uint64 startTime = uint64(nextValidTime(vm.getBlockTimestamp(), block.timestamp + 512));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 256));
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+        });
+
+        (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        uint64 delay = 256;
+        vm.warp(startTime - delay);
+        assertLt(vm.getBlockTimestamp(), startTime, "setup should keep us before start time");
+
+        orders.decreaseSaleRate(id, key, initialSaleRate / 2, address(this));
+
+        (uint256 saleRateAfter, uint256 amountSold,,) = orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+
+        assertEq(saleRateAfter, initialSaleRate / 2, "sale rate should reflect the decrease");
+        assertEq(amountSold, 0, "amountSold should be zero before the order starts");
+    }
+
     /// @notice Test documenting that proceeds must be collected before stopping an order
     /// @dev This demonstrates the correct usage pattern: collect proceeds before decreasing sale rate
     function test_collectProceeds_before_stop_order_correct() public {

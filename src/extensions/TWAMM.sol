@@ -249,17 +249,23 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         createOrderState({
                             _lastUpdateTime: uint32(block.timestamp),
                             _saleRate: uint112(saleRateNext),
-                            _amountSold: uint112(
-                                amountSold
-                                    + computeAmountFromSaleRate({
-                                        saleRate: saleRate,
-                                        duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime,
-                                            uint32(uint64(block.timestamp) - startTime)
-                                        ),
-                                        roundUp: false
-                                    })
-                            )
+                            // before the order starts no amount should be marked as sold, even if the sale rate changes
+                            _amountSold: block.timestamp > startTime
+                                ? uint112(
+                                    amountSold
+                                        + computeAmountFromSaleRate({
+                                            saleRate: saleRate,
+                                            duration: FixedPointMathLib.min(
+                                                // the amount of time since the order was last touched, i.e. amountSold was updated
+                                                uint32(block.timestamp) - lastUpdateTime,
+                                                // the amount of time that has elapsed since the start
+                                                // note we assume block.timestamp fits in a uint64
+                                                uint64(block.timestamp) - startTime
+                                            ),
+                                            roundUp: false
+                                        })
+                                )
+                                : 0
                         })
                     )
                 );

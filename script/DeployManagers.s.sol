@@ -19,7 +19,7 @@ contract DeployManagers is Script {
     function run() public {
         address deployer = vm.getWallets()[0];
         bytes32 salt = vm.envBytes32("SALT");
-        ICore core = ICore(vm.envAddress("CORE_ADDRESS"));
+        ICore core = ICore(payable(vm.envAddress("CORE_ADDRESS")));
         ITWAMM twamm = ITWAMM(vm.envAddress("TWAMM_ADDRESS"));
 
         string memory positionsBaseUrl = _envStringOr("POSITIONS_BASE_URL", "https://prod-api.ekubo.org/positions/");

@@ -42,6 +42,11 @@ jobs:
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           SALT: ${{ inputs.salt }}
 
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Commit broadcast artifacts
         run: |
           git add broadcast

@@ -76,6 +76,11 @@ jobs:
           SWAP_PROTOCOL_FEE_X64: ${{ inputs.swap_protocol_fee_x64 }}
           WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR: ${{ inputs.withdrawal_protocol_fee_denominator }}
 
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Commit broadcast artifacts
         run: |
           git add broadcast

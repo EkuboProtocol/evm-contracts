@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.31;
+pragma solidity =0.8.33;
 
 /// @dev Computes 2^x where x is a 5.64 number and result is a 64.64 number
 function exp2(uint256 x) pure returns (uint256 result) {

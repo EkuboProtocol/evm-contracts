@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.31;
+pragma solidity =0.8.33;
 
 import {BaseOracleTest} from "../extensions/Oracle.t.sol";
 import {ERC7726, IERC7726_ETH_ADDRESS, IERC7726_BTC_ADDRESS, IERC7726_USD_ADDRESS} from "../../src/lens/ERC7726.sol";

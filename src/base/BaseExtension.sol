@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.31;
+pragma solidity =0.8.33;
 
 import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {CallPoints} from "../types/callPoints.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
-pragma solidity =0.8.31;
+pragma solidity =0.8.33;
 
 import {Script} from "forge-std/Script.sol";
 import {IOracle} from "../src/interfaces/extensions/IOracle.sol";

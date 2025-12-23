@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.31;
+pragma solidity =0.8.33;
 
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.31;
+pragma solidity =0.8.33;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {FullTest} from "./FullTest.sol";

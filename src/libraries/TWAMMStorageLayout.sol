@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity =0.8.31;
+pragma solidity =0.8.33;
 
 import {PoolId} from "../types/poolId.sol";
 import {OrderId} from "../types/orderId.sol";

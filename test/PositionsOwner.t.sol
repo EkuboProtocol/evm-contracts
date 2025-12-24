@@ -174,26 +174,26 @@ contract PositionsOwnerTest is BaseOrdersTest {
         positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
         (uint128 fees0, uint128 fees1) = positions.getProtocolFees(address(token0), address(token1));
-        assertEq(fees0, 0);
-        assertEq(fees1, 0);
+        assertEq(fees0, 0, "fees0 before");
+        assertEq(fees1, 0, "fees1 before");
 
         // Donate protocol fees
         cheatDonateProtocolFees(address(token0), address(token1), donate0, donate1);
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
-        assertEq(fees0, donate0);
-        assertEq(fees1, donate1);
+        assertEq(fees0, donate0, "donated fees0");
+        assertEq(fees1, donate1, "donated fees1");
 
         // Withdraw and roll
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
         // it leaves 1 in there for gas efficiency
-        assertEq(fees0, donate0 == 0 ? 0 : 1);
-        assertEq(fees1, donate1 == 0 ? 0 : 1);
+        assertEq(fees0, donate0 == 0 ? 0 : 1, "protocol fees0 is always at least 1");
+        assertEq(fees1, donate1 == 0 ? 0 : 1, "protocol fees1 is always at least 1");
 
         // Both tokens should have been used for orders
-        assertEq(token0.balanceOf(address(rb)), 0);
-        assertEq(token1.balanceOf(address(rb)), 0);
+        assertLe(token0.balanceOf(address(rb)), 1, "token0 balance emptied");
+        assertLe(token1.balanceOf(address(rb)), 1, "token1 balance emptied");
     }
 }

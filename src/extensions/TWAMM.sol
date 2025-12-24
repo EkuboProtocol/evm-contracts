@@ -306,18 +306,21 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
                 uint256 durationRemaining = endTime - FixedPointMathLib.max(block.timestamp, startTime);
 
-                // the amount required for executing at the next sale rate for the remaining duration of the order
-                uint256 amountRequired =
-                    computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
-
                 // subtract the remaining sell amount to get the delta
                 int256 amountDelta;
 
-                uint256 remainingSellAmount =
-                    computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: false});
-
-                assembly ("memory-safe") {
-                    amountDelta := sub(amountRequired, remainingSellAmount)
+                if (saleRateDelta < 0) {
+                    amountDelta = -int256(
+                        computeAmountFromSaleRate({
+                            saleRate: uint256(-int256(saleRateDelta)), duration: durationRemaining, roundUp: false
+                        })
+                    );
+                } else {
+                    amountDelta = int256(
+                        computeAmountFromSaleRate({
+                            saleRate: uint256(uint112(saleRateDelta)), duration: durationRemaining, roundUp: true
+                        })
+                    );
                 }
 
                 // user is withdrawing tokens, so they need to pay a fee to the liquidity providers

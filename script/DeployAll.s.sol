@@ -14,6 +14,8 @@ import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {IncentivesDataFetcher} from "../src/lens/IncentivesDataFetcher.sol";
 import {QuoteDataFetcher} from "../src/lens/QuoteDataFetcher.sol";
 import {TWAMMDataFetcher} from "../src/lens/TWAMMDataFetcher.sol";
+import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
+import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
 
 address constant DETERMINISTIC_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
@@ -87,12 +89,12 @@ contract DeployAll is Script {
         tokenWrapperFactory = new TokenWrapperFactory{salt: baseSalt}(core);
         console2.log("TokenWrapperFactory deployed at", address(tokenWrapperFactory));
 
-        console2.log("Deployed new CoreDataFetcher", address(new CoreDataFetcher{salt: baseSalt}(core)));
-        console2.log("Deployed new QuoteDataFetcher", address(new QuoteDataFetcher{salt: baseSalt}(core)));
-        console2.log("Deployed new TWAMMDataFetcher", address(new TWAMMDataFetcher{salt: baseSalt}(core, twamm)));
-        console2.log(
-            "Deployed new IncentivesDataFetcher", address(new IncentivesDataFetcher{salt: baseSalt}(incentives))
-        );
+        console2.log("Deployed CoreDataFetcher", address(new CoreDataFetcher{salt: baseSalt}(core)));
+        console2.log("Deployed QuoteDataFetcher", address(new QuoteDataFetcher{salt: baseSalt}(core)));
+        console2.log("Deployed TWAMMDataFetcher", address(new TWAMMDataFetcher{salt: baseSalt}(core, twamm)));
+        console2.log("Deployed IncentivesDataFetcher", address(new IncentivesDataFetcher{salt: baseSalt}(incentives)));
+        console2.log("Deployed PriceFetcher", address(new PriceFetcher{salt: baseSalt}(oracle)));
+        console2.log("Deployed TokenDataFetcher", address(new TokenDataFetcher{salt: baseSalt}()));
 
         vm.stopBroadcast();
     }

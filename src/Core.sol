@@ -441,6 +441,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
 
             balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
             emit PositionUpdated(locker.addr(), poolId, positionId, liquidityDelta, balanceUpdate, state);
+        } else {
+            if (msg.value != 0) {
+                _accountDebt(locker.id(), NATIVE_TOKEN_ADDRESS, -int256(msg.value));
+            }
         }
 
         IExtension(poolKey.config.extension())

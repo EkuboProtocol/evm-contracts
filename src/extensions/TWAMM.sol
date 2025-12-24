@@ -314,7 +314,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 int256 amountDelta;
 
                 uint256 remainingSellAmount =
-                    computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
+                    computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: false});
 
                 assembly ("memory-safe") {
                     amountDelta := sub(amountRequired, remainingSellAmount)

@@ -1416,4 +1416,43 @@ contract OrdersTest is BaseOrdersTest {
         twamm.lockAndExecuteVirtualOrders(poolKey);
         vm.snapshotGasLastCall("lockAndExecuteVirtualOrders switch sell direction");
     }
+
+    function test_no_dos_rounding_error_decrease_sale_rate() public {
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 256, _endTime: 512})
+        });
+
+        // We provided another order so the refunding transactions can be executed.
+        OrderKey memory key2 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 512, _endTime: 1024})
+        });
+
+        uint256[] memory ids = new uint256[](256);
+        uint112 saleRate;
+        for (uint256 i = 0; i < ids.length; i++) {
+            (ids[i], saleRate) = orders.mintAndIncreaseSellAmount(key, 1, 28633115306);
+        }
+        // swap 1 tokens every seconds.
+        (uint256 order2Id,) = orders.mintAndIncreaseSellAmount(key2, 256, 28633115306);
+
+        vm.warp(511);
+        for (uint256 i = 0; i < ids.length; i++) {
+            orders.decreaseSaleRate(ids[i], key, saleRate, address(this));
+        }
+
+        advanceTime(2000);
+        twamm.lockAndExecuteVirtualOrders(poolKey);
+    }
 }

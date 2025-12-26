@@ -140,6 +140,10 @@ contract TokenWrapperTest is FullTest {
         unwrapAmount = uint128(bound(unwrapAmount, 1, wrapAmount));
 
         underlying.approve(address(periphery), wrapAmount);
+
+        vm.expectEmit(address(wrapper));
+        emit IERC20.Transfer(address(core), address(this), wrapAmount);
+
         periphery.wrap(wrapper, wrapAmount);
         uint256 oldBalance = underlying.balanceOf(recipient);
 
@@ -153,6 +157,10 @@ contract TokenWrapperTest is FullTest {
             assertEq(wrapper.totalSupply(), wrapAmount);
         } else {
             assertEq(wrapper.totalSupply(), wrapAmount);
+
+            vm.expectEmit(address(wrapper));
+            emit IERC20.Transfer(address(this), address(core), unwrapAmount);
+
             periphery.unwrap(wrapper, recipient, unwrapAmount);
             assertEq(wrapper.balanceOf(address(this)), wrapAmount - unwrapAmount, "Didn't burn wrapper");
             assertEq(underlying.balanceOf(recipient), oldBalance + unwrapAmount, "Didn't transfer underlying");

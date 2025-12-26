@@ -150,7 +150,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
         } else {
             _balanceOf[to] += amount;
         }
-        emit Transfer(msg.sender, to, amount);
+        emit Transfer(from, to, amount);
         return true;
     }
 

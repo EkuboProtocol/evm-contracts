@@ -57,12 +57,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
         SafeTransferLib.safeTransferETH(recipient, amount);
     }
 
-    /// @notice Collects the proceeds from a completed buyback order
-    /// @dev Can be called by anyone at any time to collect proceeds from orders that have finished
-    /// @param token The revenue token that was sold in the order
-    /// @param fee The fee tier of the pool where the order was executed
-    /// @param endTime The end time of the order to collect proceeds from
-    /// @return proceeds The amount of buyToken received from the completed order
+    /// @inheritdoc IRevenueBuybacks
     function collect(address token, uint64 fee, uint64 endTime) external returns (uint128 proceeds) {
         proceeds = ORDERS.collectProceeds(NFT_ID, _createOrderKey(token, fee, 0, endTime), owner());
     }
@@ -71,12 +66,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     /// @dev Required to accept ETH payments when ETH is used as a revenue token
     receive() external payable {}
 
-    /// @notice Creates a new buyback order or extends an existing one with available revenue
-    /// @dev Can be called by anyone to trigger the creation of buyback orders using collected revenue
-    /// This function will either extend the current order (if conditions are met) or create a new order
-    /// @param token The revenue token to use for creating the buyback order, or NATIVE_TOKEN_ADDRESS
-    /// @return endTime The end time of the order that was created or extended
-    /// @return saleRate The sale rate of the order (amount of token sold per second)
+    /// @inheritdoc IRevenueBuybacks
     function roll(address token) external returns (uint64 endTime, uint112 saleRate) {
         // buy token cannot be configured for buybacks, so we short circuit to save an sload
         if (token == BUY_TOKEN) {
@@ -133,12 +123,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
         }
     }
 
-    /// @notice Configures buyback parameters for a revenue token (only callable by owner)
-    /// @dev Sets the timing and fee parameters for automated buyback order creation
-    /// @param token The revenue token to configure
-    /// @param targetOrderDuration The target duration for new orders (in seconds)
-    /// @param minOrderDuration The minimum duration threshold for creating new orders (in seconds)
-    /// @param fee The fee tier for the buyback pool
+    /// @inheritdoc IRevenueBuybacks
     function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
         external
         onlyOwner

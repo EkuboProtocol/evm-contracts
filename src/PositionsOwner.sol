@@ -40,7 +40,8 @@ contract PositionsOwner is Ownable, Multicallable {
         Ownable(address(POSITIONS)).transferOwnership(newOwner);
     }
 
-    /// @notice Withdraws protocol fees and transfers them to the buybacks contract, then calls roll for both tokens. Can be called by anyone to trigger revenue buybacks
+    /// @notice Withdraws protocol fees and transfers them to the buybacks contract, then calls roll for both tokens.
+    /// Can be called by anyone to trigger revenue buybacks
     /// @dev Both tokens must be configured for buybacks in the buybacks contract
     /// @param token0 The first token of the pair to withdraw fees for
     /// @param token1 The second token of the pair to withdraw fees for
@@ -58,10 +59,10 @@ contract PositionsOwner is Ownable, Multicallable {
         // Withdraw fees to the buybacks contract if there are any
         if (amount0 != 0 || amount1 != 0) {
             POSITIONS.withdrawProtocolFees(token0, token1, uint128(amount0), uint128(amount1), address(BUYBACKS));
-        }
 
-        // Call roll for both tokens
-        BUYBACKS.roll(token0);
-        BUYBACKS.roll(token1);
+            // Call roll for both tokens
+            BUYBACKS.roll(token0);
+            BUYBACKS.roll(token1);
+        }
     }
 }

@@ -204,7 +204,7 @@ contract PriceFetcher {
         );
 
         // no observations available for the period, return an empty array
-        if (earliestObservationTime >= endTime) {
+        if (endTime < period || (endTime - period) < earliestObservationTime) {
             return (endTime, new PeriodAverage[](0));
         }
 
@@ -217,7 +217,7 @@ contract PriceFetcher {
                     getHistoricalPeriodAverages(baseToken, quoteToken, endTime, numIntervals, period)
                 );
         } else {
-            startTime = uint64(((earliestObservationTime + (period - 1)) / period) * period);
+            startTime = uint64(endTime - (((endTime - earliestObservationTime) / period) * period));
 
             numIntervals = uint32((endTime - startTime) / period);
 

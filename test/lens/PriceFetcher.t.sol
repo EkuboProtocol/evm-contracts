@@ -220,4 +220,57 @@ contract PriceFetcherTest is BaseOracleTest {
         assertEq(averages[2].liquidity, 11642);
         assertEq(averages[3].liquidity, 11646);
     }
+
+    function test_getAvailableHistoricalPeriodAverages_edge_cases() public {
+        vm.warp(1_000);
+
+        createOraclePool(address(token0), 10);
+
+        vm.warp(1_005);
+
+        (uint64 startTime, PriceFetcher.PeriodAverage[] memory averages) = pf.getAvailableHistoricalPeriodAverages({
+            baseToken: address(token0), quoteToken: NATIVE_TOKEN_ADDRESS, endTime: 1005, numIntervals: 5, period: 10
+        });
+
+        assertEq(startTime, 1005);
+        assertEq(averages.length, 0);
+
+        (startTime, averages) = pf.getAvailableHistoricalPeriodAverages({
+            baseToken: address(token0), quoteToken: NATIVE_TOKEN_ADDRESS, endTime: 1005, numIntervals: 5, period: 5
+        });
+
+        assertEq(startTime, 1000);
+        assertEq(averages.length, 1);
+        assertEq(averages[0].liquidity, 1);
+        assertEq(averages[0].tick, -10);
+
+        (startTime, averages) = pf.getAvailableHistoricalPeriodAverages({
+            baseToken: address(token0), quoteToken: NATIVE_TOKEN_ADDRESS, endTime: 1005, numIntervals: 5, period: 4
+        });
+
+        assertEq(startTime, 1001);
+        assertEq(averages.length, 1);
+        assertEq(averages[0].liquidity, 1);
+        assertEq(averages[0].tick, -10);
+
+        (startTime, averages) = pf.getAvailableHistoricalPeriodAverages({
+            baseToken: address(token0), quoteToken: NATIVE_TOKEN_ADDRESS, endTime: 1005, numIntervals: 5, period: 3
+        });
+
+        assertEq(startTime, 1002);
+        assertEq(averages.length, 1);
+        assertEq(averages[0].liquidity, 1);
+        assertEq(averages[0].tick, -10);
+
+        (startTime, averages) = pf.getAvailableHistoricalPeriodAverages({
+            baseToken: address(token0), quoteToken: NATIVE_TOKEN_ADDRESS, endTime: 1005, numIntervals: 5, period: 2
+        });
+
+        assertEq(startTime, 1001);
+        assertEq(averages.length, 2);
+        assertEq(averages[0].liquidity, 1);
+        assertEq(averages[0].tick, -10);
+        assertEq(averages[1].liquidity, 1);
+        assertEq(averages[1].tick, -10);
+    }
 }

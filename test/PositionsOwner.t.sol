@@ -80,14 +80,15 @@ contract PositionsOwnerTest is BaseOrdersTest {
         positionsOwner.transferPositionsOwnership(address(0x1234));
     }
 
-    function test_withdraw_and_roll_fails_if_no_tokens_configured() public {
-        cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e18);
+    function test_withdraw_and_roll_leaves_tokens_in_buybacks_if_not_configured() public {
+        cheatDonateProtocolFees(address(token0), address(token1), 1e18, 2e18);
 
-        vm.expectRevert(PositionsOwner.RevenueTokenNotConfigured.selector);
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
+        assertEq(token0.balanceOf(address(rb)), 1e18 - 1);
+        assertEq(token1.balanceOf(address(rb)), 2e18 - 1);
     }
 
-    function test_withdraw_and_roll_with_token0_configured() public {
+    function test_withdraw_and_roll_with_one_token_configured() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
 
         // Configure token0 for buybacks
@@ -110,8 +111,10 @@ contract PositionsOwnerTest is BaseOrdersTest {
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
         // Withdraw and roll
-        vm.expectRevert(PositionsOwner.RevenueTokenNotConfigured.selector);
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
+        assertEq(token0.balanceOf(address(rb)), 0);
+        // token1 is not configured so its balance is left in the buybacks contract
+        assertEq(token1.balanceOf(address(rb)), 1e17 - 1);
     }
 
     function test_withdraw_and_roll_with_token1_configured() public {
@@ -137,7 +140,6 @@ contract PositionsOwnerTest is BaseOrdersTest {
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
         // Withdraw and roll
-        vm.expectRevert(PositionsOwner.RevenueTokenNotConfigured.selector);
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
     }
 

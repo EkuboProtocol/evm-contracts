@@ -9,6 +9,9 @@ import {IExposedStorage} from "./IExposedStorage.sol";
 /// @notice Interface for automated revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
 /// @dev Defines the interface for managing buyback orders for protocol revenue
 interface IRevenueBuybacks is IExposedStorage {
+    /// @notice Thrown when configure is called for the buyback token
+    error CannotConfigureForBuyToken();
+
     /// @notice Thrown when minimum order duration exceeds target order duration
     /// @dev This would prevent order creation since the condition order duration >= min order duration would not always be met
     error MinOrderDurationGreaterThanTargetOrderDuration();
@@ -16,9 +19,6 @@ interface IRevenueBuybacks is IExposedStorage {
     /// @notice Thrown when minimum order duration is set to zero
     /// @dev Orders cannot have zero duration, so this prevents invalid configurations
     error MinOrderDurationMustBeGreaterThanZero();
-
-    /// @notice Thrown when roll is called and a token is not configured
-    error TokenNotConfigured(address token);
 
     /// @notice Emitted when a token's buyback configuration is updated
     /// @param token The token being configured for buybacks
@@ -43,10 +43,16 @@ interface IRevenueBuybacks is IExposedStorage {
     function approveMax(address token) external;
 
     /// @notice Withdraws leftover tokens from the contract (only callable by owner)
-    /// @dev Used to recover tokens that may be stuck in the contract or to withdraw excess funds
+    /// @dev Used to recover tokens that are not configured or are otherwise stuck in the contract
     /// @param token The address of the token to withdraw
     /// @param amount The amount of tokens to withdraw
-    function take(address token, uint256 amount) external;
+    function withdraw(address token, address recipient, uint256 amount) external;
+
+    /// @notice Withdraws leftover native tokens from the contract (only callable by owner)
+    /// @dev Used to recover tokens that are not configured or are otherwise stuck in the contract
+    /// @param recipient The address to receive the native tokens
+    /// @param amount The amount of tokens to withdraw
+    function withdrawNative(address recipient, uint256 amount) external;
 
     /// @notice Collects the proceeds from a completed buyback order
     /// @dev Can be called by anyone at any time to collect proceeds from orders that have finished

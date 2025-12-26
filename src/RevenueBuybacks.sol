@@ -16,9 +16,8 @@ import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 
 /// @title Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>
-/// @notice Creates automated revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
-/// @dev Final contract that manages the creation and execution of buyback orders for protocol revenue
-/// This contract automatically creates TWAMM orders to buy back a specified token using collected revenue
+/// @notice Creates revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
+/// @dev Manages the creation and execution of buyback orders for any tokens that are deposited to this contract
 contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicallable {
     /// @inheritdoc IRevenueBuybacks
     IOrders public immutable ORDERS;
@@ -47,13 +46,11 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
 
     /// @inheritdoc IRevenueBuybacks
     function withdraw(address token, address recipient, uint256 amount) external onlyOwner {
-        // Transfer to msg.sender since only the owner can call this function
         SafeTransferLib.safeTransfer(token, recipient, amount);
     }
 
     /// @inheritdoc IRevenueBuybacks
     function withdrawNative(address recipient, uint256 amount) external onlyOwner {
-        // Transfer to msg.sender since only the owner can call this function
         SafeTransferLib.safeTransferETH(recipient, amount);
     }
 

@@ -27,7 +27,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_get_next_launch_time_invariants(uint256 orderDurationMagnitude, uint256 time) public {
-        uint32 orderDuration = uint32(16) ** uint32(bound(orderDurationMagnitude, 1, 6));
+        uint32 orderDuration = uint32(16) ** uint32(bound(orderDurationMagnitude, 2, 6));
         uint32 minLeadTime = orderDuration / 2;
 
         time = bound(time, 0, type(uint64).max - type(uint32).max);

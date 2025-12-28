@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {SniperNoSniping, sniperNoSnipingCallPoints} from "../src/SniperNoSniping.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {ITWAMM} from "../src/interfaces/extensions/ITWAMM.sol";
-import {findExtensionSalt} from "./DeployCore.s.sol";
+import {findExtensionSalt} from "./DeployAll.s.sol";
 
 contract DeploySniperNoSniping is Script {
     function run() public {

@@ -41,11 +41,11 @@ function isTimeValid(uint256 currentTime, uint256 time) pure returns (bool valid
 
 /// @dev Returns the next valid time if there is one, or wraps around to the time 0 if there is not
 ///      Assumes currentTime is less than type(uint256).max - type(uint32).max
-function nextValidTime(uint256 currentTime, uint256 time) pure returns (uint256 nextTime) {
+function nextValidTime(uint256 currentTime, uint256 afterTime) pure returns (uint256 nextTime) {
     unchecked {
-        uint256 stepSize = computeStepSize(currentTime, time);
+        uint256 stepSize = computeStepSize(currentTime, afterTime);
         assembly ("memory-safe") {
-            nextTime := add(time, stepSize)
+            nextTime := add(afterTime, stepSize)
             nextTime := sub(nextTime, mod(nextTime, stepSize))
         }
 
@@ -54,7 +54,7 @@ function nextValidTime(uint256 currentTime, uint256 time) pure returns (uint256 
             uint256 nextStepSize = computeStepSize(currentTime, nextTime);
             if (nextStepSize != stepSize) {
                 assembly ("memory-safe") {
-                    nextTime := add(time, nextStepSize)
+                    nextTime := add(afterTime, nextStepSize)
                     nextTime := sub(nextTime, mod(nextTime, nextStepSize))
                 }
             }

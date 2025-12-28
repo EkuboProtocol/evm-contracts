@@ -169,19 +169,29 @@ contract TimeTest is Test {
         assertEq(nextValidTime(1, 855925747424054960923167675474377675291071944039765111602490794982751), 0);
     }
 
-    function test_nextValidTime_invariants(uint256 currentTime, uint256 time) public pure {
+    function test_nextValidTime_invariants(uint256 currentTime, uint256 time, bool inRange) public pure {
         currentTime = bound(currentTime, 0, type(uint256).max - type(uint32).max);
+        // time is within 2**32 of currentTime. we do this bound conditionally so that ~half the cases are in range, rather than a small fraction
+        time = inRange
+            ? bound(time, FixedPointMathLib.zeroFloorSub(currentTime, type(uint32).max), currentTime + type(uint32).max)
+            : time;
         uint256 nextValid = nextValidTime(currentTime, time);
         assertTrue(isTimeValid(currentTime, nextValid), "always valid");
         if (time < currentTime) {
-            assertEq(nextValid, ((time / 256) + 1) * 256, "snap to nearest multiple of 256");
+            assertEq(nextValid, ((time / 256) + 1) * 256, "snap to next multiple of 256");
         } else if (nextValid != 0) {
-            assertGt(nextValid, time, "after currentTime");
-            uint256 diff = nextValid - time;
-            assertLe(diff, computeStepSize(currentTime, nextValid), "less than or equal to one step in the future");
-            assertLe(diff, type(uint32).max, "not more than 2**32 seconds in future");
+            assertGt(nextValid, time, "next valid is always greater than specified time");
+
+            uint256 stepSize = computeStepSize(currentTime, nextValid);
+            assertLe(stepSize, type(uint32).max, "step size at next valid time fits 32 bits");
+
+            assertLe(nextValid - time, stepSize, "next valid time is not more than one step in the future");
         } else {
-            assertGt(time - currentTime, type(uint32).max - 268435456);
+            assertGt(
+                time - currentTime,
+                type(uint32).max - (16 ** 7),
+                "time is more than max 2**32 - max step size - 1 in the future"
+            );
         }
     }
 }

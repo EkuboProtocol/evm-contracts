@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -150,7 +150,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
         } else {
             _balanceOf[to] += amount;
         }
-        emit Transfer(msg.sender, to, amount);
+        emit Transfer(from, to, amount);
         return true;
     }
 

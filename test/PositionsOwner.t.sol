@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {PositionsOwner} from "../src/PositionsOwner.sol";
@@ -80,14 +80,15 @@ contract PositionsOwnerTest is BaseOrdersTest {
         positionsOwner.transferPositionsOwnership(address(0x1234));
     }
 
-    function test_withdraw_and_roll_fails_if_no_tokens_configured() public {
-        cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e18);
+    function test_withdraw_and_roll_leaves_tokens_in_buybacks_if_not_configured() public {
+        cheatDonateProtocolFees(address(token0), address(token1), 1e18, 2e18);
 
-        vm.expectRevert(PositionsOwner.RevenueTokenNotConfigured.selector);
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
+        assertEq(token0.balanceOf(address(rb)), 1e18 - 1);
+        assertEq(token1.balanceOf(address(rb)), 2e18 - 1);
     }
 
-    function test_withdraw_and_roll_with_token0_configured() public {
+    function test_withdraw_and_roll_with_one_token_configured() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
 
         // Configure token0 for buybacks
@@ -110,8 +111,10 @@ contract PositionsOwnerTest is BaseOrdersTest {
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
         // Withdraw and roll
-        vm.expectRevert(PositionsOwner.RevenueTokenNotConfigured.selector);
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
+        assertEq(token0.balanceOf(address(rb)), 0);
+        // token1 is not configured so its balance is left in the buybacks contract
+        assertEq(token1.balanceOf(address(rb)), 1e17 - 1);
     }
 
     function test_withdraw_and_roll_with_token1_configured() public {
@@ -137,7 +140,6 @@ contract PositionsOwnerTest is BaseOrdersTest {
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
         // Withdraw and roll
-        vm.expectRevert(PositionsOwner.RevenueTokenNotConfigured.selector);
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
     }
 
@@ -174,26 +176,26 @@ contract PositionsOwnerTest is BaseOrdersTest {
         positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
         (uint128 fees0, uint128 fees1) = positions.getProtocolFees(address(token0), address(token1));
-        assertEq(fees0, 0);
-        assertEq(fees1, 0);
+        assertEq(fees0, 0, "fees0 before");
+        assertEq(fees1, 0, "fees1 before");
 
         // Donate protocol fees
         cheatDonateProtocolFees(address(token0), address(token1), donate0, donate1);
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
-        assertEq(fees0, donate0);
-        assertEq(fees1, donate1);
+        assertEq(fees0, donate0, "donated fees0");
+        assertEq(fees1, donate1, "donated fees1");
 
         // Withdraw and roll
         positionsOwner.withdrawAndRoll(address(token0), address(token1));
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
         // it leaves 1 in there for gas efficiency
-        assertEq(fees0, donate0 == 0 ? 0 : 1);
-        assertEq(fees1, donate1 == 0 ? 0 : 1);
+        assertEq(fees0, donate0 == 0 ? 0 : 1, "protocol fees0 is always at least 1");
+        assertEq(fees1, donate1 == 0 ? 0 : 1, "protocol fees1 is always at least 1");
 
         // Both tokens should have been used for orders
-        assertEq(token0.balanceOf(address(rb)), 0);
-        assertEq(token1.balanceOf(address(rb)), 0);
+        assertLe(token0.balanceOf(address(rb)), 1, "token0 balance emptied");
+        assertLe(token1.balanceOf(address(rb)), 1, "token1 balance emptied");
     }
 }

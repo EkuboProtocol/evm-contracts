@@ -4,10 +4,6 @@
 
 This repository contains the core Solidity smart contracts for **Ekubo Protocol**, the most gas efficient and extensible automated market maker (AMM) for the Ethereum Virtual Machine.
 
-## ‼️ Compiling the code
-
-These contracts use the CLZ opcode which is only made available in Solidity 0.8.31-pre.1, which is not yet available in Foundry. Included in the repo is the Mac OS binary. If you clone the repo on a mac and run it, it should work perfectly. Otherwise, download the relevant binary for your platform from the [Solidity releases page](https://github.com/argotorg/solidity/releases/tag/v0.8.31-pre.1), and rename the binary in [foundry.toml](./foundry.toml).
-
 ## Overview
 
 Ekubo Protocol is a suite of Smart Contracts providing comprehensive AMM infrastructure, including the following features:

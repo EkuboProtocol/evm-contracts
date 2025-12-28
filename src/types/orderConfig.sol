@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 /// @notice Order configuration packed into a single bytes32
 /// @dev Contains fee (8 bytes), isToken1 (1 byte), padding (7 bytes), start time (8 bytes), and end time (8 bytes)
@@ -45,6 +45,7 @@ function endTime(OrderConfig config) pure returns (uint64 r) {
 
 /// @notice Creates an OrderConfig from individual components
 /// @param _fee The fee of the TWAMM pool
+/// @param _isToken1 True iff the order is selling token1
 /// @param _startTime The start time of the order
 /// @param _endTime The end time of the order
 /// @return c The packed configuration

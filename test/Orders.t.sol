@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
@@ -10,12 +10,15 @@ import {MIN_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
+import {TWAMMStorageLayout} from "../src/libraries/TWAMMStorageLayout.sol";
 import {Orders} from "../src/Orders.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
-import {TwammPoolState} from "../src/types/twammPoolState.sol";
-import {createOrderConfig} from "../src/types/orderConfig.sol";
+import {TwammPoolState, createTwammPoolState} from "../src/types/twammPoolState.sol";
+import {OrderConfig, createOrderConfig} from "../src/types/orderConfig.sol";
+import {computeRewardAmount} from "../src/math/twamm.sol";
+import {OrderId} from "../src/types/orderId.sol";
 
 abstract contract BaseOrdersTest is BaseTWAMMTest {
     uint32 internal constant MIN_TWAMM_DURATION = 256;
@@ -372,7 +375,7 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(128);
 
-        assertEq(orders.decreaseSaleRate(id, key, saleRate / 2, address(this)), 23);
+        assertEq(orders.decreaseSaleRate(id, key, saleRate / 2, address(this)), 22);
         assertEq(orders.collectProceeds(id, key, address(this)), 44);
 
         advanceTime(128);
@@ -483,12 +486,14 @@ contract OrdersTest is BaseOrdersTest {
 
         uint256 pID = positions.mint();
 
+        twamm.lockAndExecuteVirtualOrders(poolKey);
         (uint128 liquidity0,,) = positions.deposit(
             pID, poolKey, MIN_TICK, MAX_TICK, 9065869775701580912051, 16591196256327018126941976177968210, 0
         );
 
         advanceTime(102_399);
 
+        twamm.lockAndExecuteVirtualOrders(poolKey);
         (uint128 liquidity1,,) =
             positions.deposit(pID, poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396, 0);
         (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
@@ -524,10 +529,11 @@ contract OrdersTest is BaseOrdersTest {
 
         (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
-        assertEq(sqrtRatio.toFixed(), 8721205675552749603540);
-        assertEq(tick, -76405628); // ~=-2.2454E-31 token1/token0
+        assertEq(sqrtRatio.toFixed(), 18447191164202170524);
+        assertEq(tick, -88722836); // ~=-2.2454E-31 token1/token0
         assertEq(liquidity, liquidity0 + liquidity1);
 
+        twamm.lockAndExecuteVirtualOrders(poolKey);
         (uint128 liquidity2,,) = positions.deposit(
             pID, poolKey, MIN_TICK, MAX_TICK, 1412971749302168760052394, 35831434466998775335139276644539, 0
         );
@@ -1164,6 +1170,88 @@ contract OrdersTest is BaseOrdersTest {
         orders.increaseSellAmount(id, key, 0.5e18, type(uint112).max);
     }
 
+    function test_collectProceeds_start_time_equals_block_timestamp(uint64 startingTime) public {
+        startingTime = uint64(bound(startingTime, 0, type(uint64).max - type(uint32).max));
+        vm.warp(startingTime);
+
+        uint64 fee = 0;
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        PoolId poolId = poolKey.toPoolId();
+
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e21, 1e21);
+
+        token0.approve(address(orders), type(uint256).max);
+        token1.approve(address(orders), type(uint256).max);
+
+        uint64 attackOrderStartTime =
+            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), time: vm.getBlockTimestamp()}));
+
+        uint64 targetOrderEndTime =
+            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), time: attackOrderStartTime}));
+
+        OrderConfig targetOrderConfig =
+            createOrderConfig({_fee: fee, _isToken1: true, _startTime: 0, _endTime: targetOrderEndTime});
+
+        OrderKey memory targetOrderKey =
+            OrderKey({token0: poolKey.token0, token1: poolKey.token1, config: targetOrderConfig});
+
+        (uint256 targetOrderId, uint112 targetOrderSaleRate) =
+            orders.mintAndIncreaseSellAmount({orderKey: targetOrderKey, amount: 1e18, maxSaleRate: type(uint112).max});
+
+        vm.warp(attackOrderStartTime);
+
+        OrderConfig attackOrderConfig = createOrderConfig({
+            _fee: fee, _isToken1: true, _startTime: attackOrderStartTime, _endTime: targetOrderEndTime
+        });
+
+        OrderKey memory attackOrderKey =
+            OrderKey({token0: poolKey.token0, token1: poolKey.token1, config: attackOrderConfig});
+
+        (uint256 attackOrderId, uint112 attackOrderSaleRate) =
+            orders.mintAndIncreaseSellAmount({orderKey: attackOrderKey, amount: 1e18, maxSaleRate: type(uint112).max});
+
+        advanceTime(1);
+
+        uint128 attackProceeds = orders.collectProceeds(attackOrderId, attackOrderKey, address(this));
+        uint128 targetProceeds = orders.collectProceeds(attackOrderId, targetOrderKey, address(this));
+    }
+
+    function test_amountSold_update_before_start_after_delay(uint64 time) public {
+        time = boundTime(time, 1);
+        vm.warp(time);
+
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        uint64 startTime = uint64(nextValidTime(vm.getBlockTimestamp(), block.timestamp + 512));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 256));
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: startTime, _endTime: endTime})
+        });
+
+        (uint256 id, uint112 initialSaleRate) = orders.mintAndIncreaseSellAmount(key, 1e18, type(uint112).max);
+
+        uint64 delay = 256;
+        vm.warp(startTime - delay);
+        assertLt(vm.getBlockTimestamp(), startTime, "setup should keep us before start time");
+
+        orders.decreaseSaleRate(id, key, initialSaleRate / 2, address(this));
+
+        (uint256 saleRateAfter, uint256 amountSold,,) = orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
+
+        assertEq(saleRateAfter, initialSaleRate / 2, "sale rate should reflect the decrease");
+        assertEq(amountSold, 0, "amountSold should be zero before the order starts");
+    }
+
     /// @notice Test documenting that proceeds must be collected before stopping an order
     /// @dev This demonstrates the correct usage pattern: collect proceeds before decreasing sale rate
     function test_collectProceeds_before_stop_order_correct() public {
@@ -1327,5 +1415,44 @@ contract OrdersTest is BaseOrdersTest {
         coolAllContracts();
         twamm.lockAndExecuteVirtualOrders(poolKey);
         vm.snapshotGasLastCall("lockAndExecuteVirtualOrders switch sell direction");
+    }
+
+    function test_no_dos_rounding_error_decrease_sale_rate() public {
+        uint64 fee = uint64((uint256(5) << 64) / 100);
+        int32 tick = 0;
+
+        PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
+        createPosition(poolKey, MIN_TICK, MAX_TICK, 10000, 10000);
+
+        token0.approve(address(orders), type(uint256).max);
+
+        OrderKey memory key = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 256, _endTime: 512})
+        });
+
+        // We provided another order so the refunding transactions can be executed.
+        OrderKey memory key2 = OrderKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createOrderConfig({_fee: fee, _isToken1: false, _startTime: 512, _endTime: 1024})
+        });
+
+        uint256[] memory ids = new uint256[](256);
+        uint112 saleRate;
+        for (uint256 i = 0; i < ids.length; i++) {
+            (ids[i], saleRate) = orders.mintAndIncreaseSellAmount(key, 1, 28633115306);
+        }
+        // swap 1 tokens every seconds.
+        (uint256 order2Id,) = orders.mintAndIncreaseSellAmount(key2, 256, 28633115306);
+
+        vm.warp(511);
+        for (uint256 i = 0; i < ids.length; i++) {
+            orders.decreaseSaleRate(ids[i], key, saleRate, address(this));
+        }
+
+        advanceTime(2000);
+        twamm.lockAndExecuteVirtualOrders(poolKey);
     }
 }

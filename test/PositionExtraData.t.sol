@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {Core} from "../src/Core.sol";
@@ -137,6 +137,34 @@ contract PositionExtraDataTest is Test {
         assertEq(position.extraData, extraDataNonZero);
         assertEq(position.feesPerLiquidityInsideLast.value0, 0);
         assertEq(position.feesPerLiquidityInsideLast.value1, 0);
+    }
+
+    function test_setExtraData_stays_when_position_liquidity_is_updated_but_non_zero(
+        uint128 liquidity,
+        bytes16 extraDataNonZero,
+        int128 liquidityChange
+    ) public {
+        liquidity = uint128(bound(liquidity, 1, type(uint64).max));
+        liquidityChange =
+            int128(bound(liquidityChange, -int256(uint256(liquidity)) + 1, int256(uint256(type(uint64).max))));
+
+        PositionId positionId = createPositionId({_salt: bytes24(0), _tickLower: -60, _tickUpper: 60});
+
+        locker.doLock(abi.encode(poolKey, positionId, int128(liquidity)));
+        Position memory position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
+        assertEq(position.liquidity, liquidity);
+        assertEq(position.extraData, bytes16(0));
+
+        locker.setExtraData(poolKey.toPoolId(), positionId, extraDataNonZero);
+        position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
+        assertEq(position.liquidity, liquidity);
+        assertEq(position.extraData, extraDataNonZero);
+
+        locker.doLock(abi.encode(poolKey, positionId, liquidityChange));
+
+        position = core.poolPositions(poolKey.toPoolId(), address(locker), positionId);
+        assertEq(position.liquidity, uint128(liquidityChange + int128(liquidity)));
+        assertEq(position.extraData, extraDataNonZero);
     }
 
     /// forge-config: default.isolate = true

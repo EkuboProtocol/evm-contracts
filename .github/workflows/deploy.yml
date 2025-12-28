@@ -1,0 +1,62 @@
+name: Deploy Core
+
+on:
+  workflow_dispatch:
+    inputs:
+      rpc_url:
+        description: RPC URL to deploy against
+        required: true
+        type: string
+      salt:
+        description: CREATE2 salt used for deterministic deployments
+        required: false
+        default: "0x62d821daca42db3616c4c007011ee7400e1baed68cf9020002d62c47d304d99f"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    name: Deploy All
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show Forge version
+        run: |
+          forge --version
+
+      - name: Run DeployAll
+        run: |
+          forge script DeployAll --rpc-url ${{ inputs.rpc_url }} --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} --broadcast --verify --retries 50
+        env:
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          SALT: ${{ inputs.salt }}
+
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit broadcast artifacts
+        run: |
+          git add broadcast
+          git commit -m "chore: update broadcast artifacts" || echo "No broadcast changes to commit."
+          git push
+
+      - name: Upload broadcast artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: broadcast
+          path: broadcast
+          retention-days: 90
+          if-no-files-found: warn

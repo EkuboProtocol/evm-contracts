@@ -1,0 +1,96 @@
+name: Deploy Managers
+
+on:
+  workflow_dispatch:
+    inputs:
+      rpc_url:
+        description: RPC URL to deploy positions and orders against
+        required: true
+        type: string
+      core_address:
+        description: Core contract address
+        required: true
+        type: string
+      twamm_address:
+        description: TWAMM extension address
+        required: true
+        type: string
+      salt:
+        description: CREATE2 salt used for deterministic deployments
+        required: false
+        default: "0x62d821daca42db3616c4c007011ee7400e1baed68cf9020002d62c47d304d99f"
+        type: string
+      positions_base_url:
+        description: Metadata base URL for positions
+        required: false
+        default: "https://prod-api.ekubo.org/positions/"
+        type: string
+      orders_base_url:
+        description: Metadata base URL for orders
+        required: false
+        default: "https://prod-api.ekubo.org/orders/"
+        type: string
+      swap_protocol_fee_x64:
+        description: Protocol fee (x64) applied on swap fees; set 0 for FreePositions
+        required: false
+        default: "0"
+        type: string
+      withdrawal_protocol_fee_denominator:
+        description: Denominator applied on pool fees during withdrawals; set 0 for FreePositions
+        required: false
+        default: "0"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-managers:
+    name: Deploy Positions and Orders
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show Forge version
+        run: |
+          forge --version
+
+      - name: Run DeployManagers
+        run: |
+          forge script DeployManagers --rpc-url ${{ inputs.rpc_url }} --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} --broadcast --verify --retries 50
+        env:
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          SALT: ${{ inputs.salt }}
+          CORE_ADDRESS: ${{ inputs.core_address }}
+          TWAMM_ADDRESS: ${{ inputs.twamm_address }}
+          POSITIONS_BASE_URL: ${{ inputs.positions_base_url }}
+          ORDERS_BASE_URL: ${{ inputs.orders_base_url }}
+          SWAP_PROTOCOL_FEE_X64: ${{ inputs.swap_protocol_fee_x64 }}
+          WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR: ${{ inputs.withdrawal_protocol_fee_denominator }}
+
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit broadcast artifacts
+        run: |
+          git add broadcast
+          git commit -m "chore: update broadcast artifacts" || echo "No broadcast changes to commit."
+          git push
+
+      - name: Upload broadcast artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: broadcast
+          path: broadcast
+          retention-days: 90
+          if-no-files-found: warn

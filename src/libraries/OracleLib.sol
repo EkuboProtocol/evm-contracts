@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {logicalIndexToStorageIndex} from "../extensions/Oracle.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
@@ -7,6 +7,7 @@ import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {Counts} from "../types/counts.sol";
 import {Snapshot} from "../types/snapshot.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
+import {OracleStorageLayout} from "./OracleStorageLayout.sol";
 
 /// @title Oracle Library
 /// @notice Library providing helper methods for accessing Oracle data
@@ -18,7 +19,7 @@ library OracleLib {
     /// @param token The token address
     /// @return c The counts data for the token
     function counts(IOracle oracle, address token) internal view returns (Counts c) {
-        c = Counts.wrap(oracle.sload(bytes32(uint256(uint160(token)))));
+        c = Counts.wrap(oracle.sload(OracleStorageLayout.countsSlot(token)));
     }
 
     /// @notice Gets a specific snapshot for a token at a given index
@@ -27,7 +28,7 @@ library OracleLib {
     /// @param index The snapshot index
     /// @return s The snapshot data at the given index
     function snapshots(IOracle oracle, address token, uint256 index) internal view returns (Snapshot s) {
-        s = Snapshot.wrap(oracle.sload(bytes32((uint256(uint160(token)) << 32) | uint256(index))));
+        s = Snapshot.wrap(oracle.sload(OracleStorageLayout.snapshotSlot(token, index)));
     }
 
     function getEarliestSnapshotTimestamp(IOracle oracle, address token) internal view returns (uint256) {

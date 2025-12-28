@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
@@ -60,8 +60,9 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     function test_take_by_owner() public {
         token0.transfer(address(rb), 100);
         assertEq(token0.balanceOf(address(rb)), 100);
-        rb.take(address(token0), 100);
+        rb.withdraw(address(token0), address(0x1234), 100);
         assertEq(token0.balanceOf(address(rb)), 0);
+        assertEq(token0.balanceOf(address(0x1234)), 100);
     }
 
     function test_mint_on_create() public view {
@@ -123,8 +124,9 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         rb.configure({token: address(token0), targetOrderDuration: 0, minOrderDuration: 0, fee: 0});
 
-        vm.expectRevert(abi.encodeWithSelector(IRevenueBuybacks.TokenNotConfigured.selector, token0));
-        rb.roll(address(token0));
+        (uint64 endTime, uint112 saleRate) = rb.roll(address(token0));
+        assertEq(endTime, 0);
+        assertEq(saleRate, 0);
     }
 
     function test_roll_token() public {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {CallPoints} from "../types/callPoints.sol";
 import {PoolKey} from "../types/poolKey.sol";
@@ -93,10 +93,9 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
             unchecked {
                 result = rewardRateEnd - rewardRateStart;
             }
-        } else if (block.timestamp > config.startTime()) {
+        } else if (block.timestamp >= config.startTime()) {
             uint256 offset = LibBit.rawToUint(!config.isToken1());
 
-            //  note that we check gt because if it's equal to start time, then the reward rate inside is necessarily 0
             uint256 rewardRateStart =
                 uint256(TWAMMStorageLayout.poolRewardRatesBeforeSlot(poolId, config.startTime()).add(offset).load());
             uint256 rewardRateCurrent = uint256(TWAMMStorageLayout.poolRewardRatesSlot(poolId).add(offset).load());
@@ -105,7 +104,7 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 result = rewardRateCurrent - rewardRateStart;
             }
         } else {
-            // less than or equal to start time
+            // less than start time
             // returns 0
         }
     }
@@ -250,17 +249,23 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                         createOrderState({
                             _lastUpdateTime: uint32(block.timestamp),
                             _saleRate: uint112(saleRateNext),
-                            _amountSold: uint112(
-                                amountSold
-                                    + computeAmountFromSaleRate({
-                                        saleRate: saleRate,
-                                        duration: FixedPointMathLib.min(
-                                            uint32(block.timestamp) - lastUpdateTime,
-                                            uint32(uint64(block.timestamp) - startTime)
-                                        ),
-                                        roundUp: false
-                                    })
-                            )
+                            // before the order starts no amount should be marked as sold, even if the sale rate changes
+                            _amountSold: block.timestamp > startTime
+                                ? uint112(
+                                    amountSold
+                                        + computeAmountFromSaleRate({
+                                            saleRate: saleRate,
+                                            duration: FixedPointMathLib.min(
+                                                // the amount of time since the order was last touched, i.e. amountSold was updated
+                                                uint32(block.timestamp) - lastUpdateTime,
+                                                // the amount of time that has elapsed since the start
+                                                // note we assume block.timestamp fits in a uint64
+                                                uint64(block.timestamp) - startTime
+                                            ),
+                                            roundUp: false
+                                        })
+                                )
+                                : 0
                         })
                     )
                 );
@@ -301,18 +306,21 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                 // we know this will fit in a uint32 because otherwise isValidTime would fail for the end time
                 uint256 durationRemaining = endTime - FixedPointMathLib.max(block.timestamp, startTime);
 
-                // the amount required for executing at the next sale rate for the remaining duration of the order
-                uint256 amountRequired =
-                    computeAmountFromSaleRate({saleRate: saleRateNext, duration: durationRemaining, roundUp: true});
-
                 // subtract the remaining sell amount to get the delta
                 int256 amountDelta;
 
-                uint256 remainingSellAmount =
-                    computeAmountFromSaleRate({saleRate: saleRate, duration: durationRemaining, roundUp: true});
-
-                assembly ("memory-safe") {
-                    amountDelta := sub(amountRequired, remainingSellAmount)
+                if (saleRateDelta < 0) {
+                    amountDelta = -int256(
+                        computeAmountFromSaleRate({
+                            saleRate: uint256(-int256(saleRateDelta)), duration: durationRemaining, roundUp: false
+                        })
+                    );
+                } else {
+                    amountDelta = int256(
+                        computeAmountFromSaleRate({
+                            saleRate: uint256(uint112(saleRateDelta)), duration: durationRemaining, roundUp: true
+                        })
+                    );
                 }
 
                 // user is withdrawing tokens, so they need to pay a fee to the liquidity providers

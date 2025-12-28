@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
 import {RouteNode, TokenAmount} from "../src/Router.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {createSwapParameters} from "../src/types/swapParameters.sol";
 import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
+import {FreePositions} from "../src/FreePositions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
+import {StorageSlot} from "../src/types/storageSlot.sol";
+import {PoolState, createPoolState} from "../src/types/poolState.sol";
+import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
 
 contract PositionsTest is FullTest {
     using CoreLib for *;
@@ -22,7 +28,7 @@ contract PositionsTest is FullTest {
         positions.setMetadata("Ekubo Positions", "ekuPo", "ekubo://positions/");
         assertEq(positions.name(), "Ekubo Positions");
         assertEq(positions.symbol(), "ekuPo");
-        assertEq(positions.tokenURI(1), "ekubo://positions/1");
+        assertEq(positions.tokenURI(1), "ekubo://positions/31337/0x2e234DAe75C793f67A35089C9d99245E1C58470b/1");
     }
 
     function test_saltToId(address minter, bytes32 salt) public {
@@ -389,6 +395,62 @@ contract PositionsTest is FullTest {
         assertEq(f1, 0);
     }
 
+    function test_getPositionFeesAndLiquidity_stableswap_returns_fees_outside_range() public {
+        MockExtension fae = createAndRegisterExtension();
+
+        PoolConfig config =
+            createStableswapPoolConfig({_fee: 1 << 63, _amplification: 20, _centerTick: 0, _extension: address(fae)});
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, lower, upper, 1e6, 1e6);
+        assertGt(liquidity, 0);
+
+        token0.approve(address(fae), 1000);
+        token1.approve(address(fae), 2000);
+        fae.accumulateFees(poolKey, 1000, 2000);
+
+        (,,, uint128 viewFees0, uint128 viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
+        assertEq(viewFees0, 999);
+        assertEq(viewFees1, 1999);
+
+        (uint128 collect0, uint128 collect1) = positions.collectFees(id, poolKey, lower, upper);
+        assertEq(collect0, viewFees0);
+        assertEq(collect1, viewFees1);
+
+        // swap to max price
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: false, _skipAhead: 0
+            }),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        (,,, viewFees0, viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
+        assertEq(viewFees0, 0);
+        assertEq(viewFees1, 1000042);
+
+        router.swap({
+            poolKey: poolKey,
+            params: createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: true, _skipAhead: 0
+            }),
+            calculatedAmountThreshold: type(int256).min
+        });
+
+        (,,, viewFees0, viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
+        assertEq(viewFees0, 2000042);
+        assertEq(viewFees1, 1000042);
+
+        (collect0, collect1) = positions.collectFees(id, poolKey, lower, upper);
+        assertEq(collect0, viewFees0);
+        assertEq(collect1, viewFees1);
+    }
+
     /// forge-config: default.isolate = true
     function test_mintAndDeposit_gas() public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100);
@@ -416,6 +478,21 @@ contract PositionsTest is FullTest {
         coolAllContracts();
         positions.withdraw(id, poolKey, -100, 100, liquidity);
         vm.snapshotGasLastCall("withdraw eth");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_mintAndDeposit_eth_pool_gas_free() public {
+        positions = Positions(address(new FreePositions(core, address(this))));
+        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        token1.approve(address(positions), 100);
+
+        coolAllContracts();
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, 0);
+        vm.snapshotGasLastCall("mintAndDeposit eth (free)");
+
+        coolAllContracts();
+        positions.withdraw(id, poolKey, -100, 100, liquidity);
+        vm.snapshotGasLastCall("withdraw eth (free)");
     }
 
     function test_burn_can_be_minted() public {
@@ -522,6 +599,59 @@ contract PositionsTest is FullTest {
         assertApproxEqAbs(
             finalProtocolFees1, expectedSwapProtocolFee1 + expectedWithdrawalFee1, 2, "Final protocol fees0"
         );
+    }
+
+    function test_free_positions(uint64 poolFee, uint64 swapFeesAmount0, uint64 swapFeesAmount1) public {
+        MockExtension fae = createAndRegisterExtension();
+
+        FreePositions testPositions = new FreePositions(core, owner);
+
+        PoolKey memory poolKey = createPool(0, poolFee, 100, address(fae));
+
+        // Approve tokens for the test positions contract
+        token0.approve(address(testPositions), type(uint256).max);
+        token1.approve(address(testPositions), type(uint256).max);
+
+        // Test 1: Mint and deposit should work regardless of protocol fee parameters
+        (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) =
+            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, 0);
+
+        assertGt(id, 0, "Position ID should be greater than 0");
+        assertGt(liquidity, 0, "Liquidity should be greater than 0");
+        assertGt(amount0, 0, "Amount0 should be greater than 0");
+        assertGt(amount1, 0, "Amount1 should be greater than 0");
+
+        token0.approve(address(fae), swapFeesAmount0);
+        token1.approve(address(fae), swapFeesAmount1);
+        fae.accumulateFees(poolKey, swapFeesAmount0, swapFeesAmount1);
+
+        (uint128 protocolFeesBeforeCollect0, uint128 protocolFeesBeforeCollect1) =
+            testPositions.getProtocolFees(address(token0), address(token1));
+        assertEq(protocolFeesBeforeCollect0, 0);
+        assertEq(protocolFeesBeforeCollect1, 0);
+
+        (uint128 collectedFees0, uint128 collectedFees1) = testPositions.collectFees(id, poolKey, -100, 100);
+
+        (uint128 protocolFeesAfterCollect0, uint128 protocolFeesAfterCollect1) =
+            testPositions.getProtocolFees(address(token0), address(token1));
+
+        assertApproxEqAbs(protocolFeesAfterCollect0, 0, 1, "Protocol fees 0 should be fraction of swap fees");
+        assertApproxEqAbs(protocolFeesAfterCollect1, 0, 1, "Protocol fees 1 should be fraction of swap fees");
+
+        assertApproxEqAbs(collectedFees0, swapFeesAmount0, 1, "swap fees are not modified");
+        assertApproxEqAbs(collectedFees1, swapFeesAmount1, 1, "swap fees are not modified");
+
+        // Test 5: Withdraw liquidity and verify withdrawal fees are handled correctly
+        (uint128 withdrawn0, uint128 withdrawn1) = testPositions.withdraw(id, poolKey, -100, 100, liquidity);
+
+        assertApproxEqAbs(withdrawn0, amount0, 1, "Should receive amount0");
+        assertApproxEqAbs(withdrawn1, amount1, 1, "Should receive amount1");
+
+        (uint128 finalProtocolFees0, uint128 finalProtocolFees1) =
+            testPositions.getProtocolFees(address(token0), address(token1));
+
+        assertEq(finalProtocolFees0, 0, "Final protocol fees0");
+        assertEq(finalProtocolFees1, 0, "Final protocol fees0");
     }
 
     function test_withdraw_without_fees_burns_fees() public {

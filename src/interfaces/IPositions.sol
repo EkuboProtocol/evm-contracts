@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity ^0.8.0;
 
 import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
@@ -13,6 +13,9 @@ interface IPositions is IBaseNonfungibleToken {
     /// @param liquidity The actual liquidity that would be provided
     /// @param minLiquidity The minimum liquidity required
     error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
+
+    /// @notice Thrown when price moves during the beforeUpdatePosition extension call causing the desired deposit amounts to be exceeded
+    error DepositFailedDueToPriceMovement();
 
     /// @notice Thrown when deposit amount would cause overflow
     error DepositOverflow();

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
@@ -283,7 +283,7 @@ contract Handler is StdUtils, StdAssertions {
             assertLe(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
             assertTrue(sqrtRatio.isValid());
             assertGe(tick, MIN_TICK - 1);
-            assertLe(tick, MAX_TICK + 1);
+            assertLe(tick, MAX_TICK);
         }
     }
 }

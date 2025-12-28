@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {IOracle} from "../interfaces/extensions/IOracle.sol";
 import {OracleLib} from "../libraries/OracleLib.sol";
@@ -204,7 +204,7 @@ contract PriceFetcher {
         );
 
         // no observations available for the period, return an empty array
-        if (earliestObservationTime >= endTime) {
+        if (endTime < period || (endTime - period) < earliestObservationTime) {
             return (endTime, new PeriodAverage[](0));
         }
 
@@ -217,7 +217,7 @@ contract PriceFetcher {
                     getHistoricalPeriodAverages(baseToken, quoteToken, endTime, numIntervals, period)
                 );
         } else {
-            startTime = uint64(((earliestObservationTime + (period - 1)) / period) * period);
+            startTime = uint64(endTime - (((endTime - earliestObservationTime) / period) * period));
 
             numIntervals = uint32((endTime - startTime) / period);
 

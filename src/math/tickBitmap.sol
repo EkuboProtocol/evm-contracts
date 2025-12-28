@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {Bitmap} from "../types/bitmap.sol";
 import {MIN_TICK, MAX_TICK} from "../math/constants.sol";

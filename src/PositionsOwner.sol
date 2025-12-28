@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
+pragma solidity =0.8.33;
 
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
@@ -24,10 +24,6 @@ contract PositionsOwner is Ownable, Multicallable {
     /// @dev Only this contract can receive protocol revenue from this positions owner
     IRevenueBuybacks public immutable BUYBACKS;
 
-    /// @notice Thrown when attempting to withdraw protocol revenue for tokens that are not configured for buybacks
-    /// @dev Both tokens in a pair must be configured to allow withdrawal
-    error RevenueTokenNotConfigured();
-
     /// @param owner The address that will own this contract and have administrative privileges
     /// @param _positions The Positions contract instance that this contract will own
     /// @param _buybacks The trusted revenue buybacks contract that will receive protocol fees
@@ -44,17 +40,12 @@ contract PositionsOwner is Ownable, Multicallable {
         Ownable(address(POSITIONS)).transferOwnership(newOwner);
     }
 
-    /// @notice Withdraws protocol fees and transfers them to the buybacks contract, then calls roll for both tokens. Can be called by anyone to trigger revenue buybacks
+    /// @notice Withdraws protocol fees and transfers them to the buybacks contract, then calls roll for both tokens.
+    /// Can be called by anyone to trigger revenue buybacks
     /// @dev Both tokens must be configured for buybacks in the buybacks contract
     /// @param token0 The first token of the pair to withdraw fees for
     /// @param token1 The second token of the pair to withdraw fees for
     function withdrawAndRoll(address token0, address token1) external {
-        // Check if at least one token is configured for buybacks
-        (BuybacksState s0, BuybacksState s1) = BUYBACKS.state(token0, token1);
-        if (s0.minOrderDuration() == 0 || s1.minOrderDuration() == 0) {
-            revert RevenueTokenNotConfigured();
-        }
-
         // Get available protocol fees
         (uint128 amount0, uint128 amount1) = POSITIONS.getProtocolFees(token0, token1);
 
@@ -68,10 +59,10 @@ contract PositionsOwner is Ownable, Multicallable {
         // Withdraw fees to the buybacks contract if there are any
         if (amount0 != 0 || amount1 != 0) {
             POSITIONS.withdrawProtocolFees(token0, token1, uint128(amount0), uint128(amount1), address(BUYBACKS));
-        }
 
-        // Call roll for both tokens
-        BUYBACKS.roll(token0);
-        BUYBACKS.roll(token1);
+            // Call roll for both tokens
+            BUYBACKS.roll(token0);
+            BUYBACKS.roll(token1);
+        }
     }
 }

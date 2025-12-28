@@ -1186,10 +1186,10 @@ contract OrdersTest is BaseOrdersTest {
         token1.approve(address(orders), type(uint256).max);
 
         uint64 attackOrderStartTime =
-            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), time: vm.getBlockTimestamp()}));
+            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), afterTime: vm.getBlockTimestamp()}));
 
         uint64 targetOrderEndTime =
-            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), time: attackOrderStartTime}));
+            uint64(nextValidTime({currentTime: vm.getBlockTimestamp(), afterTime: attackOrderStartTime}));
 
         OrderConfig targetOrderConfig =
             createOrderConfig({_fee: fee, _isToken1: true, _startTime: 0, _endTime: targetOrderEndTime});

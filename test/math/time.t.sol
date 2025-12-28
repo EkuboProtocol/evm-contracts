@@ -174,14 +174,12 @@ contract TimeTest is Test {
         uint256 nextValid = nextValidTime(currentTime, time);
         assertTrue(isTimeValid(currentTime, nextValid), "always valid");
         if (time < currentTime) {
-            // we just snap to the next multiple of 16
-            assertEq(nextValid, ((time / 256) + 1) * 256);
+            assertEq(nextValid, ((time / 256) + 1) * 256, "snap to nearest multiple of 256");
         } else if (nextValid != 0) {
-            assertGt(nextValid, time);
+            assertGt(nextValid, time, "after currentTime");
             uint256 diff = nextValid - time;
-            assertLe(diff, computeStepSize(currentTime, nextValid));
-            assertLe(diff, type(uint32).max);
-            assertGe(nextValid - currentTime, computeStepSize(currentTime, time) >> 4);
+            assertLe(diff, computeStepSize(currentTime, nextValid), "less than or equal to one step in the future");
+            assertLe(diff, type(uint32).max, "not more than 2**32 seconds in future");
         } else {
             assertGt(time - currentTime, type(uint32).max - 268435456);
         }

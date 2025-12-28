@@ -187,10 +187,11 @@ contract TimeTest is Test {
 
             assertLe(nextValid - time, stepSize, "next valid time is not more than one step in the future");
         } else {
+            assertGt(time, currentTime, "time is greater than current time");
             assertGt(
                 time - currentTime,
                 type(uint32).max - (16 ** 7),
-                "time is more than max 2**32 - max step size - 1 in the future"
+                "by more than max 2**32 - max step size - 1 in the future"
             );
         }
     }

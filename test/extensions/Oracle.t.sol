@@ -71,11 +71,8 @@ abstract contract BaseOracleTest is FullTest {
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128 liquidity) {
         PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, createFullRangePoolConfig(0, address(oracle)));
-        {
-            (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, MIN_TICK, MAX_TICK);
-        }
 
-        SqrtRatio sqrtRatio = core.poolState(pk.toPoolId()).sqrtRatio();
+        (SqrtRatio sqrtRatio,, uint128 liquidity) = core.poolState(pk.toPoolId()).parse();
 
         if (liquidity < liquidityNext) {
             (int128 d0, int128 d1) = liquidityDeltaToAmountDelta(

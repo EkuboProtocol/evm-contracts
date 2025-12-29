@@ -97,11 +97,15 @@ contract PriceFetcher {
                 (uint160 secondsPerLiquidityCumulativeStart, int64 tickCumulativeStart) =
                     ORACLE.extrapolateSnapshot(otherToken, startTime);
 
+                uint160 harmonicMeanLiquidity = (uint160(endTime - startTime) << 128)
+                    / (secondsPerLiquidityCumulativeEnd - secondsPerLiquidityCumulativeStart);
+
+                assembly ("memory-safe") {
+                    harmonicMeanLiquidity := sub(harmonicMeanLiquidity, gt(harmonicMeanLiquidity, 0))
+                }
+
                 return PeriodAverage(
-                    uint128(
-                        (uint160(endTime - startTime) << 128)
-                            / (secondsPerLiquidityCumulativeEnd - secondsPerLiquidityCumulativeStart)
-                    ),
+                    uint128(harmonicMeanLiquidity),
                     tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / int64(endTime - startTime))
                 );
             } else {

@@ -9,10 +9,13 @@ import {
     InvalidPeriod
 } from "../../src/lens/PriceFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
+import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {TestToken} from "../TestToken.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 
 contract PriceFetcherTest is BaseOracleTest {
+    using CoreLib for *;
     PriceFetcher internal pf;
 
     function setUp() public override {
@@ -86,11 +89,11 @@ contract PriceFetcherTest is BaseOracleTest {
 
         // ~= 42
         assertEq(results[0].tick, -3737671);
-        assertEq(results[0].liquidity, 500);
+        assertEq(results[0].liquidity, 499);
 
         // ~= 69
         assertEq(results[1].tick, 4234108);
-        assertEq(results[1].liquidity, 7500);
+        assertEq(results[1].liquidity, 7499);
 
         assertEq(results[2].tick, 0);
         assertEq(results[2].liquidity, type(uint128).max);
@@ -119,12 +122,12 @@ contract PriceFetcherTest is BaseOracleTest {
         // ~= 42
         assertEq(results[0].tick, -3737671);
         // went up by not a lot
-        assertEq(results[0].liquidity, 909);
+        assertEq(results[0].liquidity, 908);
 
         // ~= 69
         assertEq(results[1].tick, 4234108);
         // went down by half
-        assertEq(results[1].liquidity, 3750);
+        assertEq(results[1].liquidity, 3749);
 
         assertEq(results[2].tick, 0);
         assertEq(results[2].liquidity, type(uint128).max);
@@ -160,27 +163,27 @@ contract PriceFetcherTest is BaseOracleTest {
         PriceFetcher.PeriodAverage memory average =
             pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 12);
         // combined should be about sqrt(1000*12000) = ~3464
-        assertEq(average.liquidity, 3462, "l[t=12]");
+        assertEq(average.liquidity, 3461, "l[t=12]");
         assertEq(average.tick, 2079441); // ~= 8
 
         // first half of first period is the same
         average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 6);
-        assertEq(average.liquidity, 3462, "l[t=6]");
+        assertEq(average.liquidity, 3461, "l[t=6]");
         assertEq(average.tick, 2079441);
 
         // liquidity goes up considerably because token0 and token1 are sold into the pools
         average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 6, startTime + 18);
-        assertEq(average.liquidity, 6352, "l[t=18]");
+        assertEq(average.liquidity, 6349, "l[t=18]");
         assertEq(average.tick, 3812308); // ~= 45.254680164500577
 
         // second period
         average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 12, startTime + 24);
-        assertEq(average.liquidity, 11646);
+        assertEq(average.liquidity, 11641);
         assertEq(average.tick, 5545176); // ~= 1.000001^(5545176) ~= 255.998920433432485
 
         // second half of second period
         average = pf.getAveragesOverPeriod(address(token0), address(token1), startTime + 18, startTime + 24);
-        assertEq(average.liquidity, 11646);
+        assertEq(average.liquidity, 11641);
         assertEq(average.tick, 5545176);
 
         pf.getAveragesOverPeriod(address(token0), address(token1), startTime, startTime + 24);
@@ -272,5 +275,36 @@ contract PriceFetcherTest is BaseOracleTest {
         assertEq(averages[0].tick, -10);
         assertEq(averages[1].liquidity, 1);
         assertEq(averages[1].tick, -10);
+    }
+
+    function test_pricefetcher_liquidity_error_bounds(uint128 liquidity) public {
+        address token = address(token1);
+        PoolKey memory pk = createOraclePool(token, 0);
+
+        uint128 liquidityCurrent;
+        while (liquidityCurrent != liquidity) {
+            liquidityCurrent =
+                uint128(FixedPointMathLib.min(uint256(liquidityCurrent) + uint128(type(int128).max), liquidity));
+            updateOraclePoolLiquidity(token, liquidityCurrent);
+        }
+
+        assertApproxEqAbs(core.poolState(pk.toPoolId()).liquidity(), liquidity, 1, "pool liquidity within 1 of target");
+
+        uint64 start = uint64(vm.getBlockTimestamp());
+        advanceTime(1);
+        uint64 end = uint64(vm.getBlockTimestamp());
+
+        // in the worst case (liquidity is max) we can be off by 2**127
+        uint256 allowedError = uint256(1) << FixedPointMathLib.log2(liquidity);
+
+        PriceFetcher.PeriodAverage memory avg = pf.getAveragesOverPeriod(NATIVE_TOKEN_ADDRESS, token, start, end);
+        assertApproxEqAbs(avg.liquidity, liquidity, allowedError, "average is approximately correct");
+
+        avg = pf.getAveragesOverPeriod(token, NATIVE_TOKEN_ADDRESS, start, end);
+        assertApproxEqAbs(avg.liquidity, liquidity, allowedError, "average is approximately correct flipped");
+    }
+
+    function test_pricefetcher_max_liquidity() public {
+        test_pricefetcher_liquidity_error_bounds(type(uint128).max);
     }
 }

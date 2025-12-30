@@ -69,31 +69,38 @@ abstract contract BaseOracleTest is FullTest {
         poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, createFullRangePoolConfig(0, address(oracle)));
     }
 
-    function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128 liquidity) {
+    function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128) {
         PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, createFullRangePoolConfig(0, address(oracle)));
-        {
-            (liquidity,,,,) = positions.getPositionFeesAndLiquidity(positionId, pk, MIN_TICK, MAX_TICK);
-        }
 
-        SqrtRatio sqrtRatio = core.poolState(pk.toPoolId()).sqrtRatio();
+        (SqrtRatio sqrtRatio,, uint128 liquidityBefore) = core.poolState(pk.toPoolId()).parse();
 
-        if (liquidity < liquidityNext) {
+        if (liquidityBefore < liquidityNext) {
+            uint128 diff = liquidityNext - liquidityBefore;
+            if (diff > uint128(type(int128).max)) {
+                revert("liquidity delta too large");
+            }
             (int128 d0, int128 d1) = liquidityDeltaToAmountDelta(
-                sqrtRatio, int128(liquidityNext - liquidity), MIN_SQRT_RATIO, MAX_SQRT_RATIO
+                sqrtRatio, int128(liquidityNext - liquidityBefore), MIN_SQRT_RATIO, MAX_SQRT_RATIO
             );
 
             TestToken(token).approve(address(positions), type(uint256).max);
 
             vm.deal(address(positions), uint128(d0));
             positions.deposit(
-                positionId, pk, MIN_TICK, MAX_TICK, uint128(d0), uint128(d1), liquidityNext - liquidity - 1
+                positionId, pk, MIN_TICK, MAX_TICK, uint128(d0), uint128(d1), liquidityNext - liquidityBefore - 1
             );
-            liquidity = core.poolState(pk.toPoolId()).liquidity();
-            assertApproxEqAbs(liquidity, liquidityNext, 1, "liquidity after");
-        } else if (liquidity > liquidityNext) {
-            positions.withdraw(positionId, pk, MIN_TICK, MAX_TICK, liquidity - liquidityNext);
-            liquidity = liquidityNext;
+        } else if (liquidityBefore > liquidityNext) {
+            uint128 diff = liquidityBefore - liquidityNext;
+            if (diff > uint256(int256(type(int128).min))) {
+                revert("liquidity delta too small");
+            }
+
+            positions.withdraw(positionId, pk, MIN_TICK, MAX_TICK, diff);
         }
+
+        uint128 liquidity = core.poolState(pk.toPoolId()).liquidity();
+        assertApproxEqAbs(liquidity, liquidityNext, 1, "liquidity after");
+        return liquidity;
     }
 }
 

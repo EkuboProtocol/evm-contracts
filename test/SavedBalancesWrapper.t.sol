@@ -2,7 +2,7 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "./FullTest.sol";
-import {SavedBalance1155} from "../src/SavedBalance1155.sol";
+import {SavedBalancesWrapper} from "../src/SavedBalancesWrapper.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ERC1155} from "solady/tokens/ERC1155.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
@@ -24,11 +24,11 @@ contract ERC1155Receiver {
     }
 }
 
-contract SavedBalance1155Locker is BaseLocker {
+contract SavedBalancesWrapperLocker is BaseLocker {
     using FlashAccountantLib for *;
-    SavedBalance1155 private immutable wrapper;
+    SavedBalancesWrapper private immutable wrapper;
 
-    constructor(ICore core, SavedBalance1155 _wrapper) BaseLocker(core) {
+    constructor(ICore core, SavedBalancesWrapper _wrapper) BaseLocker(core) {
         wrapper = _wrapper;
     }
 
@@ -54,19 +54,45 @@ contract SavedBalance1155Locker is BaseLocker {
     }
 }
 
-contract SavedBalance1155Test is FullTest {
+contract SavedBalancesWrapperTest is FullTest {
     using CoreLib for *;
 
     ERC1155Receiver receiver;
 
-    SavedBalance1155 wrapper;
-    SavedBalance1155Locker locker;
+    SavedBalancesWrapper wrapper;
+    SavedBalancesWrapperLocker locker;
 
     function setUp() public override {
         FullTest.setUp();
         receiver = new ERC1155Receiver();
-        wrapper = new SavedBalance1155(core);
-        locker = new SavedBalance1155Locker(core, wrapper);
+        wrapper = new SavedBalancesWrapper(core);
+        locker = new SavedBalancesWrapperLocker(core, wrapper);
+    }
+
+    function test_uri_content() public view {
+        assertEq(
+            wrapper.uri(1), "data:application/json;utf8,{\"token\":\"0x0000000000000000000000000000000000000001\"}"
+        );
+        assertEq(
+            wrapper.uri(wrapper.tokenId(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48)),
+            "data:application/json;utf8,{\"token\":\"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"}"
+        );
+    }
+
+    function test_uri_no_revert(address v) public view {
+        vm.assume(uint160(v) != type(uint160).max);
+        wrapper.uri(wrapper.tokenId(v));
+    }
+
+    function test_tokenId_never_reverts(address v) public view {
+        wrapper.tokenId(v);
+    }
+
+    function test_uri_invalid() public {
+        vm.expectRevert(SavedBalancesWrapper.InvalidTokenId.selector);
+        wrapper.uri(type(uint256).max);
+        vm.expectRevert(SavedBalancesWrapper.InvalidTokenId.selector);
+        wrapper.uri(type(uint160).max);
     }
 
     function test_mint_burn(uint128 amount) public {

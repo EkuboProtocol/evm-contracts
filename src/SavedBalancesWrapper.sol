@@ -13,7 +13,7 @@ import {Locker} from "./types/locker.sol";
 /// @notice ERC1155 receipt tokens representing balances saved in Ekubo Core.
 /// @dev Minting and burning happens through Core.forward calls so we can update Core's saved balances and
 ///      supply in a single hop. Token IDs are derived from the underlying token address.
-contract SavedBalance1155 is ERC1155, UsesCore, BaseForwardee {
+contract SavedBalancesWrapper is ERC1155, UsesCore, BaseForwardee {
     /// @notice Thrown when the uri function is called for an impossible token ID
     error InvalidTokenId();
 
@@ -32,7 +32,7 @@ contract SavedBalance1155 is ERC1155, UsesCore, BaseForwardee {
 
         // Simple data URI carrying the underlying token address encoded in hex.
         return string.concat(
-            "data:application/json;utf8,{\"token\":\"0x", LibString.toHexStringChecksummed(address(uint160(id))), "\"}"
+            "data:application/json;utf8,{\"token\":\"", LibString.toHexStringChecksummed(address(uint160(id))), "\"}"
         );
     }
 
@@ -40,6 +40,7 @@ contract SavedBalance1155 is ERC1155, UsesCore, BaseForwardee {
     /// @dev Expects abi.encode(address token, address counterparty, int128 amount) as forwarded data.
     ///      Positive amounts save the underlying token and mint the ERC1155 receipt to the specified recipient.
     ///      Negative amounts load the underlying token from saved balances and burn from the specified counterparty (the locker must be approved to spend the token).
+    /// @return The return value is always empty, i.e. is not used.
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory) {
         (address token, address counterparty, int128 amount) = abi.decode(data, (address, address, int128));
 

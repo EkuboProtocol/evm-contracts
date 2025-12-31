@@ -66,6 +66,7 @@ jobs:
           forge --version
 
       - name: Run DeployManagers
+        continue-on-error: true
         run: |
           forge script DeployManagers --rpc-url ${{ inputs.rpc_url }} --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} --broadcast --verify --retries 50
         env:
@@ -78,6 +79,14 @@ jobs:
           SWAP_PROTOCOL_FEE_X64: ${{ inputs.swap_protocol_fee_x64 }}
           WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR: ${{ inputs.withdrawal_protocol_fee_denominator }}
 
+      - name: Upload broadcast artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: broadcast
+          path: broadcast
+          retention-days: 90
+          if-no-files-found: warn
+
       - name: Configure git user
         run: |
           git config user.name "github-actions[bot]"
@@ -88,11 +97,3 @@ jobs:
           git add broadcast
           git commit -m "chore: update broadcast artifacts" || echo "No broadcast changes to commit."
           git push
-
-      - name: Upload broadcast artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: broadcast
-          path: broadcast
-          retention-days: 90
-          if-no-files-found: warn

@@ -10,7 +10,7 @@ on:
       salt:
         description: CREATE2 salt used for deterministic deployments
         required: false
-        default: "0xc1237262461d603d2cef6647512b6a86db8c0f7294f14fee1d3186d270b14a58"
+        default: "0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd"
         type: string
 
 permissions:

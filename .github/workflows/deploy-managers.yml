@@ -18,7 +18,7 @@ on:
       salt:
         description: CREATE2 salt used for deterministic deployments
         required: false
-        default: "0x62d821daca42db3616c4c007011ee7400e1baed68cf9020002d62c47d304d99f"
+        default: "0xc1237262461d603d2cef6647512b6a86db8c0f7294f14fee1d3186d270b14a58"
         type: string
       positions_base_url:
         description: Metadata base URL for positions
@@ -32,8 +32,8 @@ on:
         type: string
       swap_protocol_fee_x64:
         description: Protocol fee (x64) applied on swap fees; set 0 for FreePositions
-        required: false
-        default: "0"
+        required: true
+        default: "1844674407370955161"
         type: string
       withdrawal_protocol_fee_denominator:
         description: Denominator applied on pool fees during withdrawals; set 0 for FreePositions

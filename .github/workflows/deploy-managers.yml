@@ -10,9 +10,11 @@ on:
       core_address:
         description: Core contract address
         required: true
+        default: "0x00000000000014aA86C5d3c41765bb24e11bd701"
         type: string
       twamm_address:
         description: TWAMM extension address
+        default: "0xd4F1060cB9c1A13e1d2d20379b8aa2cF7541eD9b"
         required: true
         type: string
       salt:

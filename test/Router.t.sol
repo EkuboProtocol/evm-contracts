@@ -249,6 +249,34 @@ contract RouterTest is FullTest {
         assertEq(balanceUpdate.delta1(), 202);
     }
 
+    function test_basicSwap_exactIn_partial_swap(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+
+        token1.approve(address(router), 5000);
+
+        vm.expectRevert(Router.PartialSwapsDisallowed.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token1), amount: 5000}),
+            1000
+        );
+    }
+
+    function test_basicSwap_exactOut_partial_swap(CallPoints memory callPoints) public {
+        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        createPosition(poolKey, -100, 100, 1000, 1000);
+
+        token1.approve(address(router), 202);
+
+        vm.expectRevert(Router.PartialSwapsDisallowed.selector);
+        router.swap(
+            RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
+            TokenAmount({token: address(token0), amount: -1001}),
+            202
+        );
+    }
+
     function test_multihopSwap(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);

@@ -123,11 +123,11 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                     (int128 amountCalculated, int128 amountSpecified) = params.isToken1()
                         ? (-balanceUpdate.delta0(), balanceUpdate.delta1())
                         : (-balanceUpdate.delta1(), balanceUpdate.delta0());
-                    if (amountCalculated < calculatedAmountThreshold) {
-                        revert SlippageCheckFailed(calculatedAmountThreshold, amountCalculated);
-                    }
                     if (amountSpecified != params.amount()) {
                         revert PartialSwapsDisallowed();
+                    }
+                    if (amountCalculated < calculatedAmountThreshold) {
+                        revert SlippageCheckFailed(calculatedAmountThreshold, amountCalculated);
                     }
                 }
 

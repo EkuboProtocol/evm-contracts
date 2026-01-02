@@ -10,7 +10,7 @@ on:
       salt:
         description: CREATE2 salt used for deterministic deployments
         required: false
-        default: "0x62d821daca42db3616c4c007011ee7400e1baed68cf9020002d62c47d304d99f"
+        default: "0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd"
         type: string
 
 permissions:
@@ -36,11 +36,20 @@ jobs:
           forge --version
 
       - name: Run DeployAll
+        continue-on-error: true
         run: |
           forge script DeployAll --rpc-url ${{ inputs.rpc_url }} --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} --broadcast --verify --retries 50
         env:
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           SALT: ${{ inputs.salt }}
+
+      - name: Upload broadcast artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: broadcast
+          path: broadcast
+          retention-days: 90
+          if-no-files-found: warn
 
       - name: Configure git user
         run: |
@@ -52,11 +61,3 @@ jobs:
           git add broadcast
           git commit -m "chore: update broadcast artifacts" || echo "No broadcast changes to commit."
           git push
-
-      - name: Upload broadcast artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: broadcast
-          path: broadcast
-          retention-days: 90
-          if-no-files-found: warn

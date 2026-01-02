@@ -10,15 +10,17 @@ on:
       core_address:
         description: Core contract address
         required: true
+        default: "0x00000000000014aA86C5d3c41765bb24e11bd701"
         type: string
       twamm_address:
         description: TWAMM extension address
+        default: "0xd4F1060cB9c1A13e1d2d20379b8aa2cF7541eD9b"
         required: true
         type: string
       salt:
         description: CREATE2 salt used for deterministic deployments
         required: false
-        default: "0x62d821daca42db3616c4c007011ee7400e1baed68cf9020002d62c47d304d99f"
+        default: "0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd"
         type: string
       positions_base_url:
         description: Metadata base URL for positions
@@ -32,8 +34,8 @@ on:
         type: string
       swap_protocol_fee_x64:
         description: Protocol fee (x64) applied on swap fees; set 0 for FreePositions
-        required: false
-        default: "0"
+        required: true
+        default: "1844674407370955161"
         type: string
       withdrawal_protocol_fee_denominator:
         description: Denominator applied on pool fees during withdrawals; set 0 for FreePositions
@@ -64,6 +66,7 @@ jobs:
           forge --version
 
       - name: Run DeployManagers
+        continue-on-error: true
         run: |
           forge script DeployManagers --rpc-url ${{ inputs.rpc_url }} --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} --broadcast --verify --retries 50
         env:
@@ -76,6 +79,14 @@ jobs:
           SWAP_PROTOCOL_FEE_X64: ${{ inputs.swap_protocol_fee_x64 }}
           WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR: ${{ inputs.withdrawal_protocol_fee_denominator }}
 
+      - name: Upload broadcast artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: broadcast
+          path: broadcast
+          retention-days: 90
+          if-no-files-found: warn
+
       - name: Configure git user
         run: |
           git config user.name "github-actions[bot]"
@@ -86,11 +97,3 @@ jobs:
           git add broadcast
           git commit -m "chore: update broadcast artifacts" || echo "No broadcast changes to commit."
           git push
-
-      - name: Upload broadcast artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: broadcast
-          path: broadcast
-          retention-days: 90
-          if-no-files-found: warn

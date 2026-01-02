@@ -26,10 +26,9 @@ contract RouterTest is FullTest {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: type(int128).min}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: type(int128).min})
         );
         assertEq(balanceUpdate.delta0(), 0);
         assertEq(balanceUpdate.delta1(), 0);
@@ -39,10 +38,9 @@ contract RouterTest is FullTest {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: type(int128).min}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: type(int128).min})
         );
         assertEq(balanceUpdate.delta0(), 0);
         assertEq(balanceUpdate.delta1(), 0);
@@ -53,17 +51,15 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
 
         vm.expectRevert(ICore.SqrtRatioLimitWrongDirection.selector);
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick - 1), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: type(int128).min}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: type(int128).min})
         );
 
         vm.expectRevert(ICore.SqrtRatioLimitWrongDirection.selector);
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick + 1), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: type(int128).min}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: type(int128).min})
         );
     }
 
@@ -78,10 +74,9 @@ contract RouterTest is FullTest {
         assertEq(balanceUpdate0.delta0(), 100);
         assertEq(balanceUpdate0.delta1(), -49);
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
         assertEq(balanceUpdate.delta0(), 100);
         assertEq(balanceUpdate.delta1(), -49);
@@ -92,7 +87,7 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
-        router.swap(poolKey, false, 100, SqrtRatio.wrap(0), 0, type(int256).min, address(0xdeadbeef));
+        router.swapAllowPartialFill(poolKey, false, 100, SqrtRatio.wrap(0), 0, address(0xdeadbeef));
         assertEq(token1.balanceOf(address(0xdeadbeef)), 49);
     }
 
@@ -108,10 +103,9 @@ contract RouterTest is FullTest {
         assertEq(balanceUpdate.delta0(), -100);
         assertEq(balanceUpdate.delta1(), 202);
 
-        balanceUpdate = router.swap(
+        balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: -100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: -100})
         );
         assertEq(balanceUpdate.delta0(), -100);
         assertEq(balanceUpdate.delta1(), 202);
@@ -123,7 +117,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
-        router.swap(poolKey, false, -100, SqrtRatio.wrap(0), 0, type(int256).min, address(0xdeadbeef));
+        router.swapAllowPartialFill(poolKey, false, -100, SqrtRatio.wrap(0), 0, address(0xdeadbeef));
         assertEq(token0.balanceOf(address(0xdeadbeef)), 100);
     }
 
@@ -138,10 +132,9 @@ contract RouterTest is FullTest {
         assertEq(balanceUpdate.delta0(), -49);
         assertEq(balanceUpdate.delta1(), 100);
 
-        balanceUpdate = router.swap(
+        balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 100})
         );
         assertEq(balanceUpdate.delta0(), -49);
         assertEq(balanceUpdate.delta1(), 100);
@@ -158,10 +151,9 @@ contract RouterTest is FullTest {
         assertEq(balanceUpdate.delta0(), 202);
         assertEq(balanceUpdate.delta1(), -100);
 
-        balanceUpdate = router.swap(
+        balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: -100}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: -100})
         );
         assertEq(balanceUpdate.delta0(), 202);
         assertEq(balanceUpdate.delta1(), -100);
@@ -197,10 +189,9 @@ contract RouterTest is FullTest {
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: type(int128).max}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: type(int128).max})
         );
         assertEq(balanceUpdate.delta0(), type(int128).max);
         assertEq(balanceUpdate.delta1(), type(int128).min);
@@ -212,10 +203,9 @@ contract RouterTest is FullTest {
         createPosition(poolKey, MIN_TICK, MAX_TICK, type(uint128).max >> 1, type(uint128).max >> 1);
 
         token1.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: type(int128).max}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: type(int128).max})
         );
         assertEq(balanceUpdate.delta0(), type(int128).min);
         assertEq(balanceUpdate.delta1(), type(int128).max);
@@ -251,10 +241,9 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: -100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: -100})
         );
         assertEq(balanceUpdate.delta0(), -100);
         assertEq(balanceUpdate.delta1(), 202);
@@ -512,10 +501,9 @@ contract RouterTest is FullTest {
 
         token0.approve(address(router), 100);
 
-        PoolBalanceUpdate balanceUpdate = router.swap(
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
         assertEq(balanceUpdate.delta0(), 100);
         // approximately 1x after fee
@@ -530,10 +518,9 @@ contract RouterTest is FullTest {
         token0.approve(address(router), 100);
 
         coolAllContracts();
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
         vm.snapshotGasLastCall("swap 100 token0 for token1");
     }
@@ -546,10 +533,9 @@ contract RouterTest is FullTest {
         token1.approve(address(router), 100);
 
         coolAllContracts();
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 100})
         );
         vm.snapshotGasLastCall("swap 100 token0 for eth");
     }
@@ -561,10 +547,9 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -200, 200, 1000, 1000);
 
         coolAllContracts();
-        router.swap{value: 30000}(
+        router.swapAllowPartialFill{value: 30000}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(-250), skipAhead: 0}),
-            TokenAmount({token: poolKey.token0, amount: 30000}),
-            type(int256).min
+            TokenAmount({token: poolKey.token0, amount: 30000})
         );
         vm.snapshotGasLastCall("swap crossing two ticks eth for token1");
 
@@ -580,10 +565,9 @@ contract RouterTest is FullTest {
         IERC20(poolKey.token1).approve(address(router), type(uint256).max);
 
         coolAllContracts();
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(250), skipAhead: 0}),
-            TokenAmount({token: poolKey.token1, amount: 30000}),
-            type(int256).min
+            TokenAmount({token: poolKey.token1, amount: 30000})
         );
         vm.snapshotGasLastCall("swap crossing two ticks token1 for eth");
 
@@ -599,10 +583,9 @@ contract RouterTest is FullTest {
         IERC20(poolKey.token1).approve(address(router), type(uint256).max);
 
         coolAllContracts();
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: poolKey.token1, amount: 3500}),
-            type(int256).min
+            TokenAmount({token: poolKey.token1, amount: 3500})
         );
         vm.snapshotGasLastCall("swap crossing one tick token1 for eth");
 
@@ -616,10 +599,9 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -200, 200, 1000, 1000);
 
         coolAllContracts();
-        router.swap{value: 3500}(
+        router.swapAllowPartialFill{value: 3500}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: poolKey.token0, amount: 3500}),
-            type(int256).min
+            TokenAmount({token: poolKey.token0, amount: 3500})
         );
         vm.snapshotGasLastCall("swap crossing one tick eth for token1");
 
@@ -632,10 +614,9 @@ contract RouterTest is FullTest {
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         coolAllContracts();
-        router.swap{value: 100}(
+        router.swapAllowPartialFill{value: 100}(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100}),
-            type(int256).min
+            TokenAmount({token: NATIVE_TOKEN_ADDRESS, amount: 100})
         );
         vm.snapshotGasLastCall("swap 100 wei of eth for token");
     }
@@ -646,21 +627,19 @@ contract RouterTest is FullTest {
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
         // do the swap one time first to set the fees slot
-        router.swap{value: 100}({
+        router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
 
         coolAllContracts();
-        router.swap{value: 100}({
+        router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
     }
@@ -672,21 +651,19 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), type(uint256).max);
 
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
 
         coolAllContracts();
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
         vm.snapshotGasLastCall("swap 100 wei of token for eth full range");
     }
@@ -699,21 +676,19 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1000, 1000);
 
         // do the swap one time first to set the fees slot
-        router.swap{value: 100}({
+        router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
 
         coolAllContracts();
-        router.swap{value: 100}({
+        router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
         vm.snapshotGasLastCall("swap 100 wei of eth for token stableswap");
     }
@@ -727,21 +702,19 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), type(uint256).max);
 
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
 
         coolAllContracts();
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
         vm.snapshotGasLastCall("swap 100 wei of token for eth stableswap");
     }
@@ -753,13 +726,8 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
-            poolKey: poolKey,
-            isToken1: false,
-            amount: -1,
-            sqrtRatioLimit: MAX_SQRT_RATIO,
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
+            poolKey: poolKey, isToken1: false, amount: -1, sqrtRatioLimit: MAX_SQRT_RATIO, skipAhead: 0
         });
 
         assertEq(balanceUpdate.delta0(), 0);
@@ -779,13 +747,8 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
-            poolKey: poolKey,
-            isToken1: true,
-            amount: -1,
-            sqrtRatioLimit: MIN_SQRT_RATIO,
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
+            poolKey: poolKey, isToken1: true, amount: -1, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
         });
 
         assertEq(balanceUpdate.delta0(), 499999875000098127108899679808);
@@ -806,13 +769,8 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
-            poolKey: poolKey,
-            isToken1: false,
-            amount: -1,
-            sqrtRatioLimit: MAX_SQRT_RATIO,
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
+            poolKey: poolKey, isToken1: false, amount: -1, sqrtRatioLimit: MAX_SQRT_RATIO, skipAhead: 0
         });
 
         assertEq(balanceUpdate.delta0(), 0);
@@ -832,13 +790,8 @@ contract RouterTest is FullTest {
         assertNotEq(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
-            poolKey: poolKey,
-            isToken1: true,
-            amount: -1,
-            sqrtRatioLimit: MIN_SQRT_RATIO,
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
+            poolKey: poolKey, isToken1: true, amount: -1, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
         });
 
         assertEq(balanceUpdate.delta0(), 499999875000098127108899679808);
@@ -860,13 +813,12 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: false,
             amount: 1e15, // 0.001 tokens
             sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+            skipAhead: 0
         });
 
         // With high amplification (26), the pool behaves more like a constant sum
@@ -884,13 +836,12 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token1.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: true,
             amount: 1e15, // 0.001 tokens
             sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+            skipAhead: 0
         });
 
         // With high amplification (26), the pool behaves more like a constant sum
@@ -908,13 +859,12 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: false,
             amount: 1e15, // 0.001 tokens
             sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+            skipAhead: 0
         });
 
         // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
@@ -932,13 +882,12 @@ contract RouterTest is FullTest {
         createPosition(poolKey, lower, upper, 1e18, 1e18);
 
         token1.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: true,
             amount: 1e15, // 0.001 tokens
             sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+            skipAhead: 0
         });
 
         // With low amplification (1), the pool behaves more like constant product (Uniswap v2)
@@ -964,13 +913,8 @@ contract RouterTest is FullTest {
         // Try to swap token1 for token0 (pushing price UP, away from liquidity)
         // Should get 0 output because there's no liquidity above the range
         token1.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
-            poolKey: poolKey,
-            isToken1: true,
-            amount: 1e15,
-            sqrtRatioLimit: MAX_SQRT_RATIO,
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
+            poolKey: poolKey, isToken1: true, amount: 1e15, sqrtRatioLimit: MAX_SQRT_RATIO, skipAhead: 0
         });
 
         // No liquidity outside the range, so no swap occurs
@@ -991,13 +935,12 @@ contract RouterTest is FullTest {
 
         // Perform a large swap that pushes price through the entire range
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: false,
             amount: 1e18, // Large swap
             sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+            skipAhead: 0
         });
 
         // Swap consumes all available liquidity and moves through the entire range
@@ -1022,13 +965,8 @@ contract RouterTest is FullTest {
 
         // Swap should work normally inside the range
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap({
-            poolKey: poolKey,
-            isToken1: false,
-            amount: 1e15,
-            sqrtRatioLimit: SqrtRatio.wrap(0),
-            skipAhead: 0,
-            calculatedAmountThreshold: type(int256).min
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
+            poolKey: poolKey, isToken1: false, amount: 1e15, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0
         });
 
         // Should get normal swap output

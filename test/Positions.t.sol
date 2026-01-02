@@ -101,10 +101,9 @@ contract PositionsTest is FullTest {
 
         token0.approve(address(router), 100);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
         (amount0, amount1) = positions.collectFees(id, poolKey, -100, 100);
@@ -132,10 +131,9 @@ contract PositionsTest is FullTest {
 
         token1.approve(address(router), 100);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 100})
         );
 
         (amount0, amount1) = positions.collectFees(id, poolKey, -100, 100);
@@ -160,16 +158,14 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 50})
         );
 
         (, uint128 p0, uint128 p1, uint128 f0, uint128 f1) =
@@ -192,20 +188,18 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 50})
         );
 
         token1.approve(address(router), type(uint256).max);
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: true,
             amount: type(int128).max,
@@ -233,20 +227,18 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 50})
         );
 
         token0.approve(address(router), type(uint256).max);
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: false,
             amount: type(int128).max,
@@ -274,16 +266,14 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 50})
         );
 
         (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, -100, 100);
@@ -312,7 +302,8 @@ contract PositionsTest is FullTest {
         assertGt(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
+        PoolBalanceUpdate balanceUpdate =
+            router.swapAllowPartialFill(poolKey, false, type(int128).min, MAX_SQRT_RATIO, 0);
         assertEq(balanceUpdate.delta0(), 0);
 
         (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId()).parse();
@@ -340,7 +331,8 @@ contract PositionsTest is FullTest {
         assertGt(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
-        PoolBalanceUpdate balanceUpdate = router.swap(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
+        PoolBalanceUpdate balanceUpdate =
+            router.swapAllowPartialFill(poolKey, true, type(int128).min, MIN_SQRT_RATIO, 0);
         assertEq(balanceUpdate.delta1(), 0);
 
         (SqrtRatio sqrtRatio, int32 tick, uint128 liqAfter) = core.poolState(poolKey.toPoolId()).parse();
@@ -422,24 +414,22 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), type(uint256).max);
 
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: false, _skipAhead: 0
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
 
         (,,, viewFees0, viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
         assertEq(viewFees0, 0);
         assertEq(viewFees1, 1000042);
 
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
                 _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: true, _skipAhead: 0
-            }),
-            calculatedAmountThreshold: type(int256).min
+            })
         });
 
         (,,, viewFees0, viewFees1) = positions.getPositionFeesAndLiquidity(id, poolKey, lower, upper);
@@ -661,10 +651,9 @@ contract PositionsTest is FullTest {
 
         // Generate fees by swapping
         token0.approve(address(router), 100);
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
         // Verify fees exist before withdrawal
@@ -707,16 +696,14 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), 100);
         token1.approve(address(router), 50);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 50})
         );
 
         // Verify fees accumulated from both swaps
@@ -757,14 +744,13 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), 100);
         token1.approve(address(router), type(uint256).max);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
         // Move price above range
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: true,
             amount: type(int128).max,
@@ -806,14 +792,13 @@ contract PositionsTest is FullTest {
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), 50);
 
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token1), amount: 50}),
-            type(int256).min
+            TokenAmount({token: address(token1), amount: 50})
         );
 
         // Move price below range
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: false,
             amount: type(int128).max,
@@ -853,10 +838,9 @@ contract PositionsTest is FullTest {
 
         // Generate fees
         token0.approve(address(router), 100);
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 100}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 100})
         );
 
         // Verify fees before partial withdrawal
@@ -900,10 +884,9 @@ contract PositionsTest is FullTest {
 
         // Generate fees for both positions
         token0.approve(address(router), 200);
-        router.swap(
+        router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
-            TokenAmount({token: address(token0), amount: 200}),
-            type(int256).min
+            TokenAmount({token: address(token0), amount: 200})
         );
 
         // Verify both have same fees (allow 1 wei difference for rounding)

@@ -61,6 +61,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @notice Thrown when a swap doesn't consume the full input amount
     error PartialSwapsDisallowed();
 
+    /// @notice Thrown if the user tries to swap without a slippage check
+    error UseSwapAllowPartialFill();
+
     /// @notice Thrown when the calculated amount doesn't meet the minimum threshold
     /// @param expectedAmount The minimum expected amount
     /// @param calculatedAmount The actual calculated amount
@@ -113,9 +116,19 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
 
                 (PoolBalanceUpdate balanceUpdate,) = _swap(value, poolKey, params);
 
-                int128 amountCalculated = params.isToken1() ? -balanceUpdate.delta0() : -balanceUpdate.delta1();
-                if (amountCalculated < calculatedAmountThreshold) {
-                    revert SlippageCheckFailed(calculatedAmountThreshold, amountCalculated);
+                if (calculatedAmountThreshold != type(int256).min) {
+                    // note we only do the slippage check iff we aren't allowing partial fill
+                    // this is because a slippage check is not effective if we are allowing partial fills for exact output swaps
+                    // we also do not allow the user to do a partial fill allowed single hop swap while also specifying a slippage check in the router's external interface
+                    (int128 amountCalculated, int128 amountSpecified) = params.isToken1()
+                        ? (-balanceUpdate.delta0(), balanceUpdate.delta1())
+                        : (-balanceUpdate.delta1(), balanceUpdate.delta0());
+                    if (amountCalculated < calculatedAmountThreshold) {
+                        revert SlippageCheckFailed(calculatedAmountThreshold, amountCalculated);
+                    }
+                    if (amountSpecified != params.amount()) {
+                        revert PartialSwapsDisallowed();
+                    }
                 }
 
                 if (increasing) {
@@ -264,7 +277,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
     /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(PoolKey memory poolKey, SwapParameters params, int256 calculatedAmountThreshold)
-        public
+        external
         payable
         returns (PoolBalanceUpdate balanceUpdate)
     {
@@ -282,6 +295,8 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         payable
         returns (PoolBalanceUpdate balanceUpdate)
     {
+        if (calculatedAmountThreshold == type(int256).min) revert UseSwapAllowPartialFill();
+
         (balanceUpdate) = abi.decode(
             lock(abi.encode(CALL_TYPE_SINGLE_SWAP, msg.sender, poolKey, params, calculatedAmountThreshold, recipient)),
             (PoolBalanceUpdate)
@@ -294,7 +309,6 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param amount Amount to swap (positive for exact input, negative for exact output)
     /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
     /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
     /// @param recipient Address to receive the output tokens
     /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(
@@ -305,7 +319,7 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         uint256 skipAhead,
         int256 calculatedAmountThreshold,
         address recipient
-    ) public payable returns (PoolBalanceUpdate balanceUpdate) {
+    ) external payable returns (PoolBalanceUpdate balanceUpdate) {
         balanceUpdate = swap(
             poolKey,
             createSwapParameters({
@@ -313,6 +327,83 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
             }),
             calculatedAmountThreshold,
             recipient
+        );
+    }
+
+    /// @notice Executes a single-hop swap with a specified recipient and allows for partial fills, which renders the slippage check ineffective for exact output swaps
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param params The swap parameters to execute
+    /// @param recipient Address to receive the output tokens
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
+    function swapAllowPartialFill(PoolKey memory poolKey, SwapParameters params, address recipient)
+        public
+        payable
+        returns (PoolBalanceUpdate balanceUpdate)
+    {
+        (balanceUpdate) = abi.decode(
+            lock(abi.encode(CALL_TYPE_SINGLE_SWAP, msg.sender, poolKey, params, type(int256).min, recipient)),
+            (PoolBalanceUpdate)
+        );
+    }
+
+    /// @notice Executes a single-hop swap with a specified recipient and allows for partial fills, which renders the slippage check ineffective for exact output swaps
+    /// Sends the output of the swap to msg.sender
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param params The swap parameters to execute
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
+    function swapAllowPartialFill(PoolKey memory poolKey, SwapParameters params)
+        external
+        payable
+        returns (PoolBalanceUpdate balanceUpdate)
+    {
+        balanceUpdate = swapAllowPartialFill(poolKey, params, msg.sender);
+    }
+
+    /// @notice Executes a single-hop swap with a specified recipient and allows for partial fills
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @param recipient Address to receive the output tokens
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
+    function swapAllowPartialFill(
+        PoolKey memory poolKey,
+        bool isToken1,
+        int128 amount,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead,
+        address recipient
+    ) external payable returns (PoolBalanceUpdate balanceUpdate) {
+        balanceUpdate = swapAllowPartialFill(
+            poolKey,
+            createSwapParameters({
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+            }),
+            recipient
+        );
+    }
+
+    /// @notice Executes a single-hop swap with msg.sender as recipient and allows partial fills
+    /// @param poolKey Pool key identifying the pool to swap against
+    /// @param isToken1 True if swapping token1, false if swapping token0
+    /// @param amount Amount to swap (positive for exact input, negative for exact output)
+    /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
+    /// @param skipAhead Number of ticks to skip ahead for gas optimization
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
+    function swapAllowPartialFill(
+        PoolKey memory poolKey,
+        bool isToken1,
+        int128 amount,
+        SqrtRatio sqrtRatioLimit,
+        uint256 skipAhead
+    ) external payable returns (PoolBalanceUpdate balanceUpdate) {
+        balanceUpdate = swapAllowPartialFill(
+            poolKey,
+            createSwapParameters({
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+            }),
+            msg.sender
         );
     }
 
@@ -333,23 +424,13 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
         int256 calculatedAmountThreshold
     ) external payable returns (PoolBalanceUpdate balanceUpdate) {
         balanceUpdate = swap(
-            poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, calculatedAmountThreshold, msg.sender
+            poolKey,
+            createSwapParameters({
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+            }),
+            calculatedAmountThreshold,
+            msg.sender
         );
-    }
-
-    /// @notice Executes a single-hop swap with no slippage protection
-    /// @param poolKey Pool key identifying the pool to swap against
-    /// @param isToken1 True if swapping token1, false if swapping token0
-    /// @param amount Amount to swap (positive for exact input, negative for exact output)
-    /// @param sqrtRatioLimit Price limit for the swap (0 for no limit)
-    /// @param skipAhead Number of ticks to skip ahead for gas optimization
-    /// @return balanceUpdate Change in token0 and token1 balance of the pool
-    function swap(PoolKey memory poolKey, bool isToken1, int128 amount, SqrtRatio sqrtRatioLimit, uint256 skipAhead)
-        external
-        payable
-        returns (PoolBalanceUpdate balanceUpdate)
-    {
-        balanceUpdate = swap(poolKey, isToken1, amount, sqrtRatioLimit, skipAhead, type(int256).min, msg.sender);
     }
 
     /// @notice Executes a single-hop swap using RouteNode and TokenAmount structs
@@ -358,17 +439,40 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
     /// @param calculatedAmountThreshold Minimum amount to receive (for slippage protection)
     /// @return balanceUpdate Change in token0 and token1 balance of the pool
     function swap(RouteNode memory node, TokenAmount memory tokenAmount, int256 calculatedAmountThreshold)
-        public
+        external
         payable
         returns (PoolBalanceUpdate balanceUpdate)
     {
         balanceUpdate = swap(
             node.poolKey,
-            node.poolKey.token1 == tokenAmount.token,
-            tokenAmount.amount,
-            node.sqrtRatioLimit,
-            node.skipAhead,
+            createSwapParameters({
+                _isToken1: node.poolKey.token1 == tokenAmount.token,
+                _amount: tokenAmount.amount,
+                _sqrtRatioLimit: node.sqrtRatioLimit,
+                _skipAhead: node.skipAhead
+            }),
             calculatedAmountThreshold,
+            msg.sender
+        );
+    }
+
+    /// @notice Executes a single-hop swap using RouteNode and TokenAmount structs and allows partial fill
+    /// @param node Route node containing pool and swap parameters
+    /// @param tokenAmount Token and amount to swap
+    /// @return balanceUpdate Change in token0 and token1 balance of the pool
+    function swapAllowPartialFill(RouteNode memory node, TokenAmount memory tokenAmount)
+        external
+        payable
+        returns (PoolBalanceUpdate balanceUpdate)
+    {
+        balanceUpdate = swapAllowPartialFill(
+            node.poolKey,
+            createSwapParameters({
+                _isToken1: node.poolKey.token1 == tokenAmount.token,
+                _amount: tokenAmount.amount,
+                _sqrtRatioLimit: node.sqrtRatioLimit,
+                _skipAhead: node.skipAhead
+            }),
             msg.sender
         );
     }

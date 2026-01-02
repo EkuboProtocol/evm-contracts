@@ -525,7 +525,7 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRateToken0, 0);
         assertEq(saleRateToken1, saleRateOrder0);
 
-        router.swap(poolKey, false, 170141183460469231731563853878917070850, MIN_SQRT_RATIO, 145);
+        router.swapAllowPartialFill(poolKey, false, 170141183460469231731563853878917070850, MIN_SQRT_RATIO, 145);
 
         (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
@@ -567,7 +567,7 @@ contract OrdersTest is BaseOrdersTest {
         advanceTime(15);
 
         token0.approve(address(router), type(uint256).max);
-        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        router.swapAllowPartialFill(poolKey, false, 100, MIN_SQRT_RATIO, 0, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders no orders");
     }
 
@@ -596,7 +596,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
-        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        router.swapAllowPartialFill(poolKey, false, 100, MIN_SQRT_RATIO, 0, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders single sided");
     }
 
@@ -632,7 +632,7 @@ contract OrdersTest is BaseOrdersTest {
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
-        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        router.swapAllowPartialFill(poolKey, false, 100, MIN_SQRT_RATIO, 0, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided");
     }
 
@@ -665,7 +665,7 @@ contract OrdersTest is BaseOrdersTest {
         advanceTime(255);
 
         token0.approve(address(router), type(uint256).max);
-        router.swap(poolKey, false, 100, MIN_SQRT_RATIO, 0, type(int256).min, address(this));
+        router.swapAllowPartialFill(poolKey, false, 100, MIN_SQRT_RATIO, 0, address(this));
         vm.snapshotGasLastCall("swap and executeVirtualOrders double sided crossed");
     }
 

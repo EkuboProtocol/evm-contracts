@@ -51,13 +51,12 @@ contract SwapTest is FullTest {
         SqrtRatio current = core.poolState(poolKey.toPoolId()).sqrtRatio();
 
         // move starting price
-        router.swap({
+        router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: current > sqrtRatio,
             amount: type(int128).min,
             sqrtRatioLimit: sqrtRatio,
             skipAhead: 0,
-            calculatedAmountThreshold: type(int128).min,
             recipient: address(0)
         });
 
@@ -83,13 +82,12 @@ contract SwapTest is FullTest {
         assertEq(positionLiquidity, liquidity, "liquidity expected");
 
         // do the actual swap under test
-        PoolBalanceUpdate balanceUpdate = router.swap({
+        PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             isToken1: isToken1,
             amount: amount,
             sqrtRatioLimit: sqrtRatioLimit,
             skipAhead: 0,
-            calculatedAmountThreshold: type(int128).min,
             recipient: address(0)
         });
 

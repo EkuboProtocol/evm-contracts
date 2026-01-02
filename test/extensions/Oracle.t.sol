@@ -52,11 +52,11 @@ abstract contract BaseOracleTest is FullTest {
         if (tick < targetTick) {
             SqrtRatio targetRatio = tickToSqrtRatio(targetTick);
             TestToken(poolKey.token1).approve(address(router), type(uint256).max);
-            router.swap(poolKey, false, type(int128).min, targetRatio, 0);
+            router.swapAllowPartialFill(poolKey, false, type(int128).min, targetRatio, 0, address(this));
         } else if (tick > targetTick) {
             SqrtRatio targetRatio = toSqrtRatio(tickToSqrtRatio(targetTick).toFixed() + 1, true);
             vm.deal(address(router), amount0Delta(sqrtRatio, targetRatio, liquidity, true));
-            router.swap(poolKey, true, type(int128).min, targetRatio, 0);
+            router.swapAllowPartialFill(poolKey, true, type(int128).min, targetRatio, 0, address(this));
         }
 
         tick = core.poolState(poolKey.toPoolId()).tick();
@@ -874,25 +874,25 @@ contract OracleTest is BaseOracleTest {
         TestToken(poolKey.token1).approve(address(router), type(uint256).max);
 
         advanceTime(1);
-        router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
-        router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        router.swapAllowPartialFill(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        router.swapAllowPartialFill{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
 
         advanceTime(1);
         coolAllContracts();
-        router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        router.swapAllowPartialFill(poolKey, true, 100, MAX_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token1 in with write");
 
         advanceTime(1);
         coolAllContracts();
-        router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        router.swapAllowPartialFill{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token0 in with write");
 
         coolAllContracts();
-        router.swap(poolKey, true, 100, MAX_SQRT_RATIO, 0);
+        router.swapAllowPartialFill(poolKey, true, 100, MAX_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token1 in no write");
 
         coolAllContracts();
-        router.swap{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
+        router.swapAllowPartialFill{value: 100}(poolKey, false, 100, MIN_SQRT_RATIO, 0);
         vm.snapshotGasLastCall("swap token0 in no write");
     }
 }

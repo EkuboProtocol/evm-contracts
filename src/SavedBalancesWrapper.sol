@@ -19,8 +19,6 @@ contract SavedBalancesWrapper is ERC6909, UsesCore, BaseForwardee {
     /// @notice Thrown when the uri function is called for an impossible token ID
     error InvalidTokenId(uint256 id);
 
-    error InsufficientAllowance();
-
     /// @notice Allows the given locker to spend a specified amount of tokens for the duration of the transaction
     function temporaryAllowBurn(address locker, uint256 id, uint256 amount) external payable virtual {
         bytes32 slot = EfficientHashLib.hash(uint256(uint160(msg.sender)), uint256(uint160(locker)), id);

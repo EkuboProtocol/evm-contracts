@@ -4,25 +4,11 @@ pragma solidity =0.8.33;
 import {FullTest} from "./FullTest.sol";
 import {SavedBalancesWrapper} from "../src/SavedBalancesWrapper.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {ERC1155} from "solady/tokens/ERC1155.sol";
+import {ERC6909} from "solady/tokens/ERC6909.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-
-contract ERC1155Receiver {
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
-        return 0xf23a6e61;
-    }
-
-    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
-        return 0xbc197c81;
-    }
-}
 
 contract SavedBalancesWrapperLocker is BaseLocker {
     using FlashAccountantLib for *;
@@ -57,42 +43,48 @@ contract SavedBalancesWrapperLocker is BaseLocker {
 contract SavedBalancesWrapperTest is FullTest {
     using CoreLib for *;
 
-    ERC1155Receiver receiver;
+    address receiver = makeAddr("receiver");
 
     SavedBalancesWrapper wrapper;
     SavedBalancesWrapperLocker locker;
 
     function setUp() public override {
         FullTest.setUp();
-        receiver = new ERC1155Receiver();
         wrapper = new SavedBalancesWrapper(core);
         locker = new SavedBalancesWrapperLocker(core, wrapper);
     }
 
     function test_uri_content() public view {
         assertEq(
-            wrapper.uri(1), "data:application/json;utf8,{\"token\":\"0x0000000000000000000000000000000000000001\"}"
+            wrapper.tokenURI(1), "data:application/json;utf8,{\"token\":\"0x0000000000000000000000000000000000000001\"}"
         );
         assertEq(
-            wrapper.uri(wrapper.tokenId(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48)),
+            wrapper.tokenURI(wrapper.tokenId(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48)),
             "data:application/json;utf8,{\"token\":\"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"}"
         );
     }
 
     function test_uri_no_revert(address v) public view {
         vm.assume(uint160(v) != type(uint160).max);
-        wrapper.uri(wrapper.tokenId(v));
+        wrapper.tokenURI(wrapper.tokenId(v));
     }
 
     function test_tokenId_never_reverts(address v) public view {
-        wrapper.tokenId(v);
+        vm.assume(uint160(v) != type(uint160).max);
+        assertEq(wrapper.tokenAddress(wrapper.tokenId(v)), v);
     }
 
     function test_uri_invalid() public {
-        vm.expectRevert(SavedBalancesWrapper.InvalidTokenId.selector);
-        wrapper.uri(type(uint256).max);
-        vm.expectRevert(SavedBalancesWrapper.InvalidTokenId.selector);
-        wrapper.uri(type(uint160).max);
+        vm.expectRevert(abi.encodeWithSelector(SavedBalancesWrapper.InvalidTokenId.selector, type(uint256).max));
+        wrapper.tokenURI(type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(SavedBalancesWrapper.InvalidTokenId.selector, type(uint160).max));
+        wrapper.tokenURI(type(uint160).max);
+    }
+
+    function test_token_metadata() public {
+        assertEq(wrapper.name(uint160(address(token0))), "TestToken");
+        assertEq(wrapper.symbol(uint160(address(token0))), "TT");
+        assertEq(wrapper.decimals(uint160(address(token0))), 18);
     }
 
     function test_mint_burn(uint128 amount) public {
@@ -115,11 +107,15 @@ contract SavedBalancesWrapperTest is FullTest {
 
         vm.startPrank(address(receiver));
         if (amount != 0) {
-            vm.expectRevert(ERC1155.NotOwnerNorApproved.selector);
+            vm.expectRevert(ERC6909.InsufficientPermission.selector);
+            locker.burn(address(token0), address(this), amount);
+
+            wrapper.temporaryAllowBurn(address(locker), wrapper.tokenId(address(token0)), amount - 1);
+            vm.expectRevert(ERC6909.InsufficientPermission.selector);
             locker.burn(address(token0), address(this), amount);
         }
 
-        wrapper.setApprovalForAll(address(locker), true);
+        wrapper.temporaryAllowBurn(address(locker), wrapper.tokenId(address(token0)), amount);
         locker.burn(address(token0), address(this), amount);
 
         assertEq(wrapper.balanceOf(address(receiver), id), 0, "receipt burn");

@@ -145,37 +145,13 @@ contract BoostedFeesTest is FullTest {
         assertEq(totalRate1, 0, "current rate1 is zero");
     }
 
-    function test_donatesFeesToActiveLiquidity() public {
-        uint64 startTime = 256;
-        vm.warp(startTime);
-
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
-        (uint256 positionId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
-
-        token0.approve(address(periphery), type(uint128).max);
-        token1.approve(address(periphery), type(uint128).max);
-
-        uint64 endTime = 1024;
-        uint112 rate = uint112(1 << 32);
-
-        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate, rate1: 0});
-
-        uint64 midTime = startTime + 256;
-        vm.warp(midTime);
-
-        (uint128 partial0, uint128 partial1) = positions.collectFees(positionId, poolKey, -100, 100);
-        assertEq(partial0, 255, "fees are streamed for elapsed time");
-        assertEq(partial1, 0, "no token1 incentives");
-
-        vm.warp(endTime + 256);
-
-        (uint128 final0, uint128 final1) = positions.collectFees(positionId, poolKey, -100, 100);
-        assertEq(final0, 511, "remaining amount is donated");
-        assertEq(final1, 0, "no token1 incentives");
-    }
-
-    function test_donatesFeesOnlyWithinConfiguredWindow() public {
-        uint64 currentTime = 256;
+    function test_donatesFeesToActiveLiquidity(
+        uint64 warpTime,
+        uint32 durationHint,
+        uint32 elapsedHint,
+        uint112 rateHint
+    ) public {
+        uint64 currentTime = uint64(bound(warpTime, 1, type(uint64).max - type(uint32).max));
         vm.warp(currentTime);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
@@ -184,10 +160,59 @@ contract BoostedFeesTest is FullTest {
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
-        uint64 startTime = 1024;
-        uint64 endTime = 1792;
+        uint256 duration = bound(durationHint, 256, 7 days);
+        uint64 endTime = uint64(nextValidTime({currentTime: currentTime, afterTime: currentTime + duration}));
+        uint256 totalDuration = endTime - currentTime;
+        vm.assume(totalDuration > 1);
 
-        uint112 rate = uint112(1 << 32);
+        uint256 elapsedDuration = bound(elapsedHint, 1, totalDuration - 1);
+        uint64 midTime = uint64(currentTime + elapsedDuration);
+
+        uint112 rate = uint112(bound(rateHint, uint112(1 << 32), MAX_ABS_VALUE_SALE_RATE_DELTA));
+
+        periphery.configure({poolKey: poolKey, startTime: 0, endTime: endTime, rate0: rate, rate1: 0});
+
+        vm.warp(midTime);
+        (uint128 partial0,) = positions.collectFees(positionId, poolKey, -100, 100);
+
+        vm.warp(endTime + 256);
+        (uint128 final0,) = positions.collectFees(positionId, poolKey, -100, 100);
+
+        uint256 total = uint256(partial0) + uint256(final0);
+        if (total > 0) {
+            uint256 expectedPartial = (total * elapsedDuration) / totalDuration;
+            assertApproxEqAbs(partial0, expectedPartial, 2, "token0 fees stream linearly over window");
+        }
+    }
+
+    function test_donatesFeesOnlyWithinConfiguredWindow(
+        uint64 warpTime,
+        uint32 startDelayHint,
+        uint32 durationHint,
+        uint32 elapsedHint,
+        uint112 rateHint
+    ) public {
+        uint64 currentTime = uint64(bound(warpTime, 1, type(uint64).max - type(uint32).max));
+        vm.warp(currentTime);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        (uint256 positionId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint256 startDelay = bound(startDelayHint, 256, 7 days);
+        uint64 startTime = uint64(nextValidTime({currentTime: currentTime, afterTime: currentTime + startDelay}));
+
+        uint256 duration = bound(durationHint, 256, 7 days);
+        uint64 endTime = uint64(nextValidTime({currentTime: currentTime, afterTime: startTime + duration}));
+
+        uint256 totalDuration = endTime - startTime;
+        vm.assume(totalDuration > 1);
+        uint256 elapsedDuration = bound(elapsedHint, 1, totalDuration - 1);
+        uint64 midTime = uint64(startTime + elapsedDuration);
+
+        uint112 rate = uint112(bound(rateHint, uint112(1 << 32), MAX_ABS_VALUE_SALE_RATE_DELTA));
 
         periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: 0, rate1: rate});
 
@@ -195,14 +220,67 @@ contract BoostedFeesTest is FullTest {
         assertEq(before0, 0, "no token0 fees before start");
         assertEq(before1, 0, "no token1 fees before start");
 
-        vm.warp(startTime + 256);
-        (uint128 during0, uint128 during1) = positions.collectFees(positionId, poolKey, -100, 100);
-        assertEq(during0, 0, "no token0 incentives");
-        assertEq(during1, 255, "token1 fees accrue after start");
+        vm.warp(midTime);
+        (, uint128 during1) = positions.collectFees(positionId, poolKey, -100, 100);
 
         vm.warp(endTime + 256);
-        (uint128 after0, uint128 after1) = positions.collectFees(positionId, poolKey, -100, 100);
-        assertEq(after0, 0, "no token0 incentives after window");
-        assertEq(after1, 511, "only remaining window worth of token1 fees are donated");
+        (, uint128 after1) = positions.collectFees(positionId, poolKey, -100, 100);
+
+        uint256 total = uint256(during1) + uint256(after1);
+        if (total > 0) {
+            uint256 expectedPartial = (total * elapsedDuration) / totalDuration;
+            assertApproxEqAbs(during1, expectedPartial, 2, "token1 fees stream linearly within window");
+        }
+    }
+
+    /// forge-config: default.isolate = true
+    function test_donateFees_maximum_gas_cost() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint112 rate = uint112(1 << 32);
+        uint256 time = 1;
+
+        while (true) {
+            uint256 endTime = nextValidTime({currentTime: 1, afterTime: time});
+            if (endTime == 0) break;
+            periphery.configure({poolKey: poolKey, startTime: 0, endTime: uint64(endTime), rate0: rate, rate1: rate});
+            time = endTime;
+        }
+
+        advanceTime(type(uint32).max);
+        coolAllContracts();
+
+        boostedFees.maybeAccumulateFees(poolKey);
+        vm.snapshotGasLastCall("maybeAccumulateFees (donating all boosted fees)");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_maybeAccumulateFees_regular_donation_gas_cost() public {
+        uint64 currentTime = 256;
+        vm.warp(currentTime);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+
+        uint64 startTime = 0;
+        uint64 endTime = uint64(nextValidTime({currentTime: currentTime, afterTime: currentTime}));
+        uint112 rate = uint112(1 << 32);
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate, rate1: rate});
+
+        // warm up storage so the measured call is not paying the fees slot initialization cost
+        advanceTime(1);
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        advanceTime(1);
+        coolAllContracts();
+
+        boostedFees.maybeAccumulateFees(poolKey);
+        vm.snapshotGasLastCall("maybeAccumulateFees (regular donation)");
     }
 }

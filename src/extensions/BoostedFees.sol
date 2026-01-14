@@ -148,11 +148,12 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
 
             if (uint32(block.timestamp) != lastAccumulated) {
                 StorageSlot initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
-                uint256 amount0;
-                uint256 amount1;
 
                 uint256 realLastDonationTime = state.realLastVirtualOrderExecutionTime();
                 uint256 time = realLastDonationTime;
+
+                uint256 amount0;
+                uint256 amount1;
 
                 while (time != block.timestamp) {
                     (uint256 eventTime, bool hasEvent) = searchForNextInitializedTime({

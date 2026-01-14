@@ -20,12 +20,15 @@ import {BaseExtension} from "../base/BaseExtension.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
-import {addSaleRateDelta} from "../math/twamm.sol";
-import {MAX_ABS_VALUE_SALE_RATE_DELTA, isTimeValid} from "../math/time.sol";
+import {addLiquidityDelta} from "../math/liquidity.sol";
+import {MAX_NUM_VALID_TIMES, isTimeValid} from "../math/time.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
-import {TimeInfo, createTimeInfo} from "../types/timeInfo.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
+
+// If we constrain the reward rate delta to this value, then the current sale rate will never overflow
+uint256 constant MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint128).max / MAX_NUM_VALID_TIMES;
 
 function boostedFeesCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -146,7 +149,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                 }
             }
 
-            (uint32 lastAccumulated, uint256 rate0, uint256 rate1) = state.parse();
+            (uint32 lastAccumulated, uint128 rate0, uint128 rate1) = state.parse();
 
             if (uint32(block.timestamp) != lastAccumulated) {
                 StorageSlot initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
@@ -169,10 +172,10 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
 
                     if (hasEvent) {
                         StorageSlot timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, eventTime);
-                        (, int112 delta0, int112 delta1) = TimeInfo.wrap(timeInfoSlot.load()).parse();
+                        PoolBalanceUpdate deltas = PoolBalanceUpdate.wrap(timeInfoSlot.load());
 
-                        rate0 = addSaleRateDelta(rate0, delta0);
-                        rate1 = addSaleRateDelta(rate1, delta1);
+                        rate0 = addLiquidityDelta(rate0, deltas.delta0());
+                        rate1 = addLiquidityDelta(rate1, deltas.delta1());
 
                         // saves on storage by clearing the slots
                         timeInfoSlot.store(bytes32(0));
@@ -196,20 +199,9 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
         }
     }
 
-    /// @dev Adds a signed change to an existing rate delta with bounds checking.
-    function _addConstrainRateDelta(int112 rateDelta, int256 change) private pure returns (int112 next) {
-        int256 result = int256(rateDelta) + change;
-
-        if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
-            revert MaxRateDeltaPerTime();
-        }
-
-        next = int112(result);
-    }
-
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
-            (PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint128 amount0, uint128 amount1) =
+            (PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint128 rate0, uint128 rate1) =
                 abi.decode(data, (PoolKey, uint64, uint64, uint128, uint128));
 
             if (
@@ -223,25 +215,39 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
             // First thing we must always do is always update the pool to the current state
             maybeAccumulateFees(poolKey);
 
-            uint256 duration = endTime - startTime;
-            int256 rateDelta0 = int256((uint256(amount0) << 32) / duration);
-            int256 rateDelta1 = int256((uint256(amount1) << 32) / duration);
+            // compute the amounts that the user must pay
+            uint256 realDuration = uint256(endTime) - FixedPointMathLib.max(block.timestamp, startTime);
+            uint256 amount0 = ((realDuration * rate0) + type(uint32).max) >> 32;
+            uint256 amount1 = ((realDuration * rate1) + type(uint32).max) >> 32;
 
-            if (rateDelta0 == 0 && rateDelta1 == 0) {
-                revert ZeroRewardRate();
-            }
+            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), int256(amount0), int256(amount1));
 
             PoolId poolId = poolKey.toPoolId();
             StorageSlot initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
 
             if (startTime > block.timestamp) {
-                _updateTime(initializedTimesBitmapSlot, poolId, startTime, rateDelta0, rateDelta1);
+                _updateTime(
+                    initializedTimesBitmapSlot, poolId, startTime, int256(uint256(rate0)), int256(uint256(rate1))
+                );
             }
 
-            _updateTime(initializedTimesBitmapSlot, poolId, endTime, -rateDelta0, -rateDelta1);
+            _updateTime(initializedTimesBitmapSlot, poolId, endTime, -int256(uint256(rate0)), -int256(uint256(rate1)));
 
-            emit PoolBoosted(poolId, startTime, endTime, uint256(rateDelta0), uint256(rateDelta1));
+            emit PoolBoosted(poolId, startTime, endTime, rate0, rate1);
+
+            result = abi.encode(amount0, amount1);
         }
+    }
+
+    /// @dev Adds a signed change to an existing rate delta with bounds checking.
+    function _addConstrainRateDelta(int128 rateDelta, int256 change) private pure returns (int128 next) {
+        int256 result = int256(rateDelta) + change;
+
+        if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_REWARD_RATE_DELTA) {
+            revert MaxRateDeltaPerTime();
+        }
+
+        next = int128(result);
     }
 
     function _updateTime(
@@ -252,21 +258,15 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
         int256 delta1
     ) private {
         StorageSlot timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, time);
-        TimeInfo info = TimeInfo.wrap(timeInfoSlot.load());
-        (uint32 num, int112 rateDelta0, int112 rateDelta1) = info.parse();
+        PoolBalanceUpdate info = PoolBalanceUpdate.wrap(timeInfoSlot.load());
 
-        bool isZero = rateDelta0 == 0 && rateDelta1 == 0;
-
-        rateDelta0 = _addConstrainRateDelta(rateDelta0, delta0);
-        rateDelta1 = _addConstrainRateDelta(rateDelta1, delta1);
-
-        bool isZeroAfter = rateDelta0 == 0 && rateDelta1 == 0;
-
-        timeInfoSlot.store(
-            TimeInfo.unwrap(createTimeInfo(uint32(LibBit.rawToUint(isZeroAfter)), rateDelta0, rateDelta1))
+        PoolBalanceUpdate infoNext = createPoolBalanceUpdate(
+            _addConstrainRateDelta(info.delta0(), delta0), _addConstrainRateDelta(info.delta1(), delta1)
         );
 
-        if (isZero != isZeroAfter) {
+        timeInfoSlot.store(PoolBalanceUpdate.unwrap(infoNext));
+
+        if ((PoolBalanceUpdate.unwrap(info) == bytes32(0)) == (PoolBalanceUpdate.unwrap(infoNext) == bytes32(0))) {
             flipTime(initializedTimesBitmapSlot, time);
         }
     }

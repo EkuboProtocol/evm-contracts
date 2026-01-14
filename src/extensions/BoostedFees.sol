@@ -67,11 +67,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
     }
 
     /// @inheritdoc IExtension
-    function beforeSwap(Locker, PoolKey memory poolKey, SwapParameters)
-        external
-        override(BaseExtension, IExtension)
-        onlyCore
-    {
+    function beforeSwap(Locker, PoolKey memory poolKey, SwapParameters) external override(BaseExtension, IExtension) {
         maybeAccumulateFees(poolKey);
     }
 
@@ -79,7 +75,6 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
     function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128)
         external
         override(BaseExtension, IExtension)
-        onlyCore
     {
         maybeAccumulateFees(poolKey);
     }
@@ -88,7 +83,6 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
     function beforeCollectFees(Locker, PoolKey memory poolKey, PositionId)
         external
         override(BaseExtension, IExtension)
-        onlyCore
     {
         maybeAccumulateFees(poolKey);
     }

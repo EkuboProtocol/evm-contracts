@@ -238,6 +238,9 @@ contract BoostedFeesTest is FullTest {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+
+        createPosition(poolKey, -100, 100, 1e18, 1e18);
+
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
@@ -256,6 +259,56 @@ contract BoostedFeesTest is FullTest {
 
         boostedFees.maybeAccumulateFees(poolKey);
         vm.snapshotGasLastCall("maybeAccumulateFees (donating all boosted fees)");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_same_token_as_donated() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 63, tickSpacing: 100, extension: address(boostedFees)});
+        createPosition(poolKey, -100, 100, 1e18, 1e18);
+
+        token0.approve(address(periphery), type(uint128).max);
+        token0.approve(address(router), type(uint128).max);
+        periphery.configure({poolKey: poolKey, startTime: 0, endTime: 256, rate0: 1 << 32, rate1: 0});
+
+        advanceTime(1);
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        advanceTime(1);
+        coolAllContracts();
+        router.swapAllowPartialFill({
+            poolKey: poolKey,
+            params: createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: 100, _isToken1: false, _skipAhead: 0
+            })
+        });
+        vm.snapshotGasLastCall("swap token0 (same token donated)");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_swap_different_token_as_donated() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 63, tickSpacing: 100, extension: address(boostedFees)});
+        createPosition(poolKey, -100, 100, 1e18, 1e18);
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(router), type(uint128).max);
+        periphery.configure({poolKey: poolKey, startTime: 0, endTime: 256, rate0: 1 << 32, rate1: 0});
+
+        advanceTime(1);
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        advanceTime(1);
+        coolAllContracts();
+        router.swapAllowPartialFill({
+            poolKey: poolKey,
+            params: createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: 100, _isToken1: true, _skipAhead: 0
+            })
+        });
+        vm.snapshotGasLastCall("swap token1 (different token donated)");
     }
 
     /// forge-config: default.isolate = true

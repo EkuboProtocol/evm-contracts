@@ -124,6 +124,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
         );
     }
 
+    /// @dev Note this checks that the pool is initialized via the local state of the contract
     function maybeAccumulateFees(PoolKey memory poolKey) public {
         unchecked {
             PoolId poolId = poolKey.toPoolId();

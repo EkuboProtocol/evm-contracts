@@ -8,6 +8,7 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {Locker} from "../../src/types/locker.sol";
+import {PoolConfig} from "../../src/types/poolConfig.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {BoostedFeesLib} from "../../src/libraries/BoostedFeesLib.sol";
 import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
@@ -31,7 +32,7 @@ contract BoostedFeesConfigurator is UsesCore, BaseLocker {
         boostedFees = _boostedFees;
     }
 
-    function configure(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1)
+    function boost(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1)
         external
         returns (uint112, uint112)
     {
@@ -44,8 +45,13 @@ contract BoostedFeesConfigurator is UsesCore, BaseLocker {
 
         (uint112 amount0, uint112 amount1) = CORE.addIncentives(poolKey, startTime, endTime, rate0, rate1);
 
-        if (amount0 != 0) ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
-        if (amount1 != 0) ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
+        if (amount0 != 0 && amount1 != 0) {
+            ACCOUNTANT.payTwoFrom(payer, poolKey.token0, poolKey.token1, amount0, amount1);
+        } else if (amount0 != 0) {
+            ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
+        } else if (amount1 != 0) {
+            ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
+        }
 
         return abi.encode(amount0, amount1);
     }
@@ -68,6 +74,18 @@ contract BoostedFeesTest is FullTest {
         periphery = new BoostedFeesConfigurator(core, boostedFees);
     }
 
+    function test_pool_mustBeInitialized(PoolKey memory otherPoolKey) public {
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        vm.assume(
+            !(poolKey.token0 == otherPoolKey.token0 && poolKey.token1 == otherPoolKey.token1
+                    && PoolConfig.unwrap(poolKey.config) == PoolConfig.unwrap(otherPoolKey.config))
+        );
+        vm.expectRevert(IBoostedFees.PoolNotInitialized.selector);
+        boostedFees.maybeAccumulateFees(otherPoolKey);
+    }
+
     function test_afterInitializePool_setsState(uint256 time, uint64 fee) public {
         vm.warp(time);
 
@@ -83,7 +101,7 @@ contract BoostedFeesTest is FullTest {
         assertEq(state.realLastVirtualOrderExecutionTime(), time, "the real virtual execution time is now");
     }
 
-    function test_configure_activeOrder_changesSaleRate(uint256 time, uint112 rate0, uint112 rate1, uint16 minDuration)
+    function test_boost_activeOrder_changesSaleRate(uint256 time, uint112 rate0, uint112 rate1, uint16 minDuration)
         public
     {
         time = bound(time, 0, type(uint64).max - type(uint32).max);
@@ -100,7 +118,7 @@ contract BoostedFeesTest is FullTest {
         uint64 endTime = uint64(nextValidTime({currentTime: time, afterTime: time + minDuration}));
 
         (uint112 amount0, uint112 amount1) =
-            periphery.configure({poolKey: poolKey, startTime: 0, endTime: endTime, rate0: rate0, rate1: rate1});
+            periphery.boost({poolKey: poolKey, startTime: 0, endTime: endTime, rate0: rate0, rate1: rate1});
 
         assertEq(rate0 > 0, amount0 > 0, "amount0 is nonzero iff rate0 is nonzero");
         assertEq(rate1 > 0, amount1 > 0, "amount1 is nonzero iff rate1 is nonzero");
@@ -112,7 +130,7 @@ contract BoostedFeesTest is FullTest {
         assertEq(totalRate1, rate1, "current rate1 is updated");
     }
 
-    function test_configure_futureOrder_doesNotChangeSaleRate(
+    function test_boost_futureOrder_doesNotChangeSaleRate(
         uint256 time,
         uint112 rate0,
         uint112 rate1,
@@ -133,7 +151,7 @@ contract BoostedFeesTest is FullTest {
         uint64 startTime = uint64(nextValidTime({currentTime: time, afterTime: time + minDelay}));
         uint64 endTime = uint64(nextValidTime({currentTime: time, afterTime: startTime + minDuration}));
         (uint112 amount0, uint112 amount1) =
-            periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
+            periphery.boost({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
 
         assertEq(rate0 > 0, amount0 > 0, "amount0 is nonzero iff rate0 is nonzero");
         assertEq(rate1 > 0, amount1 > 0, "amount1 is nonzero iff rate1 is nonzero");
@@ -170,7 +188,7 @@ contract BoostedFeesTest is FullTest {
 
         uint112 rate = uint112(bound(rateHint, uint112(1 << 32), MAX_ABS_VALUE_SALE_RATE_DELTA));
 
-        periphery.configure({poolKey: poolKey, startTime: 0, endTime: endTime, rate0: rate, rate1: 0});
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: endTime, rate0: rate, rate1: 0});
 
         vm.warp(midTime);
         (uint128 partial0,) = positions.collectFees(positionId, poolKey, -100, 100);
@@ -185,7 +203,7 @@ contract BoostedFeesTest is FullTest {
         }
     }
 
-    function test_donatesFeesOnlyWithinConfiguredWindow(
+    function test_donatesFeesOnlyWithinboostdWindow(
         uint64 warpTime,
         uint32 startDelayHint,
         uint32 durationHint,
@@ -214,7 +232,7 @@ contract BoostedFeesTest is FullTest {
 
         uint112 rate = uint112(bound(rateHint, uint112(1 << 32), MAX_ABS_VALUE_SALE_RATE_DELTA));
 
-        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: 0, rate1: rate});
+        periphery.boost({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: 0, rate1: rate});
 
         (uint128 before0, uint128 before1) = positions.collectFees(positionId, poolKey, -100, 100);
         assertEq(before0, 0, "no token0 fees before start");
@@ -250,7 +268,7 @@ contract BoostedFeesTest is FullTest {
         while (true) {
             uint256 endTime = nextValidTime({currentTime: 1, afterTime: time});
             if (endTime == 0) break;
-            periphery.configure({poolKey: poolKey, startTime: 0, endTime: uint64(endTime), rate0: rate, rate1: rate});
+            periphery.boost({poolKey: poolKey, startTime: 0, endTime: uint64(endTime), rate0: rate, rate1: rate});
             time = endTime;
         }
 
@@ -270,7 +288,7 @@ contract BoostedFeesTest is FullTest {
 
         token0.approve(address(periphery), type(uint128).max);
         token0.approve(address(router), type(uint128).max);
-        periphery.configure({poolKey: poolKey, startTime: 0, endTime: 256, rate0: 1 << 32, rate1: 0});
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: 256, rate0: 1 << 32, rate1: 0});
 
         advanceTime(1);
         boostedFees.maybeAccumulateFees(poolKey);
@@ -295,7 +313,7 @@ contract BoostedFeesTest is FullTest {
 
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(router), type(uint128).max);
-        periphery.configure({poolKey: poolKey, startTime: 0, endTime: 256, rate0: 1 << 32, rate1: 0});
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: 256, rate0: 1 << 32, rate1: 0});
 
         advanceTime(1);
         boostedFees.maybeAccumulateFees(poolKey);
@@ -324,7 +342,7 @@ contract BoostedFeesTest is FullTest {
 
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
-        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate, rate1: rate});
+        periphery.boost({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate, rate1: rate});
 
         // warm up storage so the measured call is not paying the fees slot initialization cost
         advanceTime(1);
@@ -337,7 +355,7 @@ contract BoostedFeesTest is FullTest {
         vm.snapshotGasLastCall("maybeAccumulateFees (regular donation)");
     }
 
-    function test_configure_emitsPoolBoosted(
+    function test_boost_emitsPoolBoosted(
         uint64 warpTime,
         uint64 startDelay,
         uint64 duration,
@@ -362,7 +380,7 @@ contract BoostedFeesTest is FullTest {
         vm.expectEmit(true, true, true, true, address(boostedFees));
         emit IBoostedFees.PoolBoosted(poolKey.toPoolId(), startTime, endTime, rate0, rate1);
 
-        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
+        periphery.boost({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
     }
 
     function test_maybeAccumulateFees_emitsFeesAccumulated(uint64 warpTime) public {
@@ -380,7 +398,7 @@ contract BoostedFeesTest is FullTest {
         uint112 rate0 = uint112(1 << 32);
         uint112 rate1 = 0;
 
-        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
+        periphery.boost({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
 
         uint64 donationTime = startTime + 256;
         vm.warp(donationTime);

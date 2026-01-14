@@ -2,11 +2,7 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "../FullTest.sol";
-import {
-    BoostedFees,
-    boostedFeesCallPoints,
-    MAX_ABS_VALUE_REWARD_RATE_DELTA
-} from "../../src/extensions/BoostedFees.sol";
+import {BoostedFees, boostedFeesCallPoints} from "../../src/extensions/BoostedFees.sol";
 import {IBoostedFees} from "../../src/interfaces/extensions/IBoostedFees.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
@@ -20,7 +16,7 @@ import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
-import {nextValidTime} from "../../src/math/time.sol";
+import {MAX_ABS_VALUE_SALE_RATE_DELTA, nextValidTime} from "../../src/math/time.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {TwammPoolState} from "../../src/types/twammPoolState.sol";
@@ -34,20 +30,20 @@ contract BoostedFeesConfigurator is BaseLocker {
         boostedFees = _boostedFees;
     }
 
-    function configure(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint128 rate0, uint128 rate1)
+    function configure(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1)
         external
-        returns (uint128, uint128)
+        returns (uint112, uint112)
     {
-        return abi.decode(lock(abi.encode(msg.sender, poolKey, startTime, endTime, rate0, rate1)), (uint128, uint128));
+        return abi.decode(lock(abi.encode(msg.sender, poolKey, startTime, endTime, rate0, rate1)), (uint112, uint112));
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint128 rate0, uint128 rate1) =
-            abi.decode(data, (address, PoolKey, uint64, uint64, uint128, uint128));
+        (address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1) =
+            abi.decode(data, (address, PoolKey, uint64, uint64, uint112, uint112));
 
-        (uint128 amount0, uint128 amount1) = abi.decode(
+        (uint112 amount0, uint112 amount1) = abi.decode(
             ACCOUNTANT.forward(address(boostedFees), abi.encode(poolKey, startTime, endTime, rate0, rate1)),
-            (uint128, uint128)
+            (uint112, uint112)
         );
 
         ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
@@ -89,27 +85,65 @@ contract BoostedFeesTest is FullTest {
         assertEq(state.realLastVirtualOrderExecutionTime(), time, "the real virtual execution time is now");
     }
 
-    function test_configure_changesSaleRate(uint256 time, uint128 rate0, uint128 rate1) public {
+    function test_configure_activeOrder_changesSaleRate(uint256 time, uint112 rate0, uint112 rate1, uint16 minDuration)
+        public
+    {
         time = bound(time, 0, type(uint64).max - type(uint32).max);
         vm.warp(time);
 
-        rate0 = uint128(bound(rate0, 0, MAX_ABS_VALUE_REWARD_RATE_DELTA));
-        rate1 = uint128(bound(rate1, 0, MAX_ABS_VALUE_REWARD_RATE_DELTA));
+        rate0 = uint112(bound(rate0, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
+        rate1 = uint112(bound(rate1, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
 
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
-        (uint128 amount0, uint128 amount1) = periphery.configure({
-            poolKey: poolKey,
-            startTime: 0,
-            endTime: uint64(nextValidTime({currentTime: time, afterTime: time})),
-            rate0: rate0,
-            rate1: rate1
-        });
+        uint64 endTime = uint64(nextValidTime({currentTime: time, afterTime: time + minDuration}));
+
+        (uint112 amount0, uint112 amount1) =
+            periphery.configure({poolKey: poolKey, startTime: 0, endTime: endTime, rate0: rate0, rate1: rate1});
 
         assertEq(rate0 > 0, amount0 > 0, "amount0 is nonzero iff rate0 is nonzero");
         assertEq(rate1 > 0, amount1 > 0, "amount1 is nonzero iff rate1 is nonzero");
+
+        TwammPoolState state = boostedFees.poolState(poolKey.toPoolId());
+        (uint32 lastTime, uint112 totalRate0, uint112 totalRate1) = state.parse();
+        assertEq(lastTime, uint32(vm.getBlockTimestamp()), "time is set to current");
+        assertEq(totalRate0, rate0, "current rate0 is updated");
+        assertEq(totalRate1, rate1, "current rate1 is updated");
+    }
+
+    function test_configure_futureOrder_doesNotChangeSaleRate(
+        uint256 time,
+        uint112 rate0,
+        uint112 rate1,
+        uint16 minDelay,
+        uint16 minDuration
+    ) public {
+        time = bound(time, 0, type(uint64).max - type(uint32).max);
+        vm.warp(time);
+
+        rate0 = uint112(bound(rate0, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
+        rate1 = uint112(bound(rate1, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 startTime = uint64(nextValidTime({currentTime: time, afterTime: time + minDelay}));
+        uint64 endTime = uint64(nextValidTime({currentTime: time, afterTime: startTime + minDuration}));
+        (uint112 amount0, uint112 amount1) =
+            periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
+
+        assertEq(rate0 > 0, amount0 > 0, "amount0 is nonzero iff rate0 is nonzero");
+        assertEq(rate1 > 0, amount1 > 0, "amount1 is nonzero iff rate1 is nonzero");
+
+        TwammPoolState state = boostedFees.poolState(poolKey.toPoolId());
+        (uint32 lastTime, uint112 totalRate0, uint112 totalRate1) = state.parse();
+        assertEq(lastTime, uint32(vm.getBlockTimestamp()), "time is set to current");
+        assertEq(totalRate0, 0, "current rate0 is zero");
+        assertEq(totalRate1, 0, "current rate1 is zero");
     }
 }

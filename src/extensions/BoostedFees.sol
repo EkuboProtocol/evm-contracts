@@ -20,15 +20,12 @@ import {BaseExtension} from "../base/BaseExtension.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
-import {addLiquidityDelta} from "../math/liquidity.sol";
-import {MAX_NUM_VALID_TIMES, isTimeValid} from "../math/time.sol";
+import {addSaleRateDelta} from "../math/twamm.sol";
+import {MAX_ABS_VALUE_SALE_RATE_DELTA, isTimeValid} from "../math/time.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
-
-// If we constrain the reward rate delta to this value, then the current sale rate will never overflow
-uint256 constant MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint128).max / MAX_NUM_VALID_TIMES;
 
 function boostedFeesCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -149,7 +146,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                 }
             }
 
-            (uint32 lastAccumulated, uint128 rate0, uint128 rate1) = state.parse();
+            (uint32 lastAccumulated, uint256 rate0, uint256 rate1) = state.parse();
 
             if (uint32(block.timestamp) != lastAccumulated) {
                 StorageSlot initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
@@ -174,8 +171,8 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                         StorageSlot timeInfoSlot = TWAMMStorageLayout.poolTimeInfosSlot(poolId, eventTime);
                         PoolBalanceUpdate deltas = PoolBalanceUpdate.wrap(timeInfoSlot.load());
 
-                        rate0 = addLiquidityDelta(rate0, deltas.delta0());
-                        rate1 = addLiquidityDelta(rate1, deltas.delta1());
+                        rate0 = addSaleRateDelta(rate0, deltas.delta0());
+                        rate1 = addSaleRateDelta(rate1, deltas.delta1());
 
                         // saves on storage by clearing the slots
                         timeInfoSlot.store(bytes32(0));
@@ -201,8 +198,8 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
 
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
-            (PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint128 rate0, uint128 rate1) =
-                abi.decode(data, (PoolKey, uint64, uint64, uint128, uint128));
+            (PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1) =
+                abi.decode(data, (PoolKey, uint64, uint64, uint112, uint112));
 
             if (
                 !isTimeValid({currentTime: block.timestamp, time: startTime})
@@ -229,6 +226,16 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                 _updateTime(
                     initializedTimesBitmapSlot, poolId, startTime, int256(uint256(rate0)), int256(uint256(rate1))
                 );
+            } else {
+                TwammPoolState state = _getPoolState(poolId);
+                _setPoolState(
+                    poolId,
+                    createTwammPoolState(
+                        uint32(block.timestamp),
+                        uint112(addSaleRateDelta(state.saleRateToken0(), int256(uint256(rate0)))),
+                        uint112(addSaleRateDelta(state.saleRateToken1(), int256(uint256(rate1))))
+                    )
+                );
             }
 
             _updateTime(initializedTimesBitmapSlot, poolId, endTime, -int256(uint256(rate0)), -int256(uint256(rate1)));
@@ -243,7 +250,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
     function _addConstrainRateDelta(int128 rateDelta, int256 change) private pure returns (int128 next) {
         int256 result = int256(rateDelta) + change;
 
-        if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_REWARD_RATE_DELTA) {
+        if (FixedPointMathLib.abs(result) > MAX_ABS_VALUE_SALE_RATE_DELTA) {
             revert MaxRateDeltaPerTime();
         }
 

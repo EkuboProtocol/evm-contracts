@@ -46,8 +46,8 @@ contract BoostedFeesConfigurator is BaseLocker {
             (uint112, uint112)
         );
 
-        ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
-        ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
+        if (amount0 != 0) ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
+        if (amount1 != 0) ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
 
         return abi.encode(amount0, amount1);
     }
@@ -145,5 +145,66 @@ contract BoostedFeesTest is FullTest {
         assertEq(lastTime, uint32(vm.getBlockTimestamp()), "time is set to current");
         assertEq(totalRate0, 0, "current rate0 is zero");
         assertEq(totalRate1, 0, "current rate1 is zero");
+    }
+
+    function test_donatesFeesToActiveLiquidity() public {
+        uint64 startTime = 256;
+        vm.warp(startTime);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        (uint256 positionId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 endTime = 1024;
+        uint112 rate = uint112(1 << 32);
+
+        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate, rate1: 0});
+
+        uint64 midTime = startTime + 256;
+        vm.warp(midTime);
+
+        (uint128 partial0, uint128 partial1) = positions.collectFees(positionId, poolKey, -100, 100);
+        assertEq(partial0, 255, "fees are streamed for elapsed time");
+        assertEq(partial1, 0, "no token1 incentives");
+
+        vm.warp(endTime + 256);
+
+        (uint128 final0, uint128 final1) = positions.collectFees(positionId, poolKey, -100, 100);
+        assertEq(final0, 511, "remaining amount is donated");
+        assertEq(final1, 0, "no token1 incentives");
+    }
+
+    function test_donatesFeesOnlyWithinConfiguredWindow() public {
+        uint64 currentTime = 256;
+        vm.warp(currentTime);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        (uint256 positionId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 startTime = 1024;
+        uint64 endTime = 1792;
+
+        uint112 rate = uint112(1 << 32);
+
+        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: 0, rate1: rate});
+
+        (uint128 before0, uint128 before1) = positions.collectFees(positionId, poolKey, -100, 100);
+        assertEq(before0, 0, "no token0 fees before start");
+        assertEq(before1, 0, "no token1 fees before start");
+
+        vm.warp(startTime + 256);
+        (uint128 during0, uint128 during1) = positions.collectFees(positionId, poolKey, -100, 100);
+        assertEq(during0, 0, "no token0 incentives");
+        assertEq(during1, 255, "token1 fees accrue after start");
+
+        vm.warp(endTime + 256);
+        (uint128 after0, uint128 after1) = positions.collectFees(positionId, poolKey, -100, 100);
+        assertEq(after0, 0, "no token0 incentives after window");
+        assertEq(after1, 511, "only remaining window worth of token1 fees are donated");
     }
 }

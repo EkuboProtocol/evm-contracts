@@ -25,8 +25,6 @@ interface IBoostedFees is IExposedStorage, IExtension, ILocker, IForwardee {
     error PoolNotInitialized();
     /// @notice Reverts when incentive rates exceed permitted bounds.
     error MaxRateDeltaPerTime();
-    /// @notice Reverts when the computed rate is zero for both tokens
-    error ZeroRewardRate();
 
     /// @notice Public entrypoint to accrue and donate incentives for a pool.
     /// @param poolKey The pool key for which to donate incentives.

@@ -96,9 +96,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
     }
 
     /// @dev Locks Core to accumulate the given amount of fees to the specified pool.
-    function _accumulateFeesFromSavedBalance(PoolKey memory poolKey, bytes32 poolId, uint128 amount0, uint128 amount1)
-        private
-    {
+    function _accumulateFeesFromSavedBalance(PoolKey memory poolKey, uint128 amount0, uint128 amount1) private {
         address target = address(CORE);
         assembly ("memory-safe") {
             let o := mload(0x40)
@@ -122,7 +120,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
 
         assembly ("memory-safe") {
             calldatacopy(poolKey, 36, 96)
-            let amounts := calldataload(128)
+            let amounts := calldataload(132)
 
             amount0 := shr(128, amounts)
             amount1 := shr(128, shl(128, amounts))
@@ -150,8 +148,8 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
 
             if (uint32(block.timestamp) != lastAccumulated) {
                 StorageSlot initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
-                uint256 amount0 = 0;
-                uint256 amount1 = 0;
+                uint256 amount0;
+                uint256 amount1;
 
                 uint256 realLastDonationTime = state.realLastVirtualOrderExecutionTime();
                 uint256 time = realLastDonationTime;
@@ -192,6 +190,10 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                         _saleRateToken1: uint112(rate1)
                     })
                 );
+
+                if (amount0 != 0 || amount1 != 0) {
+                    _accumulateFeesFromSavedBalance(poolKey, uint128(amount0), uint128(amount1));
+                }
             }
         }
     }
@@ -273,7 +275,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
 
         timeInfoSlot.store(PoolBalanceUpdate.unwrap(infoNext));
 
-        if ((PoolBalanceUpdate.unwrap(info) == bytes32(0)) == (PoolBalanceUpdate.unwrap(infoNext) == bytes32(0))) {
+        if ((PoolBalanceUpdate.unwrap(info) == bytes32(0)) != (PoolBalanceUpdate.unwrap(infoNext) == bytes32(0))) {
             flipTime(initializedTimesBitmapSlot, time);
         }
     }

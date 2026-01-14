@@ -21,6 +21,10 @@ import {MAX_ABS_VALUE_SALE_RATE_DELTA, nextValidTime} from "../../src/math/time.
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {TwammPoolState} from "../../src/types/twammPoolState.sol";
+import {TWAMMStorageLayout} from "../../src/libraries/TWAMMStorageLayout.sol";
+import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
+import {timeToBitmapWordAndIndex} from "../../src/math/timeBitmap.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 contract BoostedFeesConfigurator is UsesCore, BaseLocker {
     using FlashAccountantLib for *;
@@ -59,9 +63,21 @@ contract BoostedFeesConfigurator is UsesCore, BaseLocker {
 
 contract BoostedFeesTest is FullTest {
     using BoostedFeesLib for *;
+    using ExposedStorageLib for *;
 
     BoostedFees internal boostedFees;
     BoostedFeesConfigurator internal periphery;
+
+    function _isTimeInitialized(PoolId poolId, uint256 time) internal view returns (bool) {
+        StorageSlot base = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
+        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
+        bytes32 bitmapWord = boostedFees.sload(base.add(word));
+        return (uint256(bitmapWord) & (uint256(1) << index)) != 0;
+    }
+
+    function _timeInfo(PoolId poolId, uint256 time) internal view returns (bytes32) {
+        return boostedFees.sload(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time));
+    }
 
     function setUp() public override {
         super.setUp();
@@ -84,6 +100,155 @@ contract BoostedFeesTest is FullTest {
         );
         vm.expectRevert(IBoostedFees.PoolNotInitialized.selector);
         boostedFees.maybeAccumulateFees(otherPoolKey);
+    }
+
+    function test_pool_extension_mustMatchBoostedFees_evenIfInitialized() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(0)});
+
+        // Core pool is initialized, but BoostedFees has no state for it and the pool's
+        // configured extension is not BoostedFees.
+        vm.expectRevert(IBoostedFees.PoolNotInitialized.selector);
+        boostedFees.maybeAccumulateFees(poolKey);
+    }
+
+    function test_maybeAccumulateFees_recoversIfLocalStateMissing() public {
+        vm.warp(1 << 32);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolId poolId = poolKey.toPoolId();
+
+        assertEq(boostedFees.sload(TWAMMStorageLayout.twammPoolStateSlot(poolId)), bytes32(0));
+
+        // does not revert
+        boostedFees.maybeAccumulateFees(poolKey);
+    }
+
+    function test_boost_reverts_invalidStartTime() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        vm.expectRevert(IBoostedFees.InvalidTimestamps.selector);
+        periphery.boost({poolKey: poolKey, startTime: 257, endTime: 512, rate0: 1 << 32, rate1: 0});
+    }
+
+    function test_boost_reverts_invalidEndTime() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        vm.expectRevert(IBoostedFees.InvalidTimestamps.selector);
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: 257, rate0: 1 << 32, rate1: 0});
+    }
+
+    function test_boost_reverts_endTimeLessOrEqualStartTime() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        vm.expectRevert(IBoostedFees.InvalidTimestamps.selector);
+        periphery.boost({poolKey: poolKey, startTime: 512, endTime: 512, rate0: 1 << 32, rate1: 0});
+    }
+
+    function test_boost_reverts_endTimeInPast() public {
+        vm.warp(512);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        vm.expectRevert(IBoostedFees.InvalidTimestamps.selector);
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: 256, rate0: 1 << 32, rate1: 0});
+    }
+
+    function test_boost_reverts_maxRateDeltaPerTime() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 startTime = 512;
+        uint64 endTime = 1024;
+
+        uint112 rate = uint112(MAX_ABS_VALUE_SALE_RATE_DELTA);
+
+        periphery.boost({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate, rate1: 0});
+
+        vm.expectRevert(IBoostedFees.MaxRateDeltaPerTime.selector);
+        periphery.boost({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate, rate1: 0});
+    }
+
+    function test_maybeAccumulateFees_isNoop_sameTimestamp() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        createPosition(poolKey, -100, 100, 1e18, 1e18);
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: 512, rate0: 1 << 32, rate1: 0});
+
+        vm.warp(257);
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        vm.recordLogs();
+        boostedFees.maybeAccumulateFees(poolKey);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 0, "no events emitted on second call");
+    }
+
+    function test_boost_bitmap_cancels_whenOrderEndsAndNextStartsSameTime() public {
+        uint64 currentTime = 1;
+        vm.warp(currentTime);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolId poolId = poolKey.toPoolId();
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 start1 = 512;
+        uint64 end1 = 1024;
+        uint64 end2 = 1536;
+
+        uint112 rate = uint112(1 << 32);
+
+        periphery.boost({poolKey: poolKey, startTime: start1, endTime: end1, rate0: rate, rate1: 0});
+        periphery.boost({poolKey: poolKey, startTime: end1, endTime: end2, rate0: rate, rate1: 0});
+
+        // At `end1`, the end of the first order (-rate) and the start of the
+        // second order (+rate) cancel out.
+        assertEq(_timeInfo(poolId, end1), bytes32(0));
+        assertFalse(_isTimeInitialized(poolId, end1));
+
+        assertNotEq(_timeInfo(poolId, start1), bytes32(0));
+        assertTrue(_isTimeInitialized(poolId, start1));
+
+        assertNotEq(_timeInfo(poolId, end2), bytes32(0));
+        assertTrue(_isTimeInitialized(poolId, end2));
+
+        // When we cross start1, maybeAccumulateFees should apply the delta and
+        // clear the start1 time info.
+        vm.warp(start1 + 256);
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        assertEq(_timeInfo(poolId, start1), bytes32(0));
+        assertFalse(_isTimeInitialized(poolId, start1));
+
+        TwammPoolState state = boostedFees.poolState(poolId);
+        (, uint112 saleRate0,) = state.parse();
+        assertEq(saleRate0, rate);
     }
 
     function test_afterInitializePool_setsState(uint256 time, uint64 fee) public {

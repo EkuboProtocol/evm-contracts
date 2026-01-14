@@ -192,7 +192,7 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
         }
     }
 
-    function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
+    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
             (PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1) =
                 abi.decode(data, (PoolKey, uint64, uint64, uint112, uint112));

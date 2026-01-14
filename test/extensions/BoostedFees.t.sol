@@ -9,11 +9,11 @@ import {PoolId} from "../../src/types/poolId.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {Locker} from "../../src/types/locker.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
-import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {BoostedFeesLib} from "../../src/libraries/BoostedFeesLib.sol";
 import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
+import {UsesCore} from "../../src/base/UsesCore.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA, nextValidTime} from "../../src/math/time.sol";
@@ -21,12 +21,13 @@ import {SwapParameters, createSwapParameters} from "../../src/types/swapParamete
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {TwammPoolState} from "../../src/types/twammPoolState.sol";
 
-contract BoostedFeesConfigurator is BaseLocker {
+contract BoostedFeesConfigurator is UsesCore, BaseLocker {
     using FlashAccountantLib for *;
+    using BoostedFeesLib for *;
 
     IBoostedFees private immutable boostedFees;
 
-    constructor(ICore core, IBoostedFees _boostedFees) BaseLocker(core) {
+    constructor(ICore core, IBoostedFees _boostedFees) UsesCore(core) BaseLocker(core) {
         boostedFees = _boostedFees;
     }
 
@@ -41,10 +42,7 @@ contract BoostedFeesConfigurator is BaseLocker {
         (address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1) =
             abi.decode(data, (address, PoolKey, uint64, uint64, uint112, uint112));
 
-        (uint112 amount0, uint112 amount1) = abi.decode(
-            ACCOUNTANT.forward(address(boostedFees), abi.encode(poolKey, startTime, endTime, rate0, rate1)),
-            (uint112, uint112)
-        );
+        (uint112 amount0, uint112 amount1) = CORE.addIncentives(poolKey, startTime, endTime, rate0, rate1);
 
         if (amount0 != 0) ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
         if (amount1 != 0) ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);

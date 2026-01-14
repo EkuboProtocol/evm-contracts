@@ -283,4 +283,59 @@ contract BoostedFeesTest is FullTest {
         boostedFees.maybeAccumulateFees(poolKey);
         vm.snapshotGasLastCall("maybeAccumulateFees (regular donation)");
     }
+
+    function test_configure_emitsPoolBoosted(
+        uint64 warpTime,
+        uint64 startDelay,
+        uint64 duration,
+        uint112 rate0,
+        uint112 rate1
+    ) public {
+        uint64 currentTime = uint64(bound(warpTime, 1, type(uint32).max - 8192));
+        vm.warp(currentTime);
+
+        rate0 = uint112(bound(rate0, 1, MAX_ABS_VALUE_SALE_RATE_DELTA));
+        rate1 = uint112(bound(rate1, 1, MAX_ABS_VALUE_SALE_RATE_DELTA));
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 startTime =
+            uint64(nextValidTime({currentTime: currentTime, afterTime: currentTime + bound(startDelay, 0, 7 days)}));
+        uint64 endTime =
+            uint64(nextValidTime({currentTime: currentTime, afterTime: startTime + bound(duration, 256, 7 days)}));
+
+        vm.expectEmit(true, true, true, true, address(boostedFees));
+        emit IBoostedFees.PoolBoosted(poolKey.toPoolId(), startTime, endTime, rate0, rate1);
+
+        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
+    }
+
+    function test_maybeAccumulateFees_emitsFeesAccumulated(uint64 warpTime) public {
+        uint64 currentTime = uint64(bound(warpTime, 1, type(uint32).max - 8192));
+        vm.warp(currentTime);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 startTime = uint64(nextValidTime({currentTime: currentTime, afterTime: currentTime + 256}));
+        uint64 endTime = uint64(nextValidTime({currentTime: currentTime, afterTime: startTime + 512}));
+        vm.assume(startTime != 0 && endTime != 0 && endTime > startTime);
+
+        uint112 rate0 = uint112(1 << 32);
+        uint112 rate1 = 0;
+
+        periphery.configure({poolKey: poolKey, startTime: startTime, endTime: endTime, rate0: rate0, rate1: rate1});
+
+        uint64 donationTime = startTime + 256;
+        vm.warp(donationTime);
+
+        vm.expectEmit(true, true, true, true, address(core));
+        uint128 expectedAmount0 = uint128((uint256(rate0) * (donationTime - startTime)) >> 32);
+        emit ICore.FeesAccumulated(poolKey.toPoolId(), expectedAmount0, 0);
+
+        boostedFees.maybeAccumulateFees(poolKey);
+    }
 }

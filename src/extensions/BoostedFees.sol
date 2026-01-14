@@ -2,7 +2,6 @@
 pragma solidity =0.8.33;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {LibBit} from "solady/utils/LibBit.sol";
 
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
@@ -19,7 +18,6 @@ import {IBoostedFees} from "../interfaces/extensions/IBoostedFees.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {TwammPoolState, createTwammPoolState} from "../types/twammPoolState.sol";
-import {CoreLib} from "../libraries/CoreLib.sol";
 import {addSaleRateDelta} from "../math/twamm.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA, isTimeValid} from "../math/time.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";

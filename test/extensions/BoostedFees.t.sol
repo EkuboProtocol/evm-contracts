@@ -17,7 +17,7 @@ import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
-import {MAX_ABS_VALUE_SALE_RATE_DELTA, nextValidTime} from "../../src/math/time.sol";
+import {MAX_ABS_VALUE_SALE_RATE_DELTA, MAX_NUM_VALID_TIMES, nextValidTime} from "../../src/math/time.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {TwammPoolState} from "../../src/types/twammPoolState.sol";
@@ -247,8 +247,8 @@ contract BoostedFeesTest is FullTest {
         assertFalse(_isTimeInitialized(poolId, start1));
 
         TwammPoolState state = boostedFees.poolState(poolId);
-        (, uint112 saleRate0,) = state.parse();
-        assertEq(saleRate0, rate);
+        (, uint112 rate0,) = state.parse();
+        assertEq(rate0, rate);
     }
 
     function test_afterInitializePool_setsState(uint256 time, uint64 fee) public {
@@ -518,6 +518,62 @@ contract BoostedFeesTest is FullTest {
 
         boostedFees.maybeAccumulateFees(poolKey);
         vm.snapshotGasLastCall("maybeAccumulateFees (regular donation)");
+    }
+
+    function test_maxedEndTimes_saleRateNeverExceedsUint112Max_and_returnsToZero() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolId poolId = poolKey.toPoolId();
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint112 rate = uint112(MAX_ABS_VALUE_SALE_RATE_DELTA);
+
+        uint256 time = 1;
+        uint256 lastEndTime;
+        uint256 numOrders;
+
+        while (true) {
+            uint256 endTime = nextValidTime({currentTime: 1, afterTime: time});
+            if (endTime == 0) break;
+
+            periphery.boost({poolKey: poolKey, startTime: 0, endTime: uint64(endTime), rate0: rate, rate1: rate});
+
+            numOrders++;
+            lastEndTime = endTime;
+            time = endTime;
+        }
+
+        TwammPoolState state = boostedFees.poolState(poolId);
+        (, uint112 rate0, uint112 rate1) = state.parse();
+
+        assertEq(numOrders, MAX_NUM_VALID_TIMES, "max number of orders");
+        uint256 expectedTotalRate = numOrders * uint256(rate);
+        assertLe(expectedTotalRate, type(uint112).max, "total rate fits uint112");
+        assertEq(rate0, uint112(expectedTotalRate), "rate0 matches total");
+        assertEq(rate1, uint112(expectedTotalRate), "rate1 matches total");
+
+        // Settle all events up to the final end time.
+        // Note: `TwammPoolState.realLastVirtualOrderExecutionTime()` reconstructs an absolute
+        // time using modulo-2**32 arithmetic, so we settle exactly at `lastEndTime` first.
+        vm.warp(lastEndTime);
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        state = boostedFees.poolState(poolId);
+        (, rate0, rate1) = state.parse();
+        assertEq(rate0, 0, "rate0 returns to 0");
+        assertEq(rate1, 0, "rate1 returns to 0");
+
+        // After time has advanced past the last order, sale rates remain zero.
+        vm.warp(lastEndTime + 256);
+        boostedFees.maybeAccumulateFees(poolKey);
+
+        state = boostedFees.poolState(poolId);
+        (, rate0, rate1) = state.parse();
+        assertEq(rate0, 0, "rate0 stays 0");
+        assertEq(rate1, 0, "rate1 stays 0");
     }
 
     function test_boost_emitsPoolBoosted(

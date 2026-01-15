@@ -114,13 +114,10 @@ contract BoostedFeesTest is FullTest {
         return false;
     }
 
-    function _assertFeesDonatedLog(
-        Vm.Log[] memory logs,
-        address emitter,
-        PoolId poolId,
-        uint256 rate0,
-        uint256 rate1
-    ) internal pure {
+    function _assertFeesDonatedLog(Vm.Log[] memory logs, address emitter, PoolId poolId, uint256 rate0, uint256 rate1)
+        internal
+        pure
+    {
         bool found = _hasFeesDonatedLog(logs, emitter, poolId, rate0, rate1);
         assertTrue(found, "missing fees donated log");
     }

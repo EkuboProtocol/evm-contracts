@@ -7,6 +7,7 @@ import {Core} from "../src/Core.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
+import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {Incentives} from "../src/Incentives.sol";
 import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
@@ -51,6 +52,7 @@ contract DeployAll is Script {
     Core public core;
     Oracle public oracle;
     TWAMM public twamm;
+    BoostedFees public boostedFees;
     MEVCapture public mevCapture;
     Incentives public incentives;
     TokenWrapperFactory public tokenWrapperFactory;
@@ -111,6 +113,12 @@ contract DeployAll is Script {
             revert UnexpectedAddress("MEVCaptureRouter", address(mevCaptureRouter));
         }
         console2.log("Deployed MEVCaptureRouter", address(mevCaptureRouter));
+
+        console2.log("Deploying BoostedFees extension...");
+        bytes32 boostedFeesInitCodeHash = keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core)));
+        bytes32 boostedFeesSalt = findExtensionSalt(DEPLOYMENT_SALT, boostedFeesInitCodeHash, boostedFeesCallPoints());
+        boostedFees = new BoostedFees{salt: boostedFeesSalt}(core);
+        console2.log("BoostedFees deployed at", address(boostedFees));
 
         vm.stopBroadcast();
     }

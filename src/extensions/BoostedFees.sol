@@ -142,6 +142,9 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
             if (uint32(block.timestamp) != lastAccumulated) {
                 StorageSlot initializedTimesBitmapSlot = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
 
+                // `TwammPoolState` stores timestamps modulo 2**32.
+                // `realLastVirtualOrderExecutionTime()` reconstructs an absolute timestamp in the same 2**32 window as
+                // `block.timestamp`, so `block.timestamp - time` is guaranteed to fit in 32 bits.
                 uint256 realLastDonationTime = state.realLastVirtualOrderExecutionTime();
                 uint256 time = realLastDonationTime;
 
@@ -156,6 +159,11 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                         untilTime: block.timestamp
                     });
 
+                    // Overflow notes:
+                    // - `rate{0,1}` are stored as `uint112` (see `TwammPoolState`), so they are < 2**112.
+                    // - `(eventTime - time)` fits in 32 bits (see comment above).
+                    // - The product therefore fits in 112 + 32 = 144 bits and the subsequent `>> 32` fits in 112 bits.
+                    // - `amount{0,1}` are cumulative over at most `MAX_NUM_VALID_TIMES` segments, so they stay < 2**128.
                     amount0 += (rate0 * (eventTime - time)) >> 32;
                     amount1 += (rate1 * (eventTime - time)) >> 32;
 
@@ -178,14 +186,16 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                     poolId,
                     createTwammPoolState({
                         _lastVirtualOrderExecutionTime: uint32(block.timestamp),
-                        // we assume the cast is safe because rate0 and rate1 can only change by the rate deltas,
-                        // which are limited by MAX_ABS_VALUE_SALE_RATE_DELTA
+                        // `rate{0,1}` are tracked as `uint256` locally for convenience, but are always maintained within the
+                        // `uint112` range: they originate from `TwammPoolState.parse()` (which returns `uint112`) and are
+                        // only updated via `addSaleRateDelta(...)`, which reverts if the result exceeds 112 bits.
                         _saleRateToken0: uint112(rate0),
                         _saleRateToken1: uint112(rate1)
                     })
                 );
 
                 if (amount0 != 0 || amount1 != 0) {
+                    // `amount{0,1}` are bounded as described above and fit within 128 bits, so these casts cannot truncate.
                     _accumulateFeesFromSavedBalance(poolKey, uint128(amount0), uint128(amount1));
                 }
             }
@@ -208,11 +218,20 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
             // First thing we must always do is always update the pool to the current state
             maybeAccumulateFees(poolKey);
 
-            // compute the amounts that the user must pay
+            // Compute the amounts that the user must pay.
+            //
+            // Safety notes:
+            // - The timestamp checks above guarantee `endTime > max(block.timestamp, startTime)`, so this cannot underflow.
+            // - `isTimeValid` constrains `endTime` (and `startTime` when in the future) to be within a 2**32 second window
+            //   of `block.timestamp`, so `realDuration` fits in 32 bits.
             uint256 realDuration = uint256(endTime) - FixedPointMathLib.max(block.timestamp, startTime);
+            // `rate{0,1}` are fixed point values with 32 fractional bits. Since `realDuration` is <= 2**32 - 1 and
+            // `rate{0,1} < 2**112`, the product fits in 144 bits and the `>> 32` result fits in 112 bits.
+            // Adding `type(uint32).max` implements a round-up when shifting.
             uint256 amount0 = ((realDuration * rate0) + type(uint32).max) >> 32;
             uint256 amount1 = ((realDuration * rate1) + type(uint32).max) >> 32;
 
+            // `amount{0,1}` fit within 112 bits, so converting to `int256` is safe (always positive, never wraps).
             CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), int256(amount0), int256(amount1));
 
             PoolId poolId = poolKey.toPoolId();

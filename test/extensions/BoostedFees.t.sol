@@ -79,6 +79,52 @@ contract BoostedFeesTest is FullTest {
         return boostedFees.sload(TWAMMStorageLayout.poolTimeInfosSlot(poolId, time));
     }
 
+    function _feesDonatedLogData(PoolId poolId, uint256 rate0, uint256 rate1)
+        internal
+        pure
+        returns (bytes memory data)
+    {
+        data = new bytes(60);
+        bytes32 poolIdValue = PoolId.unwrap(poolId);
+
+        assembly ("memory-safe") {
+            let ptr := add(data, 32)
+            mstore(add(ptr, 28), rate1)
+            mstore(add(ptr, 14), rate0)
+            mstore(ptr, poolIdValue)
+        }
+    }
+
+    function _hasFeesDonatedLog(Vm.Log[] memory logs, address emitter, PoolId poolId, uint256 rate0, uint256 rate1)
+        internal
+        pure
+        returns (bool)
+    {
+        bytes memory expected = _feesDonatedLogData(poolId, rate0, rate1);
+        bytes32 expectedHash = keccak256(expected);
+
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter != emitter) continue;
+            if (logs[i].topics.length != 0) continue;
+            if (logs[i].data.length != 60) continue;
+            if (keccak256(logs[i].data) != expectedHash) continue;
+            return true;
+        }
+
+        return false;
+    }
+
+    function _assertFeesDonatedLog(
+        Vm.Log[] memory logs,
+        address emitter,
+        PoolId poolId,
+        uint256 rate0,
+        uint256 rate1
+    ) internal pure {
+        bool found = _hasFeesDonatedLog(logs, emitter, poolId, rate0, rate1);
+        assertTrue(found, "missing fees donated log");
+    }
+
     function setUp() public override {
         super.setUp();
 
@@ -192,6 +238,7 @@ contract BoostedFeesTest is FullTest {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolId poolId = poolKey.toPoolId();
         createPosition(poolKey, -100, 100, 1e18, 1e18);
 
         token0.approve(address(periphery), type(uint128).max);
@@ -200,12 +247,39 @@ contract BoostedFeesTest is FullTest {
         periphery.boost({poolKey: poolKey, startTime: 0, endTime: 512, rate0: 1 << 32, rate1: 0});
 
         vm.warp(257);
+        vm.recordLogs();
         boostedFees.maybeAccumulateFees(poolKey);
+        Vm.Log[] memory firstLogs = vm.getRecordedLogs();
+        _assertFeesDonatedLog(firstLogs, address(boostedFees), poolId, 1 << 32, 0);
 
         vm.recordLogs();
         boostedFees.maybeAccumulateFees(poolKey);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(logs.length, 0, "no events emitted on second call");
+    }
+
+    function test_initialize_emitsFeesDonatedLog() public {
+        vm.warp(1);
+
+        vm.recordLogs();
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        _assertFeesDonatedLog(logs, address(boostedFees), poolKey.toPoolId(), 0, 0);
+    }
+
+    function test_maybeAccumulateFees_emitsWhenTimeChanges() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolId poolId = poolKey.toPoolId();
+
+        vm.warp(2);
+        vm.recordLogs();
+        boostedFees.maybeAccumulateFees(poolKey);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        _assertFeesDonatedLog(logs, address(boostedFees), poolId, 0, 0);
     }
 
     function test_boost_bitmap_cancels_whenOrderEndsAndNextStartsSameTime() public {

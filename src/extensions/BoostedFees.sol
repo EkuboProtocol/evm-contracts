@@ -57,13 +57,29 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
         state = TwammPoolState.wrap(TWAMMStorageLayout.twammPoolStateSlot(poolId).load());
     }
 
+    /// @dev Emits a zero-topic event matching TWAMM's execution format.
+    function _emitFeesDonated(PoolId poolId, uint256 rate0, uint256 rate1) private {
+        assembly ("memory-safe") {
+            // by writing it backwards, we overwrite only the empty bits with each subsequent write
+            // 28-60, only 46-60 can be non-zero
+            mstore(28, rate1)
+            // 14-46, only 32-46 can be non-zero
+            mstore(14, rate0)
+            mstore(0, poolId)
+
+            log0(0, 60)
+        }
+    }
+
     /// @inheritdoc IExtension
     function afterInitializePool(address, PoolKey memory poolKey, int32, SqrtRatio)
         external
         override(BaseExtension, IExtension)
         onlyCore
     {
-        _setPoolState(poolKey.toPoolId(), createTwammPoolState(uint32(block.timestamp), 0, 0));
+        PoolId poolId = poolKey.toPoolId();
+        _setPoolState(poolId, createTwammPoolState(uint32(block.timestamp), 0, 0));
+        _emitFeesDonated(poolId, 0, 0);
     }
 
     /// @inheritdoc IExtension
@@ -198,6 +214,8 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
                     // `amount{0,1}` are bounded as described above and fit within 128 bits, so these casts cannot truncate.
                     _accumulateFeesFromSavedBalance(poolKey, uint128(amount0), uint128(amount1));
                 }
+
+                _emitFeesDonated(poolId, rate0, rate1);
             }
         }
     }

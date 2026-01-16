@@ -2,24 +2,22 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "../FullTest.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../../src/extensions/BoostedFees.sol";
+import {ICore} from "../../src/interfaces/ICore.sol";
 import {IBoostedFees} from "../../src/interfaces/extensions/IBoostedFees.sol";
+import {ManualPoolBooster} from "../../src/ManualPoolBooster.sol";
+import {BoostedFeesDataFetcher, BoostedPoolState} from "../../src/lens/BoostedFeesDataFetcher.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {Locker} from "../../src/types/locker.sol";
-import {PoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {BoostedFeesLib} from "../../src/libraries/BoostedFeesLib.sol";
+import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
-import {BaseLocker} from "../../src/base/BaseLocker.sol";
-import {PayableMulticallable} from "../../src/base/PayableMulticallable.sol";
-import {UsesCore} from "../../src/base/UsesCore.sol";
-import {ICore} from "../../src/interfaces/ICore.sol";
-import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA, MAX_NUM_VALID_TIMES, nextValidTime} from "../../src/math/time.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
@@ -29,55 +27,14 @@ import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {timeToBitmapWordAndIndex} from "../../src/math/timeBitmap.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-/// @title Manual Pool Booster
-/// @dev Enables boosting pools manually. Approve this contract and then call boost.
-contract ManualPoolBooster is PayableMulticallable, UsesCore, BaseLocker {
-    using FlashAccountantLib for *;
-    using BoostedFeesLib for *;
-
-    IBoostedFees public immutable boostedFees;
-
-    constructor(ICore core, IBoostedFees _boostedFees) UsesCore(core) BaseLocker(core) {
-        boostedFees = _boostedFees;
-    }
-
-    function boost(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1)
-        external
-        payable
-        returns (uint112, uint112)
-    {
-        return abi.decode(lock(abi.encode(msg.sender, poolKey, startTime, endTime, rate0, rate1)), (uint112, uint112));
-    }
-
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1) =
-            abi.decode(data, (address, PoolKey, uint64, uint64, uint112, uint112));
-
-        (uint112 amount0, uint112 amount1) = CORE.addIncentives(poolKey, startTime, endTime, rate0, rate1);
-
-        if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
-            if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
-            if (amount1 != 0) ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
-        } else {
-            if (amount0 != 0 && amount1 != 0) {
-                ACCOUNTANT.payTwoFrom(payer, poolKey.token0, poolKey.token1, amount0, amount1);
-            } else if (amount0 != 0) {
-                ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
-            } else if (amount1 != 0) {
-                ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
-            }
-        }
-
-        return abi.encode(amount0, amount1);
-    }
-}
-
 contract BoostedFeesTest is FullTest {
     using BoostedFeesLib for *;
+    using CoreLib for *;
     using ExposedStorageLib for *;
 
     BoostedFees internal boostedFees;
     ManualPoolBooster internal periphery;
+    BoostedFeesDataFetcher internal dataFetcher;
 
     function _isTimeInitialized(PoolId poolId, uint256 time) internal view returns (bool) {
         StorageSlot base = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
@@ -141,7 +98,8 @@ contract BoostedFeesTest is FullTest {
         deployCodeTo("BoostedFees.sol", abi.encode(core), target);
         boostedFees = BoostedFees(target);
 
-        periphery = new ManualPoolBooster(core, boostedFees);
+        periphery = new ManualPoolBooster(core);
+        dataFetcher = new BoostedFeesDataFetcher(core, boostedFees);
     }
 
     function test_pool_mustBeInitialized(PoolKey memory otherPoolKey) public {
@@ -408,6 +366,89 @@ contract BoostedFeesTest is FullTest {
         assertEq(lastTime, uint32(vm.getBlockTimestamp()), "time is set to current");
         assertEq(totalRate0, 0, "current rate0 is zero");
         assertEq(totalRate1, 0, "current rate1 is zero");
+    }
+
+    function test_dataFetcher_getPoolState_empty() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolId poolId = poolKey.toPoolId();
+
+        BoostedPoolState memory result = dataFetcher.getPoolState(poolKey);
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId).parse();
+        TwammPoolState boostedState = boostedFees.poolState(poolId);
+        (uint32 lastDonateTime, uint112 donateRate0, uint112 donateRate1) = boostedState.parse();
+
+        assertEq(SqrtRatio.unwrap(result.sqrtRatio), SqrtRatio.unwrap(sqrtRatio));
+        assertEq(result.tick, tick);
+        assertEq(result.liquidity, liquidity);
+        assertEq(result.lastDonateTime, uint64(vm.getBlockTimestamp()));
+        assertEq(result.lastDonateTime, uint64(lastDonateTime));
+        assertEq(result.donateRateToken0, donateRate0);
+        assertEq(result.donateRateToken1, donateRate1);
+        assertEq(result.donateRateDeltas.length, 0);
+    }
+
+    function test_dataFetcher_getPoolState_withBoosts() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolId poolId = poolKey.toPoolId();
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        uint64 endTime = 512;
+        uint112 rate0 = uint112(1 << 32);
+        uint112 rate1 = 0;
+
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: endTime, rate0: rate0, rate1: rate1});
+
+        BoostedPoolState memory result = dataFetcher.getPoolState(poolKey);
+        (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = core.poolState(poolId).parse();
+        TwammPoolState boostedState = boostedFees.poolState(poolId);
+        (uint32 lastDonateTime, uint112 donateRate0, uint112 donateRate1) = boostedState.parse();
+
+        assertEq(SqrtRatio.unwrap(result.sqrtRatio), SqrtRatio.unwrap(sqrtRatio));
+        assertEq(result.tick, tick);
+        assertEq(result.liquidity, liquidity);
+        assertEq(result.lastDonateTime, uint64(lastDonateTime));
+        assertEq(result.donateRateToken0, donateRate0);
+        assertEq(result.donateRateToken1, donateRate1);
+        assertEq(result.donateRateDeltas.length, 1);
+        assertEq(result.donateRateDeltas[0].time, endTime);
+        assertEq(result.donateRateDeltas[0].donateRateDelta0, -int112(rate0));
+        assertEq(result.donateRateDeltas[0].donateRateDelta1, 0);
+    }
+
+    function test_boost_ethPool_paysNativeAndToken1() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool(
+            NATIVE_TOKEN_ADDRESS, address(token1), 0, createConcentratedPoolConfig(0, 100, address(boostedFees))
+        );
+
+        uint64 endTime = 256;
+        uint112 rate0 = uint112(1 << 32);
+        uint112 rate1 = uint112(1 << 32);
+
+        uint256 realDuration = endTime - uint64(vm.getBlockTimestamp());
+        uint112 expectedAmount0 = uint112(((realDuration * rate0) + type(uint32).max) >> 32);
+        uint112 expectedAmount1 = uint112(((realDuration * rate1) + type(uint32).max) >> 32);
+
+        uint256 coreEthBefore = address(core).balance;
+        uint256 coreTokenBefore = token1.balanceOf(address(core));
+
+        token1.approve(address(periphery), type(uint128).max);
+        vm.deal(address(this), expectedAmount0);
+
+        (uint112 amount0, uint112 amount1) = periphery.boost{value: expectedAmount0}(poolKey, 0, endTime, rate0, rate1);
+
+        assertEq(amount0, expectedAmount0, "amount0 returned");
+        assertEq(amount1, expectedAmount1, "amount1 returned");
+        assertEq(address(core).balance, coreEthBefore + expectedAmount0, "core receives ETH");
+        assertEq(token1.balanceOf(address(core)), coreTokenBefore + expectedAmount1, "core receives token1");
+        assertEq(address(periphery).balance, 0, "periphery balance cleared");
     }
 
     function test_donatesFeesToActiveLiquidity(

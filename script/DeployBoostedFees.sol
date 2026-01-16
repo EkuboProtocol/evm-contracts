@@ -7,6 +7,8 @@ import {Core} from "../src/Core.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {findExtensionSalt} from "./DeployAll.s.sol";
+import {BoostedFeesDataFetcher} from "../src/lens/BoostedFeesDataFetcher.sol";
+import {ManualPoolBooster} from "../src/ManualPoolBooster.sol";
 
 /// @title DeployBoostedFees
 /// @notice Deploys the BoostedFees contract
@@ -23,6 +25,11 @@ contract DeployBoostedFees is Script {
         bytes32 boostedFeesSalt = findExtensionSalt(DEPLOYMENT_SALT, boostedFeesInitCodeHash, boostedFeesCallPoints());
         BoostedFees boostedFees = new BoostedFees{salt: boostedFeesSalt}(core);
         console2.log("BoostedFees deployed at", address(boostedFees));
+        console2.log("Deployed ManualPoolBooster", address(new ManualPoolBooster{salt: DEPLOYMENT_SALT}(core)));
+        console2.log(
+            "Deployed BoostedFeesDataFetcher",
+            address(new BoostedFeesDataFetcher{salt: DEPLOYMENT_SALT}(core, boostedFees))
+        );
 
         vm.stopBroadcast();
     }

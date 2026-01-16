@@ -2,6 +2,8 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "../FullTest.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../../src/extensions/BoostedFees.sol";
 import {IBoostedFees} from "../../src/interfaces/extensions/IBoostedFees.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
@@ -14,6 +16,7 @@ import {BoostedFeesLib} from "../../src/libraries/BoostedFeesLib.sol";
 import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
+import {PayableMulticallable} from "../../src/base/PayableMulticallable.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
@@ -26,11 +29,13 @@ import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {timeToBitmapWordAndIndex} from "../../src/math/timeBitmap.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-contract BoostedFeesConfigurator is UsesCore, BaseLocker {
+/// @title Manual Pool Booster
+/// @dev Enables boosting pools manually. Approve this contract and then call boost.
+contract ManualPoolBooster is PayableMulticallable, UsesCore, BaseLocker {
     using FlashAccountantLib for *;
     using BoostedFeesLib for *;
 
-    IBoostedFees private immutable boostedFees;
+    IBoostedFees public immutable boostedFees;
 
     constructor(ICore core, IBoostedFees _boostedFees) UsesCore(core) BaseLocker(core) {
         boostedFees = _boostedFees;
@@ -38,6 +43,7 @@ contract BoostedFeesConfigurator is UsesCore, BaseLocker {
 
     function boost(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1)
         external
+        payable
         returns (uint112, uint112)
     {
         return abi.decode(lock(abi.encode(msg.sender, poolKey, startTime, endTime, rate0, rate1)), (uint112, uint112));
@@ -49,12 +55,17 @@ contract BoostedFeesConfigurator is UsesCore, BaseLocker {
 
         (uint112 amount0, uint112 amount1) = CORE.addIncentives(poolKey, startTime, endTime, rate0, rate1);
 
-        if (amount0 != 0 && amount1 != 0) {
-            ACCOUNTANT.payTwoFrom(payer, poolKey.token0, poolKey.token1, amount0, amount1);
-        } else if (amount0 != 0) {
-            ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
-        } else if (amount1 != 0) {
-            ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
+        if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
+            if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
+            if (amount1 != 0) ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
+        } else {
+            if (amount0 != 0 && amount1 != 0) {
+                ACCOUNTANT.payTwoFrom(payer, poolKey.token0, poolKey.token1, amount0, amount1);
+            } else if (amount0 != 0) {
+                ACCOUNTANT.payFrom(payer, poolKey.token0, amount0);
+            } else if (amount1 != 0) {
+                ACCOUNTANT.payFrom(payer, poolKey.token1, amount1);
+            }
         }
 
         return abi.encode(amount0, amount1);
@@ -66,7 +77,7 @@ contract BoostedFeesTest is FullTest {
     using ExposedStorageLib for *;
 
     BoostedFees internal boostedFees;
-    BoostedFeesConfigurator internal periphery;
+    ManualPoolBooster internal periphery;
 
     function _isTimeInitialized(PoolId poolId, uint256 time) internal view returns (bool) {
         StorageSlot base = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
@@ -130,7 +141,7 @@ contract BoostedFeesTest is FullTest {
         deployCodeTo("BoostedFees.sol", abi.encode(core), target);
         boostedFees = BoostedFees(target);
 
-        periphery = new BoostedFeesConfigurator(core, boostedFees);
+        periphery = new ManualPoolBooster(core, boostedFees);
     }
 
     function test_pool_mustBeInitialized(PoolKey memory otherPoolKey) public {

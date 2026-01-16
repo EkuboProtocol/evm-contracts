@@ -15,9 +15,9 @@ interface IBoostedFees is IExposedStorage, IExtension, ILocker, IForwardee {
     /// @param poolId Identifier of the pool that is being incentivized
     /// @param startTime The first second that incentives will be paid out
     /// @param endTime The time at which incentives stop paying out
-    /// @param rate0 Per-second incentive rate for token0 as a fixed point 96.32 value
-    /// @param rate1 Per-second incentive rate for token1 as a fixed point 96.32 value
-    event PoolBoosted(PoolId poolId, uint64 startTime, uint64 endTime, uint128 rate0, uint128 rate1);
+    /// @param rate0 Per-second incentive rate for token0 as a fixed point 80.32 value
+    /// @param rate1 Per-second incentive rate for token1 as a fixed point 80.32 value
+    event PoolBoosted(PoolId poolId, uint64 startTime, uint64 endTime, uint112 rate0, uint112 rate1);
 
     /// @notice Reverts when provided times are invalid.
     error InvalidTimestamps();

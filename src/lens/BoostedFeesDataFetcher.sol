@@ -58,14 +58,12 @@ contract BoostedFeesDataFetcher is UsesCore {
                 timeInfoSlots[i] = TWAMMStorageLayout.poolTimeInfosSlot(poolId, allValidTimes[i]);
             }
 
-            (bool success, bytes memory result) = address(BOOSTED_FEES_EXTENSION).staticcall(
-                abi.encodePacked(IExposedStorage.sload.selector, timeInfoSlots)
-            );
+            (bool success, bytes memory result) = address(BOOSTED_FEES_EXTENSION)
+                .staticcall(abi.encodePacked(IExposedStorage.sload.selector, timeInfoSlots));
             assert(success);
 
             uint256 countNonZero = 0;
-            BoostedTimeDonateRateInfo[] memory donateRateDeltas =
-                new BoostedTimeDonateRateInfo[](timeInfoSlots.length);
+            BoostedTimeDonateRateInfo[] memory donateRateDeltas = new BoostedTimeDonateRateInfo[](timeInfoSlots.length);
 
             for (uint256 i = 0; i < allValidTimes.length; i++) {
                 PoolBalanceUpdate timeInfo;

@@ -120,9 +120,9 @@ contract Router is UsesCore, PayableMulticallable, BaseLocker {
                     // note we only do the slippage check iff we aren't allowing partial fill
                     // this is because a slippage check is not effective if we are allowing partial fills for exact output swaps
                     // we also do not allow the user to do a partial fill allowed single hop swap while also specifying a slippage check in the router's external interface
-                    (int128 amountCalculated, int128 amountSpecified) = params.isToken1()
-                        ? (-balanceUpdate.delta0(), balanceUpdate.delta1())
-                        : (-balanceUpdate.delta1(), balanceUpdate.delta0());
+                    (int256 amountCalculated, int256 amountSpecified) = params.isToken1()
+                        ? (-int256(balanceUpdate.delta0()), balanceUpdate.delta1())
+                        : (-int256(balanceUpdate.delta1()), balanceUpdate.delta0());
                     if (amountSpecified != params.amount()) {
                         revert PartialSwapsDisallowed();
                     }

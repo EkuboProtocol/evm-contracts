@@ -12,7 +12,7 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {Locker} from "../../src/types/locker.sol";
-import {PoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {BoostedFeesLib} from "../../src/libraries/BoostedFeesLib.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
@@ -33,8 +33,25 @@ contract BoostedFeesTest is FullTest {
     using ExposedStorageLib for *;
 
     BoostedFees internal boostedFees;
+    BoostedFees internal stableswapBoostedFees;
     ManualPoolBooster internal periphery;
     BoostedFeesDataFetcher internal dataFetcher;
+
+    function _deployBoostedFees(bool concentrated) internal returns (BoostedFees deployed) {
+        CallPoints memory cp = boostedFeesCallPoints(concentrated);
+        address target = address((uint160(cp.toUint8()) << 152));
+        deployCodeTo("BoostedFees.sol", abi.encode(core, concentrated), target);
+        deployed = BoostedFees(target);
+    }
+
+    function _createStableswapPool(uint64 fee, uint8 amplification, int32 centerTick, address extension)
+        internal
+        returns (PoolKey memory poolKey)
+    {
+        PoolConfig config = createStableswapPoolConfig(fee, amplification, centerTick, extension);
+        poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
+        core.initializePool(poolKey, 0);
+    }
 
     function _isTimeInitialized(PoolId poolId, uint256 time) internal view returns (bool) {
         StorageSlot base = TWAMMStorageLayout.poolInitializedTimesBitmapSlot(poolId);
@@ -93,13 +110,11 @@ contract BoostedFeesTest is FullTest {
     function setUp() public override {
         super.setUp();
 
-        CallPoints memory cp = boostedFeesCallPoints();
-        address target = address((uint160(cp.toUint8()) << 152) | 0xb005);
-        deployCodeTo("BoostedFees.sol", abi.encode(core), target);
-        boostedFees = BoostedFees(target);
+        boostedFees = _deployBoostedFees(true);
+        stableswapBoostedFees = _deployBoostedFees(false);
 
         periphery = new ManualPoolBooster(core);
-        dataFetcher = new BoostedFeesDataFetcher(core, boostedFees);
+        dataFetcher = new BoostedFeesDataFetcher(core);
     }
 
     function test_pool_mustBeInitialized(PoolKey memory otherPoolKey) public {
@@ -304,6 +319,37 @@ contract BoostedFeesTest is FullTest {
         assertEq(rate1, 0, "rate1 is 0");
 
         assertEq(state.realLastVirtualOrderExecutionTime(), time, "the real virtual execution time is now");
+    }
+
+    function test_afterInitializePool_setsState_stableswap(uint256 time, uint64 fee) public {
+        vm.warp(time);
+
+        PoolKey memory poolKey = _createStableswapPool(fee, 1, 0, address(stableswapBoostedFees));
+
+        TwammPoolState state = stableswapBoostedFees.poolState(poolKey.toPoolId());
+        (uint32 lastTime, uint112 rate0, uint112 rate1) = state.parse();
+
+        assertEq(lastTime, uint32(vm.getBlockTimestamp()), "time is set to current");
+        assertEq(rate0, 0, "rate0 is 0");
+        assertEq(rate1, 0, "rate1 is 0");
+
+        assertEq(state.realLastVirtualOrderExecutionTime(), time, "the real virtual execution time is now");
+    }
+
+    function test_afterInitializePool_reverts_onStableswap_withConcentratedExtension() public {
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(boostedFees));
+        PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
+
+        vm.expectRevert(IBoostedFees.IncorrectPoolType.selector);
+        core.initializePool(poolKey, 0);
+    }
+
+    function test_afterInitializePool_reverts_onConcentrated_withStableswapExtension() public {
+        PoolConfig config = createConcentratedPoolConfig(0, 100, address(stableswapBoostedFees));
+        PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
+
+        vm.expectRevert(IBoostedFees.IncorrectPoolType.selector);
+        core.initializePool(poolKey, 0);
     }
 
     function test_boost_activeOrder_changesSaleRate(uint256 time, uint112 rate0, uint112 rate1, uint16 minDuration)
@@ -537,6 +583,31 @@ contract BoostedFeesTest is FullTest {
             uint256 expectedPartial = (total * elapsedDuration) / totalDuration;
             assertApproxEqAbs(during1, expectedPartial, 2, "token1 fees stream linearly within window");
         }
+    }
+
+    function test_donatesFees_stableswap_outOfRange() public {
+        vm.warp(1);
+
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(stableswapBoostedFees));
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+
+        int32 outsideTick = upper + 1000;
+        PoolKey memory poolKey = createPool(address(token0), address(token1), outsideTick, config);
+        (uint256 positionId,) = createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        (, int32 tick,) = core.poolState(poolKey.toPoolId()).parse();
+        assertTrue(tick < lower || tick >= upper, "price starts out of range");
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: 512, rate0: 1 << 32, rate1: 2 << 32});
+
+        vm.warp(256);
+        (uint128 collected0, uint128 collected1) = positions.collectFees(positionId, poolKey, lower, upper);
+
+        assertEq(collected0, 254, "token0 fees donated while out of range");
+        assertEq(collected1, 509, "token1 fees donated while out of range");
     }
 
     /// forge-config: default.isolate = true

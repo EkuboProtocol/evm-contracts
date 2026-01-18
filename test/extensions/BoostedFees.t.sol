@@ -585,6 +585,31 @@ contract BoostedFeesTest is FullTest {
         }
     }
 
+    function test_donatesFees_stableswap_outOfRange() public {
+        vm.warp(1);
+
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(stableswapBoostedFees));
+        (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
+
+        int32 outsideTick = upper + 1000;
+        PoolKey memory poolKey = createPool(address(token0), address(token1), outsideTick, config);
+        (uint256 positionId,) = createPosition(poolKey, lower, upper, 1e18, 1e18);
+
+        (, int32 tick,) = core.poolState(poolKey.toPoolId()).parse();
+        assertTrue(tick < lower || tick >= upper, "price starts out of range");
+
+        token0.approve(address(periphery), type(uint128).max);
+        token1.approve(address(periphery), type(uint128).max);
+
+        periphery.boost({poolKey: poolKey, startTime: 0, endTime: 512, rate0: 1 << 32, rate1: 2 << 32});
+
+        vm.warp(256);
+        (uint128 collected0, uint128 collected1) = positions.collectFees(positionId, poolKey, lower, upper);
+
+        assertEq(collected0, 254, "token0 fees donated while out of range");
+        assertEq(collected1, 509, "token1 fees donated while out of range");
+    }
+
     /// forge-config: default.isolate = true
     function test_donateFees_maximum_gas_cost() public {
         vm.warp(1);

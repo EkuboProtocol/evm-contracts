@@ -35,17 +35,13 @@ contract BoostedFeesDataFetcher is UsesCore {
     using CoreLib for *;
     using BoostedFeesLib for *;
 
-    IBoostedFees public immutable BOOSTED_FEES_EXTENSION;
-
-    constructor(ICore core, IBoostedFees boostedFees) UsesCore(core) {
-        BOOSTED_FEES_EXTENSION = boostedFees;
-    }
+    constructor(ICore core) UsesCore(core) {}
 
     function getPoolState(PoolKey memory poolKey) public view returns (BoostedPoolState memory state) {
         unchecked {
             (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolKey.toPoolId()).parse();
             (uint32 lastDonateTime, uint112 donateRateToken0, uint112 donateRateToken1) =
-                BOOSTED_FEES_EXTENSION.poolState(poolKey.toPoolId()).parse();
+                IBoostedFees(poolKey.config.extension()).poolState(poolKey.toPoolId()).parse();
 
             uint64 lastTimeReal = uint64(block.timestamp - (uint32(block.timestamp) - lastDonateTime));
 
@@ -58,8 +54,8 @@ contract BoostedFeesDataFetcher is UsesCore {
                 timeInfoSlots[i] = TWAMMStorageLayout.poolTimeInfosSlot(poolId, allValidTimes[i]);
             }
 
-            (bool success, bytes memory result) = address(BOOSTED_FEES_EXTENSION)
-                .staticcall(abi.encodePacked(IExposedStorage.sload.selector, timeInfoSlots));
+            (bool success, bytes memory result) =
+                poolKey.config.extension().staticcall(abi.encodePacked(IExposedStorage.sload.selector, timeInfoSlots));
             assert(success);
 
             uint256 countNonZero = 0;

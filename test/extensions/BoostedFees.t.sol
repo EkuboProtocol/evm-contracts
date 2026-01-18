@@ -93,13 +93,13 @@ contract BoostedFeesTest is FullTest {
     function setUp() public override {
         super.setUp();
 
-        CallPoints memory cp = boostedFeesCallPoints();
-        address target = address((uint160(cp.toUint8()) << 152) | 0xb005);
-        deployCodeTo("BoostedFees.sol", abi.encode(core), target);
+        CallPoints memory cp = boostedFeesCallPoints(true);
+        address target = address((uint160(cp.toUint8()) << 152));
+        deployCodeTo("BoostedFees.sol", abi.encode(core, true), target);
         boostedFees = BoostedFees(target);
 
         periphery = new ManualPoolBooster(core);
-        dataFetcher = new BoostedFeesDataFetcher(core, boostedFees);
+        dataFetcher = new BoostedFeesDataFetcher(core);
     }
 
     function test_pool_mustBeInitialized(PoolKey memory otherPoolKey) public {

@@ -20,15 +20,25 @@ contract DeployBoostedFees is Script {
     function run() public {
         vm.startBroadcast();
 
-        console2.log("Deploying BoostedFees extension...");
-        bytes32 boostedFeesInitCodeHash = keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core)));
-        bytes32 boostedFeesSalt = findExtensionSalt(DEPLOYMENT_SALT, boostedFeesInitCodeHash, boostedFeesCallPoints());
-        BoostedFees boostedFees = new BoostedFees{salt: boostedFeesSalt}(core);
-        console2.log("BoostedFees deployed at", address(boostedFees));
+        console2.log("Deploying BoostedFees(concentrated) extension...");
+        bytes32 boostedFeesConcentratedInitCodeHash =
+            keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)));
+        bytes32 boostedFeesConcentratedSalt =
+            findExtensionSalt(DEPLOYMENT_SALT, boostedFeesConcentratedInitCodeHash, boostedFeesCallPoints(true));
+        BoostedFees boostedFeesConcentrated = new BoostedFees{salt: boostedFeesConcentratedSalt}(core, true);
+        console2.log("BoostedFees(concentrated) deployed at", address(boostedFeesConcentrated));
+
+        console2.log("Deploying BoostedFees(stableswap) extension...");
+        bytes32 boostedFeesStableswapInitCodeHash =
+            keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, false)));
+        bytes32 boostedFeesStableswapSalt =
+            findExtensionSalt(DEPLOYMENT_SALT, boostedFeesStableswapInitCodeHash, boostedFeesCallPoints(false));
+        BoostedFees boostedFeesStableswap = new BoostedFees{salt: boostedFeesStableswapSalt}(core, false);
+        console2.log("BoostedFees(concentrated) deployed at", address(boostedFeesStableswap));
+
         console2.log("Deployed ManualPoolBooster", address(new ManualPoolBooster{salt: DEPLOYMENT_SALT}(core)));
         console2.log(
-            "Deployed BoostedFeesDataFetcher",
-            address(new BoostedFeesDataFetcher{salt: DEPLOYMENT_SALT}(core, boostedFees))
+            "Deployed BoostedFeesDataFetcher", address(new BoostedFeesDataFetcher{salt: DEPLOYMENT_SALT}(core))
         );
 
         vm.stopBroadcast();

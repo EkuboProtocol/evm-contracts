@@ -25,11 +25,11 @@ import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUp
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 
-function boostedFeesCallPoints() pure returns (CallPoints memory) {
+function boostedFeesCallPoints(bool concentratedLiquidity) pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: false,
         afterInitializePool: true,
-        beforeSwap: true,
+        beforeSwap: concentratedLiquidity,
         afterSwap: false,
         beforeUpdatePosition: true,
         afterUpdatePosition: false,
@@ -41,10 +41,20 @@ function boostedFeesCallPoints() pure returns (CallPoints memory) {
 contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
 
-    constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
+    /// @notice Whether this extension is for concentrated liquidity or stableswap liquidity
+    bool public immutable concentratedLiquidity;
 
-    function getCallPoints() internal pure override returns (CallPoints memory) {
-        return boostedFeesCallPoints();
+    constructor(ICore core, bool _concentratedLiquidity) BaseExtension(core) BaseForwardee(core) {
+        concentratedLiquidity = _concentratedLiquidity;
+        core.registerExtension(getCallPoints());
+    }
+
+    function _registerInConstructor() internal pure override returns (bool) {
+        return false;
+    }
+
+    function getCallPoints() internal view override returns (CallPoints memory) {
+        return boostedFeesCallPoints(concentratedLiquidity);
     }
 
     /// @dev Writes the TwammPoolState to storage.
@@ -77,6 +87,10 @@ contract BoostedFees is IBoostedFees, BaseExtension, BaseForwardee, ExposedStora
         override(BaseExtension, IExtension)
         onlyCore
     {
+        if (poolKey.config.isStableswap() == concentratedLiquidity) {
+            revert IncorrectPoolType();
+        }
+
         PoolId poolId = poolKey.toPoolId();
         _setPoolState(poolId, createTwammPoolState(uint32(block.timestamp), 0, 0));
         _emitFeesDonated(poolId, 0, 0);

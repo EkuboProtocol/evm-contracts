@@ -54,7 +54,8 @@ contract DeployAll is Script {
     Core public core;
     Oracle public oracle;
     TWAMM public twamm;
-    BoostedFees public boostedFees;
+    BoostedFees public boostedFeesConcentrated;
+    BoostedFees public boostedFeesStableswap;
     MEVCapture public mevCapture;
     Incentives public incentives;
     TokenWrapperFactory public tokenWrapperFactory;
@@ -116,15 +117,25 @@ contract DeployAll is Script {
         }
         console2.log("Deployed MEVCaptureRouter", address(mevCaptureRouter));
 
-        console2.log("Deploying BoostedFees extension...");
-        bytes32 boostedFeesInitCodeHash = keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core)));
-        bytes32 boostedFeesSalt = findExtensionSalt(DEPLOYMENT_SALT, boostedFeesInitCodeHash, boostedFeesCallPoints());
-        boostedFees = new BoostedFees{salt: boostedFeesSalt}(core);
-        console2.log("BoostedFees deployed at", address(boostedFees));
+        console2.log("Deploying BoostedFees(concentrated) extension...");
+        bytes32 boostedFeesConcentratedInitCodeHash =
+            keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)));
+        bytes32 boostedFeesConcentratedSalt =
+            findExtensionSalt(DEPLOYMENT_SALT, boostedFeesConcentratedInitCodeHash, boostedFeesCallPoints(true));
+        boostedFeesConcentrated = new BoostedFees{salt: boostedFeesConcentratedSalt}(core, true);
+        console2.log("BoostedFees(concentrated) deployed at", address(boostedFeesConcentrated));
+
+        console2.log("Deploying BoostedFees(stableswap) extension...");
+        bytes32 boostedFeesStableswapInitCodeHash =
+            keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)));
+        bytes32 boostedFeesStableswapSalt =
+            findExtensionSalt(DEPLOYMENT_SALT, boostedFeesStableswapInitCodeHash, boostedFeesCallPoints(true));
+        boostedFeesStableswap = new BoostedFees{salt: boostedFeesStableswapSalt}(core, false);
+        console2.log("BoostedFees(concentrated) deployed at", address(boostedFeesStableswap));
+
         console2.log("Deployed ManualPoolBooster", address(new ManualPoolBooster{salt: DEPLOYMENT_SALT}(core)));
         console2.log(
-            "Deployed BoostedFeesDataFetcher",
-            address(new BoostedFeesDataFetcher{salt: DEPLOYMENT_SALT}(core, boostedFees))
+            "Deployed BoostedFeesDataFetcher", address(new BoostedFeesDataFetcher{salt: DEPLOYMENT_SALT}(core))
         );
 
         vm.stopBroadcast();

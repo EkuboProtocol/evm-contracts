@@ -49,10 +49,17 @@ function findExtensionSalt(bytes32 startingSalt, bytes32 initCodeHash, CallPoint
 }
 
 error DeploymentFailed(string name, address expected);
+error UnexpectedAddress(string name, address expected, address actual);
 
-function deployIfNeeded(bytes memory initCode, bytes32 salt, string memory name) returns (address deployed) {
+function deployIfNeeded(bytes memory initCode, bytes32 salt, address expectedAddress, string memory name)
+    returns (address deployed)
+{
     bytes32 initCodeHash = keccak256(initCode);
     address expected = getCreate2Address(salt, initCodeHash);
+
+    if (expectedAddress != address(0) && expected != expectedAddress) {
+        revert UnexpectedAddress(name, expectedAddress, expected);
+    }
 
     if (expected.code.length != 0) {
         console2.log(name, "already deployed at", expected);
@@ -68,14 +75,18 @@ function deployIfNeeded(bytes memory initCode, bytes32 salt, string memory name)
     return expected;
 }
 
-function deployExtension(bytes memory initCode, bytes32 startingSalt, CallPoints memory callPoints, string memory name)
-    returns (address deployed, bytes32 salt)
-{
+function deployExtension(
+    bytes memory initCode,
+    bytes32 startingSalt,
+    CallPoints memory callPoints,
+    address expectedAddress,
+    string memory name
+) returns (address deployed, bytes32 salt) {
     uint8 requiredPrefix = callPoints.toUint8();
 
     bytes32 initCodeHash = keccak256(initCode);
     salt = findExtensionSalt(startingSalt, initCodeHash, callPoints);
-    deployed = deployIfNeeded(initCode, salt, name);
+    deployed = deployIfNeeded(initCode, salt, expectedAddress, name);
 }
 
 /// @title DeployAll
@@ -85,93 +96,122 @@ contract DeployAll is Script {
     bytes32 constant MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT =
         0x38e2e731c4e6738213b17b239fe56c423f6bdc5b5969897c260d464c35a63982;
 
-    error UnexpectedAddress(string name, address value);
-
     function run() public {
         vm.startBroadcast();
 
-        Core core = Core(payable(deployIfNeeded(type(Core).creationCode, DEPLOYMENT_SALT, "Core")));
-        if (address(core) != 0x00000000000014aA86C5d3c41765bb24e11bd701) {
-            revert UnexpectedAddress("Core", address(core));
-        }
+        Core core = Core(
+            payable(deployIfNeeded(
+                    type(Core).creationCode, DEPLOYMENT_SALT, 0x00000000000014aA86C5d3c41765bb24e11bd701, "Core"
+                ))
+        );
 
         (address mevCaptureAddress,) = deployExtension(
             abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
             mevCaptureCallPoints(),
+            0x5555fF9Ff2757500BF4EE020DcfD0210CFfa41Be,
             "MEVCapture"
         );
         MEVCapture mevCapture = MEVCapture(mevCaptureAddress);
 
         (address oracleAddress,) = deployExtension(
-            abi.encodePacked(type(Oracle).creationCode, abi.encode(core)), DEPLOYMENT_SALT, oracleCallPoints(), "Oracle"
+            abi.encodePacked(type(Oracle).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            oracleCallPoints(),
+            0x517E506700271AEa091b02f42756F5E174Af5230,
+            "Oracle"
         );
         Oracle oracle = Oracle(oracleAddress);
 
         (address twammAddress,) = deployExtension(
-            abi.encodePacked(type(TWAMM).creationCode, abi.encode(core)), DEPLOYMENT_SALT, twammCallPoints(), "TWAMM"
+            abi.encodePacked(type(TWAMM).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            twammCallPoints(),
+            0xd4F1060cB9c1A13e1d2d20379b8aa2cF7541eD9b,
+            "TWAMM"
         );
         TWAMM twamm = TWAMM(twammAddress);
 
-        Incentives incentives = Incentives(deployIfNeeded(type(Incentives).creationCode, DEPLOYMENT_SALT, "Incentives"));
+        Incentives incentives = Incentives(
+            deployIfNeeded(
+                type(Incentives).creationCode, DEPLOYMENT_SALT, 0xC52D2656cb8C634263E6A15469588beB9C3Bb738, "Incentives"
+            )
+        );
 
         deployIfNeeded(
             abi.encodePacked(type(TokenWrapperFactory).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
+            0xAA166592922C4020cEfA23448054AD070211790a,
             "TokenWrapperFactory"
         );
 
         deployIfNeeded(
-            abi.encodePacked(type(CoreDataFetcher).creationCode, abi.encode(core)), DEPLOYMENT_SALT, "CoreDataFetcher"
+            abi.encodePacked(type(CoreDataFetcher).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            0xF68F25CA6C817733b7B15a42191AE72A34d56a2B,
+            "CoreDataFetcher"
         );
         deployIfNeeded(
-            abi.encodePacked(type(QuoteDataFetcher).creationCode, abi.encode(core)), DEPLOYMENT_SALT, "QuoteDataFetcher"
+            abi.encodePacked(type(QuoteDataFetcher).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            0x5a3F0F1dA4Ac0c4b937d5685f330704c8e8303f1,
+            "QuoteDataFetcher"
         );
         deployIfNeeded(
             abi.encodePacked(type(TWAMMDataFetcher).creationCode, abi.encode(core, twamm)),
             DEPLOYMENT_SALT,
+            0xc07E5B80750247C8b5d7234a9C79dFC58785392b,
             "TWAMMDataFetcher"
         );
         deployIfNeeded(
             abi.encodePacked(type(IncentivesDataFetcher).creationCode, abi.encode(incentives)),
             DEPLOYMENT_SALT,
+            0x69F9eCfa84CF0C41bE9F68b557b07b6b89d71eD0,
             "IncentivesDataFetcher"
         );
         deployIfNeeded(
-            abi.encodePacked(type(PriceFetcher).creationCode, abi.encode(oracle)), DEPLOYMENT_SALT, "PriceFetcher"
+            abi.encodePacked(type(PriceFetcher).creationCode, abi.encode(oracle)),
+            DEPLOYMENT_SALT,
+            0xFE0Aa09c1CC2bA299b3AaFA52716bE00f40F1D6d,
+            "PriceFetcher"
         );
-        deployIfNeeded(type(TokenDataFetcher).creationCode, DEPLOYMENT_SALT, "TokenDataFetcher");
+        deployIfNeeded(
+            type(TokenDataFetcher).creationCode,
+            DEPLOYMENT_SALT,
+            0x305Cf9A34dCb265522780D1D64544d3f7C450407,
+            "TokenDataFetcher"
+        );
         address mevCaptureRouter = deployIfNeeded(
             abi.encodePacked(type(MEVCaptureRouter).creationCode, abi.encode(core, address(mevCapture))),
             MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT,
+            0xd26f20001a72a18C002b00e6710000d68700ce00,
             "MEVCaptureRouter"
         );
-        if (mevCaptureRouter != address(0xd26f20001a72a18C002b00e6710000d68700ce00)) {
-            revert UnexpectedAddress("MEVCaptureRouter", address(mevCaptureRouter));
-        }
 
         deployExtension(
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(true),
+            address(0),
             "BoostedFees(concentrated)"
         );
-
         deployExtension(
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, false)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(false),
+            address(0),
             "BoostedFees(stableswap)"
         );
-
         deployIfNeeded(
             abi.encodePacked(type(ManualPoolBooster).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
+            address(0),
             "ManualPoolBooster"
         );
         deployIfNeeded(
             abi.encodePacked(type(BoostedFeesDataFetcher).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
+            address(0),
             "BoostedFeesDataFetcher"
         );
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
 import {Script} from "forge-std/Script.sol";
@@ -17,7 +17,7 @@ contract DeployManagers is Script {
     Orders public orders;
 
     function run() public {
-        address deployer = vm.getWallets()[0];
+        address deployer = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
 
         bytes32 salt = vm.envOr("SALT", bytes32(0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd));
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(0x00000000000014aA86C5d3c41765bb24e11bd701))));

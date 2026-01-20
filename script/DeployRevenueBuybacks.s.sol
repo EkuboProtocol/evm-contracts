@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
 import {Script} from "forge-std/Script.sol";
@@ -11,14 +11,14 @@ contract DeployRevenueBuybacks is Script {
     error UnrecognizedChainId();
 
     function run() public {
-        address owner = vm.getWallets()[0];
+        address owner = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
         bytes32 salt = vm.envOr("SALT", bytes32(0x0));
         IPositions positions = IPositions(payable(vm.envAddress("POSITIONS_ADDRESS")));
         IOrders orders = IOrders(payable(vm.envAddress("ORDERS_ADDRESS")));
 
         address buyToken;
-        if (block.chainid == 1) buyToken = 0x04C46E830Bb56ce22735d5d8Fc9CB90309317d0f;
-        else if (block.chainid == 11155111) buyToken = 0x618C25b11a5e9B5Ad60B04bb64FcBdfBad7621d1;
+        if (block.chainid == 1) buyToken = vm.envOr("BUY_TOKEN", 0x04C46E830Bb56ce22735d5d8Fc9CB90309317d0f);
+        else if (block.chainid == 11155111) buyToken = vm.envOr("BUY_TOKEN", 0x618C25b11a5e9B5Ad60B04bb64FcBdfBad7621d1);
         else revert UnrecognizedChainId();
 
         vm.startBroadcast();

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Ekubo-DAO-SRL-1.0
+// SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
 import {Script} from "forge-std/Script.sol";

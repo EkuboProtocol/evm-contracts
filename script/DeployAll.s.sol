@@ -48,18 +48,39 @@ function findExtensionSalt(bytes32 startingSalt, bytes32 initCodeHash, CallPoint
     }
 }
 
+error DeploymentFailed(string name, address expected);
+
+function deployIfNeeded(bytes memory initCode, bytes32 salt, string memory name) returns (address deployed) {
+    bytes32 initCodeHash = keccak256(initCode);
+    address expected = getCreate2Address(salt, initCodeHash);
+
+    if (expected.code.length != 0) {
+        console2.log(name, "already deployed at", expected);
+        return expected;
+    }
+
+    (bool success,) = DETERMINISTIC_DEPLOYER.call(abi.encodePacked(salt, initCode));
+    if (!success || expected.code.length == 0) {
+        revert DeploymentFailed(name, expected);
+    }
+
+    console2.log(name, "deployed at", expected);
+    return expected;
+}
+
+function deployExtension(bytes memory initCode, bytes32 startingSalt, CallPoints memory callPoints, string memory name)
+    returns (address deployed, bytes32 salt)
+{
+    uint8 requiredPrefix = callPoints.toUint8();
+
+    bytes32 initCodeHash = keccak256(initCode);
+    salt = findExtensionSalt(startingSalt, initCodeHash, callPoints);
+    deployed = deployIfNeeded(initCode, salt, name);
+}
+
 /// @title DeployAll
 /// @notice Deploys the Ekubo protocol core contracts
 contract DeployAll is Script {
-    Core public core;
-    Oracle public oracle;
-    TWAMM public twamm;
-    BoostedFees public boostedFeesConcentrated;
-    BoostedFees public boostedFeesStableswap;
-    MEVCapture public mevCapture;
-    Incentives public incentives;
-    TokenWrapperFactory public tokenWrapperFactory;
-
     bytes32 constant DEPLOYMENT_SALT = 0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
     bytes32 constant MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT =
         0x38e2e731c4e6738213b17b239fe56c423f6bdc5b5969897c260d464c35a63982;
@@ -69,73 +90,89 @@ contract DeployAll is Script {
     function run() public {
         vm.startBroadcast();
 
-        console2.log("Deploying Core...");
-        core = new Core{salt: DEPLOYMENT_SALT}();
+        Core core = Core(payable(deployIfNeeded(type(Core).creationCode, DEPLOYMENT_SALT, "Core")));
         if (address(core) != 0x00000000000014aA86C5d3c41765bb24e11bd701) {
             revert UnexpectedAddress("Core", address(core));
         }
-        console2.log("Core deployed at", address(core));
 
-        console2.log("Deploying MEVCapture extension...");
-        bytes32 mevCaptureInitCodeHash = keccak256(abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core)));
-        bytes32 mevCaptureSalt = findExtensionSalt(DEPLOYMENT_SALT, mevCaptureInitCodeHash, mevCaptureCallPoints());
-        mevCapture = new MEVCapture{salt: mevCaptureSalt}(core);
-        console2.log("MEVCapture deployed at", address(mevCapture));
-
-        console2.log("Deploying Oracle extension...");
-        bytes32 oracleInitCodeHash = keccak256(abi.encodePacked(type(Oracle).creationCode, abi.encode(core)));
-        bytes32 oracleSalt = findExtensionSalt(DEPLOYMENT_SALT, oracleInitCodeHash, oracleCallPoints());
-        oracle = new Oracle{salt: oracleSalt}(core);
-        console2.log("Oracle deployed at", address(oracle));
-
-        console2.log("Deploying TWAMM extension...");
-        bytes32 twammInitCodeHash = keccak256(abi.encodePacked(type(TWAMM).creationCode, abi.encode(core)));
-        bytes32 twammSalt = findExtensionSalt(DEPLOYMENT_SALT, twammInitCodeHash, twammCallPoints());
-        twamm = new TWAMM{salt: twammSalt}(core);
-        console2.log("TWAMM deployed at", address(twamm));
-
-        console2.log("Deploying Incentives...");
-        incentives = new Incentives{salt: DEPLOYMENT_SALT}();
-        console2.log("Incentives deployed at", address(incentives));
-
-        console2.log("Deploying TokenWrapperFactory...");
-        tokenWrapperFactory = new TokenWrapperFactory{salt: DEPLOYMENT_SALT}(core);
-        console2.log("TokenWrapperFactory deployed at", address(tokenWrapperFactory));
-
-        console2.log("Deployed CoreDataFetcher", address(new CoreDataFetcher{salt: DEPLOYMENT_SALT}(core)));
-        console2.log("Deployed QuoteDataFetcher", address(new QuoteDataFetcher{salt: DEPLOYMENT_SALT}(core)));
-        console2.log("Deployed TWAMMDataFetcher", address(new TWAMMDataFetcher{salt: DEPLOYMENT_SALT}(core, twamm)));
-        console2.log(
-            "Deployed IncentivesDataFetcher", address(new IncentivesDataFetcher{salt: DEPLOYMENT_SALT}(incentives))
+        (address mevCaptureAddress,) = deployExtension(
+            abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            mevCaptureCallPoints(),
+            "MEVCapture"
         );
-        console2.log("Deployed PriceFetcher", address(new PriceFetcher{salt: DEPLOYMENT_SALT}(oracle)));
-        console2.log("Deployed TokenDataFetcher", address(new TokenDataFetcher{salt: DEPLOYMENT_SALT}()));
-        MEVCaptureRouter mevCaptureRouter =
-            new MEVCaptureRouter{salt: MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT}(core, address(mevCapture));
-        if (address(mevCaptureRouter) != address(0xd26f20001a72a18C002b00e6710000d68700ce00)) {
+        MEVCapture mevCapture = MEVCapture(mevCaptureAddress);
+
+        (address oracleAddress,) = deployExtension(
+            abi.encodePacked(type(Oracle).creationCode, abi.encode(core)), DEPLOYMENT_SALT, oracleCallPoints(), "Oracle"
+        );
+        Oracle oracle = Oracle(oracleAddress);
+
+        (address twammAddress,) = deployExtension(
+            abi.encodePacked(type(TWAMM).creationCode, abi.encode(core)), DEPLOYMENT_SALT, twammCallPoints(), "TWAMM"
+        );
+        TWAMM twamm = TWAMM(twammAddress);
+
+        Incentives incentives = Incentives(deployIfNeeded(type(Incentives).creationCode, DEPLOYMENT_SALT, "Incentives"));
+
+        deployIfNeeded(
+            abi.encodePacked(type(TokenWrapperFactory).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            "TokenWrapperFactory"
+        );
+
+        deployIfNeeded(
+            abi.encodePacked(type(CoreDataFetcher).creationCode, abi.encode(core)), DEPLOYMENT_SALT, "CoreDataFetcher"
+        );
+        deployIfNeeded(
+            abi.encodePacked(type(QuoteDataFetcher).creationCode, abi.encode(core)), DEPLOYMENT_SALT, "QuoteDataFetcher"
+        );
+        deployIfNeeded(
+            abi.encodePacked(type(TWAMMDataFetcher).creationCode, abi.encode(core, twamm)),
+            DEPLOYMENT_SALT,
+            "TWAMMDataFetcher"
+        );
+        deployIfNeeded(
+            abi.encodePacked(type(IncentivesDataFetcher).creationCode, abi.encode(incentives)),
+            DEPLOYMENT_SALT,
+            "IncentivesDataFetcher"
+        );
+        deployIfNeeded(
+            abi.encodePacked(type(PriceFetcher).creationCode, abi.encode(oracle)), DEPLOYMENT_SALT, "PriceFetcher"
+        );
+        deployIfNeeded(type(TokenDataFetcher).creationCode, DEPLOYMENT_SALT, "TokenDataFetcher");
+        address mevCaptureRouter = deployIfNeeded(
+            abi.encodePacked(type(MEVCaptureRouter).creationCode, abi.encode(core, address(mevCapture))),
+            MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT,
+            "MEVCaptureRouter"
+        );
+        if (mevCaptureRouter != address(0xd26f20001a72a18C002b00e6710000d68700ce00)) {
             revert UnexpectedAddress("MEVCaptureRouter", address(mevCaptureRouter));
         }
-        console2.log("Deployed MEVCaptureRouter", address(mevCaptureRouter));
 
-        console2.log("Deploying BoostedFees(concentrated) extension...");
-        bytes32 boostedFeesConcentratedInitCodeHash =
-            keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)));
-        bytes32 boostedFeesConcentratedSalt =
-            findExtensionSalt(DEPLOYMENT_SALT, boostedFeesConcentratedInitCodeHash, boostedFeesCallPoints(true));
-        boostedFeesConcentrated = new BoostedFees{salt: boostedFeesConcentratedSalt}(core, true);
-        console2.log("BoostedFees(concentrated) deployed at", address(boostedFeesConcentrated));
+        deployExtension(
+            abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)),
+            DEPLOYMENT_SALT,
+            boostedFeesCallPoints(true),
+            "BoostedFees(concentrated)"
+        );
 
-        console2.log("Deploying BoostedFees(stableswap) extension...");
-        bytes32 boostedFeesStableswapInitCodeHash =
-            keccak256(abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)));
-        bytes32 boostedFeesStableswapSalt =
-            findExtensionSalt(DEPLOYMENT_SALT, boostedFeesStableswapInitCodeHash, boostedFeesCallPoints(true));
-        boostedFeesStableswap = new BoostedFees{salt: boostedFeesStableswapSalt}(core, false);
-        console2.log("BoostedFees(concentrated) deployed at", address(boostedFeesStableswap));
+        deployExtension(
+            abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, false)),
+            DEPLOYMENT_SALT,
+            boostedFeesCallPoints(false),
+            "BoostedFees(stableswap)"
+        );
 
-        console2.log("Deployed ManualPoolBooster", address(new ManualPoolBooster{salt: DEPLOYMENT_SALT}(core)));
-        console2.log(
-            "Deployed BoostedFeesDataFetcher", address(new BoostedFeesDataFetcher{salt: DEPLOYMENT_SALT}(core))
+        deployIfNeeded(
+            abi.encodePacked(type(ManualPoolBooster).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            "ManualPoolBooster"
+        );
+        deployIfNeeded(
+            abi.encodePacked(type(BoostedFeesDataFetcher).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            "BoostedFeesDataFetcher"
         );
 
         vm.stopBroadcast();

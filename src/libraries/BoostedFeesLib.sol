@@ -20,8 +20,8 @@ library BoostedFeesLib {
         twammPoolState = TwammPoolState.wrap(boostedFees.sload(TWAMMStorageLayout.twammPoolStateSlot(poolId)));
     }
 
-    /// @notice Collects proceeds from a TWAMM order using FlashAccountantLib.forward
-    /// @dev Uses FlashAccountantLib.forward to make the necessary call to add incentives
+    /// @notice Adds incentives to a BoostedFees pool via Core.forward.
+    /// @dev Uses Core.forward to call the pool's BoostedFees extension.
     /// @param core The core contract
     /// @param poolKey The pool key using the boosted fees extension that should have incentives added
     /// @param startTime The time that the incentives should start

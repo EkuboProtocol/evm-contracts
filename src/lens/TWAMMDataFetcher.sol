@@ -14,6 +14,7 @@ import {PoolId} from "../types/poolId.sol";
 import {TimeInfo} from "../types/timeInfo.sol";
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
+import {TwammPoolState} from "../types/twammPoolState.sol";
 
 function getAllValidFutureTimes(uint64 currentTime) pure returns (uint64[] memory times) {
     unchecked {
@@ -63,15 +64,16 @@ contract TWAMMDataFetcher is UsesCore {
 
     function getPoolState(PoolKey memory poolKey) public view returns (PoolState memory state) {
         unchecked {
-            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolKey.toPoolId()).parse();
-            (uint32 lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
-                TWAMM_EXTENSION.poolState(poolKey.toPoolId()).parse();
+            PoolId poolId = poolKey.toPoolId();
+            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
+            TwammPoolState twammState = TWAMM_EXTENSION.poolState(poolId);
+            (uint32 _lastVirtualOrderExecutionTime, uint112 saleRateToken0, uint112 saleRateToken1) =
+                twammState.parse();
 
-            uint64 lastTimeReal = uint64(block.timestamp - (uint32(block.timestamp) - lastVirtualOrderExecutionTime));
+            uint64 lastTimeReal = uint64(twammState.realLastVirtualOrderExecutionTime());
 
             uint64[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
 
-            PoolId poolId = poolKey.toPoolId();
             StorageSlot[] memory timeInfoSlots = new StorageSlot[](allValidTimes.length);
 
             for (uint256 i = 0; i < timeInfoSlots.length; i++) {

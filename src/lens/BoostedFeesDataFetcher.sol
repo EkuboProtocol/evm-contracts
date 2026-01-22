@@ -14,7 +14,6 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {TWAMMStorageLayout} from "../libraries/TWAMMStorageLayout.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
-import {TwammPoolState} from "../types/twammPoolState.sol";
 
 struct BoostedTimeDonateRateInfo {
     uint64 time;
@@ -40,15 +39,15 @@ contract BoostedFeesDataFetcher is UsesCore {
 
     function getPoolState(PoolKey memory poolKey) public view returns (BoostedPoolState memory state) {
         unchecked {
-            PoolId poolId = poolKey.toPoolId();
-            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolId).parse();
-            TwammPoolState boostedState = IBoostedFees(poolKey.config.extension()).poolState(poolId);
-            (uint32 _lastDonateTime, uint112 donateRateToken0, uint112 donateRateToken1) = boostedState.parse();
+            (SqrtRatio sqrtRatio, int32 tick, uint128 liquidity) = CORE.poolState(poolKey.toPoolId()).parse();
+            (uint32 lastDonateTime, uint112 donateRateToken0, uint112 donateRateToken1) =
+                IBoostedFees(poolKey.config.extension()).poolState(poolKey.toPoolId()).parse();
 
-            uint64 lastTimeReal = uint64(boostedState.realLastVirtualOrderExecutionTime());
+            uint64 lastTimeReal = uint64(block.timestamp - (uint32(block.timestamp) - lastDonateTime));
 
             uint64[] memory allValidTimes = getAllValidFutureTimes(lastTimeReal);
 
+            PoolId poolId = poolKey.toPoolId();
             StorageSlot[] memory timeInfoSlots = new StorageSlot[](allValidTimes.length);
 
             for (uint256 i = 0; i < timeInfoSlots.length; i++) {

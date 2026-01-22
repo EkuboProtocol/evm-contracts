@@ -14,7 +14,7 @@ import {PoolKey} from "./types/poolKey.sol";
 
 /// @title Manual Pool Booster
 /// @notice Helper periphery to add BoostedFees incentives by transferring required tokens/ETH.
-/// @dev Approve tokens to this contract before calling boost; send ETH when token0 is native.
+/// @dev Approve tokens to this contract (and send ETH if token0 is native) before calling boost.
 contract ManualPoolBooster is PayableMulticallable, UsesCore, BaseLocker {
     using FlashAccountantLib for *;
     using BoostedFeesLib for *;

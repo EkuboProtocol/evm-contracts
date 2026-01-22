@@ -714,7 +714,7 @@ contract BoostedFeesTest is FullTest {
         vm.snapshotGasLastCall("maybeAccumulateFees (regular donation)");
     }
 
-    function test_maxedEndTimes_donateRateNeverExceedsUint112Max_and_returnsToZero() public {
+    function test_maxedEndTimes_saleRateNeverExceedsUint112Max_and_returnsToZero() public {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
@@ -760,7 +760,7 @@ contract BoostedFeesTest is FullTest {
         assertEq(rate0, 0, "rate0 returns to 0");
         assertEq(rate1, 0, "rate1 returns to 0");
 
-        // After time has advanced past the last order, donate rates remain zero.
+        // After time has advanced past the last order, sale rates remain zero.
         vm.warp(lastEndTime + 256);
         boostedFees.maybeAccumulateFees(poolKey);
 

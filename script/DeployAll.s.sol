@@ -7,6 +7,7 @@ import {Core} from "../src/Core.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
+import {SniperNoSniping, sniperNoSnipingCallPoints} from "../src/extensions/SniperNoSniping.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {Incentives} from "../src/Incentives.sol";
@@ -214,6 +215,24 @@ contract DeployAll is Script {
             address(0),
             "BoostedFeesDataFetcher"
         );
+
+        {
+            uint8 orderDurationMagnitude = 4;
+            uint128 tokenTotalSupply = 69_420_000e18;
+            uint64 poolFee = uint64((uint256(1) << 64) / 100);
+            uint32 tickSpacing = 1000;
+
+            deployExtension(
+                abi.encodePacked(
+                    type(SniperNoSniping).creationCode,
+                    abi.encode(core, twamm, orderDurationMagnitude, tokenTotalSupply, poolFee, tickSpacing)
+                ),
+                DEPLOYMENT_SALT,
+                sniperNoSnipingCallPoints(),
+                address(0),
+                "SniperNoSniping"
+            );
+        }
 
         vm.stopBroadcast();
     }

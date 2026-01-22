@@ -3,7 +3,7 @@ pragma solidity >=0.8.30;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {getNextLaunchTime, SniperNoSniping, sniperNoSnipingCallPoints} from "../src/SniperNoSniping.sol";
+import {getNextLaunchTime, SniperNoSniping, sniperNoSnipingCallPoints} from "../src/extensions/SniperNoSniping.sol";
 import {isTimeValid} from "../src/math/time.sol";
 
 contract SniperNoSnipingTest is BaseOrdersTest {

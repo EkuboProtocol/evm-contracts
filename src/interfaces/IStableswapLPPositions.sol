@@ -106,8 +106,14 @@ interface IStableswapLPPositions {
     /// @return amount1 Amount of token1 fees
     function getProtocolFees(address token0, address token1) external view returns (uint128 amount0, uint128 amount1);
 
-    /// @notice Gets the LP token for a pool
-    /// @param poolId The pool ID
-    /// @return lpToken The LP token address
-    function lpTokens(PoolId poolId) external view returns (address lpToken);
+    /// @notice Gets the LP token address for a pool (deterministically computed)
+    /// @dev Address is computed via CREATE2, no storage lookup needed
+    /// @param poolKey The pool key
+    /// @return lpToken The LP token address (may not be deployed yet)
+    function getLPToken(PoolKey memory poolKey) external view returns (address lpToken);
+
+    /// @notice Checks if an LP token exists for a pool
+    /// @param poolKey The pool key
+    /// @return exists True if LP token has been created
+    function lpTokenExists(PoolKey memory poolKey) external view returns (bool exists);
 }

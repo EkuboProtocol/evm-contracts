@@ -46,9 +46,6 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 2;
 
-    /// @notice Mapping from pool ID to LP token address
-    mapping(PoolId => address) public lpTokens;
-
     /// @notice Pending fees that couldn't be compounded (packed into single slot)
     /// @dev These fees belong to LP holders and will be added to the next compound attempt
     struct PendingFees {
@@ -78,22 +75,39 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     }
 
     /// @notice Creates a new LP token for a stableswap pool
-    /// @dev Uses EIP-1167 minimal proxy pattern for gas-efficient deployment (~50k vs ~925k)
+    /// @dev Uses EIP-1167 minimal proxy with CREATE2 for deterministic addresses
     /// @param poolKey The pool key to create an LP token for
     /// @return lpToken The address of the created LP token
     function createLPToken(PoolKey memory poolKey) external returns (address lpToken) {
-        PoolId poolId = poolKey.toPoolId();
+        bytes32 salt = PoolId.unwrap(poolKey.toPoolId());
 
-        if (lpTokens[poolId] != address(0)) {
+        // Check if LP token already exists by checking code length at deterministic address
+        address predicted = LibClone.predictDeterministicAddress(LP_TOKEN_IMPLEMENTATION, salt, address(this));
+        if (predicted.code.length > 0) {
             revert LPTokenAlreadyExists();
         }
 
-        // Clone LP token implementation (EIP-1167 minimal proxy)
-        lpToken = LibClone.clone(LP_TOKEN_IMPLEMENTATION);
+        // Clone LP token implementation with CREATE2 (deterministic address)
+        lpToken = LibClone.cloneDeterministic(LP_TOKEN_IMPLEMENTATION, salt);
         StableswapLPToken(payable(lpToken)).initialize(poolKey);
-        lpTokens[poolId] = lpToken;
 
         emit LPTokenCreated(poolKey, lpToken);
+    }
+
+    /// @notice Gets the LP token address for a pool (deterministically computed)
+    /// @dev Address is computed via CREATE2, no storage lookup needed
+    /// @param poolKey The pool key
+    /// @return lpToken The LP token address (may not be deployed yet)
+    function getLPToken(PoolKey memory poolKey) public view returns (address lpToken) {
+        bytes32 salt = PoolId.unwrap(poolKey.toPoolId());
+        lpToken = LibClone.predictDeterministicAddress(LP_TOKEN_IMPLEMENTATION, salt, address(this));
+    }
+
+    /// @notice Checks if an LP token exists for a pool
+    /// @param poolKey The pool key
+    /// @return exists True if LP token has been created
+    function lpTokenExists(PoolKey memory poolKey) external view returns (bool exists) {
+        return getLPToken(poolKey).code.length > 0;
     }
 
     /// @inheritdoc IStableswapLPPositions
@@ -255,9 +269,9 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
         uint128 minLiquidity
     ) internal returns (uint256 lpTokensMinted, uint128 amount0, uint128 amount1) {
         PoolId poolId = poolKey.toPoolId();
-        address lpToken = lpTokens[poolId];
+        address lpToken = getLPToken(poolKey);
 
-        if (lpToken == address(0)) {
+        if (lpToken.code.length == 0) {
             revert LPTokenDoesNotExist();
         }
 
@@ -316,9 +330,9 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = poolKey.toPoolId();
-        address lpToken = lpTokens[poolId];
+        address lpToken = getLPToken(poolKey);
 
-        if (lpToken == address(0)) {
+        if (lpToken.code.length == 0) {
             revert LPTokenDoesNotExist();
         }
 

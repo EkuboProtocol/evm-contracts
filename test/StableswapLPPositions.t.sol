@@ -64,7 +64,7 @@ contract StableswapLPPositionsTest is FullTest {
 
         address lpToken = lpPositions.createLPToken(poolKey);
 
-        assertEq(lpPositions.lpTokens(poolKey.toPoolId()), lpToken);
+        assertEq(lpPositions.getLPToken(poolKey), lpToken);
         assertGt(address(lpToken).code.length, 0);
     }
 

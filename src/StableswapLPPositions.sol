@@ -158,6 +158,7 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     function withdrawProtocolFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
         external
         onlyOwner
+        nonReentrant
     {
         lock(abi.encode(CALL_TYPE_WITHDRAW_PROTOCOL_FEES, token0, token1, amount0, amount1, recipient));
     }

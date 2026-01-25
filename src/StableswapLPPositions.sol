@@ -45,6 +45,11 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     /// @notice Mapping from pool ID to LP token address
     mapping(PoolId => address) public lpTokens;
 
+    /// @notice Pending fees that couldn't be compounded (will be tried on next deposit/withdraw)
+    /// @dev These fees belong to LP holders and will be added to the next compound attempt
+    mapping(PoolId => uint128) public pendingFees0;
+    mapping(PoolId => uint128) public pendingFees1;
+
     /// @notice Constructs the StableswapLPPositions contract
     /// @param core The core contract instance
     /// @param owner The owner of the contract (for access control)
@@ -155,16 +160,24 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     /// @param lpToken The LP token address
     /// @return liquidityAdded The amount of liquidity added from fees
     function _autoCompoundFees(PoolKey memory poolKey, address lpToken) internal returns (uint128 liquidityAdded) {
+        PoolId poolId = poolKey.toPoolId();
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
 
         // Collect fees from Core
         (uint128 fees0, uint128 fees1) = CORE.collectFees(poolKey, positionId);
 
+        // Add any pending fees from previous compounds that couldn't be used
+        fees0 += pendingFees0[poolId];
+        fees1 += pendingFees1[poolId];
+
         if (fees0 == 0 && fees1 == 0) return 0;
 
-        // Deduct protocol fees BEFORE compounding
-        (uint128 protocolFee0, uint128 protocolFee1) = _computeSwapProtocolFees(fees0, fees1);
+        // Deduct protocol fees BEFORE compounding (only on newly collected fees, not pending)
+        (uint128 protocolFee0, uint128 protocolFee1) = _computeSwapProtocolFees(
+            fees0 - pendingFees0[poolId], 
+            fees1 - pendingFees1[poolId]
+        );
 
         if (protocolFee0 != 0 || protocolFee1 != 0) {
             CORE.updateSavedBalances(
@@ -175,10 +188,15 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
             fees1 -= protocolFee1;
         }
 
-        if (fees0 == 0 && fees1 == 0) return 0;
+        if (fees0 == 0 && fees1 == 0) {
+            // Clear pending fees if they were all used for protocol fees
+            pendingFees0[poolId] = 0;
+            pendingFees1[poolId] = 0;
+            return 0;
+        }
 
         // Calculate liquidity these fees can provide
-        SqrtRatio sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
+        SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
         liquidityAdded = maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), fees0, fees1);
 
         if (liquidityAdded > 0) {
@@ -191,12 +209,9 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
             uint128 leftover0 = fees0 > usedAmount0 ? fees0 - usedAmount0 : 0;
             uint128 leftover1 = fees1 > usedAmount1 ? fees1 - usedAmount1 : 0;
 
-            // Save any leftover fees that couldn't be compounded
-            if (leftover0 != 0 || leftover1 != 0) {
-                CORE.updateSavedBalances(
-                    poolKey.token0, poolKey.token1, bytes32(0), int128(leftover0), int128(leftover1)
-                );
-            }
+            // Store leftover fees for next compound attempt (goes to LPs, not protocol)
+            pendingFees0[poolId] = leftover0;
+            pendingFees1[poolId] = leftover1;
 
             // Update LP token's total liquidity tracking
             StableswapLPToken(payable(lpToken)).incrementTotalLiquidity(liquidityAdded);
@@ -204,10 +219,9 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
             emit FeesCompounded(poolKey, usedAmount0, usedAmount1, liquidityAdded);
         } else {
             // If we can't add any liquidity (e.g., price completely out of range),
-            // save all fees to savedBalances so they're not lost
-            CORE.updateSavedBalances(
-                poolKey.token0, poolKey.token1, bytes32(0), int128(fees0), int128(fees1)
-            );
+            // store fees as pending for next attempt (they belong to LPs)
+            pendingFees0[poolId] = fees0;
+            pendingFees1[poolId] = fees1;
         }
 
         return liquidityAdded;

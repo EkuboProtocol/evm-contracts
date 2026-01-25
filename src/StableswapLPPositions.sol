@@ -196,8 +196,15 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
         PendingFees memory pending = pendingFees[poolId];
 
         // Add any pending fees from previous compounds that couldn't be used
-        fees0 += pending.amount0;
-        fees1 += pending.amount1;
+        if (pending.amount0 != 0 || pending.amount1 != 0) {
+            fees0 += pending.amount0;
+            fees1 += pending.amount1;
+            
+            // Withdraw pending fees from savedBalances (they were saved there last time)
+            CORE.updateSavedBalances(
+                poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), -int128(pending.amount0), -int128(pending.amount1)
+            );
+        }
 
         if (fees0 == 0 && fees1 == 0) return 0;
 
@@ -236,6 +243,14 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
             uint128 leftover0 = fees0 > usedAmount0 ? fees0 - usedAmount0 : 0;
             uint128 leftover1 = fees1 > usedAmount1 ? fees1 - usedAmount1 : 0;
 
+            // Save leftover fees to Core's savedBalances (so they can be used next time)
+            // This settles the "credits" from collectFees that weren't used for compounding
+            if (leftover0 != 0 || leftover1 != 0) {
+                CORE.updateSavedBalances(
+                    poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), int128(leftover0), int128(leftover1)
+                );
+            }
+
             // Store leftover fees for next compound attempt (single SSTORE due to struct packing)
             pendingFees[poolId] = PendingFees(leftover0, leftover1);
 
@@ -245,7 +260,10 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
             emit FeesCompounded(poolKey, usedAmount0, usedAmount1, liquidityAdded);
         } else {
             // If we can't add any liquidity (e.g., price completely out of range),
-            // store fees as pending for next attempt (they belong to LPs)
+            // save fees to Core's savedBalances and store as pending for next attempt
+            CORE.updateSavedBalances(
+                poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), int128(fees0), int128(fees1)
+            );
             pendingFees[poolId] = PendingFees(fees0, fees1);
         }
 

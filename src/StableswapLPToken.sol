@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
+import {Initializable} from "solady/utils/Initializable.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PoolId} from "./types/poolId.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -10,23 +11,25 @@ import {CoreLib} from "./libraries/CoreLib.sol";
 /// @author Bogdan Sivochkin
 /// @notice ERC20 LP token for stableswap positions with Uniswap V2-style auto-compounding
 /// @dev Fees auto-compound into the position, increasing LP token value over time
-contract StableswapLPToken is ERC20 {
+/// @dev Uses clone pattern (EIP-1167) for gas-efficient deployment
+contract StableswapLPToken is ERC20, Initializable {
     using CoreLib for *;
     /// @notice Minimum liquidity burned on first deposit to prevent inflation attacks
     /// @dev Following Uniswap V2 pattern - first depositor loses 1000 wei worth of LP tokens
     uint256 private constant MINIMUM_LIQUIDITY = 1000;
 
     /// @notice The positions contract that can mint/burn LP tokens
+    /// @dev Set in constructor for implementation, inherited by clones
     address public immutable positionsContract;
 
-    /// @notice The token0 address
-    address public immutable token0;
+    /// @notice The token0 address (set during initialization)
+    address public token0;
 
-    /// @notice The token1 address
-    address public immutable token1;
+    /// @notice The token1 address (set during initialization)
+    address public token1;
 
-    /// @notice The pool config
-    PoolId public immutable poolId;
+    /// @notice The pool ID (set during initialization)
+    PoolId public poolId;
 
     /// @notice Total liquidity tracked by this LP token
     /// @dev Used for proportional mint/burn calculations
@@ -38,11 +41,17 @@ contract StableswapLPToken is ERC20 {
         _;
     }
 
-    /// @notice Creates a new LP token for a stableswap position
+    /// @notice Creates the LP token implementation
     /// @param _positionsContract The address of the StableswapLPPositions contract
-    /// @param _poolKey The pool key this LP token represents
-    constructor(address _positionsContract, PoolKey memory _poolKey) {
+    constructor(address _positionsContract) {
         positionsContract = _positionsContract;
+        // Disable initialization on implementation contract
+        _disableInitializers();
+    }
+
+    /// @notice Initializes the LP token clone with pool-specific data
+    /// @param _poolKey The pool key this LP token represents
+    function initialize(PoolKey memory _poolKey) external initializer {
         token0 = _poolKey.token0;
         token1 = _poolKey.token1;
         poolId = _poolKey.toPoolId();

@@ -17,6 +17,7 @@ import {maxLiquidity} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {LibClone} from "solady/utils/LibClone.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
@@ -37,6 +38,9 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     /// @notice Protocol fee rate for swaps (as a fraction of 2^64)
     uint64 public immutable SWAP_PROTOCOL_FEE_X64;
 
+    /// @notice LP token implementation for cloning (EIP-1167)
+    address public immutable LP_TOKEN_IMPLEMENTATION;
+
     /// @notice Call type constants for handleLockData
     uint256 private constant CALL_TYPE_DEPOSIT = 0;
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
@@ -45,10 +49,13 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     /// @notice Mapping from pool ID to LP token address
     mapping(PoolId => address) public lpTokens;
 
-    /// @notice Pending fees that couldn't be compounded (will be tried on next deposit/withdraw)
+    /// @notice Pending fees that couldn't be compounded (packed into single slot)
     /// @dev These fees belong to LP holders and will be added to the next compound attempt
-    mapping(PoolId => uint128) public pendingFees0;
-    mapping(PoolId => uint128) public pendingFees1;
+    struct PendingFees {
+        uint128 amount0;
+        uint128 amount1;
+    }
+    mapping(PoolId => PendingFees) public pendingFees;
 
     /// @notice Constructs the StableswapLPPositions contract
     /// @param core The core contract instance
@@ -60,6 +67,8 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     {
         _initializeOwner(owner);
         SWAP_PROTOCOL_FEE_X64 = _swapProtocolFeeX64;
+        // Deploy LP token implementation for cloning
+        LP_TOKEN_IMPLEMENTATION = address(new StableswapLPToken(address(this)));
     }
 
     /// @notice Validates that the deadline has not passed
@@ -69,6 +78,7 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     }
 
     /// @notice Creates a new LP token for a stableswap pool
+    /// @dev Uses EIP-1167 minimal proxy pattern for gas-efficient deployment (~50k vs ~925k)
     /// @param poolKey The pool key to create an LP token for
     /// @return lpToken The address of the created LP token
     function createLPToken(PoolKey memory poolKey) external returns (address lpToken) {
@@ -78,8 +88,9 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
             revert LPTokenAlreadyExists();
         }
 
-        // Create new LP token
-        lpToken = address(new StableswapLPToken(address(this), poolKey));
+        // Clone LP token implementation (EIP-1167 minimal proxy)
+        lpToken = LibClone.clone(LP_TOKEN_IMPLEMENTATION);
+        StableswapLPToken(payable(lpToken)).initialize(poolKey);
         lpTokens[poolId] = lpToken;
 
         emit LPTokenCreated(poolKey, lpToken);
@@ -167,16 +178,19 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
         // Collect fees from Core
         (uint128 fees0, uint128 fees1) = CORE.collectFees(poolKey, positionId);
 
+        // Load pending fees (single SLOAD due to struct packing)
+        PendingFees memory pending = pendingFees[poolId];
+
         // Add any pending fees from previous compounds that couldn't be used
-        fees0 += pendingFees0[poolId];
-        fees1 += pendingFees1[poolId];
+        fees0 += pending.amount0;
+        fees1 += pending.amount1;
 
         if (fees0 == 0 && fees1 == 0) return 0;
 
         // Deduct protocol fees BEFORE compounding (only on newly collected fees, not pending)
         (uint128 protocolFee0, uint128 protocolFee1) = _computeSwapProtocolFees(
-            fees0 - pendingFees0[poolId], 
-            fees1 - pendingFees1[poolId]
+            fees0 - pending.amount0, 
+            fees1 - pending.amount1
         );
 
         if (protocolFee0 != 0 || protocolFee1 != 0) {
@@ -190,8 +204,7 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
 
         if (fees0 == 0 && fees1 == 0) {
             // Clear pending fees if they were all used for protocol fees
-            pendingFees0[poolId] = 0;
-            pendingFees1[poolId] = 0;
+            pendingFees[poolId] = PendingFees(0, 0);
             return 0;
         }
 
@@ -209,9 +222,8 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
             uint128 leftover0 = fees0 > usedAmount0 ? fees0 - usedAmount0 : 0;
             uint128 leftover1 = fees1 > usedAmount1 ? fees1 - usedAmount1 : 0;
 
-            // Store leftover fees for next compound attempt (goes to LPs, not protocol)
-            pendingFees0[poolId] = leftover0;
-            pendingFees1[poolId] = leftover1;
+            // Store leftover fees for next compound attempt (single SSTORE due to struct packing)
+            pendingFees[poolId] = PendingFees(leftover0, leftover1);
 
             // Update LP token's total liquidity tracking
             StableswapLPToken(payable(lpToken)).incrementTotalLiquidity(liquidityAdded);
@@ -220,8 +232,7 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
         } else {
             // If we can't add any liquidity (e.g., price completely out of range),
             // store fees as pending for next attempt (they belong to LPs)
-            pendingFees0[poolId] = fees0;
-            pendingFees1[poolId] = fees1;
+            pendingFees[poolId] = PendingFees(fees0, fees1);
         }
 
         return liquidityAdded;

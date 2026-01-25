@@ -151,10 +151,13 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
             }
-            // Ignore slippage, overflow errors
+            // Ignore slippage, overflow errors, and InsufficientLiquidityMinted from C-01 fix
+            // InsufficientLiquidityMinted occurs when deposit would result in 0 LP tokens minted
+            // This is expected behavior when liquidity added is too small relative to existing liquidity
             if (
                 sig != IStableswapLPPositions.DepositFailedDueToSlippage.selector
                     && sig != SafeCastLib.Overflow.selector
+                    && sig != StableswapLPToken.InsufficientLiquidityMinted.selector
                     && sig != 0x4e487b71 // arithmetic overflow
             ) {
                 revert UnexpectedError(err);

@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {Initializable} from "solady/utils/Initializable.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PoolId} from "./types/poolId.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -34,6 +35,9 @@ contract StableswapLPToken is ERC20, Initializable {
     /// @notice Total liquidity tracked by this LP token
     /// @dev Used for proportional mint/burn calculations
     uint128 public totalLiquidity;
+
+    /// @notice Thrown when LP token mint calculation results in zero tokens
+    error InsufficientLiquidityMinted();
 
     /// @notice Restricts access to only the positions contract
     modifier onlyPositions() {
@@ -87,7 +91,13 @@ contract StableswapLPToken is ERC20, Initializable {
         } else {
             // Subsequent deposits - mint proportional to share of total liquidity
             // Formula: lpToMint = (liquidityAdded * totalSupply) / totalLiquidity
-            lpTokensMinted = (uint256(liquidityAdded) * _totalSupply) / uint256(totalLiquidity);
+            // Use FixedPointMathLib.fullMulDiv to prevent overflow when totalSupply is very large
+            lpTokensMinted = FixedPointMathLib.fullMulDiv(
+                uint256(liquidityAdded),
+                _totalSupply,
+                uint256(totalLiquidity)
+            );
+            if (lpTokensMinted == 0) revert InsufficientLiquidityMinted();
             _mint(to, lpTokensMinted);
         }
 

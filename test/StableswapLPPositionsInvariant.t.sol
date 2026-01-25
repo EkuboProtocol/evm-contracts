@@ -282,21 +282,22 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         assertGe(totalLiquidity, totalSupply, "LP token value decreased below 1:1");
     }
 
-    /// @notice Check: pendingFees should match Core's savedBalances for this pool
+    /// @notice Check: getPendingFees returns correct values from Core's savedBalances
+    /// @dev This is now a simple sanity check since getPendingFees reads directly from Core
     function checkPendingFeesMatchSavedBalances() public view {
         if (!poolCreated) return;
 
-        PoolId poolId = poolKey.toPoolId();
-        (uint128 pending0, uint128 pending1) = lpPositions.pendingFees(poolId);
+        // Get pending fees via the view function
+        (uint128 pending0, uint128 pending1) = lpPositions.getPendingFees(poolKey);
 
-        // Get saved balances from Core using CoreLib
-        // The savedBalances are stored with lpPositions as owner and poolId as salt
+        // Get saved balances directly from Core using CoreLib
         (uint128 saved0, uint128 saved1) = CoreLib.savedBalances(
-            core, address(lpPositions), address(token0), address(token1), PoolId.unwrap(poolId)
+            core, address(lpPositions), address(token0), address(token1), PoolId.unwrap(poolKey.toPoolId())
         );
 
-        assertEq(pending0, saved0, "pendingFees0 != savedBalances0");
-        assertEq(pending1, saved1, "pendingFees1 != savedBalances1");
+        // These should always match since getPendingFees reads from the same location
+        assertEq(pending0, saved0, "getPendingFees0 != savedBalances0");
+        assertEq(pending1, saved1, "getPendingFees1 != savedBalances1");
     }
 
     /// @notice Check: No user should have more LP tokens than total supply

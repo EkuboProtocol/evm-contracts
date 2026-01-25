@@ -767,7 +767,7 @@ contract StableswapLPPositionsTest is FullTest {
         PoolKey memory poolKey = createStableswapPool();
         lpPositions.createLPToken(poolKey);
 
-        (uint128 pending0, uint128 pending1) = lpPositions.pendingFees(poolKey.toPoolId());
+        (uint128 pending0, uint128 pending1) = lpPositions.getPendingFees(poolKey);
         assertEq(pending0, 0);
         assertEq(pending1, 0);
     }
@@ -1621,7 +1621,7 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.deposit(poolKey, 10_000 ether, 10_000 ether, 0, DEADLINE);
 
         // Check pending fees - some should be pending since fees were one-sided
-        (uint128 pending0, uint128 pending1) = lpPositions.pendingFees(poolId);
+        (uint128 pending0, uint128 pending1) = lpPositions.getPendingFees(poolKey);
 
         // At least one should have some value (imbalanced fees create leftovers)
         // Note: This depends on price movement from the swap

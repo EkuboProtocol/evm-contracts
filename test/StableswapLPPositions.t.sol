@@ -68,6 +68,35 @@ contract StableswapLPPositionsTest is FullTest {
         assertGt(address(lpToken).code.length, 0);
     }
 
+    function test_getLPToken_predictableBeforeCreation() public {
+        PoolKey memory poolKey = createStableswapPool();
+
+        // Get predicted address before creation
+        address predicted = lpPositions.getLPToken(poolKey);
+        
+        // Should not exist yet
+        assertFalse(lpPositions.lpTokenExists(poolKey), "LP token should not exist yet");
+        assertEq(predicted.code.length, 0, "Predicted address should have no code");
+
+        // Create LP token
+        address lpToken = lpPositions.createLPToken(poolKey);
+
+        // Should match prediction
+        assertEq(lpToken, predicted, "Created address should match prediction");
+        assertTrue(lpPositions.lpTokenExists(poolKey), "LP token should exist now");
+    }
+
+    function test_lpTokenExists_falseBeforeCreation() public {
+        PoolKey memory poolKey = createStableswapPool();
+        assertFalse(lpPositions.lpTokenExists(poolKey));
+    }
+
+    function test_lpTokenExists_trueAfterCreation() public {
+        PoolKey memory poolKey = createStableswapPool();
+        lpPositions.createLPToken(poolKey);
+        assertTrue(lpPositions.lpTokenExists(poolKey));
+    }
+
     function test_createLPToken_twice_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
 
@@ -1319,9 +1348,10 @@ contract StableswapLPPositionsTest is FullTest {
     }
 
     function testFuzz_multipleUsers_fairDistribution(uint128 aliceAmount, uint128 bobAmount) public {
-        // Bound to reasonable range
-        aliceAmount = uint128(bound(aliceAmount, 10000, 100_000 ether));
-        bobAmount = uint128(bound(bobAmount, 10000, 100_000 ether));
+        // Bound to reasonable range - minimum must be significantly larger than MINIMUM_LIQUIDITY (1000)
+        // to avoid edge cases where first depositor gets almost nothing after burn
+        vm.assume(aliceAmount >= 1_000_000 && aliceAmount <= 100_000 ether);
+        vm.assume(bobAmount >= 1_000_000 && bobAmount <= 100_000 ether);
 
         PoolKey memory poolKey = createStableswapPool();
         address lpToken = lpPositions.createLPToken(poolKey);
@@ -1349,14 +1379,12 @@ contract StableswapLPPositionsTest is FullTest {
         uint256 aliceLpBalance = StableswapLPToken(payable(lpToken)).balanceOf(alice);
         uint256 bobLpBalance = StableswapLPToken(payable(lpToken)).balanceOf(bob);
 
-        // LP tokens should be roughly proportional to deposits (within 5% due to minimum liquidity)
-        if (aliceAmount > 10000 && bobAmount > 10000) {
-            uint256 expectedRatio = uint256(aliceAmount) * 1e18 / bobAmount;
-            uint256 actualRatio = aliceLpBalance * 1e18 / bobLpBalance;
-            
-            // Allow 10% deviation due to minimum liquidity and rounding
-            assertApproxEqRel(actualRatio, expectedRatio, 0.1e18);
-        }
+        // LP tokens should be roughly proportional to deposits
+        uint256 expectedRatio = uint256(aliceAmount) * 1e18 / bobAmount;
+        uint256 actualRatio = aliceLpBalance * 1e18 / bobLpBalance;
+        
+        // Allow 10% deviation due to minimum liquidity and rounding
+        assertApproxEqRel(actualRatio, expectedRatio, 0.1e18);
     }
 
     // ==================== NOTE ON FEE TESTS ====================

@@ -7,7 +7,6 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {IStableswapLPPositions} from "./interfaces/IStableswapLPPositions.sol";
-import {StableswapLPToken} from "./StableswapLPToken.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PoolId} from "./types/poolId.sol";
 import {PositionId, createPositionId} from "./types/positionId.sol";
@@ -17,17 +16,27 @@ import {maxLiquidity} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {LibClone} from "solady/utils/LibClone.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
+import {ERC6909} from "solady/tokens/ERC6909.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title Stableswap LP Positions
 /// @author Bogdan Sivochkin
 /// @notice Manages fungible LP positions for stableswap pools with auto-compounding fees
+/// @dev Uses ERC-6909 multi-token standard for gas-efficient LP token management
 /// @dev Uses Uniswap V2-style auto-compounding where fees increase LP token value
-contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ownable, ReentrancyGuard, IStableswapLPPositions {
+contract StableswapLPPositions is
+    ERC6909,
+    BaseLocker,
+    UsesCore,
+    PayableMulticallable,
+    Ownable,
+    ReentrancyGuard,
+    IStableswapLPPositions
+{
     using CoreLib for *;
     using FlashAccountantLib for *;
 
@@ -35,16 +44,32 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     /// @dev All positions managed by this contract use the same salt
     bytes24 private constant POSITION_SALT = bytes24(uint192(1));
 
+    /// @notice Minimum liquidity burned on first deposit to prevent inflation attacks
+    /// @dev Following Uniswap V2 pattern - first depositor loses 1000 wei worth of LP tokens
+    uint256 private constant MINIMUM_LIQUIDITY = 1000;
+
     /// @notice Protocol fee rate for swaps (as a fraction of 2^64)
     uint64 public immutable SWAP_PROTOCOL_FEE_X64;
-
-    /// @notice LP token implementation for cloning (EIP-1167)
-    address public immutable LP_TOKEN_IMPLEMENTATION;
 
     /// @notice Call type constants for handleLockData
     uint256 private constant CALL_TYPE_DEPOSIT = 0;
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 2;
+
+    /// @notice Metadata for each pool's LP tokens
+    struct PoolMetadata {
+        address token0;
+        address token1;
+        uint128 totalLiquidity;  // Total liquidity in the Core position
+        uint256 totalSupply;     // Total supply of LP tokens
+        bool initialized;
+    }
+
+    /// @notice Pool metadata indexed by token ID (poolId)
+    mapping(uint256 => PoolMetadata) public poolMetadata;
+
+    /// @notice Error thrown when uint128 to int128 cast would overflow
+    error CastOverflow();
 
     /// @notice Constructs the StableswapLPPositions contract
     /// @param core The core contract instance
@@ -56,12 +81,7 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
     {
         _initializeOwner(owner);
         SWAP_PROTOCOL_FEE_X64 = _swapProtocolFeeX64;
-        // Deploy LP token implementation for cloning
-        LP_TOKEN_IMPLEMENTATION = address(new StableswapLPToken(address(this)));
     }
-
-    /// @notice Error thrown when uint128 to int128 cast would overflow
-    error CastOverflow();
 
     /// @notice Validates that the deadline has not passed
     modifier checkDeadline(uint256 deadline) {
@@ -78,41 +98,177 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
         return int128(value);
     }
 
-    /// @notice Creates a new LP token for a stableswap pool
-    /// @dev Uses EIP-1167 minimal proxy with CREATE2 for deterministic addresses
-    /// @param poolKey The pool key to create an LP token for
-    /// @return lpToken The address of the created LP token
-    function createLPToken(PoolKey memory poolKey) external returns (address lpToken) {
-        bytes32 salt = PoolId.unwrap(poolKey.toPoolId());
+    /*//////////////////////////////////////////////////////////////
+                        ERC6909 METADATA OVERRIDES
+    //////////////////////////////////////////////////////////////*/
 
-        // Check if LP token already exists by checking code length at deterministic address
-        address predicted = LibClone.predictDeterministicAddress(LP_TOKEN_IMPLEMENTATION, salt, address(this));
-        if (predicted.code.length > 0) {
-            revert LPTokenAlreadyExists();
+    /// @notice Returns the name for a specific pool's LP token
+    /// @param id The token ID (poolId)
+    function name(uint256 id) public view override(ERC6909, IStableswapLPPositions) returns (string memory) {
+        PoolMetadata memory meta = poolMetadata[id];
+        require(meta.initialized, "Pool not initialized");
+
+        return string.concat(
+            "Ekubo Stableswap LP: ",
+            _getTokenSymbol(meta.token0),
+            "-",
+            _getTokenSymbol(meta.token1)
+        );
+    }
+
+    /// @notice Returns the symbol for LP tokens (same for all pools)
+    function symbol(uint256 id) public pure override(ERC6909, IStableswapLPPositions) returns (string memory) {
+        id = id; // Silence unused variable warning
+        return "EKUBO-SLP";
+    }
+
+    /// @notice Returns 18 decimals for all LP tokens
+    function decimals(uint256 id) public pure override(ERC6909, IStableswapLPPositions) returns (uint8) {
+        id = id; // Silence unused variable warning
+        return 18;
+    }
+
+    /// @notice Returns empty tokenURI (not used for LP tokens)
+    function tokenURI(uint256 id) public pure override returns (string memory) {
+        id = id; // Silence unused variable warning
+        return "";
+    }
+
+    /// @notice Helper to get token symbol with fallback to address
+    function _getTokenSymbol(address token) internal view returns (string memory) {
+        // Try to get symbol, fallback to shortened address if fails
+        try this._tryGetSymbol(token) returns (string memory sym) {
+            return sym;
+        } catch {
+            // Return shortened address as fallback
+            return _addressToString(token);
+        }
+    }
+
+    /// @notice External function to try getting symbol (for try/catch)
+    function _tryGetSymbol(address token) external view returns (string memory) {
+        // Low-level call to avoid reverting on non-ERC20 tokens
+        (bool success, bytes memory data) = token.staticcall(
+            abi.encodeWithSignature("symbol()")
+        );
+        if (success && data.length > 0) {
+            return abi.decode(data, (string));
+        }
+        revert("No symbol");
+    }
+
+    /// @notice Convert address to string
+    function _addressToString(address addr) internal pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory data = abi.encodePacked(addr);
+        bytes memory str = new bytes(10); // "0x" + first 4 bytes (8 chars)
+
+        str[0] = '0';
+        str[1] = 'x';
+        for (uint256 i = 0; i < 4; i++) {
+            str[2 + i * 2] = alphabet[uint8(data[i] >> 4)];
+            str[3 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
+        }
+        return string(str);
+    }
+
+    /// @notice Returns the total supply of LP tokens for a pool
+    /// @param id The token ID (poolId)
+    function totalSupply(uint256 id) public view returns (uint256) {
+        return poolMetadata[id].totalSupply;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        LP TOKEN MINT/BURN LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Mints LP tokens in exchange for liquidity added to the position
+    /// @dev On first deposit, burns MINIMUM_LIQUIDITY to prevent inflation attacks
+    /// @param to The address to mint LP tokens to
+    /// @param poolId The pool ID
+    /// @param liquidityAdded The amount of liquidity being added to the Core position
+    /// @return lpTokensMinted The amount of LP tokens minted
+    function _mintLPTokens(
+        address to,
+        PoolId poolId,
+        uint128 liquidityAdded
+    ) internal returns (uint256 lpTokensMinted) {
+        uint256 tokenId = uint256(PoolId.unwrap(poolId));
+        PoolMetadata storage metadata = poolMetadata[tokenId];
+
+        // Calculate total supply by querying balances
+        // Note: This is a simplification - in production, you'd track this more efficiently
+        uint256 _totalSupply = _calculateTotalSupply(tokenId);
+
+        if (_totalSupply == 0) {
+            // First deposit - burn minimum liquidity to address(0xdead) for security
+            // This prevents first-depositor inflation attacks where an attacker:
+            // 1. Deposits 1 wei -> gets 1 LP token
+            // 2. Donates huge amount directly to position
+            // 3. Next depositor gets heavily diluted
+            lpTokensMinted = uint256(liquidityAdded) - MINIMUM_LIQUIDITY;
+            _mint(address(0xdead), tokenId, MINIMUM_LIQUIDITY);
+            _mint(to, tokenId, lpTokensMinted);
+            
+            // Update total supply to include both user's tokens and minimum liquidity
+            metadata.totalSupply = uint256(liquidityAdded); // = MINIMUM_LIQUIDITY + lpTokensMinted
+        } else {
+            // Subsequent deposits - mint proportional to share of total liquidity
+            // Formula: lpToMint = (liquidityAdded * totalSupply) / totalLiquidity
+            // Use FixedPointMathLib.fullMulDiv to prevent overflow when totalSupply is very large
+            lpTokensMinted = FixedPointMathLib.fullMulDiv(
+                uint256(liquidityAdded),
+                _totalSupply,
+                uint256(metadata.totalLiquidity)
+            );
+            if (lpTokensMinted == 0) revert InsufficientLiquidityMinted();
+            _mint(to, tokenId, lpTokensMinted);
+            
+            // Update total supply
+            metadata.totalSupply += lpTokensMinted;
         }
 
-        // Clone LP token implementation with CREATE2 (deterministic address)
-        lpToken = LibClone.cloneDeterministic(LP_TOKEN_IMPLEMENTATION, salt);
-        StableswapLPToken(payable(lpToken)).initialize(poolKey);
+        // Update total liquidity tracking
+        metadata.totalLiquidity += liquidityAdded;
 
-        emit LPTokenCreated(poolKey, lpToken);
+        return lpTokensMinted;
     }
 
-    /// @notice Gets the LP token address for a pool (deterministically computed)
-    /// @dev Address is computed via CREATE2, no storage lookup needed
-    /// @param poolKey The pool key
-    /// @return lpToken The LP token address (may not be deployed yet)
-    function getLPToken(PoolKey memory poolKey) public view returns (address lpToken) {
-        bytes32 salt = PoolId.unwrap(poolKey.toPoolId());
-        lpToken = LibClone.predictDeterministicAddress(LP_TOKEN_IMPLEMENTATION, salt, address(this));
+    /// @notice Burns LP tokens and calculates proportional liquidity to remove
+    /// @param from The address to burn LP tokens from
+    /// @param poolId The pool ID
+    /// @param lpTokensToBurn The amount of LP tokens to burn
+    /// @return liquidityToRemove The amount of liquidity to remove from the Core position
+    function _burnLPTokens(
+        address from,
+        PoolId poolId,
+        uint256 lpTokensToBurn
+    ) internal returns (uint128 liquidityToRemove) {
+        uint256 tokenId = uint256(PoolId.unwrap(poolId));
+        PoolMetadata storage metadata = poolMetadata[tokenId];
+
+        uint256 _totalSupply = _calculateTotalSupply(tokenId);
+
+        // Calculate proportional liquidity to remove
+        // Formula: liquidityToRemove = (lpTokensBurned * totalLiquidity) / totalSupply
+        liquidityToRemove = uint128((lpTokensToBurn * uint256(metadata.totalLiquidity)) / _totalSupply);
+
+        _burn(from, tokenId, lpTokensToBurn);
+        metadata.totalLiquidity -= liquidityToRemove;
+        metadata.totalSupply -= lpTokensToBurn;
+
+        return liquidityToRemove;
     }
 
-    /// @notice Checks if an LP token exists for a pool
-    /// @param poolKey The pool key
-    /// @return exists True if LP token has been created
-    function lpTokenExists(PoolKey memory poolKey) external view returns (bool exists) {
-        return getLPToken(poolKey).code.length > 0;
+    /// @notice Calculate total supply for a token ID
+    /// @dev Returns the cached total supply from metadata
+    function _calculateTotalSupply(uint256 tokenId) internal view returns (uint256) {
+        return poolMetadata[tokenId].totalSupply;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        PUBLIC INTERFACE
+    //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IStableswapLPPositions
     function deposit(
@@ -193,101 +349,105 @@ contract StableswapLPPositions is BaseLocker, UsesCore, PayableMulticallable, Ow
         (amount0, amount1) = CORE.savedBalances(address(this), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
     }
 
+    /*//////////////////////////////////////////////////////////////
+                        INTERNAL LOGIC
+    //////////////////////////////////////////////////////////////*/
+
     /// @notice Auto-compounds pending fees by collecting and reinvesting them
     /// @dev Called before each deposit/withdraw to compound fees into the position
     /// @dev Uses Core's savedBalances as single source of truth for pending fees (no local storage)
     /// @dev OPTIMIZATION: Uses net delta for pending fees to combine withdraw + save operations (~27k gas saved)
     /// @param poolKey The pool key
-    /// @param lpToken The LP token address
+    /// @param tokenId The token ID (for metadata lookup)
     /// @return liquidityAdded The amount of liquidity added from fees
-function _autoCompoundFees(PoolKey memory poolKey, address lpToken) internal returns (uint128 liquidityAdded) {
-    PoolId poolId = poolKey.toPoolId();
-    (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
-    PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
+    function _autoCompoundFees(PoolKey memory poolKey, uint256 tokenId) internal returns (uint128 liquidityAdded) {
+        PoolId poolId = poolKey.toPoolId();
+        (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
+        PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
 
-    // Step 1: Collect NEW fees from Core
-    (uint128 newFees0, uint128 newFees1) = CORE.collectFees(poolKey, positionId);
+        // Step 1: Collect NEW fees from Core
+        (uint128 newFees0, uint128 newFees1) = CORE.collectFees(poolKey, positionId);
 
-    // Step 2: Deduct protocol fees IMMEDIATELY from new fees (before any other accounting)
-    (uint128 protocolFee0, uint128 protocolFee1) = _computeSwapProtocolFees(newFees0, newFees1);
+        // Step 2: Deduct protocol fees IMMEDIATELY from new fees (before any other accounting)
+        (uint128 protocolFee0, uint128 protocolFee1) = _computeSwapProtocolFees(newFees0, newFees1);
 
-    // Step 3: Save protocol fees to their dedicated salt (bytes32(0))
-    if (protocolFee0 != 0 || protocolFee1 != 0) {
-        CORE.updateSavedBalances(
-            poolKey.token0, poolKey.token1, bytes32(0),  // Protocol fees use salt = 0
-            _safeInt128(protocolFee0), _safeInt128(protocolFee1)
+        // Step 3: Save protocol fees to their dedicated salt (bytes32(0))
+        if (protocolFee0 != 0 || protocolFee1 != 0) {
+            CORE.updateSavedBalances(
+                poolKey.token0, poolKey.token1, bytes32(0),  // Protocol fees use salt = 0
+                _safeInt128(protocolFee0), _safeInt128(protocolFee1)
+            );
+        }
+
+        // Step 4: Calculate net new fees (after protocol fee deduction)
+        uint128 netNewFees0 = newFees0 - protocolFee0;
+        uint128 netNewFees1 = newFees1 - protocolFee1;
+
+        // Step 5: Load pending fees (these ALREADY had protocol fees deducted when first collected)
+        (uint128 pending0, uint128 pending1) = CORE.savedBalances(
+            address(this), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId)
         );
-    }
 
-    // Step 4: Calculate net new fees (after protocol fee deduction)
-    uint128 netNewFees0 = newFees0 - protocolFee0;
-    uint128 netNewFees1 = newFees1 - protocolFee1;
+        // Step 6: Total fees available for compounding (all net of protocol fees)
+        uint128 fees0 = netNewFees0 + pending0;
+        uint128 fees1 = netNewFees1 + pending1;
 
-    // Step 5: Load pending fees (these ALREADY had protocol fees deducted when first collected)
-    (uint128 pending0, uint128 pending1) = CORE.savedBalances(
-        address(this), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId)
-    );
+        if (fees0 == 0 && fees1 == 0) return 0;
 
-    // Step 6: Total fees available for compounding (all net of protocol fees)
-    uint128 fees0 = netNewFees0 + pending0;
-    uint128 fees1 = netNewFees1 + pending1;
+        // Step 7: Calculate liquidity from NET fees
+        SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
+        liquidityAdded = maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), fees0, fees1);
 
-    if (fees0 == 0 && fees1 == 0) return 0;
+        if (liquidityAdded > 0) {
+            // Step 8: Add fees to Core position (compound)
+            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, int128(liquidityAdded));
 
-    // Step 7: Calculate liquidity from NET fees
-    SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
-    liquidityAdded = maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), fees0, fees1);
+            // Step 9: Calculate leftover fees
+            uint128 usedAmount0 = uint128(balanceUpdate.delta0());
+            uint128 usedAmount1 = uint128(balanceUpdate.delta1());
+            uint128 leftover0 = fees0 > usedAmount0 ? fees0 - usedAmount0 : 0;
+            uint128 leftover1 = fees1 > usedAmount1 ? fees1 - usedAmount1 : 0;
 
-    if (liquidityAdded > 0) {
-        // Step 8: Add fees to Core position (compound)
-        PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, int128(liquidityAdded));
+            // === COMBINED SAVEDBALANCES UPDATE (GAS OPTIMIZATION) ===
+            // Instead of 3 separate calls:
+            //   1. withdraw pending: updateSavedBalances(..., -pending, -pending)
+            //   2. save protocol:    updateSavedBalances(..., +protocolFee, +protocolFee)   [ALREADY DONE ABOVE]
+            //   3. save leftover:    updateSavedBalances(..., +leftover, +leftover)
+            //
+            // We use net delta for pending:
+            //   netDelta = leftover - pending (combines withdraw + save)
+            //
+            // This saves ~27k gas per auto-compound (34% reduction)
+            int128 netPendingDelta0 = _safeInt128(leftover0) - _safeInt128(pending0);
+            int128 netPendingDelta1 = _safeInt128(leftover1) - _safeInt128(pending1);
 
-        // Step 9: Calculate leftover fees
-        uint128 usedAmount0 = uint128(balanceUpdate.delta0());
-        uint128 usedAmount1 = uint128(balanceUpdate.delta1());
-        uint128 leftover0 = fees0 > usedAmount0 ? fees0 - usedAmount0 : 0;
-        uint128 leftover1 = fees1 > usedAmount1 ? fees1 - usedAmount1 : 0;
+            if (netPendingDelta0 != 0 || netPendingDelta1 != 0) {
+                CORE.updateSavedBalances(
+                    poolKey.token0, poolKey.token1, PoolId.unwrap(poolId),
+                    netPendingDelta0, netPendingDelta1
+                );
+            }
 
-        // === COMBINED SAVEDBALANCES UPDATE (GAS OPTIMIZATION) ===
-        // Instead of 3 separate calls:
-        //   1. withdraw pending: updateSavedBalances(..., -pending, -pending)
-        //   2. save protocol:    updateSavedBalances(..., +protocolFee, +protocolFee)   [ALREADY DONE ABOVE]
-        //   3. save leftover:    updateSavedBalances(..., +leftover, +leftover)
-        //
-        // We use net delta for pending:
-        //   netDelta = leftover - pending (combines withdraw + save)
-        //
-        // This saves ~27k gas per auto-compound (34% reduction)
-        int128 netPendingDelta0 = _safeInt128(leftover0) - _safeInt128(pending0);
-        int128 netPendingDelta1 = _safeInt128(leftover1) - _safeInt128(pending1);
+            // Step 10: Update metadata liquidity tracking
+            poolMetadata[tokenId].totalLiquidity += liquidityAdded;
 
-        if (netPendingDelta0 != 0 || netPendingDelta1 != 0) {
-            CORE.updateSavedBalances(
-                poolKey.token0, poolKey.token1, PoolId.unwrap(poolId),
-                netPendingDelta0, netPendingDelta1
-            );
+            emit FeesCompounded(poolKey, usedAmount0, usedAmount1, liquidityAdded);
+        } else {
+            // If compound fails (e.g., price out of range), save ALL fees for next attempt
+            // Use net delta: fees (what we want to save) - pending (what was already there)
+            int128 netPendingDelta0 = _safeInt128(fees0) - _safeInt128(pending0);
+            int128 netPendingDelta1 = _safeInt128(fees1) - _safeInt128(pending1);
+
+            if (netPendingDelta0 != 0 || netPendingDelta1 != 0) {
+                CORE.updateSavedBalances(
+                    poolKey.token0, poolKey.token1, PoolId.unwrap(poolId),
+                    netPendingDelta0, netPendingDelta1
+                );
+            }
         }
 
-        // Step 10: Update LP token accounting
-        StableswapLPToken(payable(lpToken)).incrementTotalLiquidity(liquidityAdded);
-
-        emit FeesCompounded(poolKey, usedAmount0, usedAmount1, liquidityAdded);
-    } else {
-        // If compound fails (e.g., price out of range), save ALL fees for next attempt
-        // Use net delta: fees (what we want to save) - pending (what was already there)
-        int128 netPendingDelta0 = _safeInt128(fees0) - _safeInt128(pending0);
-        int128 netPendingDelta1 = _safeInt128(fees1) - _safeInt128(pending1);
-
-        if (netPendingDelta0 != 0 || netPendingDelta1 != 0) {
-            CORE.updateSavedBalances(
-                poolKey.token0, poolKey.token1, PoolId.unwrap(poolId),
-                netPendingDelta0, netPendingDelta1
-            );
-        }
+        return liquidityAdded;
     }
-
-    return liquidityAdded;
-}
 
     /// @notice Handles deposit operation within lock callback
     /// @param caller The address initiating the deposit
@@ -306,17 +466,25 @@ function _autoCompoundFees(PoolKey memory poolKey, address lpToken) internal ret
         uint128 minLiquidity
     ) internal returns (uint256 lpTokensMinted, uint128 amount0, uint128 amount1) {
         PoolId poolId = poolKey.toPoolId();
-        address lpToken = getLPToken(poolKey);
+        uint256 tokenId = uint256(PoolId.unwrap(poolId));
 
-        if (lpToken.code.length == 0) {
-            revert LPTokenDoesNotExist();
+        // Initialize pool metadata if first deposit
+        if (!poolMetadata[tokenId].initialized) {
+            poolMetadata[tokenId] = PoolMetadata({
+                token0: poolKey.token0,
+                token1: poolKey.token1,
+                totalLiquidity: 0,
+                totalSupply: 0,
+                initialized: true
+            });
+            emit PoolInitialized(tokenId, poolKey.token0, poolKey.token1);
         }
 
         // Get tick range from pool config
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
 
         // Auto-compound fees before deposit
-        _autoCompoundFees(poolKey, lpToken);
+        _autoCompoundFees(poolKey, tokenId);
 
         // Calculate liquidity to add
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
@@ -340,8 +508,8 @@ function _autoCompoundFees(PoolKey memory poolKey, address lpToken) internal ret
             revert DepositFailedDueToSlippage(liquidityToAdd, minLiquidity);
         }
 
-        // Mint LP tokens
-        lpTokensMinted = StableswapLPToken(payable(lpToken)).mint(caller, liquidityToAdd);
+        // Mint ERC6909 LP tokens
+        lpTokensMinted = _mintLPTokens(caller, poolId, liquidityToAdd);
 
         // Transfer tokens from caller
         if (poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
@@ -367,9 +535,10 @@ function _autoCompoundFees(PoolKey memory poolKey, address lpToken) internal ret
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = poolKey.toPoolId();
-        address lpToken = getLPToken(poolKey);
+        uint256 tokenId = uint256(PoolId.unwrap(poolId));
 
-        if (lpToken.code.length == 0) {
+        // Verify pool is initialized
+        if (!poolMetadata[tokenId].initialized) {
             revert LPTokenDoesNotExist();
         }
 
@@ -377,10 +546,10 @@ function _autoCompoundFees(PoolKey memory poolKey, address lpToken) internal ret
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
 
         // Auto-compound fees before withdrawal
-        _autoCompoundFees(poolKey, lpToken);
+        _autoCompoundFees(poolKey, tokenId);
 
-        // Burn LP tokens and calculate liquidity to withdraw
-        uint128 liquidityToWithdraw = StableswapLPToken(payable(lpToken)).burn(caller, lpTokensToWithdraw);
+        // Burn ERC6909 LP tokens and calculate liquidity to withdraw
+        uint128 liquidityToWithdraw = _burnLPTokens(caller, poolId, lpTokensToWithdraw);
 
         // Remove liquidity from Core
         PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});

@@ -6,7 +6,6 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {Core} from "../src/Core.sol";
 import {StableswapLPPositions} from "../src/StableswapLPPositions.sol";
 import {IStableswapLPPositions} from "../src/interfaces/IStableswapLPPositions.sol";
-import {StableswapLPToken} from "../src/StableswapLPToken.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
@@ -26,6 +25,11 @@ contract StableswapLPPositionsTest is FullTest {
 
     // Helper constant for deadline - far future timestamp
     uint256 constant DEADLINE = type(uint256).max;
+
+    /// @notice Helper to get ERC6909 token ID from pool key
+    function getTokenId(PoolKey memory poolKey) internal pure returns (uint256) {
+        return uint256(PoolId.unwrap(poolKey.toPoolId()));
+    }
 
     function setUp() public override {
         super.setUp();
@@ -86,69 +90,24 @@ contract StableswapLPPositionsTest is FullTest {
 
 
     // LP Token Minting Tests
-
-    function test_createLPToken() public {
-        PoolKey memory poolKey = createStableswapPool();
-
-        address lpToken = lpPositions.createLPToken(poolKey);
-
-        assertEq(lpPositions.getLPToken(poolKey), lpToken);
-        assertGt(address(lpToken).code.length, 0);
-    }
-
-    function test_getLPToken_predictableBeforeCreation() public {
-        PoolKey memory poolKey = createStableswapPool();
-
-        // Get predicted address before creation
-        address predicted = lpPositions.getLPToken(poolKey);
-        
-        // Should not exist yet
-        assertFalse(lpPositions.lpTokenExists(poolKey), "LP token should not exist yet");
-        assertEq(predicted.code.length, 0, "Predicted address should have no code");
-
-        // Create LP token
-        address lpToken = lpPositions.createLPToken(poolKey);
-
-        // Should match prediction
-        assertEq(lpToken, predicted, "Created address should match prediction");
-        assertTrue(lpPositions.lpTokenExists(poolKey), "LP token should exist now");
-    }
-
-    function test_lpTokenExists_falseBeforeCreation() public {
-        PoolKey memory poolKey = createStableswapPool();
-        assertFalse(lpPositions.lpTokenExists(poolKey));
-    }
-
-    function test_lpTokenExists_trueAfterCreation() public {
-        PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
-        assertTrue(lpPositions.lpTokenExists(poolKey));
-    }
-
-    function test_createLPToken_twice_reverts() public {
-        PoolKey memory poolKey = createStableswapPool();
-
-        lpPositions.createLPToken(poolKey);
-
-        vm.expectRevert(IStableswapLPPositions.LPTokenAlreadyExists.selector);
-        lpPositions.createLPToken(poolKey);
-    }
+    // Note: createLPToken, getLPToken, and lpTokenExists functions removed in ERC6909 migration
+    // Pool metadata is now automatically initialized on first deposit
 
     function test_firstDeposit_burnsMinimumLiquidity() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 10000, 10000, 0, DEADLINE);
 
-        uint256 totalSupply = StableswapLPToken(payable(lpToken)).totalSupply();
-        uint128 totalLiquidity = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        uint256 totalSupply = lpPositions.totalSupply(tokenId);
+        (,, uint128 totalLiquidity,,) = lpPositions.poolMetadata(tokenId);
 
         // First deposit should burn 1000 LP tokens to address(0xdead)
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(address(0xdead)), 1000);
+        assertEq(lpPositions.balanceOf(address(0xdead), tokenId), 1000);
 
         // Alice should receive (totalSupply - 1000)
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(alice), lpTokensMinted);
+        assertEq(lpPositions.balanceOf(alice, tokenId), lpTokensMinted);
         assertEq(lpTokensMinted, totalSupply - 1000);
         assertGt(lpTokensMinted, 0);
 
@@ -158,13 +117,13 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_subsequentDeposit_proportionalMinting() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits first
         vm.prank(alice);
         (uint256 aliceLpTokens,,) = lpPositions.deposit(poolKey, 10000, 10000, 0, DEADLINE);
 
-        uint256 totalSupplyAfterAlice = StableswapLPToken(payable(lpToken)).totalSupply();
+        uint256 totalSupplyAfterAlice = lpPositions.totalSupply(tokenId);
 
         // Bob deposits same amount
         vm.prank(bob);
@@ -176,7 +135,7 @@ contract StableswapLPPositionsTest is FullTest {
 
         // Total supply should approximately double
         assertApproxEqRel(
-            StableswapLPToken(payable(lpToken)).totalSupply(),
+            lpPositions.totalSupply(tokenId),
             totalSupplyAfterAlice * 2,
             0.01e18
         );
@@ -184,7 +143,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_preventDonationAttack() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
 
         // Attacker deposits very small amount
         vm.prank(alice);
@@ -208,13 +166,13 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_deposit_autoCompoundsPendingFees() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        uint128 totalLiquidityBefore = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 totalLiquidityBefore,,) = lpPositions.poolMetadata(tokenId);
 
         // Generate fees via swap (would need router integration)
         // For now, we'll simulate fees being accumulated
@@ -224,7 +182,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        uint128 totalLiquidityAfter = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 totalLiquidityAfter,,) = lpPositions.poolMetadata(tokenId);
 
         // Total liquidity should increase (original deposits + fees)
         assertGe(totalLiquidityAfter, totalLiquidityBefore + 100000);
@@ -232,7 +190,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdraw_autoCompoundsPendingFees() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -242,7 +200,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        uint128 totalLiquidityBefore = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 totalLiquidityBefore,,) = lpPositions.poolMetadata(tokenId);
 
         // Generate fees (would need swap integration)
         // TODO: Implement swap to generate real fees
@@ -252,7 +210,7 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.withdraw(poolKey, aliceLpTokens, 0, 0, DEADLINE);
 
         // Total liquidity should have increased from fees before withdrawal
-        uint128 totalLiquidityAfter = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 totalLiquidityAfter,,) = lpPositions.poolMetadata(tokenId);
 
         // After Alice's withdrawal, remaining liquidity should be less than before
         // but the auto-compound should have happened first
@@ -261,7 +219,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_autoCompound_noFeesDoesNotRevert() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Deposit without fees should succeed
         vm.prank(alice);
@@ -276,7 +233,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_feesIncreaseWithdrawalValue() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -300,7 +256,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_proportionalFeeSharing() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
 
         // Alice deposits 100k
         vm.prank(alice);
@@ -332,7 +287,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_laterDepositor_getsOnlyNewFees() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -372,7 +326,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_zeroLiquidity_cannotDeposit() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         vm.expectRevert();
@@ -381,7 +334,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdrawAll_leavesMinimumLiquidity() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice is the only depositor
         vm.prank(alice);
@@ -392,13 +345,13 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.withdraw(poolKey, lpTokensMinted, 0, 0, DEADLINE);
 
         // Total supply should still include the 1000 minimum liquidity burned to 0xdead
-        assertEq(StableswapLPToken(payable(lpToken)).totalSupply(), 1000);
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(address(0xdead)), 1000);
+        assertEq(lpPositions.totalSupply(tokenId), 1000);
+        assertEq(lpPositions.balanceOf(address(0xdead), tokenId), 1000);
     }
 
     function test_dustAmounts_handleCorrectly() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Try depositing very small amounts
         vm.prank(alice);
@@ -416,7 +369,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_depositWithSlippageProtection() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Try to deposit with minLiquidity too high
         vm.prank(alice);
@@ -424,14 +376,8 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.deposit(poolKey, 100, 100, 100000, DEADLINE);
     }
 
-    function test_nonExistentLPToken_reverts() public {
-        PoolKey memory poolKey = createStableswapPool();
-
-        // Try to deposit without creating LP token first
-        vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.LPTokenDoesNotExist.selector);
-        lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
-    }
+    // NOTE: This test is no longer relevant in ERC6909 - pools auto-initialize on first deposit
+    // The test_firstDeposit_burnsMinimumLiquidity test covers the first deposit behavior
 
     function test_protocolFeeCollection() public {
         // Create LP positions with protocol fee
@@ -448,8 +394,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         token1.approve(address(lpPositionsWithFee), type(uint256).max);
 
-        address lpToken = lpPositionsWithFee.createLPToken(poolKey);
-
+        // NOTE: No createLPToken needed - pool auto-initializes on first deposit (ERC6909)
         vm.prank(alice);
         lpPositionsWithFee.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
@@ -467,7 +412,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_multipleDepositsAndWithdrawals() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -490,19 +435,18 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.withdraw(poolKey, bobLpTokens1, 0, 0, DEADLINE);
 
         // Alice withdraws remaining
-        uint256 aliceRemainingLpTokens = StableswapLPToken(payable(lpToken)).balanceOf(alice);
+        uint256 aliceRemainingLpTokens = lpPositions.balanceOf(alice, tokenId);
         vm.prank(alice);
         lpPositions.withdraw(poolKey, aliceRemainingLpTokens, 0, 0, DEADLINE);
 
         // Only minimum liquidity should remain
-        assertEq(StableswapLPToken(payable(lpToken)).totalSupply(), 1000);
+        assertEq(lpPositions.totalSupply(tokenId), 1000);
     }
 
     // New tests for added features
 
     function test_deadlineExpired_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Try to deposit with expired deadline
         vm.prank(alice);
@@ -512,7 +456,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdrawSlippageProtection() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -526,7 +469,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_depositEmitsEvent() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         vm.expectEmit(true, true, false, false);
@@ -536,7 +478,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdrawEmitsEvent() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
@@ -551,7 +492,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdrawProtocolFees_onlyOwner() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Non-owner tries to withdraw
         vm.prank(alice);
@@ -561,7 +501,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdrawProtocolFees_ownerCanWithdraw() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Owner can call (even if no fees)
         vm.prank(owner);
@@ -578,7 +517,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdrawDeadlineExpired_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
@@ -591,7 +529,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_deadlineAtCurrentTimestamp_succeeds() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Deposit with deadline at current timestamp should succeed
         vm.prank(alice);
@@ -608,46 +545,50 @@ contract StableswapLPPositionsTest is FullTest {
         assertEq(withFee.SWAP_PROTOCOL_FEE_X64(), 1 << 60);
     }
 
-    function test_lpTokenImplementation_isDeployed() public {
-        address impl = lpPositions.LP_TOKEN_IMPLEMENTATION();
-        assertGt(impl.code.length, 0, "Implementation should be deployed");
-    }
-
-    // ==================== LP TOKEN TESTS ====================
+    // ==================== ERC6909 LP TOKEN TESTS ====================
 
     function test_lpToken_nameAndSymbol() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
-        assertEq(StableswapLPToken(payable(lpToken)).name(), "Ekubo Stableswap LP");
-        assertEq(StableswapLPToken(payable(lpToken)).symbol(), "EKUBO-SLP");
+        // Must deposit first to initialize the pool metadata
+        vm.prank(alice);
+        lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
+
+        // ERC6909 metadata is on lpPositions contract directly
+        string memory name = lpPositions.name(tokenId);
+        string memory symbol = lpPositions.symbol(tokenId);
+        
+        // Name should be "Ekubo Stableswap LP: TOKEN0-TOKEN1"
+        assertTrue(bytes(name).length > 0, "Name should not be empty");
+        assertEq(symbol, "EKUBO-SLP");
     }
 
     function test_lpToken_transfer() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        // Transfer LP tokens from Alice to Bob
+        // Transfer LP tokens from Alice to Bob using ERC6909 transfer
         vm.prank(alice);
-        StableswapLPToken(payable(lpToken)).transfer(bob, lpTokensMinted / 2);
+        lpPositions.transfer(bob, tokenId, lpTokensMinted / 2);
 
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(alice), lpTokensMinted / 2);
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(bob), lpTokensMinted / 2);
+        assertEq(lpPositions.balanceOf(alice, tokenId), lpTokensMinted / 2);
+        assertEq(lpPositions.balanceOf(bob, tokenId), lpTokensMinted / 2);
     }
 
     function test_lpToken_transferThenWithdraw() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        // Transfer LP tokens from Alice to Bob
+        // Transfer LP tokens from Alice to Bob using ERC6909
         vm.prank(alice);
-        StableswapLPToken(payable(lpToken)).transfer(bob, lpTokensMinted);
+        lpPositions.transfer(bob, tokenId, lpTokensMinted);
 
         // Bob withdraws
         uint256 bobToken0Before = token0.balanceOf(bob);
@@ -657,44 +598,13 @@ contract StableswapLPPositionsTest is FullTest {
         assertGt(token0.balanceOf(bob) - bobToken0Before, 0, "Bob should receive tokens");
     }
 
-    function test_lpToken_cannotMintDirectly() public {
-        PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
-
-        // Try to mint directly (should fail - only positions contract can)
-        vm.expectRevert("Only positions contract");
-        StableswapLPToken(payable(lpToken)).mint(alice, 1000);
-    }
-
-    function test_lpToken_cannotBurnDirectly() public {
-        PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
-
-        vm.prank(alice);
-        lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
-
-        // Try to burn directly (should fail)
-        vm.expectRevert("Only positions contract");
-        StableswapLPToken(payable(lpToken)).burn(alice, 1000);
-    }
-
-    function test_lpToken_cannotIncrementLiquidityDirectly() public {
-        PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
-
-        vm.prank(alice);
-        lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
-
-        // Try to increment liquidity directly (should fail)
-        vm.expectRevert("Only positions contract");
-        StableswapLPToken(payable(lpToken)).incrementTotalLiquidity(1000);
-    }
+    // NOTE: In ERC6909, mint/burn are internal functions called by deposit/withdraw
+    // Users cannot mint/burn LP tokens directly - they must use deposit/withdraw
 
     // ==================== ASYMMETRIC DEPOSIT TESTS ====================
 
     function test_asymmetricDeposit_usesLimitingToken() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Deposit with asymmetric amounts
         vm.prank(alice);
@@ -709,7 +619,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_asymmetricDeposit_returnsUnusedTokens() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         uint256 token0Before = token0.balanceOf(alice);
         uint256 token1Before = token1.balanceOf(alice);
@@ -737,22 +646,23 @@ contract StableswapLPPositionsTest is FullTest {
         core.initializePool(poolKey1, 0);
         core.initializePool(poolKey2, 0);
 
-        address lpToken1 = lpPositions.createLPToken(poolKey1);
-        address lpToken2 = lpPositions.createLPToken(poolKey2);
+        // Get ERC6909 token IDs for each pool
+        uint256 tokenId1 = uint256(PoolId.unwrap(poolKey1.toPoolId()));
+        uint256 tokenId2 = uint256(PoolId.unwrap(poolKey2.toPoolId()));
 
-        // LP tokens should be different addresses
-        assertTrue(lpToken1 != lpToken2, "LP tokens should be different");
+        // Token IDs should be different
+        assertTrue(tokenId1 != tokenId2, "Token IDs should be different");
 
-        // Deposit to both pools with same amounts
+        // Deposit to both pools with same amounts (auto-initializes on first deposit)
         vm.prank(alice);
         lpPositions.deposit(poolKey1, 100000, 100000, 0, DEADLINE);
 
         vm.prank(alice);
         lpPositions.deposit(poolKey2, 100000, 100000, 0, DEADLINE);
 
-        // Check balances are independent (both should have LP tokens)
-        uint256 balance1 = StableswapLPToken(payable(lpToken1)).balanceOf(alice);
-        uint256 balance2 = StableswapLPToken(payable(lpToken2)).balanceOf(alice);
+        // Check balances are independent using ERC6909 balanceOf
+        uint256 balance1 = lpPositions.balanceOf(alice, tokenId1);
+        uint256 balance2 = lpPositions.balanceOf(alice, tokenId2);
 
         assertGt(balance1, 0, "Pool1 should have LP tokens");
         assertGt(balance2, 0, "Pool2 should have LP tokens");
@@ -765,7 +675,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_pendingFees_initiallyZero() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         (uint128 pending0, uint128 pending1) = lpPositions.getPendingFees(poolKey);
         assertEq(pending0, 0);
@@ -776,7 +685,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_largeDeposit_succeeds() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Deposit large amount
         vm.prank(alice);
@@ -787,7 +695,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_largeWithdraw_succeeds() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100_000 ether, 100_000 ether, 0, DEADLINE);
@@ -803,7 +711,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdraw_withNoLPTokens_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Alice has no LP tokens
         vm.prank(alice);
@@ -813,7 +720,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdraw_moreThanBalance_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
@@ -848,7 +754,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_deposit_exactSlippage_succeeds() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // First deposit to establish liquidity
         vm.prank(alice);
@@ -862,7 +767,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdraw_exactSlippage_succeeds() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
@@ -879,7 +783,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_deposit_returnsCorrectAmounts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         uint256 token0Before = token0.balanceOf(alice);
         uint256 token1Before = token1.balanceOf(alice);
@@ -894,7 +797,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdraw_returnsCorrectAmounts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
@@ -910,9 +812,12 @@ contract StableswapLPPositionsTest is FullTest {
         assertEq(token1.balanceOf(alice) - token1Before, amount1);
     }
 
-    // ==================== CLONE PATTERN TESTS ====================
+    // ==================== ERC6909 ARCHITECTURE TESTS ====================
+    // NOTE: Clone pattern tests removed - ERC6909 uses a single multi-token contract
+    // instead of deploying EIP-1167 clones per pool
 
-    function test_clonedLPTokens_shareImplementation() public {
+    function test_erc6909_singleContract() public {
+        // Create two pools with different configs
         PoolConfig config1 = createStableswapPoolConfig(1 << 63, 10, 0, address(0));
         PoolConfig config2 = createStableswapPoolConfig(1 << 62, 20, 0, address(0));
 
@@ -922,50 +827,48 @@ contract StableswapLPPositionsTest is FullTest {
         core.initializePool(poolKey1, 0);
         core.initializePool(poolKey2, 0);
 
-        address lpToken1 = lpPositions.createLPToken(poolKey1);
-        address lpToken2 = lpPositions.createLPToken(poolKey2);
+        // Both pools use the same lpPositions contract for ERC6909 tokens
+        uint256 tokenId1 = uint256(PoolId.unwrap(poolKey1.toPoolId()));
+        uint256 tokenId2 = uint256(PoolId.unwrap(poolKey2.toPoolId()));
 
-        // Both should have minimal proxy code (45 bytes)
-        // The implementation should be larger
-        address impl = lpPositions.LP_TOKEN_IMPLEMENTATION();
+        // Deposit to both pools
+        vm.prank(alice);
+        lpPositions.deposit(poolKey1, 100000, 100000, 0, DEADLINE);
 
-        assertGt(impl.code.length, lpToken1.code.length, "Implementation larger than proxy");
-        assertEq(lpToken1.code.length, lpToken2.code.length, "Proxies same size");
-    }
+        vm.prank(alice);
+        lpPositions.deposit(poolKey2, 100000, 100000, 0, DEADLINE);
 
-    function test_lpTokenImplementation_cannotBeReinitialized() public {
-        address impl = lpPositions.LP_TOKEN_IMPLEMENTATION();
-        
-        PoolKey memory poolKey = createStableswapPool();
+        // Balances are tracked on the same contract with different token IDs
+        uint256 balance1 = lpPositions.balanceOf(alice, tokenId1);
+        uint256 balance2 = lpPositions.balanceOf(alice, tokenId2);
 
-        // Try to initialize the implementation directly
-        vm.expectRevert();
-        StableswapLPToken(payable(impl)).initialize(poolKey);
+        assertGt(balance1, 0, "Pool1 should have LP tokens");
+        assertGt(balance2, 0, "Pool2 should have LP tokens");
     }
 
     // ==================== TOTAL LIQUIDITY TRACKING ====================
 
     function test_totalLiquidity_tracksCorrectly() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Initial deposit
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
-        uint128 liquidityAfterFirst = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 liquidityAfterFirst,,) = lpPositions.poolMetadata(tokenId);
 
         // Second deposit
         vm.prank(bob);
         lpPositions.deposit(poolKey, 50000, 50000, 0, DEADLINE);
-        uint128 liquidityAfterSecond = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 liquidityAfterSecond,,) = lpPositions.poolMetadata(tokenId);
 
         assertGt(liquidityAfterSecond, liquidityAfterFirst, "Liquidity should increase");
 
         // Withdrawal
-        uint256 aliceBalance = StableswapLPToken(payable(lpToken)).balanceOf(alice);
+        uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
         vm.prank(alice);
         lpPositions.withdraw(poolKey, aliceBalance, 0, 0, DEADLINE);
-        uint128 liquidityAfterWithdraw = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 liquidityAfterWithdraw,,) = lpPositions.poolMetadata(tokenId);
 
         assertLt(liquidityAfterWithdraw, liquidityAfterSecond, "Liquidity should decrease");
     }
@@ -974,7 +877,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_zeroAmountWithdraw_returnsZero() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
@@ -989,7 +891,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_singleWeiDeposit_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Try to deposit minimum amounts (1 wei each)
         // This causes underflow due to minimum liquidity being larger than deposit
@@ -1000,7 +901,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_veryLargeDeposit_handles() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Use a very large but safe amount (e.g., 10^30 which is 10^12 ether)
         uint128 largeAmount = 1e30;
@@ -1023,7 +923,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_multiplePartialWithdrawals() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 1_000_000, 1_000_000, 0, DEADLINE);
@@ -1038,17 +938,17 @@ contract StableswapLPPositionsTest is FullTest {
         }
 
         // Withdraw remaining
-        uint256 remaining = StableswapLPToken(payable(lpToken)).balanceOf(alice);
+        uint256 remaining = lpPositions.balanceOf(alice, tokenId);
         vm.prank(alice);
         lpPositions.withdraw(poolKey, remaining, 0, 0, DEADLINE);
 
         // Alice should have 0 LP tokens left
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(alice), 0);
+        assertEq(lpPositions.balanceOf(alice, tokenId), 0);
     }
 
     function test_consecutiveDepositsAndWithdrawsByDifferentUsers() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Interleaved operations
         vm.prank(alice);
@@ -1057,7 +957,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 30000, 30000, 0, DEADLINE);
 
-        uint256 aliceBalance1 = StableswapLPToken(payable(lpToken)).balanceOf(alice);
+        uint256 aliceBalance1 = lpPositions.balanceOf(alice, tokenId);
         vm.prank(alice);
         lpPositions.withdraw(poolKey, aliceBalance1 / 2, 0, 0, DEADLINE);
 
@@ -1067,18 +967,17 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         lpPositions.deposit(poolKey, 10000, 10000, 0, DEADLINE);
 
-        uint256 bobBalance = StableswapLPToken(payable(lpToken)).balanceOf(bob);
+        uint256 bobBalance = lpPositions.balanceOf(bob, tokenId);
         vm.prank(bob);
         lpPositions.withdraw(poolKey, bobBalance, 0, 0, DEADLINE);
 
         // Final balances should be non-negative
-        assertGe(StableswapLPToken(payable(lpToken)).balanceOf(alice), 0);
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(bob), 0);
+        assertGe(lpPositions.balanceOf(alice, tokenId), 0);
+        assertEq(lpPositions.balanceOf(bob, tokenId), 0);
     }
 
     function test_depositWithOnlyToken0_usesMinimum() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Deposit with only token0 (token1 = 0)
         vm.prank(alice);
@@ -1088,7 +987,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_depositWithOnlyToken1_usesMinimum() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Deposit with only token1 (token0 = 0)
         vm.prank(alice);
@@ -1098,65 +996,65 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_minimumLiquidity_isPermanentlyLocked() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // First deposit burns 1000 to 0xdead
         vm.prank(alice);
         lpPositions.deposit(poolKey, 10000, 10000, 0, DEADLINE);
 
         // Verify 1000 LP tokens are locked at dead address
-        uint256 deadBalance = StableswapLPToken(payable(lpToken)).balanceOf(address(0xdead));
+        uint256 deadBalance = lpPositions.balanceOf(address(0xdead), tokenId);
         assertEq(deadBalance, 1000, "Minimum liquidity should be at dead address");
 
         // Alice withdraws all her tokens
-        uint256 aliceBalance = StableswapLPToken(payable(lpToken)).balanceOf(alice);
+        uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
         vm.prank(alice);
         lpPositions.withdraw(poolKey, aliceBalance, 0, 0, DEADLINE);
 
         // Dead address still has the locked tokens (they can never be withdrawn)
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(address(0xdead)), 1000);
-        assertEq(StableswapLPToken(payable(lpToken)).totalSupply(), 1000);
+        assertEq(lpPositions.balanceOf(address(0xdead), tokenId), 1000);
+        assertEq(lpPositions.totalSupply(tokenId), 1000);
     }
 
     function test_lpToken_approveThenTransferFrom() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
         // Alice approves Bob
         vm.prank(alice);
-        StableswapLPToken(payable(lpToken)).approve(bob, lpTokensMinted);
+        lpPositions.approve(bob, tokenId, lpTokensMinted);
 
         // Bob transfers from Alice to himself
         vm.prank(bob);
-        StableswapLPToken(payable(lpToken)).transferFrom(alice, bob, lpTokensMinted);
+        lpPositions.transferFrom(alice, bob, tokenId, lpTokensMinted);
 
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(alice), 0);
-        assertEq(StableswapLPToken(payable(lpToken)).balanceOf(bob), lpTokensMinted);
+        assertEq(lpPositions.balanceOf(alice, tokenId), 0);
+        assertEq(lpPositions.balanceOf(bob, tokenId), lpTokensMinted);
     }
 
     function test_lpToken_insufficientAllowance_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
         // Alice approves Bob for less than full amount
         vm.prank(alice);
-        StableswapLPToken(payable(lpToken)).approve(bob, lpTokensMinted / 2);
+        lpPositions.approve(bob, tokenId, lpTokensMinted / 2);
 
         // Bob tries to transfer more than approved
         vm.prank(bob);
         vm.expectRevert();
-        StableswapLPToken(payable(lpToken)).transferFrom(alice, bob, lpTokensMinted);
+        lpPositions.transferFrom(alice, bob, tokenId, lpTokensMinted);
     }
 
     function test_deposit_afterPriceMove_stillWorks() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -1172,7 +1070,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_withdrawAll_byMultipleUsers() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Multiple users deposit
         vm.prank(alice);
@@ -1182,8 +1080,8 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
         // Both withdraw all
-        uint256 aliceBalance = StableswapLPToken(payable(lpToken)).balanceOf(alice);
-        uint256 bobBalance = StableswapLPToken(payable(lpToken)).balanceOf(bob);
+        uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
+        uint256 bobBalance = lpPositions.balanceOf(bob, tokenId);
 
         vm.prank(alice);
         lpPositions.withdraw(poolKey, aliceBalance, 0, 0, DEADLINE);
@@ -1192,12 +1090,11 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.withdraw(poolKey, bobBalance, 0, 0, DEADLINE);
 
         // Only minimum liquidity should remain
-        assertEq(StableswapLPToken(payable(lpToken)).totalSupply(), 1000);
+        assertEq(lpPositions.totalSupply(tokenId), 1000);
     }
 
     function test_deposit_withExtremelyHighMinLiquidity_reverts() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Try with impossible minLiquidity
         vm.prank(alice);
@@ -1218,33 +1115,34 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_lpToken_decimals() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
-        // LP tokens should have 18 decimals (standard)
-        assertEq(StableswapLPToken(payable(lpToken)).decimals(), 18);
+        // Must deposit first to initialize
+        vm.prank(alice);
+        lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
+
+        // ERC6909 LP tokens should have 18 decimals (standard)
+        assertEq(lpPositions.decimals(tokenId), 18);
     }
 
-    function test_lpToken_poolId_isCorrect() public {
+    function test_lpToken_poolMetadata_isCorrect() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
-        assertEq(
-            PoolId.unwrap(StableswapLPToken(payable(lpToken)).poolId()),
-            PoolId.unwrap(poolKey.toPoolId())
-        );
-    }
+        // Must deposit first to initialize
+        vm.prank(alice);
+        lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-    function test_lpToken_token0Token1_areCorrect() public {
-        PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
-
-        assertEq(StableswapLPToken(payable(lpToken)).token0(), address(token0));
-        assertEq(StableswapLPToken(payable(lpToken)).token1(), address(token1));
+        // Get pool metadata from ERC6909 contract
+        (address token0Addr, address token1Addr,, , bool initialized) = lpPositions.poolMetadata(tokenId);
+        
+        assertTrue(initialized, "Pool should be initialized");
+        assertEq(token0Addr, address(token0));
+        assertEq(token1Addr, address(token1));
     }
 
     function test_deposit_immediateWithdraw_minimalLoss() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         uint256 token0Before = token0.balanceOf(alice);
         uint256 token1Before = token1.balanceOf(alice);
@@ -1266,7 +1164,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_sameUserMultipleDeposits_accumulatesCorrectly() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice makes 5 deposits
         uint256 totalLpTokens;
@@ -1276,13 +1174,12 @@ contract StableswapLPPositionsTest is FullTest {
             totalLpTokens += minted;
         }
 
-        uint256 aliceBalance = StableswapLPToken(payable(lpToken)).balanceOf(alice);
+        uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
         assertEq(aliceBalance, totalLpTokens, "Balance should match sum of deposits");
     }
 
     function test_withdrawSlippage_exactBoundary() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
@@ -1298,23 +1195,19 @@ contract StableswapLPPositionsTest is FullTest {
         assertGe(amount1, 90000);
     }
 
-    function test_createLPToken_emitsEvent() public {
+    function test_poolInitialized_emitsEvent() public {
         PoolKey memory poolKey = createStableswapPool();
+        uint256 tokenId = getTokenId(poolKey);
 
-        vm.expectEmit(true, true, false, false);
-        emit IStableswapLPPositions.LPTokenCreated(poolKey, address(0));
-        lpPositions.createLPToken(poolKey);
+        // Pool gets initialized on first deposit
+        vm.expectEmit(true, true, true, true);
+        emit IStableswapLPPositions.PoolInitialized(tokenId, address(token0), address(token1));
+        
+        vm.prank(alice);
+        lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
     }
 
-    function test_lpToken_positionsContract_isCorrect() public {
-        PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
-
-        assertEq(
-            StableswapLPToken(payable(lpToken)).positionsContract(),
-            address(lpPositions)
-        );
-    }
+    // NOTE: positionsContract() test removed - ERC6909 doesn't have external LP token contracts
 
     // ==================== FUZZ TESTS ====================
 
@@ -1324,7 +1217,6 @@ contract StableswapLPPositionsTest is FullTest {
         amount1 = uint128(bound(amount1, 1000, 1_000_000 ether));
 
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Ensure Alice has enough tokens
         deal(address(token0), alice, uint256(amount0) * 2);
@@ -1351,7 +1243,6 @@ contract StableswapLPPositionsTest is FullTest {
         depositAmount = uint128(bound(depositAmount, 10000, 100_000 ether));
 
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         deal(address(token0), alice, depositAmount);
         deal(address(token1), alice, depositAmount);
@@ -1382,7 +1273,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.assume(bobAmount >= 1_000_000 && bobAmount <= 100_000 ether);
 
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         deal(address(token0), alice, aliceAmount);
         deal(address(token1), alice, aliceAmount);
@@ -1404,8 +1295,8 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, bobAmount, bobAmount, 0, DEADLINE);
 
-        uint256 aliceLpBalance = StableswapLPToken(payable(lpToken)).balanceOf(alice);
-        uint256 bobLpBalance = StableswapLPToken(payable(lpToken)).balanceOf(bob);
+        uint256 aliceLpBalance = lpPositions.balanceOf(alice, tokenId);
+        uint256 bobLpBalance = lpPositions.balanceOf(bob, tokenId);
 
         // LP tokens should be roughly proportional to deposits
         uint256 expectedRatio = uint256(aliceAmount) * 1e18 / bobAmount;
@@ -1419,13 +1310,13 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_feesGenerated_compoundOnDeposit() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits initial liquidity
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100_000 ether, 100_000 ether, 0, DEADLINE);
 
-        uint128 totalLiquidityBefore = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 totalLiquidityBefore,,) = lpPositions.poolMetadata(tokenId);
 
         // Perform swaps to generate fees
         performSwap(poolKey, false, 10_000 ether); // Swap token0 for token1
@@ -1435,7 +1326,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 50_000 ether, 50_000 ether, 0, DEADLINE);
 
-        uint128 totalLiquidityAfter = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        (,, uint128 totalLiquidityAfter,,) = lpPositions.poolMetadata(tokenId);
 
         // Total liquidity should be more than just deposits (fees compounded)
         // Expected: ~100k (Alice) + fees + ~50k (Bob)
@@ -1444,7 +1335,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_feesGenerated_compoundOnWithdraw() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -1471,7 +1362,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_feesDistributed_proportionally() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits 100k
         vm.prank(alice);
@@ -1502,7 +1393,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_lateDepositor_doesNotGetPriorFees() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits first
         vm.prank(alice);
@@ -1536,8 +1427,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         token1.approve(address(lpPositionsWithFee), type(uint256).max);
 
-        lpPositionsWithFee.createLPToken(poolKey);
-
+        // NOTE: No createLPToken needed - auto-initializes on first deposit (ERC6909)
         // Alice deposits
         vm.prank(alice);
         lpPositionsWithFee.deposit(poolKey, 100_000 ether, 100_000 ether, 0, DEADLINE);
@@ -1572,8 +1462,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         token1.approve(address(lpPositionsWithFee), type(uint256).max);
 
-        lpPositionsWithFee.createLPToken(poolKey);
-
+        // NOTE: No createLPToken needed - auto-initializes on first deposit (ERC6909)
         vm.prank(alice);
         lpPositionsWithFee.deposit(poolKey, 100_000 ether, 100_000 ether, 0, DEADLINE);
 
@@ -1606,8 +1495,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_oneSidedFees_createPending() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
-        PoolId poolId = poolKey.toPoolId();
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -1630,7 +1518,6 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_feesCompounded_emitsEvent() public {
         PoolKey memory poolKey = createStableswapPool();
-        lpPositions.createLPToken(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -1650,7 +1537,7 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_multipleSwaps_accumulateFees() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
@@ -1678,14 +1565,14 @@ contract StableswapLPPositionsTest is FullTest {
 
     function test_feesCompound_lpTokenValueIncreases() public {
         PoolKey memory poolKey = createStableswapPool();
-        address lpToken = lpPositions.createLPToken(poolKey);
+        uint256 tokenId = getTokenId(poolKey);
 
         // Alice deposits
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100_000 ether, 100_000 ether, 0, DEADLINE);
 
-        uint128 totalSupplyBefore = uint128(StableswapLPToken(payable(lpToken)).totalSupply());
-        uint128 totalLiquidityBefore = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        uint256 totalSupplyBefore = lpPositions.totalSupply(tokenId);
+        (,, uint128 totalLiquidityBefore,,) = lpPositions.poolMetadata(tokenId);
 
         // Value per LP token before
         uint256 valuePerLpBefore = uint256(totalLiquidityBefore) * 1e18 / totalSupplyBefore;
@@ -1698,8 +1585,8 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 1 ether, 1 ether, 0, DEADLINE);
 
-        uint128 totalSupplyAfter = uint128(StableswapLPToken(payable(lpToken)).totalSupply());
-        uint128 totalLiquidityAfter = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        uint256 totalSupplyAfter = lpPositions.totalSupply(tokenId);
+        (,, uint128 totalLiquidityAfter,,) = lpPositions.poolMetadata(tokenId);
 
         // Value per LP token after (excluding Bob's tiny deposit effect)
         uint256 valuePerLpAfter = uint256(totalLiquidityAfter) * 1e18 / totalSupplyAfter;

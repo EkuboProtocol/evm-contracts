@@ -8,7 +8,6 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {Core} from "../src/Core.sol";
 import {StableswapLPPositions} from "../src/StableswapLPPositions.sol";
 import {IStableswapLPPositions} from "../src/interfaces/IStableswapLPPositions.sol";
-import {StableswapLPToken} from "../src/StableswapLPToken.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PositionId, createPositionId} from "../src/types/positionId.sol";
@@ -23,7 +22,7 @@ import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.
 import {FullTest} from "./FullTest.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
-/// @title StableswapLPPositions Invariant Test Handler
+/// @title StableswapLPPositions Invariant Test Handler (ERC6909)
 /// @notice Performs random operations on StableswapLPPositions for invariant testing
 contract StableswapLPHandler is StdUtils, StdAssertions {
     using CoreLib for *;
@@ -45,7 +44,7 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
 
     // State tracking
     PoolKey public poolKey;
-    address public lpToken;
+    uint256 public tokenId;  // ERC6909 token ID
     bool public poolCreated;
 
     // Users for testing
@@ -97,7 +96,7 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         }
     }
 
-    /// @notice Creates a stableswap pool and LP token
+    /// @notice Creates a stableswap pool (ERC6909 auto-initializes on first deposit)
     function createPool() public {
         if (poolCreated) return;
 
@@ -106,8 +105,8 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
         core.initializePool(poolKey, 0);
 
-        // Create LP token
-        lpToken = lpPositions.createLPToken(poolKey);
+        // Get ERC6909 token ID from pool ID
+        tokenId = uint256(PoolId.unwrap(poolKey.toPoolId()));
         poolCreated = true;
 
         // Approve LP contract for all users
@@ -157,7 +156,7 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
             if (
                 sig != IStableswapLPPositions.DepositFailedDueToSlippage.selector
                     && sig != SafeCastLib.Overflow.selector
-                    && sig != StableswapLPToken.InsufficientLiquidityMinted.selector
+                    && sig != IStableswapLPPositions.InsufficientLiquidityMinted.selector
                     && sig != 0x4e487b71 // arithmetic overflow
             ) {
                 revert UnexpectedError(err);
@@ -171,7 +170,8 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         userIndex = bound(userIndex, 0, users.length - 1);
         address user = users[userIndex];
 
-        uint256 balance = StableswapLPToken(payable(lpToken)).balanceOf(user);
+        // Use ERC6909 balanceOf
+        uint256 balance = lpPositions.balanceOf(user, tokenId);
         if (balance == 0) return;
 
         lpTokenAmount = bound(lpTokenAmount, 1, balance);
@@ -207,8 +207,9 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
 
         address user = users[userIndex];
 
-        // Check if there's liquidity to swap against
-        if (StableswapLPToken(payable(lpToken)).totalLiquidity() == 0) return;
+        // Check if there's liquidity to swap against using ERC6909 totalSupply
+        (,, uint128 totalLiquidity,,) = lpPositions.poolMetadata(tokenId);
+        if (totalLiquidity == 0) return;
 
         vm.startPrank(user);
 
@@ -239,15 +240,16 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
     function checkLPTokenSupplyInvariant() public view {
         if (!poolCreated) return;
 
-        uint256 totalSupply = StableswapLPToken(payable(lpToken)).totalSupply();
+        // Use ERC6909 totalSupply
+        uint256 totalSupply = lpPositions.totalSupply(tokenId);
         uint256 sumBalances = 0;
 
         for (uint256 i = 0; i < users.length; i++) {
-            sumBalances += StableswapLPToken(payable(lpToken)).balanceOf(users[i]);
+            sumBalances += lpPositions.balanceOf(users[i], tokenId);
         }
 
         // Add minimum liquidity burned to dead address
-        uint256 deadBalance = StableswapLPToken(payable(lpToken)).balanceOf(DEAD_ADDRESS);
+        uint256 deadBalance = lpPositions.balanceOf(DEAD_ADDRESS, tokenId);
         sumBalances += deadBalance;
 
         assertEq(totalSupply, sumBalances, "LP token supply != sum of balances");
@@ -257,7 +259,8 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
     function checkTotalLiquidityMatchesCore() public view {
         if (!poolCreated) return;
 
-        uint128 lpTokenTotalLiquidity = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        // Get totalLiquidity from ERC6909 poolMetadata
+        (,, uint128 lpTokenTotalLiquidity,,) = lpPositions.poolMetadata(tokenId);
 
         // Get position from Core using CoreLib
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
@@ -275,8 +278,9 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
     function checkLPTokenValueNonDecreasing() public view {
         if (!poolCreated) return;
 
-        uint256 totalSupply = StableswapLPToken(payable(lpToken)).totalSupply();
-        uint128 totalLiquidity = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        // Use ERC6909 methods
+        uint256 totalSupply = lpPositions.totalSupply(tokenId);
+        (,, uint128 totalLiquidity,,) = lpPositions.poolMetadata(tokenId);
 
         if (totalSupply == 0) return;
 
@@ -307,10 +311,11 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
     function checkNoUserExceedsTotalSupply() public view {
         if (!poolCreated) return;
 
-        uint256 totalSupply = StableswapLPToken(payable(lpToken)).totalSupply();
+        // Use ERC6909 totalSupply
+        uint256 totalSupply = lpPositions.totalSupply(tokenId);
 
         for (uint256 i = 0; i < users.length; i++) {
-            uint256 balance = StableswapLPToken(payable(lpToken)).balanceOf(users[i]);
+            uint256 balance = lpPositions.balanceOf(users[i], tokenId);
             assertLe(balance, totalSupply, "User balance exceeds total supply");
         }
     }
@@ -339,7 +344,6 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         uint256 netDeposits1 = totalDeposits1 > totalWithdrawals1 ? totalDeposits1 - totalWithdrawals1 : 0;
 
         // Get Core balances for this pool
-        PoolId poolId = poolKey.toPoolId();
         uint256 coreBalance0 = token0.balanceOf(address(core));
         uint256 coreBalance1 = token1.balanceOf(address(core));
 
@@ -358,13 +362,14 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         withdrawals = withdrawCount;
         swaps = swapCount;
         if (poolCreated) {
-            totalLiq = StableswapLPToken(payable(lpToken)).totalLiquidity();
-            totalSup = StableswapLPToken(payable(lpToken)).totalSupply();
+            (,, uint128 liq,,) = lpPositions.poolMetadata(tokenId);
+            totalLiq = liq;
+            totalSup = lpPositions.totalSupply(tokenId);
         }
     }
 }
 
-/// @title StableswapLPPositions Invariant Test
+/// @title StableswapLPPositions Invariant Test (ERC6909)
 /// @notice Tests invariants of StableswapLPPositions through random operations
 contract StableswapLPPositionsInvariantTest is FullTest {
     using CoreLib for *;

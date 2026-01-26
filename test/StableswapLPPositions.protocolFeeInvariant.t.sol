@@ -3,7 +3,6 @@ pragma solidity =0.8.33;
 
 import {Test, console} from "forge-std/Test.sol";
 import {StableswapLPPositions} from "../src/StableswapLPPositions.sol";
-import {StableswapLPToken} from "../src/StableswapLPToken.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {Core} from "../src/Core.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
@@ -16,7 +15,7 @@ import {SwapParameters, createSwapParameters} from "../src/types/swapParameters.
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 /**
- * @title Protocol Fee Invariant Test
+ * @title Protocol Fee Invariant Test (ERC6909)
  * @notice Verifies the invariant: "All fees in savedBalances under poolId salt are NET of protocol fees"
  * @dev This test ensures that:
  *      1. Protocol fees are stored under salt = bytes32(0)
@@ -29,7 +28,7 @@ contract ProtocolFeeInvariantTest is FullTest {
 
     StableswapLPPositions lpPositions;
     PoolKey poolKey;
-    address lpToken;
+    uint256 tokenId;  // ERC6909 token ID
     PoolId poolId;
 
     address alice = makeAddr("alice");
@@ -56,9 +55,9 @@ contract ProtocolFeeInvariantTest is FullTest {
         poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
         core.initializePool(poolKey, 0);
         poolId = poolKey.toPoolId();
-
-        // Create LP token
-        lpToken = lpPositions.createLPToken(poolKey);
+        
+        // Get ERC6909 token ID
+        tokenId = uint256(PoolId.unwrap(poolId));
 
         // Fund users
         token0.transfer(alice, 1000 ether);
@@ -110,7 +109,8 @@ contract ProtocolFeeInvariantTest is FullTest {
         );
 
         // Get compounded fees (total liquidity minus initial deposits)
-        uint128 totalLiquidity = StableswapLPToken(payable(lpToken)).totalLiquidity();
+        // Using ERC6909 poolMetadata instead of StableswapLPToken
+        (,, uint128 totalLiquidity,,) = lpPositions.poolMetadata(tokenId);
         // Note: We'd need to track initial deposits separately to calculate compoundedFees
         // For now, we'll verify the protocol fee relationship
 
@@ -149,7 +149,7 @@ contract ProtocolFeeInvariantTest is FullTest {
      * @notice Test: Normal deposit-swap-compound cycle maintains invariant
      */
     function test_invariant_normalCycle() public {
-        // Alice deposits initial liquidity
+        // Alice deposits initial liquidity (auto-initializes pool in ERC6909)
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100 ether, 100 ether, 0, DEADLINE);
 
@@ -184,7 +184,7 @@ contract ProtocolFeeInvariantTest is FullTest {
      * @notice Test: Fees that fail to compound are saved as pending (net of protocol fee)
      */
     function test_invariant_pendingFeesAreNet() public {
-        // Alice deposits
+        // Alice deposits (auto-initializes in ERC6909)
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100 ether, 100 ether, 0, DEADLINE);
 
@@ -243,7 +243,7 @@ contract ProtocolFeeInvariantTest is FullTest {
      * @notice Test: Multiple compound attempts don't double-charge protocol fees
      */
     function test_invariant_noDoubleChargeOnPending() public {
-        // Alice deposits
+        // Alice deposits (auto-initializes in ERC6909)
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100 ether, 100 ether, 0, DEADLINE);
 
@@ -295,7 +295,7 @@ contract ProtocolFeeInvariantTest is FullTest {
      * @notice Test: Protocol fee withdrawal doesn't affect pending fees
      */
     function test_invariant_protocolWithdrawalDoesntAffectPending() public {
-        // Alice deposits
+        // Alice deposits (auto-initializes in ERC6909)
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100 ether, 100 ether, 0, DEADLINE);
 

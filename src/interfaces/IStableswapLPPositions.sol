@@ -47,6 +47,10 @@ interface IStableswapLPPositions {
     /// @notice Error thrown when transaction deadline has passed
     error DeadlineExpired();
 
+    /// @notice Error thrown when attempting direct LP token transfers
+    /// @dev Direct transfers bypass auto-compounding and are disabled for security
+    error DirectTransfersDisabled();
+
     /// @notice Deposits tokens and receives LP tokens
     /// @param poolKey The pool to deposit into
     /// @param maxAmount0 Maximum amount of token0 to deposit

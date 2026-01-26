@@ -98,6 +98,24 @@ contract StableswapLPPositions is
         return int128(value);
     }
 
+    /// @notice ERC6909 hook to prevent direct LP token transfers
+    /// @dev Direct transfers would bypass auto-compounding of fees, causing fee leakage
+    /// @dev Users must use deposit/withdraw flows instead of direct transfers
+    /// @dev Allows minting (from == address(0)) and burning (to == address(0))
+    /// @dev Blocks all other transfers to prevent auto-compounding bypass
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 /* id */,
+        uint256 /* amount */
+    ) internal virtual override {
+        // Allow minting (from == address(0)) and burning (to == address(0))
+        // Block all other transfers to prevent auto-compounding bypass
+        if (from != address(0) && to != address(0)) {
+            revert DirectTransfersDisabled();
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////
                         ERC6909 METADATA OVERRIDES
     //////////////////////////////////////////////////////////////*/
@@ -184,6 +202,7 @@ contract StableswapLPPositions is
 
     /// @notice Mints LP tokens in exchange for liquidity added to the position
     /// @dev On first deposit, burns MINIMUM_LIQUIDITY to prevent inflation attacks
+    /// @dev H-02 Fix: Added overflow protection and totalSupply validation
     /// @param to The address to mint LP tokens to
     /// @param poolId The pool ID
     /// @param liquidityAdded The amount of liquidity being added to the Core position
@@ -207,11 +226,19 @@ contract StableswapLPPositions is
             // 2. Donates huge amount directly to position
             // 3. Next depositor gets heavily diluted
             lpTokensMinted = uint256(liquidityAdded) - MINIMUM_LIQUIDITY;
+
+            // H-02 Fix: Validate liquidityAdded is sufficient for minimum liquidity
+            require(liquidityAdded >= MINIMUM_LIQUIDITY, "Insufficient liquidity for minimum");
+
             _mint(address(0xdead), tokenId, MINIMUM_LIQUIDITY);
             _mint(to, tokenId, lpTokensMinted);
-            
+
             // Update total supply to include both user's tokens and minimum liquidity
-            metadata.totalSupply = uint256(liquidityAdded); // = MINIMUM_LIQUIDITY + lpTokensMinted
+            uint256 newTotalSupply = uint256(liquidityAdded); // = MINIMUM_LIQUIDITY + lpTokensMinted
+
+            // H-02 Fix: Validate no overflow (though uint128 -> uint256 conversion makes this safe)
+            require(newTotalSupply == MINIMUM_LIQUIDITY + lpTokensMinted, "TotalSupply mismatch after first mint");
+            metadata.totalSupply = newTotalSupply;
         } else {
             // Subsequent deposits - mint proportional to share of total liquidity
             // Formula: lpToMint = (liquidityAdded * totalSupply) / totalLiquidity
@@ -222,19 +249,27 @@ contract StableswapLPPositions is
                 uint256(metadata.totalLiquidity)
             );
             if (lpTokensMinted == 0) revert InsufficientLiquidityMinted();
+
+            // H-02 Fix: Check for overflow before updating totalSupply
+            uint256 newTotalSupply = _totalSupply + lpTokensMinted;
+            require(newTotalSupply >= _totalSupply, "TotalSupply overflow");
+
             _mint(to, tokenId, lpTokensMinted);
-            
+
             // Update total supply
-            metadata.totalSupply += lpTokensMinted;
+            metadata.totalSupply = newTotalSupply;
         }
 
-        // Update total liquidity tracking
-        metadata.totalLiquidity += liquidityAdded;
+        // H-02 Fix: Update total liquidity with overflow check
+        uint128 newTotalLiquidity = metadata.totalLiquidity + liquidityAdded;
+        require(newTotalLiquidity >= metadata.totalLiquidity, "TotalLiquidity overflow");
+        metadata.totalLiquidity = newTotalLiquidity;
 
         return lpTokensMinted;
     }
 
     /// @notice Burns LP tokens and calculates proportional liquidity to remove
+    /// @dev H-02 Fix: Added underflow protection and totalSupply validation
     /// @param from The address to burn LP tokens from
     /// @param poolId The pool ID
     /// @param lpTokensToBurn The amount of LP tokens to burn
@@ -249,13 +284,28 @@ contract StableswapLPPositions is
 
         uint256 _totalSupply = _calculateTotalSupply(tokenId);
 
+        // H-02 Fix: Validate burn amount doesn't exceed total supply
+        require(lpTokensToBurn <= _totalSupply, "Burn amount exceeds total supply");
+
         // Calculate proportional liquidity to remove
         // Formula: liquidityToRemove = (lpTokensBurned * totalLiquidity) / totalSupply
         liquidityToRemove = uint128((lpTokensToBurn * uint256(metadata.totalLiquidity)) / _totalSupply);
 
+        // H-02 Fix: Validate liquidityToRemove doesn't exceed totalLiquidity
+        require(liquidityToRemove <= metadata.totalLiquidity, "LiquidityToRemove exceeds totalLiquidity");
+
         _burn(from, tokenId, lpTokensToBurn);
-        metadata.totalLiquidity -= liquidityToRemove;
-        metadata.totalSupply -= lpTokensToBurn;
+
+        // H-02 Fix: Update with underflow protection
+        uint128 newTotalLiquidity = metadata.totalLiquidity - liquidityToRemove;
+        uint256 newTotalSupply = _totalSupply - lpTokensToBurn;
+
+        // Validate underflow didn't occur (though the math above should prevent this)
+        require(newTotalLiquidity <= metadata.totalLiquidity, "TotalLiquidity underflow");
+        require(newTotalSupply <= _totalSupply, "TotalSupply underflow");
+
+        metadata.totalLiquidity = newTotalLiquidity;
+        metadata.totalSupply = newTotalSupply;
 
         return liquidityToRemove;
     }
@@ -400,7 +450,8 @@ contract StableswapLPPositions is
 
         if (liquidityAdded > 0) {
             // Step 8: Add fees to Core position (compound)
-            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, int128(liquidityAdded));
+            // M-03 Fix: Use safe casting for uint128→int128 conversion
+            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, _safeInt128(liquidityAdded));
 
             // Step 9: Calculate leftover fees
             uint128 usedAmount0 = uint128(balanceUpdate.delta0());
@@ -498,7 +549,8 @@ contract StableswapLPPositions is
         // Add liquidity to Core
         PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
 
-        PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, int128(liquidityToAdd));
+        // M-03 Fix: Use safe casting for uint128→int128 conversion
+        PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, _safeInt128(liquidityToAdd));
 
         // Get actual amounts used
         amount0 = uint128(balanceUpdate.delta0());
@@ -554,7 +606,8 @@ contract StableswapLPPositions is
         // Remove liquidity from Core
         PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
 
-        PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, -int128(liquidityToWithdraw));
+        // M-03 Fix: Use safe casting for uint128→int128 conversion
+        PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, -_safeInt128(liquidityToWithdraw));
 
         // Get amounts from withdrawal (negative deltas mean we receive tokens)
         // Note: fees were already collected and compounded in _autoCompoundFees above,
@@ -607,7 +660,8 @@ contract StableswapLPPositions is
             (, address token0, address token1, uint128 amount0, uint128 amount1, address recipient) =
                 abi.decode(data, (uint256, address, address, uint128, uint128, address));
 
-            CORE.updateSavedBalances(token0, token1, bytes32(0), -int128(amount0), -int128(amount1));
+            // M-03 Fix: Use safe casting for uint128→int128 conversion
+            CORE.updateSavedBalances(token0, token1, bytes32(0), -_safeInt128(amount0), -_safeInt128(amount1));
             ACCOUNTANT.withdrawTwo(token0, token1, recipient, amount0, amount1);
 
             result = "";

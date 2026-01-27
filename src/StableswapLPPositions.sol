@@ -145,7 +145,9 @@ contract StableswapLPPositions is
         PoolMetadata storage metadata = _poolMetadata[tokenId];
 
         // Use library for calculation
-        (uint256 lpTokensToMint, uint256 lpTokensToBurn, uint256 newTotalSupply) =
+        uint256 lpTokensToBurn;
+        uint256 newTotalSupply;
+        (lpTokensMinted, lpTokensToBurn, newTotalSupply) =
             LPTokenMathLib.calculateMint(
                 uint256(metadata.totalSupply),
                 metadata.totalLiquidity,
@@ -157,13 +159,11 @@ contract StableswapLPPositions is
             // First deposit - burn minimum liquidity
             _mint(address(0xdead), tokenId, lpTokensToBurn);
         }
-        _mint(to, tokenId, lpTokensToMint);
+        _mint(to, tokenId, lpTokensMinted);
 
         // Update metadata
         metadata.totalSupply = uint128(newTotalSupply);
         metadata.totalLiquidity = LPTokenMathLib.addLiquidity(metadata.totalLiquidity, liquidityAdded);
-
-        return lpTokensToMint;
     }
 
     /// @notice Burns LP tokens and calculates proportional liquidity to remove

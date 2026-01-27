@@ -73,9 +73,8 @@ contract StableswapLPTokenWrapper is ERC20 {
     }
 
     /// @notice Get the total wrapped supply
-    /// @dev This equals the ERC6909 balance held by this contract
+    /// @dev Tracked by Solady's ERC20 internal accounting (mint/burn balanced)
     function totalSupply() public view override returns (uint256) {
-        // Cast to ERC6909 to access balanceOf
-        return ERC6909(address(positions)).balanceOf(address(this), poolId);
+        return super.totalSupply();
     }
 }

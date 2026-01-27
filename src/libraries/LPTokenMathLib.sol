@@ -123,27 +123,4 @@ library LPTokenMathLib {
         newTotalSupply = totalSupply - lpTokensToBurn;
     }
 
-    /// @notice Validates and updates total liquidity after adding liquidity
-    /// @param currentTotalLiquidity Current total liquidity
-    /// @param liquidityAdded Amount of liquidity being added
-    /// @return newTotalLiquidity New total liquidity after addition
-    function addLiquidity(
-        uint128 currentTotalLiquidity,
-        uint128 liquidityAdded
-    ) internal pure returns (uint128 newTotalLiquidity) {
-
-        newTotalLiquidity = currentTotalLiquidity + liquidityAdded;
-    }
-
-    /// @notice Validates and updates total liquidity after removing liquidity
-    /// @param currentTotalLiquidity Current total liquidity
-    /// @param liquidityToRemove Amount of liquidity being removed
-    /// @return newTotalLiquidity New total liquidity after removal
-    function removeLiquidity(
-        uint128 currentTotalLiquidity,
-        uint128 liquidityToRemove
-    ) internal pure returns (uint128 newTotalLiquidity) {
-        // Underflow protected by Solidity 0.8+
-        newTotalLiquidity = currentTotalLiquidity - liquidityToRemove;
-    }
 }

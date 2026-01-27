@@ -163,7 +163,7 @@ contract StableswapLPPositions is
 
         // Update metadata
         metadata.totalSupply = uint128(newTotalSupply);
-        metadata.totalLiquidity = LPTokenMathLib.addLiquidity(metadata.totalLiquidity, liquidityAdded);
+        metadata.totalLiquidity += liquidityAdded;
     }
 
     /// @notice Burns LP tokens and calculates proportional liquidity to remove
@@ -194,7 +194,7 @@ contract StableswapLPPositions is
 
         // Update metadata
         metadata.totalSupply = uint128(newTotalSupply);
-        metadata.totalLiquidity = LPTokenMathLib.removeLiquidity(metadata.totalLiquidity, liquidityToRemove);
+        metadata.totalLiquidity -= liquidityToRemove;
     }
 
     /*//////////////////////////////////////////////////////////////

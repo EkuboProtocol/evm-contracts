@@ -533,8 +533,6 @@ contract StableswapLPPositions is
 
             CORE.updateSavedBalances(token0, token1, bytes32(0), -_safeInt128(amount0), -_safeInt128(amount1));
             ACCOUNTANT.withdrawTwo(token0, token1, recipient, amount0, amount1);
-
-            result = "";
         }
     }
 }

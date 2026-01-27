@@ -17,6 +17,7 @@ import {maxLiquidity} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {LibString} from "solady/utils/LibString.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
@@ -178,40 +179,13 @@ contract StableswapLPPositions is
 
     /// @notice Helper to get token symbol with fallback to address
     function _getTokenSymbol(address token) internal view returns (string memory) {
-        // Try to get symbol, fallback to shortened address if fails
-        try this._tryGetSymbol(token) returns (string memory sym) {
-            return sym;
-        } catch {
-            // Return shortened address as fallback
-            return _addressToString(token);
-        }
-    }
-
-    /// @notice External function to try getting symbol (for try/catch)
-    function _tryGetSymbol(address token) external view returns (string memory) {
-        // Low-level call to avoid reverting on non-ERC20 tokens
         (bool success, bytes memory data) = token.staticcall(
             abi.encodeWithSignature("symbol()")
         );
         if (success && data.length > 0) {
             return abi.decode(data, (string));
         }
-        revert("No symbol");
-    }
-
-    /// @notice Convert address to string
-    function _addressToString(address addr) internal pure returns (string memory) {
-        bytes memory alphabet = "0123456789abcdef";
-        bytes memory data = abi.encodePacked(addr);
-        bytes memory str = new bytes(10); // "0x" + first 4 bytes (8 chars)
-
-        str[0] = '0';
-        str[1] = 'x';
-        for (uint256 i = 0; i < 4; i++) {
-            str[2 + i * 2] = alphabet[uint8(data[i] >> 4)];
-            str[3 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
-        }
-        return string(str);
+        return LibString.slice(LibString.toHexStringChecksummed(token), 0, 10);
     }
 
     /// @notice Returns the total supply of LP tokens for a pool

@@ -299,7 +299,9 @@ contract StableswapLPPositions is
         uint256 tokenId,
         SqrtRatio sqrtRatio,
         int32 tickLower,
-        int32 tickUpper
+        int32 tickUpper,
+        SqrtRatio sqrtRatioLower,
+        SqrtRatio sqrtRatioUpper
     ) internal returns (uint128 liquidityAdded, PositionId positionId) {
         positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
 
@@ -333,7 +335,7 @@ contract StableswapLPPositions is
         if (fees0 == 0 && fees1 == 0) return (0, positionId);
 
         // Step 7: Calculate liquidity from NET fees (using passed sqrtRatio)
-        liquidityAdded = maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), fees0, fees1);
+        liquidityAdded = maxLiquidity(sqrtRatio, sqrtRatioLower, sqrtRatioUpper, fees0, fees1);
 
         // Step 8: Compound if possible, track leftovers
         uint128 leftover0 = fees0;
@@ -389,16 +391,18 @@ contract StableswapLPPositions is
             emit PoolInitialized(tokenId, poolKey.token0, poolKey.token1);
         }
 
-        // OPTIMIZATION: Get tick range and sqrtRatio once
+        // OPTIMIZATION: Get tick range, sqrtRatio, and sqrt ratio bounds once
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
+        SqrtRatio sqrtRatioLower = tickToSqrtRatio(tickLower);
+        SqrtRatio sqrtRatioUpper = tickToSqrtRatio(tickUpper);
 
         // Auto-compound fees before deposit (returns positionId to avoid redundant keccak)
-        (, PositionId positionId) = _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
+        (, PositionId positionId) = _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper, sqrtRatioLower, sqrtRatioUpper);
 
-        // Calculate liquidity to add (reuse sqrtRatio)
+        // Calculate liquidity to add (reuse sqrtRatio and bounds)
         uint128 liquidityToAdd =
-            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
+            maxLiquidity(sqrtRatio, sqrtRatioLower, sqrtRatioUpper, maxAmount0, maxAmount1);
 
         if (liquidityToAdd < minLiquidity) {
             revert DepositFailedDueToSlippage(liquidityToAdd, minLiquidity);
@@ -450,12 +454,14 @@ contract StableswapLPPositions is
             revert LPTokenDoesNotExist();
         }
 
-        // OPTIMIZATION: Get tick range and sqrtRatio once
+        // OPTIMIZATION: Get tick range, sqrtRatio, and sqrt ratio bounds once
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
+        SqrtRatio sqrtRatioLower = tickToSqrtRatio(tickLower);
+        SqrtRatio sqrtRatioUpper = tickToSqrtRatio(tickUpper);
 
         // Auto-compound fees before withdrawal (returns positionId to avoid redundant keccak)
-        (, PositionId positionId) = _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
+        (, PositionId positionId) = _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper, sqrtRatioLower, sqrtRatioUpper);
 
         // Burn ERC6909 LP tokens and calculate liquidity to withdraw
         uint128 liquidityToWithdraw = _burnLPTokens(caller, poolId, lpTokensToWithdraw);

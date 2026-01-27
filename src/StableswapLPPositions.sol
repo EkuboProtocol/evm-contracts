@@ -18,7 +18,6 @@ import {CoreLib} from "./libraries/CoreLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {ERC6909} from "solady/tokens/ERC6909.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -34,7 +33,6 @@ contract StableswapLPPositions is
     UsesCore,
     PayableMulticallable,
     Ownable,
-    ReentrancyGuard,
     IStableswapLPPositions
 {
     using CoreLib for *;
@@ -330,7 +328,6 @@ contract StableswapLPPositions is
     )
         external
         payable
-        nonReentrant
         checkDeadline(deadline)
         returns (uint256 lpTokensMinted, uint128 amount0, uint128 amount1)
     {
@@ -351,7 +348,6 @@ contract StableswapLPPositions is
         uint256 deadline
     )
         external
-        nonReentrant
         checkDeadline(deadline)
         returns (uint128 amount0, uint128 amount1)
     {
@@ -376,7 +372,6 @@ contract StableswapLPPositions is
     function withdrawProtocolFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
         external
         onlyOwner
-        nonReentrant
     {
         lock(abi.encode(CALL_TYPE_WITHDRAW_PROTOCOL_FEES, token0, token1, amount0, amount1, recipient));
     }

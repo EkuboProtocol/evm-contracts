@@ -111,15 +111,15 @@ interface IStableswapLPPositions {
 
     /// @notice Returns the name for a specific pool's LP token
     /// @param id The token ID (poolId)
-    function name(uint256 id) external view returns (string memory);
+    function name(uint256 id) external pure returns (string memory);
 
     /// @notice Returns the symbol for LP tokens
     /// @param id The token ID (poolId)
-    function symbol(uint256 id) external view returns (string memory);
+    function symbol(uint256 id) external pure returns (string memory);
 
     /// @notice Returns the decimals for LP tokens
     /// @param id The token ID (poolId)
-    function decimals(uint256 id) external view returns (uint8);
+    function decimals(uint256 id) external pure returns (uint8);
 
     /// @notice Returns the total supply of LP tokens for a pool
     /// @param id The token ID (poolId)

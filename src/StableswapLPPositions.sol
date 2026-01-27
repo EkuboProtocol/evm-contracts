@@ -113,7 +113,6 @@ contract StableswapLPPositions is
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Returns the name for LP tokens
-    /// @dev OPTIMIZED: Generic name (removed token symbols to save ~40k gas on first deposit)
     function name(uint256 /* id */) public pure override(ERC6909, IStableswapLPPositions) returns (string memory) {
         return "Ekubo Stableswap LP";
     }

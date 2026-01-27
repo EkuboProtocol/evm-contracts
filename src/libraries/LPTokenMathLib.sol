@@ -27,9 +27,6 @@ library LPTokenMathLib {
     /// @notice Error thrown when total supply overflow would occur
     error TotalSupplyOverflow();
 
-    /// @notice Error thrown when total liquidity overflow would occur
-    error TotalLiquidityOverflow();
-
     /// @notice Calculates LP tokens to mint for a given liquidity addition
     /// @dev On first deposit (totalSupply == 0), burns MINIMUM_LIQUIDITY to prevent inflation attacks
     /// @dev On subsequent deposits, mints proportional to share of total liquidity
@@ -134,12 +131,8 @@ library LPTokenMathLib {
         uint128 currentTotalLiquidity,
         uint128 liquidityAdded
     ) internal pure returns (uint128 newTotalLiquidity) {
+
         newTotalLiquidity = currentTotalLiquidity + liquidityAdded;
-        
-        // Check for overflow
-        if (newTotalLiquidity < currentTotalLiquidity) {
-            revert TotalLiquidityOverflow();
-        }
     }
 
     /// @notice Validates and updates total liquidity after removing liquidity

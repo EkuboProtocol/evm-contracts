@@ -303,8 +303,8 @@ contract StableswapLPPositions is
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Auto-compounds pending fees by collecting and reinvesting them
-    /// @dev OPTIMIZED: Receives sqrtRatio and tick range as parameters to avoid redundant queries
     /// @param poolKey The pool key
+    /// @param poolId The pool ID (passed to avoid redundant keccak)
     /// @param tokenId The token ID (for metadata lookup)
     /// @param sqrtRatio Current sqrt ratio (passed to avoid redundant query)
     /// @param tickLower Lower tick of the position
@@ -312,12 +312,12 @@ contract StableswapLPPositions is
     /// @return liquidityAdded The amount of liquidity added from fees
     function _autoCompoundFees(
         PoolKey memory poolKey,
+        PoolId poolId,
         uint256 tokenId,
         SqrtRatio sqrtRatio,
         int32 tickLower,
         int32 tickUpper
     ) internal returns (uint128 liquidityAdded) {
-        PoolId poolId = poolKey.toPoolId();
         PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
 
         // Step 1: Collect NEW fees from Core
@@ -410,8 +410,8 @@ contract StableswapLPPositions is
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
 
-        // Auto-compound fees before deposit (pass sqrtRatio and ticks)
-        _autoCompoundFees(poolKey, tokenId, sqrtRatio, tickLower, tickUpper);
+        // Auto-compound fees before deposit (pass poolId, sqrtRatio and ticks)
+        _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
 
         // Calculate liquidity to add (reuse sqrtRatio)
         uint128 liquidityToAdd =
@@ -472,8 +472,8 @@ contract StableswapLPPositions is
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
 
-        // Auto-compound fees before withdrawal (pass sqrtRatio and ticks)
-        _autoCompoundFees(poolKey, tokenId, sqrtRatio, tickLower, tickUpper);
+        // Auto-compound fees before withdrawal (pass poolId, sqrtRatio and ticks)
+        _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
 
         // Burn ERC6909 LP tokens and calculate liquidity to withdraw
         uint128 liquidityToWithdraw = _burnLPTokens(caller, poolId, lpTokensToWithdraw);

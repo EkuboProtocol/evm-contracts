@@ -101,7 +101,7 @@ contract StableswapLPPositionsTest is FullTest {
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 10000, 10000, 0, DEADLINE);
 
         uint256 totalSupply = lpPositions.totalSupply(tokenId);
-        (uint128 totalLiquidity,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidity = lpPositions.totalLiquidity(tokenId);
 
         // First deposit should burn 1000 LP tokens to address(0xdead)
         assertEq(lpPositions.balanceOf(address(0xdead), tokenId), 1000);
@@ -172,7 +172,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        (uint128 totalLiquidityBefore,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityBefore = lpPositions.totalLiquidity(tokenId);
 
         // Generate fees via swap (would need router integration)
         // For now, we'll simulate fees being accumulated
@@ -182,7 +182,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        (uint128 totalLiquidityAfter,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityAfter = lpPositions.totalLiquidity(tokenId);
 
         // Total liquidity should increase (original deposits + fees)
         assertGe(totalLiquidityAfter, totalLiquidityBefore + 100000);
@@ -200,7 +200,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        (uint128 totalLiquidityBefore,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityBefore = lpPositions.totalLiquidity(tokenId);
 
         // Generate fees (would need swap integration)
         // TODO: Implement swap to generate real fees
@@ -210,7 +210,7 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.withdraw(poolKey, aliceLpTokens, 0, 0, DEADLINE);
 
         // Total liquidity should have increased from fees before withdrawal
-        (uint128 totalLiquidityAfter,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityAfter = lpPositions.totalLiquidity(tokenId);
 
         // After Alice's withdrawal, remaining liquidity should be less than before
         // but the auto-compound should have happened first
@@ -856,12 +856,12 @@ contract StableswapLPPositionsTest is FullTest {
         // Initial deposit
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
-        (uint128 liquidityAfterFirst,) = lpPositions.poolMetadata(tokenId);
+        uint128 liquidityAfterFirst = lpPositions.totalLiquidity(tokenId);
 
         // Second deposit
         vm.prank(bob);
         lpPositions.deposit(poolKey, 50000, 50000, 0, DEADLINE);
-        (uint128 liquidityAfterSecond,) = lpPositions.poolMetadata(tokenId);
+        uint128 liquidityAfterSecond = lpPositions.totalLiquidity(tokenId);
 
         assertGt(liquidityAfterSecond, liquidityAfterFirst, "Liquidity should increase");
 
@@ -869,7 +869,7 @@ contract StableswapLPPositionsTest is FullTest {
         uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
         vm.prank(alice);
         lpPositions.withdraw(poolKey, aliceBalance, 0, 0, DEADLINE);
-        (uint128 liquidityAfterWithdraw,) = lpPositions.poolMetadata(tokenId);
+        uint128 liquidityAfterWithdraw = lpPositions.totalLiquidity(tokenId);
 
         assertLt(liquidityAfterWithdraw, liquidityAfterSecond, "Liquidity should decrease");
     }
@@ -1136,8 +1136,9 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        // Get pool metadata from ERC6909 contract
-        (uint128 totalLiquidity, uint256 totalSupply) = lpPositions.poolMetadata(tokenId);
+        // Get pool data from ERC6909 contract
+        uint128 totalLiquidity = lpPositions.totalLiquidity(tokenId);
+        uint256 totalSupply = lpPositions.totalSupply(tokenId);
         
         // Pool is initialized when totalSupply > 0
         assertGt(totalSupply, 0, "Pool should be initialized (totalSupply > 0)");
@@ -1319,7 +1320,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         lpPositions.deposit(poolKey, 100_000 ether, 100_000 ether, 0, DEADLINE);
 
-        (uint128 totalLiquidityBefore,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityBefore = lpPositions.totalLiquidity(tokenId);
 
         // Perform swaps to generate fees
         performSwap(poolKey, false, 10_000 ether); // Swap token0 for token1
@@ -1329,7 +1330,7 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(bob);
         lpPositions.deposit(poolKey, 50_000 ether, 50_000 ether, 0, DEADLINE);
 
-        (uint128 totalLiquidityAfter,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityAfter = lpPositions.totalLiquidity(tokenId);
 
         // Total liquidity should be more than just deposits (fees compounded)
         // Expected: ~100k (Alice) + fees + ~50k (Bob)
@@ -1575,7 +1576,7 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.deposit(poolKey, 100_000 ether, 100_000 ether, 0, DEADLINE);
 
         uint256 totalSupplyBefore = lpPositions.totalSupply(tokenId);
-        (uint128 totalLiquidityBefore,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityBefore = lpPositions.totalLiquidity(tokenId);
 
         // Value per LP token before
         uint256 valuePerLpBefore = uint256(totalLiquidityBefore) * 1e18 / totalSupplyBefore;
@@ -1589,7 +1590,7 @@ contract StableswapLPPositionsTest is FullTest {
         lpPositions.deposit(poolKey, 1 ether, 1 ether, 0, DEADLINE);
 
         uint256 totalSupplyAfter = lpPositions.totalSupply(tokenId);
-        (uint128 totalLiquidityAfter,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidityAfter = lpPositions.totalLiquidity(tokenId);
 
         // Value per LP token after (excluding Bob's tiny deposit effect)
         uint256 valuePerLpAfter = uint256(totalLiquidityAfter) * 1e18 / totalSupplyAfter;

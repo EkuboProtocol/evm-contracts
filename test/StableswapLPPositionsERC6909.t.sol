@@ -86,14 +86,16 @@ contract StableswapLPPositionsERC6909Test is FullTest {
         lpPositions.deposit(pool1, 100 ether, 100 ether, 0, DEADLINE);
 
         // Check metadata for pool1
-        (uint128 totalLiq, uint256 totalSup) = lpPositions.poolMetadata(tokenId1);
+        uint128 totalLiq = lpPositions.totalLiquidity(tokenId1);
+        uint256 totalSup = lpPositions.totalSupply(tokenId1);
 
         assertGt(totalLiq, 0, "Pool1 should have liquidity");
         assertGt(totalSup, 0, "Pool1 should have supply (initialized)");
 
         // Check that non-existent pool has empty metadata
         uint256 fakeTokenId = 999999;
-        (uint128 totalLiq_fake, uint256 totalSup_fake) = lpPositions.poolMetadata(fakeTokenId);
+        uint128 totalLiq_fake = lpPositions.totalLiquidity(fakeTokenId);
+        uint256 totalSup_fake = lpPositions.totalSupply(fakeTokenId);
 
         assertEq(totalLiq_fake, 0, "Fake pool liquidity should be zero");
         assertEq(totalSup_fake, 0, "Fake pool supply should be zero (not initialized)");

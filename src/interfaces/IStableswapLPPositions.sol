@@ -125,7 +125,7 @@ interface IStableswapLPPositions {
     /// @param id The token ID (poolId)
     function totalSupply(uint256 id) external view returns (uint256);
 
-    /// @notice Gets the pool metadata
+    /// @notice Returns the total liquidity in a pool's position
     /// @param id The token ID (poolId)
-    function poolMetadata(uint256 id) external view returns (uint128 totalLiquidity, uint256 totalSupply);
+    function totalLiquidity(uint256 id) external view returns (uint128);
 }

@@ -110,7 +110,7 @@ contract ProtocolFeeInvariantTest is FullTest {
 
         // Get compounded fees (total liquidity minus initial deposits)
         // Using ERC6909 poolMetadata instead of StableswapLPToken
-        (uint128 totalLiquidity,) = lpPositions.poolMetadata(tokenId);
+        uint128 totalLiquidity = lpPositions.totalLiquidity(tokenId);
         // Note: We'd need to track initial deposits separately to calculate compoundedFees
         // For now, we'll verify the protocol fee relationship
 

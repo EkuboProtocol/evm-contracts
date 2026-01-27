@@ -60,15 +60,6 @@ contract StableswapLPPositions is
     /// @notice Pool metadata indexed by token ID (poolId)
     mapping(uint256 => PoolMetadata) private _poolMetadata;
 
-    /// @notice Gets pool metadata
-    /// @param id The token ID (poolId)
-    /// @return totalLiquidity_ Total liquidity in the position
-    /// @return totalSupply_ Total supply of LP tokens
-    function poolMetadata(uint256 id) external view returns (uint128 totalLiquidity_, uint256 totalSupply_) {
-        PoolMetadata storage meta = _poolMetadata[id];
-        return (meta.totalLiquidity, uint256(meta.totalSupply));
-    }
-
     /// @notice Error thrown when uint128 to int128 cast would overflow
     error CastOverflow();
 
@@ -146,6 +137,12 @@ contract StableswapLPPositions is
     /// @param id The token ID (poolId)
     function totalSupply(uint256 id) public view returns (uint256) {
         return _poolMetadata[id].totalSupply;
+    }
+
+    /// @notice Returns the total liquidity in a pool's position
+    /// @param id The token ID (poolId)
+    function totalLiquidity(uint256 id) external view returns (uint128) {
+        return _poolMetadata[id].totalLiquidity;
     }
 
     /*//////////////////////////////////////////////////////////////

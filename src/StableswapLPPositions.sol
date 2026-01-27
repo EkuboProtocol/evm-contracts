@@ -60,9 +60,6 @@ contract StableswapLPPositions is
     /// @notice Pool metadata indexed by token ID (poolId)
     mapping(uint256 => PoolMetadata) private _poolMetadata;
 
-    /// @notice Addresses allowed to receive/send LP token transfers (e.g. ERC20 wrappers)
-    mapping(address => bool) public allowedTransferTargets;
-
     /// @notice Error thrown when uint128 to int128 cast would overflow
     error CastOverflow();
 
@@ -78,13 +75,6 @@ contract StableswapLPPositions is
         SWAP_PROTOCOL_FEE_X64 = _swapProtocolFeeX64;
     }
 
-    /// @notice Sets whether an address is allowed as a transfer target (e.g. ERC20 wrapper)
-    /// @param target The address to allow or disallow
-    /// @param allowed Whether the address is allowed
-    function setAllowedTransferTarget(address target, bool allowed) external onlyOwner {
-        allowedTransferTargets[target] = allowed;
-    }
-
     /// @notice Validates that the deadline has not passed
     modifier checkDeadline(uint256 deadline) {
         if (block.timestamp > deadline) revert DeadlineExpired();
@@ -98,23 +88,6 @@ contract StableswapLPPositions is
     function _safeInt128(uint128 value) internal pure returns (int128) {
         if (value > uint128(type(int128).max)) revert CastOverflow();
         return int128(value);
-    }
-
-    /// @notice ERC6909 hook to prevent direct LP token transfers
-    /// @dev Direct transfers would bypass auto-compounding of fees, causing fee leakage
-    /// @dev Allows minting (from == address(0)), burning (to == address(0)),
-    ///      and transfers to/from allowed targets (e.g. ERC20 wrappers)
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 /* id */,
-        uint256 /* amount */
-    ) internal virtual override {
-        if (from != address(0) && to != address(0)) {
-            if (!allowedTransferTargets[from] && !allowedTransferTargets[to]) {
-                revert DirectTransfersDisabled();
-            }
-        }
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -571,14 +571,12 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        // H-01 Fix: Direct transfers are disabled for security (prevent fee bypass)
+        uint256 half = lpTokensMinted / 2;
         vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
-        lpPositions.transfer(bob, tokenId, lpTokensMinted / 2);
+        lpPositions.transfer(bob, tokenId, half);
 
-        // Balances remain unchanged - transfer was blocked
-        assertEq(lpPositions.balanceOf(alice, tokenId), lpTokensMinted);
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0);
+        assertEq(lpPositions.balanceOf(alice, tokenId), lpTokensMinted - half);
+        assertEq(lpPositions.balanceOf(bob, tokenId), half);
     }
 
     function test_lpToken_transferThenWithdraw() public {
@@ -588,15 +586,15 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         (uint256 lpTokensMinted,,) = lpPositions.deposit(poolKey, 100000, 100000, 0, DEADLINE);
 
-        // H-01 Fix: Direct transfers are disabled - transfer should revert
+        // Transfer LP tokens to Bob
         vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transfer(bob, tokenId, lpTokensMinted);
 
-        // Since transfer failed, Bob cannot withdraw Alice's tokens
+        // Bob can withdraw using the transferred LP tokens
         vm.prank(bob);
-        vm.expectRevert();
-        lpPositions.withdraw(poolKey, lpTokensMinted, 0, 0, DEADLINE);
+        (uint128 amount0, uint128 amount1) = lpPositions.withdraw(poolKey, lpTokensMinted, 0, 0, DEADLINE);
+        assertGt(amount0, 0);
+        assertGt(amount1, 0);
     }
 
     // NOTE: In ERC6909, mint/burn are internal functions called by deposit/withdraw
@@ -1028,14 +1026,12 @@ contract StableswapLPPositionsTest is FullTest {
         vm.prank(alice);
         lpPositions.approve(bob, tokenId, lpTokensMinted);
 
-        // H-01 Fix: Even with approval, transferFrom is blocked
+        // Bob transfers from Alice using approval
         vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transferFrom(alice, bob, tokenId, lpTokensMinted);
 
-        // Balances remain unchanged
-        assertEq(lpPositions.balanceOf(alice, tokenId), lpTokensMinted);
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0);
+        assertEq(lpPositions.balanceOf(alice, tokenId), 0);
+        assertEq(lpPositions.balanceOf(bob, tokenId), lpTokensMinted);
     }
 
     function test_lpToken_insufficientAllowance_reverts() public {

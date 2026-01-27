@@ -3,7 +3,6 @@ pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {StableswapLPPositions} from "../src/StableswapLPPositions.sol";
-import {IStableswapLPPositions} from "../src/interfaces/IStableswapLPPositions.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
@@ -56,196 +55,112 @@ contract StableswapLPPositionsSecurityTest is FullTest {
         core.initializePool(poolKey, 0);
     }
 
-    // ==================== H-01 Fix Tests ====================
+    // ==================== Transfer Tests ====================
 
-    /// @notice Test that direct transfers are disabled
-    function test_H01_directTransfer_reverts() public {
+    /// @notice Test that direct transfers work
+    function test_directTransfer_works() public {
         PoolKey memory pool = createStableswapPool();
         uint256 tokenId = getTokenId(pool);
 
-        // Alice deposits and receives LP tokens
         vm.prank(alice);
         lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
 
         uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
-        assertGt(aliceBalance, 0, "Alice should have LP tokens");
 
-        // Try to transfer directly to Bob - should revert
         vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transfer(bob, tokenId, aliceBalance / 2);
 
-        // Verify Bob didn't receive any tokens
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0, "Bob should have no tokens");
+        assertEq(lpPositions.balanceOf(alice, tokenId), aliceBalance - aliceBalance / 2);
+        assertEq(lpPositions.balanceOf(bob, tokenId), aliceBalance / 2);
     }
 
-    /// @notice Test that transferFrom with approval also reverts
-    function test_H01_transferFromWithApproval_reverts() public {
+    /// @notice Test transferFrom with approval works
+    function test_transferFromWithApproval_works() public {
         PoolKey memory pool = createStableswapPool();
         uint256 tokenId = getTokenId(pool);
 
-        // Alice deposits
         vm.prank(alice);
         lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
 
         uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
 
-        // Alice approves Bob
         vm.prank(alice);
         lpPositions.approve(bob, tokenId, aliceBalance);
 
-        // Bob tries to transfer from Alice - should revert
         vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transferFrom(alice, bob, tokenId, aliceBalance / 2);
 
-        // Verify balances unchanged
-        assertEq(lpPositions.balanceOf(alice, tokenId), aliceBalance, "Alice balance unchanged");
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0, "Bob should have no tokens");
+        assertEq(lpPositions.balanceOf(alice, tokenId), aliceBalance - aliceBalance / 2);
+        assertEq(lpPositions.balanceOf(bob, tokenId), aliceBalance / 2);
     }
 
-    /// @notice Test that operator transfers also revert
-    function test_H01_operatorTransfer_reverts() public {
+    /// @notice Test operator transfers work
+    function test_operatorTransfer_works() public {
         PoolKey memory pool = createStableswapPool();
         uint256 tokenId = getTokenId(pool);
 
-        // Alice deposits
         vm.prank(alice);
         lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
 
         uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
 
-        // Alice sets Bob as operator (approve for all tokens)
         vm.prank(alice);
         lpPositions.setOperator(bob, true);
 
-        assertTrue(lpPositions.isOperator(alice, bob), "Bob should be operator");
-
-        // Bob tries to transfer as operator - should still revert
         vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transferFrom(alice, bob, tokenId, aliceBalance / 2);
 
-        // Verify balances unchanged
-        assertEq(lpPositions.balanceOf(alice, tokenId), aliceBalance, "Alice balance unchanged");
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0, "Bob should have no tokens");
+        assertEq(lpPositions.balanceOf(alice, tokenId), aliceBalance - aliceBalance / 2);
+        assertEq(lpPositions.balanceOf(bob, tokenId), aliceBalance / 2);
     }
 
-    /// @notice Test that minting still works (deposit should succeed)
-    function test_H01_minting_stillWorks() public {
+    /// @notice Test that minting works (deposit should succeed)
+    function test_minting_works() public {
         PoolKey memory pool = createStableswapPool();
         uint256 tokenId = getTokenId(pool);
 
-        // Alice deposits - this calls _mint internally
         vm.prank(alice);
         (uint256 lpTokens,,) = lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
 
-        // Verify mint worked
         assertGt(lpTokens, 0, "LP tokens should be minted");
         assertGt(lpPositions.balanceOf(alice, tokenId), 0, "Alice should have LP tokens");
         assertEq(lpPositions.balanceOf(address(0xdead), tokenId), 1000, "Minimum liquidity burned");
     }
 
-    /// @notice Test that burning still works (withdraw should succeed)
-    function test_H01_burning_stillWorks() public {
+    /// @notice Test that burning works (withdraw should succeed)
+    function test_burning_works() public {
         PoolKey memory pool = createStableswapPool();
         uint256 tokenId = getTokenId(pool);
 
-        // Alice deposits
         vm.prank(alice);
         (uint256 lpTokens,,) = lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
 
         uint256 balanceBefore = lpPositions.balanceOf(alice, tokenId);
 
-        // Alice withdraws - this calls _burn internally
         vm.prank(alice);
         lpPositions.withdraw(pool, lpTokens, 0, 0, DEADLINE);
 
-        // Verify burn worked
         assertEq(lpPositions.balanceOf(alice, tokenId), balanceBefore - lpTokens, "LP tokens should be burned");
     }
 
-    /// @notice Test the exploit scenario from audit is prevented
-    function test_H01_exploitScenario_prevented() public {
+    /// @notice Test transfer then withdraw works correctly
+    function test_transferThenWithdraw() public {
         PoolKey memory pool = createStableswapPool();
         uint256 tokenId = getTokenId(pool);
 
-        // 1. Alice deposits 100 tokens
         vm.prank(alice);
         (uint256 aliceLpTokens,,) = lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
 
-        uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
-
-        // 2. Some fees would accumulate here (simulated by Bob depositing)
-        vm.prank(bob);
-        lpPositions.deposit(pool, 50 ether, 50 ether, 0, DEADLINE);
-
-        // 3. Alice tries to transfer her LP tokens to Bob to let him claim accumulated fees
+        // Alice transfers to Bob
         vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transfer(bob, tokenId, aliceLpTokens);
 
-        // Verify transfer was blocked
-        assertEq(lpPositions.balanceOf(alice, tokenId), aliceBalance, "Alice still has her tokens");
-        assertGt(lpPositions.balanceOf(bob, tokenId), 0, "Bob only has his own tokens");
-
-        // Verify Alice can still withdraw her own tokens and get her fair share
-        vm.prank(alice);
+        // Bob withdraws using transferred tokens
+        vm.prank(bob);
         (uint128 amount0, uint128 amount1) = lpPositions.withdraw(pool, aliceLpTokens, 0, 0, DEADLINE);
 
-        // Alice should get approximately what she deposited (slight variation due to fees)
-        assertApproxEqRel(amount0, 100 ether, 0.05e18, "Alice gets ~100 token0");
-        assertApproxEqRel(amount1, 100 ether, 0.05e18, "Alice gets ~100 token1");
-    }
-
-    /// @notice Test that zero address transfers are allowed (for mint/burn)
-    function test_H01_internalMintBurn_allowed() public {
-        PoolKey memory pool = createStableswapPool();
-        uint256 tokenId = getTokenId(pool);
-
-        // This deposit internally does:
-        // _mint(address(0xdead), tokenId, MINIMUM_LIQUIDITY) - from == 0, allowed
-        // _mint(alice, tokenId, lpTokens) - from == 0, allowed
-        vm.prank(alice);
-        (uint256 lpTokens,,) = lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
-
-        assertGt(lpTokens, 0, "Minting should work");
-
-        // This withdraw internally does:
-        // _burn(alice, tokenId, lpTokens) - to == 0, allowed
-        vm.prank(alice);
-        lpPositions.withdraw(pool, lpTokens, 0, 0, DEADLINE);
-
-        // If we got here without reverting, mint/burn work correctly
-        assertTrue(true, "Burn should work");
-    }
-
-    /// @notice Test transfer between non-zero addresses is blocked
-    function test_H01_nonZeroToNonZero_blocked() public {
-        PoolKey memory pool = createStableswapPool();
-        uint256 tokenId = getTokenId(pool);
-
-        vm.prank(alice);
-        lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
-
-        uint256 amount = lpPositions.balanceOf(alice, tokenId);
-
-        // Try all forms of transfers
-        vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
-        lpPositions.transfer(bob, tokenId, amount / 3);
-
-        // Try transferFrom (even with approval)
-        vm.prank(alice);
-        lpPositions.approve(bob, tokenId, amount / 3);
-
-        vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
-        lpPositions.transferFrom(alice, bob, tokenId, amount / 3);
-
-        // Verify no tokens were transferred
-        assertEq(lpPositions.balanceOf(alice, tokenId), amount, "Alice keeps all tokens");
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0, "Bob has no tokens");
+        assertGt(amount0, 0);
+        assertGt(amount1, 0);
     }
 
     // ==================== H-02 Fix Tests ====================
@@ -348,29 +263,28 @@ contract StableswapLPPositionsSecurityTest is FullTest {
         assertEq(bobFinal, 0, "Bob has no tokens after full withdrawal");
     }
 
-    /// @notice Test that H-01 fix (no transfers) preserves totalSupply consistency
-    function test_H02_noTransfersMeansTotalSupplyAlwaysCorrect() public {
+    /// @notice Test that transfers preserve totalSupply consistency
+    function test_H02_transfersPreserveTotalSupply() public {
         PoolKey memory pool = createStableswapPool();
         uint256 tokenId = getTokenId(pool);
 
-        // Deposit
         vm.prank(alice);
         (uint256 lpTokens,,) = lpPositions.deposit(pool, 100 ether, 100 ether, 0, DEADLINE);
 
         uint256 totalSupplyBefore = lpPositions.totalSupply(tokenId);
 
-        // Try to transfer (should fail due to H-01 fix)
+        // Transfer does not change totalSupply
         vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transfer(bob, tokenId, lpTokens / 2);
 
-        // Verify totalSupply unchanged (transfer blocked)
         uint256 totalSupplyAfter = lpPositions.totalSupply(tokenId);
-        assertEq(totalSupplyAfter, totalSupplyBefore, "TotalSupply unchanged because transfer blocked");
+        assertEq(totalSupplyAfter, totalSupplyBefore, "TotalSupply unchanged after transfer");
 
-        // Verify balances unchanged
-        assertEq(lpPositions.balanceOf(alice, tokenId), lpTokens, "Alice balance unchanged");
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0, "Bob balance unchanged");
+        // Sum of balances still equals totalSupply
+        uint256 aliceBal = lpPositions.balanceOf(alice, tokenId);
+        uint256 bobBal = lpPositions.balanceOf(bob, tokenId);
+        uint256 deadBal = lpPositions.balanceOf(address(0xdead), tokenId);
+        assertEq(totalSupplyAfter, aliceBal + bobBal + deadBal, "TotalSupply = sum of balances");
     }
 
     /// @notice Test overflow protection in mint (though practically impossible with uint256)

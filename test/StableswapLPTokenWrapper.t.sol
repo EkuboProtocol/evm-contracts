@@ -40,12 +40,9 @@ contract StableswapLPTokenWrapperTest is FullTest {
         core.initializePool(poolKey, 0);
         tokenId = uint256(PoolId.unwrap(poolKey.toPoolId()));
 
-        // Deploy wrapper and whitelist it
+        // Deploy wrapper
         address wrapperAddr = factory.getOrCreateWrapper(tokenId);
         wrapper = StableswapLPTokenWrapper(wrapperAddr);
-
-        vm.prank(owner);
-        lpPositions.setAllowedTransferTarget(wrapperAddr, true);
 
         // Fund users
         token0.transfer(alice, 1_000_000 ether);
@@ -172,21 +169,6 @@ contract StableswapLPTokenWrapperTest is FullTest {
 
         vm.prank(alice);
         vm.expectRevert();
-        wrapper.wrap(lpTokens);
-    }
-
-    function test_wrap_revertsWithoutAllowedTarget() public {
-        // Remove wrapper from whitelist
-        vm.prank(owner);
-        lpPositions.setAllowedTransferTarget(address(wrapper), false);
-
-        uint256 lpTokens = _depositAs(alice, 100 ether);
-
-        vm.prank(alice);
-        ERC6909(address(lpPositions)).approve(address(wrapper), tokenId, lpTokens);
-
-        vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         wrapper.wrap(lpTokens);
     }
 
@@ -356,13 +338,4 @@ contract StableswapLPTokenWrapperTest is FullTest {
 
     // --- Access Control Tests ---
 
-    function test_setAllowedTransferTarget_onlyOwner() public {
-        vm.prank(alice);
-        vm.expectRevert();
-        lpPositions.setAllowedTransferTarget(address(wrapper), false);
-    }
-
-    function test_allowedTransferTargets_readable() public view {
-        assertTrue(lpPositions.allowedTransferTargets(address(wrapper)));
-    }
 }

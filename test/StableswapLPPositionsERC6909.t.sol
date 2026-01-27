@@ -3,7 +3,6 @@ pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {StableswapLPPositions} from "../src/StableswapLPPositions.sol";
-import {IStableswapLPPositions} from "../src/interfaces/IStableswapLPPositions.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
@@ -129,23 +128,20 @@ contract StableswapLPPositionsERC6909Test is FullTest {
         // Verify operator status
         assertTrue(lpPositions.isOperator(alice, operator), "Bob should be operator for Alice");
 
-        // H-01 Fix: Even operators cannot transfer (security fix)
         uint256 aliceBalance1 = lpPositions.balanceOf(alice, tokenId1);
         uint256 aliceBalance2 = lpPositions.balanceOf(alice, tokenId2);
 
+        // Operator can transfer across pools
         vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transferFrom(alice, bob, tokenId1, aliceBalance1 / 2);
 
         vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transferFrom(alice, bob, tokenId2, aliceBalance2 / 2);
 
-        // Verify balances unchanged - transfers were blocked
-        assertEq(lpPositions.balanceOf(alice, tokenId1), aliceBalance1, "Alice pool1 balance unchanged");
-        assertEq(lpPositions.balanceOf(alice, tokenId2), aliceBalance2, "Alice pool2 balance unchanged");
-        assertEq(lpPositions.balanceOf(bob, tokenId1), 0, "Bob has no pool1 tokens");
-        assertEq(lpPositions.balanceOf(bob, tokenId2), 0, "Bob has no pool2 tokens");
+        assertEq(lpPositions.balanceOf(alice, tokenId1), aliceBalance1 - aliceBalance1 / 2);
+        assertEq(lpPositions.balanceOf(alice, tokenId2), aliceBalance2 - aliceBalance2 / 2);
+        assertEq(lpPositions.balanceOf(bob, tokenId1), aliceBalance1 / 2);
+        assertEq(lpPositions.balanceOf(bob, tokenId2), aliceBalance2 / 2);
     }
 
     /// @notice Test operator can be revoked
@@ -193,14 +189,13 @@ contract StableswapLPPositionsERC6909Test is FullTest {
         // Check allowance was set
         assertEq(lpPositions.allowance(alice, bob, tokenId1), 50 ether, "Bob should have 50 ether allowance");
 
-        // H-01 Fix: Even with approval, transfers are blocked
+        // Bob can transfer using per-token approval
+        uint256 aliceBalanceBefore = lpPositions.balanceOf(alice, tokenId1);
         vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transferFrom(alice, bob, tokenId1, 50 ether);
 
-        // Balances unchanged - transfer was blocked
-        assertEq(lpPositions.balanceOf(alice, tokenId1), lpPositions.balanceOf(alice, tokenId1));
-        assertEq(lpPositions.balanceOf(bob, tokenId1), 0, "Bob has no tokens");
+        assertEq(lpPositions.balanceOf(alice, tokenId1), aliceBalanceBefore - 50 ether);
+        assertEq(lpPositions.balanceOf(bob, tokenId1), 50 ether);
     }
 
     /// @notice Test infinite approval - transfers still blocked (H-01 fix)
@@ -218,15 +213,15 @@ contract StableswapLPPositionsERC6909Test is FullTest {
 
         assertEq(lpPositions.allowance(alice, bob, tokenId), type(uint256).max, "Bob should have max allowance");
 
-        // H-01 Fix: Even with infinite approval, transfers are blocked
+        // Bob can transfer with infinite approval
+        uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
         vm.prank(bob);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
         lpPositions.transferFrom(alice, bob, tokenId, 10 ether);
 
-        // Balances unchanged - transfer was blocked
-        uint256 aliceBalance = lpPositions.balanceOf(alice, tokenId);
-        assertGt(aliceBalance, 0, "Alice keeps her tokens");
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0, "Bob has no tokens");
+        assertEq(lpPositions.balanceOf(alice, tokenId), aliceBalance - 10 ether);
+        assertEq(lpPositions.balanceOf(bob, tokenId), 10 ether);
+        // Infinite approval should not be consumed
+        assertEq(lpPositions.allowance(alice, bob, tokenId), type(uint256).max);
     }
 
     // ==================== Gas Comparison Tests ====================
@@ -270,7 +265,7 @@ contract StableswapLPPositionsERC6909Test is FullTest {
         assertLt(gasUsed, 100_000, "Subsequent deposit should use less than 100k gas");
     }
 
-    /// @notice Test: Transfers are disabled (H-01 security fix)
+    /// @notice Benchmark: Transfer gas cost
     function test_gas_transfer() public {
         PoolKey memory pool = createStableswapPool(address(token0), address(token1));
         uint256 tokenId = getTokenId(pool);
@@ -281,14 +276,15 @@ contract StableswapLPPositionsERC6909Test is FullTest {
 
         uint256 balance = lpPositions.balanceOf(alice, tokenId);
 
-        // H-01 Fix: Transfers are now disabled for security
         vm.prank(alice);
-        vm.expectRevert(IStableswapLPPositions.DirectTransfersDisabled.selector);
+        uint256 gasBefore = gasleft();
         lpPositions.transfer(bob, tokenId, balance / 2);
+        uint256 gasUsed = gasBefore - gasleft();
 
-        // Balances unchanged
-        assertEq(lpPositions.balanceOf(alice, tokenId), balance);
-        assertEq(lpPositions.balanceOf(bob, tokenId), 0);
+        emit log_named_uint("Transfer gas (ERC6909)", gasUsed);
+
+        assertEq(lpPositions.balanceOf(alice, tokenId), balance - balance / 2);
+        assertEq(lpPositions.balanceOf(bob, tokenId), balance / 2);
     }
 
     /// @notice Benchmark: Approval gas cost

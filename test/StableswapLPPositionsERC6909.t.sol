@@ -86,21 +86,17 @@ contract StableswapLPPositionsERC6909Test is FullTest {
         lpPositions.deposit(pool1, 100 ether, 100 ether, 0, DEADLINE);
 
         // Check metadata for pool1
-        (address t0, address t1, uint128 totalLiq, uint256 totalSup, bool init) = lpPositions.poolMetadata(tokenId1);
+        (uint128 totalLiq, uint256 totalSup) = lpPositions.poolMetadata(tokenId1);
 
-        assertEq(t0, address(token0), "Pool1 token0 should be correct");
-        assertEq(t1, address(token1), "Pool1 token1 should be correct");
         assertGt(totalLiq, 0, "Pool1 should have liquidity");
-        assertGt(totalSup, 0, "Pool1 should have supply");
-        assertTrue(init, "Pool1 should be initialized");
+        assertGt(totalSup, 0, "Pool1 should have supply (initialized)");
 
         // Check that non-existent pool has empty metadata
         uint256 fakeTokenId = 999999;
-        (address t0_fake,,, uint256 totalSup_fake, bool init_fake) = lpPositions.poolMetadata(fakeTokenId);
+        (uint128 totalLiq_fake, uint256 totalSup_fake) = lpPositions.poolMetadata(fakeTokenId);
 
-        assertEq(t0_fake, address(0), "Fake pool token0 should be zero");
-        assertEq(totalSup_fake, 0, "Fake pool supply should be zero");
-        assertFalse(init_fake, "Fake pool should not be initialized");
+        assertEq(totalLiq_fake, 0, "Fake pool liquidity should be zero");
+        assertEq(totalSup_fake, 0, "Fake pool supply should be zero (not initialized)");
     }
 
     // ==================== Operator Approval Tests ====================

@@ -17,7 +17,6 @@ import {maxLiquidity} from "./math/liquidity.sol";
 import {computeFee} from "./math/fee.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {LibString} from "solady/utils/LibString.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
@@ -53,47 +52,21 @@ contract StableswapLPPositions is
     uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 2;
 
     /// @notice Metadata for each pool's LP tokens
-    /// @dev OPTIMIZED: Reduced from 4 storage slots to 3 slots
-    /// @dev Slot 0: token0 (20 bytes)
-    /// @dev Slot 1: token1 (20 bytes) + totalLiquidity (16 bytes, upper 12 bytes)
-    /// @dev Slot 2: totalSupply (16 bytes)
-    /// @dev Removed 'initialized' flag - check totalSupply == 0 instead
     struct PoolMetadata {
-        address token0;          // 20 bytes - Slot 0
-        address token1;          // 20 bytes - Slot 1
-        uint128 totalLiquidity;  // 16 bytes - Slot 1 (packed with token1)
-        uint128 totalSupply;     // 16 bytes - Slot 2 (changed from uint256)
+        uint128 totalLiquidity;
+        uint128 totalSupply;
     }
 
     /// @notice Pool metadata indexed by token ID (poolId)
     mapping(uint256 => PoolMetadata) private _poolMetadata;
 
-    /// @notice Gets pool metadata (interface compatibility)
+    /// @notice Gets pool metadata
     /// @param id The token ID (poolId)
-    /// @return token0_ The first token address
-    /// @return token1_ The second token address
     /// @return totalLiquidity_ Total liquidity in the position
     /// @return totalSupply_ Total supply of LP tokens
-    /// @return initialized_ Whether the pool is initialized
-    function poolMetadata(uint256 id)
-        external
-        view
-        returns (
-            address token0_,
-            address token1_,
-            uint128 totalLiquidity_,
-            uint256 totalSupply_,
-            bool initialized_
-        )
-    {
+    function poolMetadata(uint256 id) external view returns (uint128 totalLiquidity_, uint256 totalSupply_) {
         PoolMetadata storage meta = _poolMetadata[id];
-        return (
-            meta.token0,
-            meta.token1,
-            meta.totalLiquidity,
-            uint256(meta.totalSupply),  // Convert uint128 to uint256
-            _isPoolInitialized(id)      // Compute initialized flag
-        );
+        return (meta.totalLiquidity, uint256(meta.totalSupply));
     }
 
     /// @notice Error thrown when uint128 to int128 cast would overflow
@@ -148,18 +121,10 @@ contract StableswapLPPositions is
                         ERC6909 METADATA OVERRIDES
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns the name for a specific pool's LP token
-    /// @param id The token ID (poolId)
-    function name(uint256 id) public view override(ERC6909, IStableswapLPPositions) returns (string memory) {
-        PoolMetadata memory meta = _poolMetadata[id];
-        require(_isPoolInitialized(id), "Pool not initialized");
-
-        return string.concat(
-            "Ekubo Stableswap LP: ",
-            _getTokenSymbol(meta.token0),
-            "-",
-            _getTokenSymbol(meta.token1)
-        );
+    /// @notice Returns the name for LP tokens
+    /// @dev OPTIMIZED: Generic name (removed token symbols to save ~40k gas on first deposit)
+    function name(uint256 /* id */) public pure override(ERC6909, IStableswapLPPositions) returns (string memory) {
+        return "Ekubo Stableswap LP";
     }
 
     /// @notice Returns the symbol for LP tokens (same for all pools)
@@ -177,29 +142,10 @@ contract StableswapLPPositions is
         return "";
     }
 
-    /// @notice Helper to get token symbol with fallback to address
-    function _getTokenSymbol(address token) internal view returns (string memory) {
-        (bool success, bytes memory data) = token.staticcall(
-            abi.encodeWithSignature("symbol()")
-        );
-        if (success && data.length > 0) {
-            return abi.decode(data, (string));
-        }
-        return LibString.slice(LibString.toHexStringChecksummed(token), 0, 10);
-    }
-
     /// @notice Returns the total supply of LP tokens for a pool
     /// @param id The token ID (poolId)
     function totalSupply(uint256 id) public view returns (uint256) {
         return _poolMetadata[id].totalSupply;
-    }
-
-    /// @notice Checks if a pool is initialized
-    /// @dev OPTIMIZED: Removed 'initialized' flag, check totalSupply instead
-    /// @param tokenId The token ID (poolId)
-    /// @return True if pool is initialized
-    function _isPoolInitialized(uint256 tokenId) internal view returns (bool) {
-        return _poolMetadata[tokenId].totalSupply != 0;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -471,14 +417,8 @@ contract StableswapLPPositions is
         PoolId poolId = poolKey.toPoolId();
         uint256 tokenId = uint256(PoolId.unwrap(poolId));
 
-        // Initialize pool metadata if first deposit
-        if (!_isPoolInitialized(tokenId)) {
-            _poolMetadata[tokenId] = PoolMetadata({
-                token0: poolKey.token0,
-                token1: poolKey.token1,
-                totalLiquidity: 0,
-                totalSupply: 0
-            });
+        // Emit event on first deposit (totalSupply == 0 means uninitialized)
+        if (_poolMetadata[tokenId].totalSupply == 0) {
             emit PoolInitialized(tokenId, poolKey.token0, poolKey.token1);
         }
 
@@ -539,8 +479,8 @@ contract StableswapLPPositions is
         PoolId poolId = poolKey.toPoolId();
         uint256 tokenId = uint256(PoolId.unwrap(poolId));
 
-        // Verify pool is initialized
-        if (!_isPoolInitialized(tokenId)) {
+        // Verify pool exists (totalSupply > 0 means initialized)
+        if (_poolMetadata[tokenId].totalSupply == 0) {
             revert LPTokenDoesNotExist();
         }
 

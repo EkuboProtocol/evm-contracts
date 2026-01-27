@@ -208,7 +208,7 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         address user = users[userIndex];
 
         // Check if there's liquidity to swap against using ERC6909 totalSupply
-        (,, uint128 totalLiquidity,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 totalLiquidity,) = lpPositions.poolMetadata(tokenId);
         if (totalLiquidity == 0) return;
 
         vm.startPrank(user);
@@ -260,7 +260,7 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         if (!poolCreated) return;
 
         // Get totalLiquidity from ERC6909 poolMetadata
-        (,, uint128 lpTokenTotalLiquidity,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 lpTokenTotalLiquidity,) = lpPositions.poolMetadata(tokenId);
 
         // Get position from Core using CoreLib
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
@@ -280,7 +280,7 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
 
         // Use ERC6909 methods
         uint256 totalSupply = lpPositions.totalSupply(tokenId);
-        (,, uint128 totalLiquidity,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 totalLiquidity,) = lpPositions.poolMetadata(tokenId);
 
         if (totalSupply == 0) return;
 
@@ -362,7 +362,7 @@ contract StableswapLPHandler is StdUtils, StdAssertions {
         withdrawals = withdrawCount;
         swaps = swapCount;
         if (poolCreated) {
-            (,, uint128 liq,,) = lpPositions.poolMetadata(tokenId);
+            (uint128 liq,) = lpPositions.poolMetadata(tokenId);
             totalLiq = liq;
             totalSup = lpPositions.totalSupply(tokenId);
         }

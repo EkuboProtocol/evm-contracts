@@ -75,7 +75,7 @@ contract StableswapLPPositionsOverflowTest is FullTest {
         (uint256 lpTokens1,,) = lpPositions.deposit(poolKey, initialAmount, initialAmount, 0, DEADLINE);
 
         uint256 totalSupplyAfter1 = lpPositions.totalSupply(tokenId);
-        (,, uint128 totalLiquidityAfter1,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 totalLiquidityAfter1,) = lpPositions.poolMetadata(tokenId);
 
         // Step 2: User2 deposits additional liquidity
         uint128 additionalAmount = 500000 * 1e18;
@@ -88,7 +88,7 @@ contract StableswapLPPositionsOverflowTest is FullTest {
 
         // Verify state is consistent
         uint256 totalSupplyAfter2 = lpPositions.totalSupply(tokenId);
-        (,, uint128 totalLiquidityAfter2,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 totalLiquidityAfter2,) = lpPositions.poolMetadata(tokenId);
         
         assertEq(totalSupplyAfter2, totalSupplyAfter1 + lpTokens2, "Total supply should increase by minted amount");
         assertGt(totalLiquidityAfter2, totalLiquidityAfter1, "Total liquidity should increase");
@@ -111,7 +111,7 @@ contract StableswapLPPositionsOverflowTest is FullTest {
 
         // Get state after first deposit
         uint256 totalSupply = lpPositions.totalSupply(tokenId);
-        (,, uint128 totalLiquidity,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 totalLiquidity,) = lpPositions.poolMetadata(tokenId);
 
         // Try to deposit an amount so small it would result in 0 LP tokens
         // The formula is: (liquidityAdded * totalSupply) / totalLiquidity
@@ -149,7 +149,7 @@ contract StableswapLPPositionsOverflowTest is FullTest {
         lpPositions.deposit(poolKey, secondDeposit, secondDeposit, 0, DEADLINE);
 
         uint256 totalSupplyBefore = lpPositions.totalSupply(tokenId);
-        (,, uint128 totalLiquidityBefore,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 totalLiquidityBefore,) = lpPositions.poolMetadata(tokenId);
 
         // Add significant liquidity
         uint128 newAmount = 5_000_000 ether;
@@ -161,7 +161,7 @@ contract StableswapLPPositionsOverflowTest is FullTest {
         assertGt(lpTokensMinted, 0, "Should mint non-zero tokens");
         
         // Verify state consistency
-        (,, uint128 totalLiquidityAfter,,) = lpPositions.poolMetadata(tokenId);
+        (uint128 totalLiquidityAfter,) = lpPositions.poolMetadata(tokenId);
         assertGt(totalLiquidityAfter, totalLiquidityBefore, "Total liquidity should increase");
     }
 

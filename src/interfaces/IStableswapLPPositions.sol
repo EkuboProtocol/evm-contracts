@@ -127,5 +127,5 @@ interface IStableswapLPPositions {
 
     /// @notice Gets the pool metadata
     /// @param id The token ID (poolId)
-    function poolMetadata(uint256 id) external view returns (address token0, address token1, uint128 totalLiquidity, uint256 totalSupply, bool initialized);
+    function poolMetadata(uint256 id) external view returns (uint128 totalLiquidity, uint256 totalSupply);
 }

@@ -352,45 +352,33 @@ contract StableswapLPPositions is
         // Step 7: Calculate liquidity from NET fees (using passed sqrtRatio)
         liquidityAdded = maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), fees0, fees1);
 
+        // Step 8: Compound if possible, track leftovers
+        uint128 leftover0 = fees0;
+        uint128 leftover1 = fees1;
+
         if (liquidityAdded > 0) {
-            // Step 8: Add fees to Core position (compound)
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, _safeInt128(liquidityAdded));
 
-            // Step 9: Calculate leftover fees
             uint128 usedAmount0 = uint128(balanceUpdate.delta0());
             uint128 usedAmount1 = uint128(balanceUpdate.delta1());
-            uint128 leftover0 = fees0 > usedAmount0 ? fees0 - usedAmount0 : 0;
-            uint128 leftover1 = fees1 > usedAmount1 ? fees1 - usedAmount1 : 0;
+            leftover0 = fees0 > usedAmount0 ? fees0 - usedAmount0 : 0;
+            leftover1 = fees1 > usedAmount1 ? fees1 - usedAmount1 : 0;
 
-            // Step 10: Combined savedBalances update (gas optimization)
-            int128 netPendingDelta0 = _safeInt128(leftover0) - _safeInt128(pending0);
-            int128 netPendingDelta1 = _safeInt128(leftover1) - _safeInt128(pending1);
-
-            if (netPendingDelta0 != 0 || netPendingDelta1 != 0) {
-                CORE.updateSavedBalances(
-                    poolKey.token0, poolKey.token1, PoolId.unwrap(poolId),
-                    netPendingDelta0, netPendingDelta1
-                );
-            }
-
-            // Step 11: Update metadata liquidity tracking
             _poolMetadata[tokenId].totalLiquidity += liquidityAdded;
 
             emit FeesCompounded(poolKey, usedAmount0, usedAmount1, liquidityAdded);
-        } else {
-            // If compound fails, save ALL fees for next attempt
-            int128 netPendingDelta0 = _safeInt128(fees0) - _safeInt128(pending0);
-            int128 netPendingDelta1 = _safeInt128(fees1) - _safeInt128(pending1);
-
-            if (netPendingDelta0 != 0 || netPendingDelta1 != 0) {
-                CORE.updateSavedBalances(
-                    poolKey.token0, poolKey.token1, PoolId.unwrap(poolId),
-                    netPendingDelta0, netPendingDelta1
-                );
-            }
         }
 
-        return liquidityAdded;
+        // Step 9: Update pending fees (single path for both compound and no-compound)
+        int128 netPendingDelta0 = _safeInt128(leftover0) - _safeInt128(pending0);
+        int128 netPendingDelta1 = _safeInt128(leftover1) - _safeInt128(pending1);
+
+        if (netPendingDelta0 != 0 || netPendingDelta1 != 0) {
+            CORE.updateSavedBalances(
+                poolKey.token0, poolKey.token1, PoolId.unwrap(poolId),
+                netPendingDelta0, netPendingDelta1
+            );
+        }
     }
 
     /// @notice Handles deposit operation within lock callback

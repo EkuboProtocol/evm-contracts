@@ -30,9 +30,6 @@ library LPTokenMathLib {
     /// @notice Error thrown when total liquidity overflow would occur
     error TotalLiquidityOverflow();
 
-    /// @notice Error thrown when total supply mismatch occurs after first mint
-    error TotalSupplyMismatchAfterFirstMint();
-
     /// @notice Calculates LP tokens to mint for a given liquidity addition
     /// @dev On first deposit (totalSupply == 0), burns MINIMUM_LIQUIDITY to prevent inflation attacks
     /// @dev On subsequent deposits, mints proportional to share of total liquidity
@@ -67,12 +64,7 @@ library LPTokenMathLib {
 
             lpTokensToMint = uint256(liquidityAdded) - MINIMUM_LIQUIDITY;
             lpTokensToBurn = MINIMUM_LIQUIDITY;
-            newTotalSupply = uint256(liquidityAdded); // = MINIMUM_LIQUIDITY + lpTokensToMint
-
-            // Validate no overflow (though uint128 -> uint256 conversion makes this safe)
-            if (newTotalSupply != MINIMUM_LIQUIDITY + lpTokensToMint) {
-                revert TotalSupplyMismatchAfterFirstMint();
-            }
+            newTotalSupply = uint256(liquidityAdded);
         } else {
             // Subsequent deposits - mint proportional to share of total liquidity
             // Formula: lpToMint = (liquidityAdded * totalSupply) / totalLiquidity

@@ -181,14 +181,13 @@ contract StableswapLPPositions is
         PoolMetadata storage metadata = _poolMetadata[tokenId];
 
         // Use library for calculation
-        (uint128 liquidity, uint256 newTotalSupply) =
+        uint256 newTotalSupply;
+        (liquidityToRemove, newTotalSupply) =
             LPTokenMathLib.calculateBurn(
                 uint256(metadata.totalSupply),
                 metadata.totalLiquidity,
                 lpTokensToBurn
             );
-
-        liquidityToRemove = liquidity;
 
         // Burn tokens
         _burn(from, tokenId, lpTokensToBurn);
@@ -196,8 +195,6 @@ contract StableswapLPPositions is
         // Update metadata
         metadata.totalSupply = uint128(newTotalSupply);
         metadata.totalLiquidity = LPTokenMathLib.removeLiquidity(metadata.totalLiquidity, liquidityToRemove);
-
-        return liquidityToRemove;
     }
 
     /*//////////////////////////////////////////////////////////////

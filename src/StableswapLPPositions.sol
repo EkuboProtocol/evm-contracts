@@ -310,6 +310,7 @@ contract StableswapLPPositions is
     /// @param tickLower Lower tick of the position
     /// @param tickUpper Upper tick of the position
     /// @return liquidityAdded The amount of liquidity added from fees
+    /// @return positionId The position ID (returned to avoid redundant keccak in callers)
     function _autoCompoundFees(
         PoolKey memory poolKey,
         PoolId poolId,
@@ -317,8 +318,8 @@ contract StableswapLPPositions is
         SqrtRatio sqrtRatio,
         int32 tickLower,
         int32 tickUpper
-    ) internal returns (uint128 liquidityAdded) {
-        PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
+    ) internal returns (uint128 liquidityAdded, PositionId positionId) {
+        positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
 
         // Step 1: Collect NEW fees from Core
         (uint128 newFees0, uint128 newFees1) = CORE.collectFees(poolKey, positionId);
@@ -347,7 +348,7 @@ contract StableswapLPPositions is
         uint128 fees0 = netNewFees0 + pending0;
         uint128 fees1 = netNewFees1 + pending1;
 
-        if (fees0 == 0 && fees1 == 0) return 0;
+        if (fees0 == 0 && fees1 == 0) return (0, positionId);
 
         // Step 7: Calculate liquidity from NET fees (using passed sqrtRatio)
         liquidityAdded = maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), fees0, fees1);
@@ -410,8 +411,8 @@ contract StableswapLPPositions is
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
 
-        // Auto-compound fees before deposit (pass poolId, sqrtRatio and ticks)
-        _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
+        // Auto-compound fees before deposit (returns positionId to avoid redundant keccak)
+        (, PositionId positionId) = _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
 
         // Calculate liquidity to add (reuse sqrtRatio)
         uint128 liquidityToAdd =
@@ -422,7 +423,6 @@ contract StableswapLPPositions is
         }
 
         // Add liquidity to Core
-        PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
         PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, _safeInt128(liquidityToAdd));
 
         // Get actual amounts used
@@ -472,14 +472,13 @@ contract StableswapLPPositions is
         (int32 tickLower, int32 tickUpper) = poolKey.config.stableswapActiveLiquidityTickRange();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
 
-        // Auto-compound fees before withdrawal (pass poolId, sqrtRatio and ticks)
-        _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
+        // Auto-compound fees before withdrawal (returns positionId to avoid redundant keccak)
+        (, PositionId positionId) = _autoCompoundFees(poolKey, poolId, tokenId, sqrtRatio, tickLower, tickUpper);
 
         // Burn ERC6909 LP tokens and calculate liquidity to withdraw
         uint128 liquidityToWithdraw = _burnLPTokens(caller, poolId, lpTokensToWithdraw);
 
         // Remove liquidity from Core
-        PositionId positionId = createPositionId({_salt: POSITION_SALT, _tickLower: tickLower, _tickUpper: tickUpper});
         PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId, -_safeInt128(liquidityToWithdraw));
 
         // Get amounts from withdrawal (negative deltas mean we receive tokens)

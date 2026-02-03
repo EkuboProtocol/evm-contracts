@@ -1,30 +1,23 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
-pragma solidity >=0.8.30;
-
-import {LibString} from "solady/utils/LibString.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
+pragma solidity =0.8.33;
 
 import {ICore} from "../interfaces/ICore.sol";
 import {ITWAMM} from "../interfaces/extensions/ITWAMM.sol";
-import {SqrtRatio, toSqrtRatio} from "../types/sqrtRatio.sol";
-import {sqrtRatioToTick} from "../math/ticks.sol";
 import {NATIVE_TOKEN_ADDRESS, MIN_TICK} from "../math/constants.sol";
 import {TWAMMLib} from "../libraries/TWAMMLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PoolConfig, createFullRangePoolConfig, createConcentratedPoolConfig} from "../types/poolConfig.sol";
+import {createFullRangePoolConfig, createConcentratedPoolConfig} from "../types/poolConfig.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {OrderKey} from "../types/orderKey.sol";
-import {OrderConfig, createOrderConfig} from "../types/orderConfig.sol";
-import {createPositionId} from "../types/positionId.sol";
-import {SimpleToken} from "../SimpleToken.sol";
+import {createOrderConfig} from "../types/orderConfig.sol";
 import {nextValidTime} from "../math/time.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
-import {BaseLocker} from "../base/BaseLocker.sol";
+import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {LaunchInfo, createLaunchInfo} from "../types/launchInfo.sol";
 import {MAX_ABS_VALUE_SALE_RATE_DELTA} from "../math/time.sol";
+import {Locker} from "../types/locker.sol";
 
 /// @dev Computes the start and end time for the next batch of launches, given the duration and minimum lead time
 /// @dev Assumes that orderDuration is a power of 16
@@ -53,10 +46,9 @@ function auctionsCallPoints() pure returns (CallPoints memory) {
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Auctions
 /// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM
-contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
+contract Auctions is ExposedStorage, BaseExtension, BaseForwardee {
     using FlashAccountantLib for *;
     using TWAMMLib for *;
-    using LibString for *;
 
     /// @notice The TWAMM extension address
     ITWAMM public immutable TWAMM;
@@ -67,7 +59,7 @@ contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
     /// @dev The minimum amount of time in the future that the order must start
     uint32 public immutable MIN_LEAD_TIME;
 
-    /// @dev The total supply that all tokens are created with.
+    /// @dev The total amount of token required for each launch.
     uint128 public immutable TOKEN_TOTAL_SUPPLY;
 
     /// @dev The fee used for both the launch pool and graduation pool
@@ -82,8 +74,8 @@ contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
     /// @dev The sale rate of the order that is created for launches
     int112 public immutable ORDER_SALE_RATE;
 
-    /// @notice The name or symbol of the token is invalid. Both must be 7-bit ASCII and less than 32 bytes in length.
-    error InvalidNameOrSymbol();
+    /// @notice The provided token address is invalid.
+    error InvalidToken();
     /// @notice The sale is still ongoing so graduation is not allowed
     error SaleStillOngoing();
     /// @notice No proceeds were collected from the launch
@@ -105,7 +97,7 @@ contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
         uint128 tokenTotalSupply,
         uint64 poolFee,
         uint32 tickSpacing
-    ) BaseExtension(core) BaseLocker(core) {
+    ) BaseExtension(core) BaseForwardee(core) {
         TWAMM = twamm;
         POOL_FEE = poolFee;
 
@@ -135,27 +127,25 @@ contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
         (startTime, endTime) = getNextLaunchTime(ORDER_DURATION, MIN_LEAD_TIME);
     }
 
-    function getLaunchPool(SimpleToken token) public view returns (PoolKey memory poolKey) {
+    function getLaunchPool(address token) public view returns (PoolKey memory poolKey) {
         poolKey = PoolKey({
-            token0: NATIVE_TOKEN_ADDRESS,
-            token1: address(token),
-            config: createFullRangePoolConfig(POOL_FEE, address(TWAMM))
+            token0: NATIVE_TOKEN_ADDRESS, token1: token, config: createFullRangePoolConfig(POOL_FEE, address(TWAMM))
         });
     }
 
-    function readLaunchInfo(SimpleToken token) internal view returns (LaunchInfo launchInfo) {
+    function readLaunchInfo(address token) internal view returns (LaunchInfo launchInfo) {
         assembly ("memory-safe") {
             launchInfo := sload(token)
         }
     }
 
-    function writeLaunchInfo(SimpleToken token, LaunchInfo launchInfo) internal {
+    function writeLaunchInfo(address token, LaunchInfo launchInfo) internal {
         assembly ("memory-safe") {
             sstore(token, launchInfo)
         }
     }
 
-    function getSaleOrderKey(SimpleToken token) public view returns (OrderKey memory orderKey) {
+    function getSaleOrderKey(address token) public view returns (OrderKey memory orderKey) {
         LaunchInfo li = readLaunchInfo(token);
         uint64 endTime = li.endTime();
         if (endTime == 0) {
@@ -164,12 +154,12 @@ contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
         uint64 startTime = endTime - ORDER_DURATION;
         orderKey = OrderKey({
             token0: NATIVE_TOKEN_ADDRESS,
-            token1: address(token),
+            token1: token,
             config: createOrderConfig({_fee: POOL_FEE, _isToken1: true, _startTime: startTime, _endTime: endTime})
         });
     }
 
-    function executeVirtualOrdersAndGetSaleStatus(SimpleToken token)
+    function executeVirtualOrdersAndGetSaleStatus(address token)
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
@@ -177,85 +167,57 @@ contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
             TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(0), getSaleOrderKey(token));
     }
 
-    function getGraduationPool(SimpleToken token) public view returns (PoolKey memory poolKey) {
+    function getGraduationPool(address token) public view returns (PoolKey memory poolKey) {
         poolKey = PoolKey({
             token0: NATIVE_TOKEN_ADDRESS,
-            token1: address(token),
+            token1: token,
             config: createConcentratedPoolConfig(POOL_FEE, GRADUATION_POOL_TICK_SPACING, address(this))
         });
     }
 
-    function launch(bytes32 salt, string memory symbol, string memory name)
-        external
-        returns (SimpleToken token, uint256 startTime, uint256 endTime)
-    {
-        if (!LibString.is7BitASCII(name) || !LibString.is7BitASCII(symbol)) {
-            revert InvalidNameOrSymbol();
+    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {
+        (address token, address creator) = abi.decode(data, (address, address));
+
+        if (token == NATIVE_TOKEN_ADDRESS) {
+            revert InvalidToken();
         }
 
-        (token, startTime, endTime) = abi.decode(
-            lock(abi.encode(0, msg.sender, salt, name.packOne(), symbol.packOne())), (SimpleToken, uint256, uint256)
-        );
-    }
+        (uint64 startTime, uint64 endTime) =
+            getNextLaunchTime({orderDuration: ORDER_DURATION, minLeadTime: MIN_LEAD_TIME});
 
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        (uint8 kind) = abi.decode(data, (uint8));
+        PoolKey memory twammPoolKey = PoolKey({
+            token0: NATIVE_TOKEN_ADDRESS,
+            token1: token,
+            config: createFullRangePoolConfig({_fee: POOL_FEE, _extension: address(TWAMM)})
+        });
 
-        // either launch, graduate, or collect
-        if (kind == 0) {
-            (, address creator, bytes32 salt, bytes32 namePacked, bytes32 symbolPacked) =
-                abi.decode(data, (uint8, address, bytes32, bytes32, bytes32));
+        // The initial tick does not matter since we do not add liquidity
+        CORE.initializePool(twammPoolKey, 0);
 
-            // todo: enforce an immutable configurable bytes prefix on the token address for branding and DDOS protection
-            SimpleToken token = new SimpleToken{salt: EfficientHashLib.hash(bytes32(uint256(uint160(creator))), salt)}({
-                symbolPacked: symbolPacked, namePacked: namePacked, totalSupply: TOKEN_TOTAL_SUPPLY
-            });
-
-            CORE.pay(address(token), TOKEN_TOTAL_SUPPLY);
-
-            (uint64 startTime, uint64 endTime) =
-                getNextLaunchTime({orderDuration: ORDER_DURATION, minLeadTime: MIN_LEAD_TIME});
-
-            PoolKey memory twammPoolKey = PoolKey({
+        int256 amountDelta = CORE.updateSaleRate({
+            twamm: TWAMM,
+            salt: bytes32(0),
+            orderKey: OrderKey({
                 token0: NATIVE_TOKEN_ADDRESS,
-                token1: address(token),
-                config: createFullRangePoolConfig({_fee: POOL_FEE, _extension: address(TWAMM)})
-            });
+                token1: token,
+                config: createOrderConfig({_isToken1: true, _startTime: startTime, _endTime: endTime, _fee: POOL_FEE})
+            }),
+            saleRateDelta: ORDER_SALE_RATE
+        });
 
-            // The initial tick does not matter since we do not add liquidity
-            CORE.initializePool(twammPoolKey, 0);
+        // save the rest for creating the liquidity position later
+        CORE.updateSavedBalances(
+            NATIVE_TOKEN_ADDRESS, token, bytes32(0), 0, int256(uint256(TOKEN_TOTAL_SUPPLY)) - amountDelta
+        );
 
-            int256 amountDelta = CORE.updateSaleRate({
-                twamm: TWAMM,
-                salt: bytes32(0),
-                orderKey: OrderKey({
-                    token0: NATIVE_TOKEN_ADDRESS,
-                    token1: address(token),
-                    config: createOrderConfig({
-                        _isToken1: true, _startTime: startTime, _endTime: endTime, _fee: POOL_FEE
-                    })
-                }),
-                saleRateDelta: ORDER_SALE_RATE
-            });
+        CORE.payFrom(creator, token, TOKEN_TOTAL_SUPPLY);
 
-            // save the rest for creating the liquidity position later
-            CORE.updateSavedBalances(
-                NATIVE_TOKEN_ADDRESS, address(token), bytes32(0), 0, int256(uint256(TOKEN_TOTAL_SUPPLY)) - amountDelta
-            );
+        LaunchInfo info = createLaunchInfo({_endTime: uint64(endTime), _creator: creator, _saleEndTick: 0});
+        // prevents the case where endTime happens to be a multiple of 2**64
+        assert(info.endTime() != 0);
 
-            LaunchInfo info = createLaunchInfo({_endTime: uint64(endTime), _creator: creator, _saleEndTick: 0});
-            // prevents the case where endTime happens to be a multiple of 2**64
-            assert(info.endTime() != 0);
+        writeLaunchInfo(token, info);
 
-            assembly ("memory-safe") {
-                sstore(token, info)
-            }
-
-            result = abi.encode(token, startTime, endTime);
-        } else if (kind == 1) {
-            revert("todo: graduate the token");
-        } else if (kind == 2) {
-            revert("todo: collect fees");
-        }
+        result = abi.encode(token, startTime, endTime);
     }
 }

@@ -3,27 +3,27 @@ pragma solidity >=0.8.30;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {getNextLaunchTime, SniperNoSniping, sniperNoSnipingCallPoints} from "../src/extensions/SniperNoSniping.sol";
+import {getNextLaunchTime, Auctions, auctionsCallPoints} from "../src/extensions/Auctions.sol";
 import {isTimeValid} from "../src/math/time.sol";
 
-contract SniperNoSnipingTest is BaseOrdersTest {
+contract AuctionsTest is BaseOrdersTest {
     using CoreLib for *;
 
-    SniperNoSniping snos;
+    Auctions auctions;
 
     function setUp() public virtual override {
         BaseOrdersTest.setUp();
-        address deployAddress = address(uint160(sniperNoSnipingCallPoints().toUint8()) << 152);
+        address deployAddress = address(uint160(auctionsCallPoints().toUint8()) << 152);
         uint256 orderDurationMagnitude = 4;
         uint128 tokenTotalSupply = 69_420_000e18;
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
         uint32 tickSpacing = 1000;
         deployCodeTo(
-            "SniperNoSniping.sol",
+            "Auctions.sol",
             abi.encode(core, twamm, orderDurationMagnitude, tokenTotalSupply, poolFee, tickSpacing),
             deployAddress
         );
-        snos = SniperNoSniping(deployAddress);
+        auctions = Auctions(deployAddress);
     }
 
     function test_get_next_launch_time_invariants(uint256 orderDurationMagnitude, uint256 time) public {
@@ -48,7 +48,7 @@ contract SniperNoSnipingTest is BaseOrdersTest {
     }
 
     function test_launch_gas() public {
-        snos.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
-        vm.snapshotGasLastCall("SniperNoSniping#launch");
+        auctions.launch({salt: bytes32(0), symbol: "ABC", name: "ABC Token"});
+        vm.snapshotGasLastCall("Auctions#launch");
     }
 }

@@ -7,7 +7,7 @@ import {Core} from "../src/Core.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
-import {SniperNoSniping, sniperNoSnipingCallPoints} from "../src/extensions/SniperNoSniping.sol";
+import {Auctions, auctionsCallPoints} from "../src/extensions/Auctions.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {Incentives} from "../src/Incentives.sol";
@@ -224,13 +224,13 @@ contract DeployAll is Script {
 
             deployExtension(
                 abi.encodePacked(
-                    type(SniperNoSniping).creationCode,
+                    type(Auctions).creationCode,
                     abi.encode(core, twamm, orderDurationMagnitude, tokenTotalSupply, poolFee, tickSpacing)
                 ),
                 DEPLOYMENT_SALT,
-                sniperNoSnipingCallPoints(),
+                auctionsCallPoints(),
                 address(0),
-                "SniperNoSniping"
+                "Auctions"
             );
         }
 

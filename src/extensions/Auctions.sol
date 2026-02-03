@@ -34,10 +34,10 @@ function getNextLaunchTime(uint32 orderDuration, uint32 minLeadTime) view return
     startTime = endTime - orderDuration;
 }
 
-/// @notice Returns the call points configuration for the SniperNoSniping extension
+/// @notice Returns the call points configuration for the Auctions extension
 /// @dev Specifies which hooks the extension needs
-/// @return The call points configuration for SniperNoSniping functionality
-function sniperNoSnipingCallPoints() pure returns (CallPoints memory) {
+/// @return The call points configuration for Auctions functionality
+function auctionsCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
         afterInitializePool: false,
@@ -51,9 +51,9 @@ function sniperNoSnipingCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @author Moody Salem <moody@ekubo.org>
-/// @title Sniper No Sniping
+/// @title Auctions
 /// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM
-contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
+contract Auctions is ExposedStorage, BaseExtension, BaseLocker {
     using FlashAccountantLib for *;
     using TWAMMLib for *;
     using LibString for *;
@@ -127,7 +127,7 @@ contract SniperNoSniping is ExposedStorage, BaseExtension, BaseLocker {
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
-        return sniperNoSnipingCallPoints();
+        return auctionsCallPoints();
     }
 
     /// @notice Returns the next available launch time

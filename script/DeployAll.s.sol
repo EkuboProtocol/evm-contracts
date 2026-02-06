@@ -192,26 +192,26 @@ contract DeployAll is Script {
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(true),
-            address(0),
+            0xd4B54d0ca6979Da05F25895E6e269E678ba00f9e,
             "BoostedFees(concentrated)"
         );
         deployExtension(
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, false)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(false),
-            address(0),
+            0x948b9C2C99718034954110cB61a6e08e107745f9,
             "BoostedFees(stableswap)"
         );
         deployIfNeeded(
             abi.encodePacked(type(ManualPoolBooster).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            address(0),
+            0xddb1758118F65e13a91497015B8cB26801402761,
             "ManualPoolBooster"
         );
         deployIfNeeded(
             abi.encodePacked(type(BoostedFeesDataFetcher).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            address(0),
+            0x7A2fF5819Dc71Bb99133a97c38dA512E60c30475,
             "BoostedFeesDataFetcher"
         );
 

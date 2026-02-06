@@ -125,7 +125,7 @@ contract BaseVaultTest is FullTest {
         uint256 balanceBefore = token0.balanceOf(alice);
 
         vm.prank(alice);
-        vault.deposit(depositAmount);
+        vault.queueDeposit(depositAmount);
 
         assertEq(token0.balanceOf(alice), balanceBefore - depositAmount);
         assertEq(token0.balanceOf(address(vault)), depositAmount);
@@ -137,7 +137,7 @@ contract BaseVaultTest is FullTest {
         uint256 depositAmount = 1000 ether;
 
         vm.prank(alice);
-        vault.deposit(depositAmount);
+        vault.queueDeposit(depositAmount);
 
         assertEq(vault.pendingDeposits(), depositAmount);
         assertEq(vault.userEpochDeposits(0, alice), depositAmount);
@@ -151,7 +151,7 @@ contract BaseVaultTest is FullTest {
         vm.prank(alice);
         vm.expectEmit(true, true, false, true);
         emit IBaseVault.Deposited(alice, 0, depositAmount);
-        vault.deposit(depositAmount);
+        vault.queueDeposit(depositAmount);
     }
 
     function test_deposit_revertsOnZeroAmount() public {
@@ -159,17 +159,17 @@ contract BaseVaultTest is FullTest {
 
         vm.prank(alice);
         vm.expectRevert(IBaseVault.ZeroDeposit.selector);
-        vault.deposit(0);
+        vault.queueDeposit(0);
     }
 
     function test_deposit_multipleDepositsAccumulate() public {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.prank(bob);
-        vault.deposit(2000 ether);
+        vault.queueDeposit(2000 ether);
 
         assertEq(vault.pendingDeposits(), 3000 ether);
         assertEq(vault.userEpochDeposits(0, alice), 1000 ether);
@@ -183,7 +183,7 @@ contract BaseVaultTest is FullTest {
 
         // First deposit and process epoch to get shares
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -194,7 +194,7 @@ contract BaseVaultTest is FullTest {
 
         // Queue withdrawal
         vm.prank(alice);
-        vault.withdraw(shares);
+        vault.queueWithdraw(shares);
 
         assertEq(vault.balanceOf(alice), 0);
         assertEq(vault.balanceOf(address(vault)), shares);
@@ -205,7 +205,7 @@ contract BaseVaultTest is FullTest {
 
         // First deposit and process epoch to get shares
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -216,7 +216,7 @@ contract BaseVaultTest is FullTest {
 
         // Queue withdrawal
         vm.prank(alice);
-        vault.withdraw(shares);
+        vault.queueWithdraw(shares);
 
         assertEq(vault.pendingWithdrawShares(), shares);
         assertEq(vault.userEpochWithdrawals(1, alice), shares);
@@ -227,7 +227,7 @@ contract BaseVaultTest is FullTest {
 
         vm.prank(alice);
         vm.expectRevert(IBaseVault.ZeroWithdrawal.selector);
-        vault.withdraw(0);
+        vault.queueWithdraw(0);
     }
 
     // ============ Epoch Processing Tests ============
@@ -236,7 +236,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.expectRevert(IBaseVault.EpochNotReady.selector);
         vault.processEpoch();
@@ -246,7 +246,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -259,7 +259,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -272,7 +272,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -287,7 +287,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -305,7 +305,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -320,7 +320,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.prank(alice);
         vm.expectRevert(IBaseVault.EpochNotProcessed.selector);
@@ -331,7 +331,7 @@ contract BaseVaultTest is FullTest {
         createAndSetTargetPool();
 
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -346,7 +346,7 @@ contract BaseVaultTest is FullTest {
 
         // Deposit and get shares
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -356,7 +356,7 @@ contract BaseVaultTest is FullTest {
 
         // Queue withdrawal
         vm.prank(alice);
-        vault.withdraw(shares);
+        vault.queueWithdraw(shares);
 
         // Process withdrawal epoch
         skip(MIN_EPOCH_DURATION + 1);
@@ -398,14 +398,14 @@ contract BaseVaultTest is FullTest {
 
         // Epoch 0 deposit
         vm.prank(alice);
-        vault.deposit(1000 ether);
+        vault.queueDeposit(1000 ether);
 
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
 
         // Epoch 1 deposit
         vm.prank(alice);
-        vault.deposit(500 ether);
+        vault.queueDeposit(500 ether);
 
         skip(MIN_EPOCH_DURATION + 1);
         vault.processEpoch();
@@ -432,7 +432,7 @@ contract BaseVaultTest is FullTest {
 
         // Alice deposits
         vm.prank(alice);
-        vault.deposit(depositAmount);
+        vault.queueDeposit(depositAmount);
 
         // Process epoch
         vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
@@ -445,7 +445,7 @@ contract BaseVaultTest is FullTest {
 
         // Queue withdrawal
         vm.prank(alice);
-        vault.withdraw(shares);
+        vault.queueWithdraw(shares);
 
         // Process withdrawal epoch
         skip(MIN_EPOCH_DURATION + 1);
@@ -459,5 +459,129 @@ contract BaseVaultTest is FullTest {
         // Should get back approximately the deposit amount (minus any slippage/fees)
         assertApproxEqRel(withdrawnAmount, depositAmount, 0.05e18); // Within 5%
         assertEq(token0.balanceOf(alice), balanceBefore + withdrawnAmount);
+    }
+
+    // ============ ERC-4626 Compliance Tests ============
+
+    function test_asset_returnsDepositToken() public view {
+        assertEq(vault.asset(), address(token0));
+    }
+
+    function test_totalAssets_returnsZeroWhenEmpty() public view {
+        assertEq(vault.totalAssets(), 0);
+    }
+
+    function test_totalAssets_excludesPendingDeposits() public {
+        createAndSetTargetPool();
+
+        vm.prank(alice);
+        vault.queueDeposit(1000 ether);
+
+        // Pending deposits should not count as totalAssets
+        assertEq(vault.totalAssets(), 0);
+    }
+
+    function test_totalAssets_includesWorkingAssets() public {
+        createAndSetTargetPool();
+
+        vm.prank(alice);
+        vault.queueDeposit(1000 ether);
+
+        vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
+        vault.processEpoch();
+
+        // After epoch processing, assets should be counted
+        assertGt(vault.totalAssets(), 0);
+    }
+
+    function test_convertToShares_oneToOneWhenEmpty() public view {
+        uint256 assets = 1000 ether;
+        assertEq(vault.convertToShares(assets), assets);
+    }
+
+    function test_convertToAssets_oneToOneWhenEmpty() public view {
+        uint256 shares = 1000 ether;
+        assertEq(vault.convertToAssets(shares), shares);
+    }
+
+    function test_maxDeposit_returnsMaxUint() public view {
+        assertEq(vault.maxDeposit(alice), type(uint256).max);
+    }
+
+    function test_maxMint_returnsMaxUint() public view {
+        assertEq(vault.maxMint(alice), type(uint256).max);
+    }
+
+    function test_maxWithdraw_returnsConvertedBalance() public {
+        createAndSetTargetPool();
+
+        vm.prank(alice);
+        vault.queueDeposit(1000 ether);
+
+        vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
+        vault.processEpoch();
+
+        vm.prank(alice);
+        vault.claimShares(0);
+
+        uint256 maxWithdraw = vault.maxWithdraw(alice);
+        assertGt(maxWithdraw, 0);
+    }
+
+    function test_maxRedeem_returnsShareBalance() public {
+        createAndSetTargetPool();
+
+        vm.prank(alice);
+        vault.queueDeposit(1000 ether);
+
+        vm.warp(block.timestamp + MIN_EPOCH_DURATION + 1);
+        vault.processEpoch();
+
+        vm.prank(alice);
+        uint256 shares = vault.claimShares(0);
+
+        assertEq(vault.maxRedeem(alice), shares);
+    }
+
+    function test_previewDeposit_returnsZero() public view {
+        assertEq(vault.previewDeposit(1000 ether), 0);
+    }
+
+    function test_previewMint_returnsZero() public view {
+        assertEq(vault.previewMint(1000 ether), 0);
+    }
+
+    function test_previewWithdraw_returnsZero() public view {
+        assertEq(vault.previewWithdraw(1000 ether), 0);
+    }
+
+    function test_previewRedeem_returnsZero() public view {
+        assertEq(vault.previewRedeem(1000 ether), 0);
+    }
+
+    // ============ ERC-4626 Sync Operations Revert Tests ============
+
+    function test_deposit_erc4626_reverts() public {
+        vm.prank(alice);
+        vm.expectRevert(IBaseVault.MustUseEpochQueue.selector);
+        vault.deposit(1000 ether, alice);
+    }
+
+    function test_mint_erc4626_reverts() public {
+        vm.prank(alice);
+        vm.expectRevert(IBaseVault.MustUseEpochQueue.selector);
+        vault.mint(1000 ether, alice);
+    }
+
+    function test_withdraw_erc4626_reverts() public {
+        vm.prank(alice);
+        vm.expectRevert(IBaseVault.MustUseEpochQueue.selector);
+        vault.withdraw(1000 ether, alice, alice);
+    }
+
+    function test_redeem_erc4626_reverts() public {
+        vm.prank(alice);
+        vm.expectRevert(IBaseVault.MustUseEpochQueue.selector);
+        vault.redeem(1000 ether, alice, alice);
     }
 }

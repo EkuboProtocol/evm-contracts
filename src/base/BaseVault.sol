@@ -183,10 +183,105 @@ abstract contract BaseVault is
     /// @dev Must be implemented by concrete vault strategies
     function getTargetAllocations() public view virtual returns (PoolAllocation[] memory);
 
-    // ============ User Functions ============
+    // ============ ERC-4626 View Functions ============
 
     /// @inheritdoc IBaseVault
-    function deposit(uint256 amount) external {
+    function asset() external view returns (address) {
+        return DEPOSIT_TOKEN;
+    }
+
+    /// @inheritdoc IBaseVault
+    function totalAssets() public view returns (uint256) {
+        // Vault balance minus pending deposits (those aren't "working" yet)
+        uint256 balance = DEPOSIT_TOKEN.balanceOf(address(this));
+        return balance > pendingDeposits ? balance - pendingDeposits : 0;
+    }
+
+    /// @inheritdoc IBaseVault
+    function convertToShares(uint256 assets) public view returns (uint256) {
+        uint256 supply = totalSupply();
+        uint256 total = totalAssets();
+        if (supply == 0 || total == 0) return assets; // 1:1 for empty vault
+        return assets.mulDiv(supply, total);
+    }
+
+    /// @inheritdoc IBaseVault
+    function convertToAssets(uint256 shares) public view returns (uint256) {
+        uint256 supply = totalSupply();
+        if (supply == 0) return shares; // 1:1 for empty vault
+        return shares.mulDiv(totalAssets(), supply);
+    }
+
+    /// @inheritdoc IBaseVault
+    function maxDeposit(address) external pure returns (uint256) {
+        return type(uint256).max; // No deposit limit
+    }
+
+    /// @inheritdoc IBaseVault
+    function maxMint(address) external pure returns (uint256) {
+        return type(uint256).max; // No mint limit
+    }
+
+    /// @inheritdoc IBaseVault
+    function maxWithdraw(address owner) external view returns (uint256) {
+        return convertToAssets(balanceOf(owner));
+    }
+
+    /// @inheritdoc IBaseVault
+    function maxRedeem(address owner) external view returns (uint256) {
+        return balanceOf(owner);
+    }
+
+    /// @inheritdoc IBaseVault
+    /// @dev Returns 0 since exact amount is unknown until epoch processing
+    function previewDeposit(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    /// @inheritdoc IBaseVault
+    /// @dev Returns 0 since exact amount is unknown until epoch processing
+    function previewMint(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    /// @inheritdoc IBaseVault
+    /// @dev Returns 0 since exact amount is unknown until epoch processing
+    function previewWithdraw(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    /// @inheritdoc IBaseVault
+    /// @dev Returns 0 since exact amount is unknown until epoch processing
+    function previewRedeem(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    // ============ ERC-4626 Sync Operations (Revert) ============
+
+    /// @inheritdoc IBaseVault
+    function deposit(uint256, address) external pure returns (uint256) {
+        revert MustUseEpochQueue();
+    }
+
+    /// @inheritdoc IBaseVault
+    function mint(uint256, address) external pure returns (uint256) {
+        revert MustUseEpochQueue();
+    }
+
+    /// @inheritdoc IBaseVault
+    function withdraw(uint256, address, address) external pure returns (uint256) {
+        revert MustUseEpochQueue();
+    }
+
+    /// @inheritdoc IBaseVault
+    function redeem(uint256, address, address) external pure returns (uint256) {
+        revert MustUseEpochQueue();
+    }
+
+    // ============ Epoch Queue Functions ============
+
+    /// @inheritdoc IBaseVault
+    function queueDeposit(uint256 amount) external {
         if (amount == 0) revert ZeroDeposit();
 
         // Transfer tokens from user
@@ -200,7 +295,7 @@ abstract contract BaseVault is
     }
 
     /// @inheritdoc IBaseVault
-    function withdraw(uint256 shares) external {
+    function queueWithdraw(uint256 shares) external {
         if (shares == 0) revert ZeroWithdrawal();
 
         // Transfer shares from user to vault (will be burned during epoch processing)
@@ -297,12 +392,37 @@ abstract contract BaseVault is
 
     /// @inheritdoc IBaseVault
     function processEpoch() external {
-        if (block.timestamp < epochStartTime + MIN_EPOCH_DURATION) {
+        if (!_canProcessEpoch()) {
             revert EpochNotReady();
         }
 
         // Execute all operations atomically within lock
         lock(abi.encode(CALL_TYPE_PROCESS_EPOCH));
+    }
+
+    // ============ Extensibility Hooks ============
+
+    /// @notice Check if epoch can be processed - override for custom timing
+    /// @dev Default implementation checks MIN_EPOCH_DURATION has passed
+    /// @return canProcess True if epoch can be processed
+    function _canProcessEpoch() internal view virtual returns (bool) {
+        return block.timestamp >= epochStartTime + MIN_EPOCH_DURATION;
+    }
+
+    /// @notice Hook after NAV calculation - override to modify
+    /// @dev Default implementation returns NAV unchanged
+    /// @param nav The calculated NAV
+    /// @return processedNAV The (potentially modified) NAV
+    function _processNAV(uint256 nav) internal virtual returns (uint256) {
+        return nav;
+    }
+
+    /// @notice Check if rebalancing should occur - override for custom logic
+    /// @dev Default implementation rebalances if totalValue > 0 and has target allocations
+    /// @param totalValue The total value to rebalance
+    /// @return shouldRebalance True if rebalancing should occur
+    function _shouldRebalance(uint256 totalValue) internal view virtual returns (bool) {
+        return totalValue > 0 && getTargetAllocations().length > 0;
     }
 
     /// @notice Handles the lock callback for epoch processing
@@ -325,6 +445,9 @@ abstract contract BaseVault is
 
         // Step 2: Calculate total NAV (value of all positions in deposit token terms)
         uint256 totalNAV = _calculateTotalNAV();
+
+        // Step 2b: Apply NAV processing hook (allows strategies to modify NAV)
+        totalNAV = _processNAV(totalNAV);
 
         // Step 3: Withdraw all liquidity to consolidate tokens
         _withdrawAllLiquidity();
@@ -373,8 +496,8 @@ abstract contract BaseVault is
         uint256 withdrawalTokens = epochPendingWithdrawShares.mulDiv(withdrawRate, RATE_SCALE);
         uint256 newTotalValue = totalNAV + epochPendingDeposits - withdrawalTokens;
 
-        // Step 9: Rebalance to target allocations
-        if (newTotalValue > 0) {
+        // Step 9: Rebalance to target allocations (use hook to check if should rebalance)
+        if (_shouldRebalance(newTotalValue)) {
             _rebalance(newTotalValue);
         }
 

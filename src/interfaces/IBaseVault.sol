@@ -8,8 +8,25 @@ import {PoolId} from "../types/poolId.sol";
 /// @title IBaseVault
 /// @notice Interface for automated liquidity management vaults
 /// @dev Users deposit a single token, receive ERC20 shares, and the vault manages
-///      liquidity allocation according to strategy-defined targets
+///      liquidity allocation according to strategy-defined targets.
+///      Implements ERC-4626 view functions but reverts on sync operations - users must use epoch queue.
 interface IBaseVault {
+    // ============ ERC-4626 Events ============
+
+    /// @notice Emitted when assets are deposited (ERC-4626)
+    /// @param sender The address that initiated the deposit
+    /// @param owner The address that will receive the shares
+    /// @param assets The amount of assets deposited
+    /// @param shares The amount of shares minted
+    event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares);
+
+    /// @notice Emitted when assets are withdrawn (ERC-4626)
+    /// @param sender The address that initiated the withdrawal
+    /// @param receiver The address that received the assets
+    /// @param owner The address that owned the shares
+    /// @param assets The amount of assets withdrawn
+    /// @param shares The amount of shares burned
+    event Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
     /// @notice Emitted when a user deposits tokens into the vault
     /// @param user The address of the depositor
     /// @param epoch The epoch in which the deposit was made
@@ -54,6 +71,9 @@ interface IBaseVault {
     /// @notice Thrown when epoch processing is attempted before minimum duration has passed
     error EpochNotReady();
 
+    /// @notice Thrown when sync deposit/withdraw is attempted - must use epoch queue
+    error MustUseEpochQueue();
+
     /// @notice Thrown when deposit amount is zero
     error ZeroDeposit();
 
@@ -75,13 +95,108 @@ interface IBaseVault {
     /// @notice Thrown when slippage exceeds acceptable bounds during rebalancing
     error RebalanceSlippageExceeded();
 
+    // ============ ERC-4626 View Functions ============
+
+    /// @notice Returns the address of the underlying asset token
+    /// @return The address of the deposit token
+    function asset() external view returns (address);
+
+    /// @notice Returns the total assets managed by the vault
+    /// @dev Vault balance minus pending deposits (those aren't "working" yet)
+    /// @return totalManagedAssets The total amount of assets
+    function totalAssets() external view returns (uint256 totalManagedAssets);
+
+    /// @notice Converts assets to shares at the current rate
+    /// @param assets The amount of assets to convert
+    /// @return shares The equivalent amount of shares
+    function convertToShares(uint256 assets) external view returns (uint256 shares);
+
+    /// @notice Converts shares to assets at the current rate
+    /// @param shares The amount of shares to convert
+    /// @return assets The equivalent amount of assets
+    function convertToAssets(uint256 shares) external view returns (uint256 assets);
+
+    /// @notice Returns the maximum deposit amount for a receiver
+    /// @param receiver The intended receiver of shares
+    /// @return maxAssets The maximum deposit amount
+    function maxDeposit(address receiver) external view returns (uint256 maxAssets);
+
+    /// @notice Returns the maximum mint amount for a receiver
+    /// @param receiver The intended receiver of shares
+    /// @return maxShares The maximum mint amount
+    function maxMint(address receiver) external view returns (uint256 maxShares);
+
+    /// @notice Returns the maximum withdraw amount for an owner
+    /// @param owner The owner of the shares
+    /// @return maxAssets The maximum withdraw amount
+    function maxWithdraw(address owner) external view returns (uint256 maxAssets);
+
+    /// @notice Returns the maximum redeem amount for an owner
+    /// @param owner The owner of the shares
+    /// @return maxShares The maximum redeem amount
+    function maxRedeem(address owner) external view returns (uint256 maxShares);
+
+    /// @notice Preview the shares minted for a deposit
+    /// @dev Returns 0 for epoch-based vaults since exact amount is unknown until processing
+    /// @param assets The amount of assets to deposit
+    /// @return shares The amount of shares that would be minted (0 for epoch-based)
+    function previewDeposit(uint256 assets) external view returns (uint256 shares);
+
+    /// @notice Preview the assets needed for a mint
+    /// @dev Returns 0 for epoch-based vaults since exact amount is unknown until processing
+    /// @param shares The amount of shares to mint
+    /// @return assets The amount of assets needed (0 for epoch-based)
+    function previewMint(uint256 shares) external view returns (uint256 assets);
+
+    /// @notice Preview the shares burned for a withdraw
+    /// @dev Returns 0 for epoch-based vaults since exact amount is unknown until processing
+    /// @param assets The amount of assets to withdraw
+    /// @return shares The amount of shares that would be burned (0 for epoch-based)
+    function previewWithdraw(uint256 assets) external view returns (uint256 shares);
+
+    /// @notice Preview the assets received for a redeem
+    /// @dev Returns 0 for epoch-based vaults since exact amount is unknown until processing
+    /// @param shares The amount of shares to redeem
+    /// @return assets The amount of assets that would be received (0 for epoch-based)
+    function previewRedeem(uint256 shares) external view returns (uint256 assets);
+
+    // ============ ERC-4626 Sync Operations (Revert) ============
+
+    /// @notice Sync deposit - REVERTS, must use epoch queue
+    /// @param assets The amount of assets to deposit
+    /// @param receiver The receiver of shares
+    /// @return shares Always reverts
+    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
+
+    /// @notice Sync mint - REVERTS, must use epoch queue
+    /// @param shares The amount of shares to mint
+    /// @param receiver The receiver of shares
+    /// @return assets Always reverts
+    function mint(uint256 shares, address receiver) external returns (uint256 assets);
+
+    /// @notice Sync withdraw - REVERTS, must use epoch queue
+    /// @param assets The amount of assets to withdraw
+    /// @param receiver The receiver of assets
+    /// @param owner The owner of shares
+    /// @return shares Always reverts
+    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares);
+
+    /// @notice Sync redeem - REVERTS, must use epoch queue
+    /// @param shares The amount of shares to redeem
+    /// @param receiver The receiver of assets
+    /// @param owner The owner of shares
+    /// @return assets Always reverts
+    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
+
+    // ============ Epoch Queue Functions ============
+
     /// @notice Queue a deposit for the current epoch
     /// @param amount The amount of deposit tokens to deposit
-    function deposit(uint256 amount) external;
+    function queueDeposit(uint256 amount) external;
 
     /// @notice Queue a withdrawal for the current epoch
     /// @param shares The number of vault shares to withdraw
-    function withdraw(uint256 shares) external;
+    function queueWithdraw(uint256 shares) external;
 
     /// @notice Claim shares from a processed epoch deposit
     /// @param epoch The epoch to claim from

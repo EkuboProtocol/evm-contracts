@@ -7,7 +7,7 @@ import {Core} from "../src/Core.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
-import {Auctions, auctionsCallPoints} from "../src/extensions/Auctions.sol";
+import {Auctions} from "../src/Auctions.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {Incentives} from "../src/Incentives.sol";
@@ -189,7 +189,7 @@ contract DeployAll is Script {
             "MEVCaptureRouter"
         );
 
-        deployExtension(
+        (address boostedFeesConcentrated,) = deployExtension(
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(true),
@@ -216,23 +216,12 @@ contract DeployAll is Script {
             "BoostedFeesDataFetcher"
         );
 
-        {
-            uint8 orderDurationMagnitude = 4;
-            uint128 tokenTotalSupply = 69_420_000e18;
-            uint64 poolFee = uint64((uint256(1) << 64) / 100);
-            uint32 tickSpacing = 1000;
-
-            deployExtension(
-                abi.encodePacked(
-                    type(Auctions).creationCode,
-                    abi.encode(core, twamm, orderDurationMagnitude, tokenTotalSupply, poolFee, tickSpacing)
-                ),
-                DEPLOYMENT_SALT,
-                auctionsCallPoints(),
-                address(0),
-                "Auctions"
-            );
-        }
+        deployIfNeeded(
+            abi.encodePacked(type(Auctions).creationCode, abi.encode(core, twamm, boostedFeesConcentrated)),
+            DEPLOYMENT_SALT,
+            address(0),
+            "Auctions"
+        );
 
         vm.stopBroadcast();
     }

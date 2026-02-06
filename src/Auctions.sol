@@ -99,7 +99,7 @@ contract Auctions is UsesCore, BaseLocker {
         });
     }
 
-    function executeVirtualOrdersAndGetSaleStatus(address owner, AuctionConfig config)
+    function executeVirtualOrdersAndGetSaleStatus(AuctionConfig config)
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {

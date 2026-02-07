@@ -34,9 +34,16 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
 
     uint8 private constant CALL_TYPE_CREATE_AUCTION = 0;
     uint8 private constant CALL_TYPE_GRADUATE = 1;
+    uint8 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
 
     /// @notice The auction has not ended yet
     error CannotGraduateBeforeEndOfAuction();
+
+    event AuctionCreated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
+    event AuctionGraduated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount);
+    event CreatorProceedsCollected(
+        uint256 indexed tokenId, AuctionKey auctionKey, address indexed recipient, uint128 amount
+    );
 
     constructor(address owner, ICore core, ITWAMM twamm, address boostedFees)
         UsesCore(core)
@@ -47,6 +54,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
         BOOSTED_FEES = boostedFees;
     }
 
+    /// @notice Creates an auction order in the TWAMM launch pool for an existing auction NFT.
+    /// @dev Caller must be owner or approved for `tokenId`. Pulls sell tokens from caller.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param amount The amount of sell token to auction.
     function createAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
         authorizedForNft(tokenId)
@@ -54,6 +66,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
         lock(abi.encode(CALL_TYPE_CREATE_AUCTION, msg.sender, tokenId, auctionKey, amount));
     }
 
+    /// @notice Graduates an ended auction by collecting TWAMM proceeds and splitting creator/boost shares.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @return creatorAmount The portion saved for creator proceeds.
+    /// @return boostAmount The portion routed to boosted-fee incentives.
     function graduate(uint256 tokenId, AuctionKey memory auctionKey)
         external
         returns (uint128 creatorAmount, uint128 boostAmount)
@@ -61,10 +78,75 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
         return abi.decode(lock(abi.encode(CALL_TYPE_GRADUATE, tokenId, auctionKey)), (uint128, uint128));
     }
 
-    function getLaunchPool(AuctionKey memory auctionKey) public view returns (PoolKey memory poolKey) {
-        poolKey = auctionKey.toLaunchPoolKey(address(TWAMM));
+    /// @notice Collects creator proceeds from saved balances to a chosen recipient.
+    /// @dev This is the most explicit overload used by other collection overloads.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param recipient Address to receive proceeds.
+    /// @param amount Amount of buy token to collect.
+    /// @return collectedAmount The amount collected.
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount)
+        public
+        authorizedForNft(tokenId)
+        returns (uint128 collectedAmount)
+    {
+        collectedAmount = abi.decode(
+            lock(abi.encode(CALL_TYPE_COLLECT_CREATOR_PROCEEDS, tokenId, auctionKey, recipient, amount)), (uint128)
+        );
     }
 
+    /// @notice Collects all currently saved creator proceeds to a chosen recipient.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param recipient Address to receive proceeds.
+    /// @return collectedAmount The amount collected.
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient)
+        external
+        authorizedForNft(tokenId)
+        returns (uint128 collectedAmount)
+    {
+        (uint128 saved0, uint128 saved1) =
+            CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
+        uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
+        collectedAmount = collectCreatorProceeds(tokenId, auctionKey, recipient, amount);
+    }
+
+    /// @notice Collects a specific amount of creator proceeds to the caller.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param amount Amount of buy token to collect.
+    /// @return collectedAmount The amount collected.
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
+        external
+        authorizedForNft(tokenId)
+        returns (uint128 collectedAmount)
+    {
+        collectedAmount = collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
+    }
+
+    /// @notice Collects all currently saved creator proceeds to the caller.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @return collectedAmount The amount collected.
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey)
+        external
+        authorizedForNft(tokenId)
+        returns (uint128 collectedAmount)
+    {
+        (uint128 saved0, uint128 saved1) = CORE.savedBalances(
+            address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId)
+        );
+        uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
+        collectedAmount = collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
+    }
+
+    /// @notice Executes TWAMM virtual orders and returns current sale status for an auction.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @return saleRate Current sale rate of the underlying TWAMM order.
+    /// @return amountSold Total amount sold so far.
+    /// @return remainingSellAmount Remaining amount of sell token.
+    /// @return purchasedAmount Proceeds available to collect.
     function executeVirtualOrdersAndGetSaleStatus(uint256 tokenId, AuctionKey memory auctionKey)
         external
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
@@ -73,7 +155,12 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
             TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(tokenId), auctionKey.toOrderKey());
     }
 
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
+    /// @notice Lock callback dispatcher for creating auctions, graduating, and collecting creator proceeds.
+    /// @param lockId Lock id argument from BaseLocker callback.
+    /// @param data ABI-encoded operation payload.
+    /// @return result ABI-encoded return data for the requested operation.
+    function handleLockData(uint256 lockId, bytes memory data) internal override returns (bytes memory result) {
+        lockId;
         uint8 callType = abi.decode(data, (uint8));
 
         if (callType == CALL_TYPE_CREATE_AUCTION) {
@@ -83,7 +170,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
             uint64 startTime = uint64(auctionKey.config.startTime());
             uint64 endTime = auctionKey.config.endTime();
 
-            PoolKey memory twammPoolKey = getLaunchPool(auctionKey);
+            PoolKey memory twammPoolKey = auctionKey.toLaunchPoolKey(address(TWAMM));
             if (!CORE.poolState(twammPoolKey.toPoolId()).isInitialized()) {
                 // The initial tick does not matter since we do not add liquidity
                 CORE.initializePool(twammPoolKey, 0);
@@ -103,6 +190,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
             if (amountDelta != 0) {
                 ACCOUNTANT.payFrom(caller, auctionKey.sellToken(), uint256(amountDelta));
             }
+            emit AuctionCreated(tokenId, auctionKey, amount, saleRateDelta);
         } else if (callType == CALL_TYPE_GRADUATE) {
             (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint8, uint256, AuctionKey));
 
@@ -146,7 +234,29 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
                 }
             }
 
+            emit AuctionGraduated(tokenId, auctionKey, creatorAmount, boostAmount);
             result = abi.encode(creatorAmount, boostAmount);
+        } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
+            (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
+                abi.decode(data, (uint8, uint256, AuctionKey, address, uint128));
+
+            if (amount != 0) {
+                (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
+                    ? (-int256(uint256(amount)), int256(0))
+                    : (int256(0), -int256(uint256(amount)));
+                CORE.updateSavedBalances({
+                    token0: auctionKey.token0,
+                    token1: auctionKey.token1,
+                    salt: bytes32(tokenId),
+                    delta0: delta0,
+                    delta1: delta1
+                });
+
+                ACCOUNTANT.withdraw(auctionKey.buyToken(), recipient, amount);
+            }
+
+            emit CreatorProceedsCollected(tokenId, auctionKey, recipient, amount);
+            result = abi.encode(amount);
         } else {
             revert();
         }

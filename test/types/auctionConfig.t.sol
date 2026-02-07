@@ -6,6 +6,10 @@ import {AuctionConfig, createAuctionConfig} from "../../src/types/auctionConfig.
 
 contract AuctionConfigTest is Test {
     function test_conversionToAndFrom(AuctionConfig config) public pure {
+        uint256 rawConfig = uint256(AuctionConfig.unwrap(config));
+        uint256 canonicalConfig = (rawConfig & 0xffffffffffffffff00ffffffffffffffffffffffffffffffffffffffffffff00);
+        if (((rawConfig >> 184) & 0xff) != 0) canonicalConfig |= (uint256(1) << 184);
+
         assertEq(
             AuctionConfig.unwrap(
                 createAuctionConfig({
@@ -18,7 +22,7 @@ contract AuctionConfigTest is Test {
                     _auctionDuration: config.auctionDuration()
                 })
             ),
-            AuctionConfig.unwrap(config)
+            bytes32(canonicalConfig)
         );
     }
 

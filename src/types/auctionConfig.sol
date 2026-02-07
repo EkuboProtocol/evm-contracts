@@ -86,7 +86,10 @@ function createAuctionConfig(
                 add(shl(184, iszero(iszero(_isSellingToken1))), shl(160, and(_boostDuration, 0xffffff)))
             ),
             add(
-                add(shl(96, and(_graduationPoolFee, 0xffffffffffffffff)), shl(72, and(_graduationPoolTickSpacing, 0xffffff))),
+                add(
+                    shl(96, and(_graduationPoolFee, 0xffffffffffffffff)),
+                    shl(72, and(_graduationPoolTickSpacing, 0xffffff))
+                ),
                 add(shl(32, and(_startTime, 0xffffffffff)), shl(8, and(_auctionDuration, 0xffffff)))
             )
         )

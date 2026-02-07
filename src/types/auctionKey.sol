@@ -7,7 +7,7 @@ import {createOrderConfig} from "./orderConfig.sol";
 import {PoolKey} from "./poolKey.sol";
 import {createFullRangePoolConfig, createConcentratedPoolConfig} from "./poolConfig.sol";
 
-using {sellToken, buyToken, toOrderKey, toLaunchPoolKey, toGraduationPoolKey, validate} for AuctionKey global;
+using {sellToken, buyToken, toOrderKey, toLaunchPoolKey, toGraduationPoolKey} for AuctionKey global;
 
 /// @notice Auction key structure identifying an auction
 struct AuctionKey {
@@ -71,9 +71,3 @@ function toGraduationPoolKey(AuctionKey memory auctionKey, address boostedFees) 
     });
 }
 
-/// @notice Validates token ordering invariants for an auction key
-function validate(AuctionKey memory auctionKey) pure {
-    if (auctionKey.token0 >= auctionKey.token1) {
-        revert InvalidTokenOrder();
-    }
-}

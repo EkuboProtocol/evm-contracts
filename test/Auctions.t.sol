@@ -11,22 +11,20 @@ contract AuctionsTest is BaseOrdersTest {
 
     function setUp() public virtual override {
         BaseOrdersTest.setUp();
-        auctions = new Auctions(core, twamm, address(0));
+        auctions = new Auctions(address(this), core, twamm, address(0), 0, 1 days, uint64((uint256(1) << 64) / 100), 1000);
     }
 
-    function test_launch_gas() public {
+    function test_create_auction_gas() public {
         uint64 startTime = uint64(nextValidTime(block.timestamp, block.timestamp + 1));
         uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 3600 - 1));
         uint32 duration = uint32(endTime - startTime);
         uint128 totalAmountSold = 69_420e18;
-        uint64 graduationPoolFee = uint64((uint256(1) << 64) / 100);
-        uint32 graduationPoolTickSpacing = 1000;
-        uint24 boostDuration = 1 days;
-
         AuctionConfig config = createAuctionConfig(address(token1), startTime, duration);
 
+        uint256 tokenId = auctions.mint();
+
         token1.approve(address(auctions), totalAmountSold);
-        auctions.launch(config, totalAmountSold, 0, boostDuration, graduationPoolFee, graduationPoolTickSpacing);
-        vm.snapshotGasLastCall("Auctions#launch");
+        auctions.createAuction(tokenId, config, totalAmountSold);
+        vm.snapshotGasLastCall("Auctions#createAuction");
     }
 }

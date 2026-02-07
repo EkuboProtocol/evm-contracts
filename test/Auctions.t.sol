@@ -60,8 +60,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint128 partialAmount = creatorAmount / 2;
 
         uint256 recipientABefore = token0.balanceOf(recipientA);
-        uint128 collectedPartial = auctions.collectCreatorProceeds(tokenId, auctionKey, recipientA, partialAmount);
-        assertEq(collectedPartial, partialAmount, "partial amount");
+        auctions.collectCreatorProceeds(tokenId, auctionKey, recipientA, partialAmount);
         assertEq(token0.balanceOf(recipientA), recipientABefore + partialAmount, "recipient A received partial");
 
         auctions.approve(approvedCollector, tokenId);
@@ -69,13 +68,12 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 approvedBefore = token0.balanceOf(approvedCollector);
         vm.prank(approvedCollector);
-        uint128 collectedApproved = auctions.collectCreatorProceeds(tokenId, auctionKey, approvedAmount);
-        assertEq(collectedApproved, approvedAmount, "approved amount");
+        auctions.collectCreatorProceeds(tokenId, auctionKey, approvedAmount);
         assertEq(token0.balanceOf(approvedCollector), approvedBefore + approvedAmount, "approved recipient received");
 
         uint256 thisBefore = token0.balanceOf(address(this));
-        uint128 collectedRest = auctions.collectCreatorProceeds(tokenId, auctionKey);
-        assertEq(collectedRest, creatorAmount - partialAmount - approvedAmount, "remaining amount");
+        auctions.collectCreatorProceeds(tokenId, auctionKey);
+        uint128 collectedRest = creatorAmount - partialAmount - approvedAmount;
         assertEq(token0.balanceOf(address(this)), thisBefore + collectedRest, "owner received remaining");
 
         (uint128 saved0, uint128 saved1) =
@@ -168,9 +166,13 @@ contract AuctionsTest is BaseOrdersTest {
 
         advanceTime(duration);
         uint128 boostAmount;
-        (creatorAmount, boostAmount) = auctions.graduate(tokenId, auctionKey);
+        uint64 boostStartTime;
+        uint64 boostEndTime;
+        (creatorAmount, boostAmount, boostStartTime, boostEndTime) = auctions.graduate(tokenId, auctionKey);
 
         assertGt(creatorAmount, 0, "creatorAmount");
         assertEq(boostAmount, 0, "boostAmount");
+        assertEq(boostStartTime, 0, "boostStartTime");
+        assertEq(boostEndTime, 0, "boostEndTime");
     }
 }

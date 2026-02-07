@@ -20,7 +20,28 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Auctions
-/// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM
+/// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM.
+/// @dev Auction lifecycle:
+/// 1. Mint auction NFT:
+///    An auction is represented by an ERC721 token minted from this contract.
+///    The owner (or approved operator) controls auction actions through `authorizedForNft`.
+/// 2. Create auction:
+///    `createAuction` initializes the TWAMM launch pool if needed and creates/increases the
+///    per-auction TWAMM order keyed by `salt = bytes32(tokenId)`.
+///    Sell tokens are pulled from the caller and paid into Core through the lock/accountant flow.
+/// 3. Auction runs permissionlessly:
+///    Anyone may execute virtual orders via TWAMM/Core mechanics; pricing/progress can be read with
+///    `executeVirtualOrdersAndGetSaleStatus`.
+/// 4. Graduate auction (permissionless):
+///    After end time, `graduate` collects TWAMM proceeds and splits them into:
+///    - creator proceeds: saved into Core saved balances under `(token0, token1, salt=tokenId)`,
+///    - boost proceeds: optionally converted into BoostedFees incentives for the graduation pool.
+/// 5. Collect creator proceeds (owner/approved):
+///    Authorized NFT controller calls `collectCreatorProceeds` overloads to withdraw saved creator
+///    balances to any recipient or directly to the caller, optionally for partial amounts.
+///    Collection debits saved balances and withdraws buy token via accountant in the same lock.
+/// 6. Events:
+///    `AuctionCreated`, `AuctionGraduated`, and `CreatorProceedsCollected` mark each major stage.
 contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     using CoreLib for *;
     using BoostedFeesLib for *;
@@ -38,9 +59,30 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
 
     /// @notice The auction has not ended yet
     error CannotGraduateBeforeEndOfAuction();
+    /// @notice The auction cannot be created because the computed sale rate delta is zero.
+    error ZeroSaleRateDelta();
+    /// @notice The auction cannot be graduated because no proceeds are available.
+    error NoProceedsToGraduate();
 
+    /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param amount The sell-token amount added to the auction.
+    /// @param saleRate The TWAMM sale rate delta applied for this auction.
     event AuctionCreated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
+
+    /// @notice Emitted when an auction is graduated and proceeds are split.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param creatorAmount The amount reserved in saved balances for creator proceeds.
+    /// @param boostAmount The amount routed to boosted-fee incentives.
     event AuctionGraduated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount);
+
+    /// @notice Emitted when creator proceeds are collected from saved balances.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param recipient The address receiving the collected proceeds.
+    /// @param amount The amount of proceeds collected.
     event CreatorProceedsCollected(
         uint256 indexed tokenId, AuctionKey auctionKey, address indexed recipient, uint128 amount
     );
@@ -71,11 +113,13 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @param auctionKey The auction key defining tokens and config.
     /// @return creatorAmount The portion saved for creator proceeds.
     /// @return boostAmount The portion routed to boosted-fee incentives.
+    /// @return boostStartTime The boost start timestamp (0 when no boost is added).
+    /// @return boostEndTime The boost end timestamp (0 when no boost is added).
     function graduate(uint256 tokenId, AuctionKey memory auctionKey)
         external
-        returns (uint128 creatorAmount, uint128 boostAmount)
+        returns (uint128 creatorAmount, uint128 boostAmount, uint64 boostStartTime, uint64 boostEndTime)
     {
-        return abi.decode(lock(abi.encode(CALL_TYPE_GRADUATE, tokenId, auctionKey)), (uint128, uint128));
+        return abi.decode(lock(abi.encode(CALL_TYPE_GRADUATE, tokenId, auctionKey)), (uint128, uint128, uint64, uint64));
     }
 
     /// @notice Collects creator proceeds from saved balances to a chosen recipient.
@@ -84,60 +128,46 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @param auctionKey The auction key defining tokens and config.
     /// @param recipient Address to receive proceeds.
     /// @param amount Amount of buy token to collect.
-    /// @return collectedAmount The amount collected.
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount)
         public
         authorizedForNft(tokenId)
-        returns (uint128 collectedAmount)
     {
-        collectedAmount = abi.decode(
-            lock(abi.encode(CALL_TYPE_COLLECT_CREATOR_PROCEEDS, tokenId, auctionKey, recipient, amount)), (uint128)
-        );
+        lock(abi.encode(CALL_TYPE_COLLECT_CREATOR_PROCEEDS, tokenId, auctionKey, recipient, amount));
     }
 
     /// @notice Collects all currently saved creator proceeds to a chosen recipient.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param recipient Address to receive proceeds.
-    /// @return collectedAmount The amount collected.
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient)
         external
         authorizedForNft(tokenId)
-        returns (uint128 collectedAmount)
     {
         (uint128 saved0, uint128 saved1) =
             CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
         uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
-        collectedAmount = collectCreatorProceeds(tokenId, auctionKey, recipient, amount);
+        collectCreatorProceeds(tokenId, auctionKey, recipient, amount);
     }
 
     /// @notice Collects a specific amount of creator proceeds to the caller.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param amount Amount of buy token to collect.
-    /// @return collectedAmount The amount collected.
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
         authorizedForNft(tokenId)
-        returns (uint128 collectedAmount)
     {
-        collectedAmount = collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
+        collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
     }
 
     /// @notice Collects all currently saved creator proceeds to the caller.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
-    /// @return collectedAmount The amount collected.
-    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey)
-        external
-        authorizedForNft(tokenId)
-        returns (uint128 collectedAmount)
-    {
-        (uint128 saved0, uint128 saved1) = CORE.savedBalances(
-            address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId)
-        );
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey) external authorizedForNft(tokenId) {
+        (uint128 saved0, uint128 saved1) =
+            CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
         uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
-        collectedAmount = collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
+        collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
     }
 
     /// @notice Executes TWAMM virtual orders and returns current sale status for an auction.
@@ -179,6 +209,9 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
             uint64 realStart = uint64(FixedPointMathLib.max(block.timestamp, startTime));
             uint256 remainingDuration = endTime - realStart;
             uint112 saleRateDelta = uint112(computeSaleRate(amount, remainingDuration));
+            if (saleRateDelta == 0) {
+                revert ZeroSaleRateDelta();
+            }
 
             int256 amountDelta = CORE.updateSaleRate({
                 twamm: TWAMM,
@@ -201,9 +234,14 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
 
             OrderKey memory orderKey = auctionKey.toOrderKey();
             uint128 proceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), orderKey);
+            if (proceeds == 0) {
+                revert NoProceedsToGraduate();
+            }
 
             uint128 creatorAmount = computeFee(proceeds, auctionKey.config.creatorFee());
             uint128 boostAmount = proceeds - creatorAmount;
+            uint64 boostStartTime;
+            uint64 boostEndTime;
 
             if (creatorAmount != 0) {
                 (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
@@ -222,9 +260,9 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
                 PoolKey memory poolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
 
                 uint256 afterTime = block.timestamp + uint256(auctionKey.config.boostDuration());
-                uint64 boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
-                uint64 currentTime = uint64(block.timestamp);
-                uint256 duration = boostEndTime - currentTime;
+                boostStartTime = uint64(block.timestamp);
+                boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
+                uint256 duration = boostEndTime - boostStartTime;
                 uint112 rate = uint112(computeSaleRate(boostAmount, duration));
 
                 if (auctionKey.buyToken() == poolKey.token0) {
@@ -235,7 +273,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
             }
 
             emit AuctionGraduated(tokenId, auctionKey, creatorAmount, boostAmount);
-            result = abi.encode(creatorAmount, boostAmount);
+            result = abi.encode(creatorAmount, boostAmount, boostStartTime, boostEndTime);
         } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
             (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
                 abi.decode(data, (uint8, uint256, AuctionKey, address, uint128));
@@ -253,10 +291,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
                 });
 
                 ACCOUNTANT.withdraw(auctionKey.buyToken(), recipient, amount);
+                emit CreatorProceedsCollected(tokenId, auctionKey, recipient, amount);
             }
-
-            emit CreatorProceedsCollected(tokenId, auctionKey, recipient, amount);
-            result = abi.encode(amount);
         } else {
             revert();
         }

@@ -44,13 +44,13 @@ contract AuctionsTest is BaseOrdersTest {
         uint256 tokenId = auctions.mint();
 
         token1.approve(address(auctions), totalAmountSold);
-        auctions.createAuction(tokenId, auctionKey, totalAmountSold);
-        vm.snapshotGasLastCall("Auctions#createAuction");
+        auctions.sellByAuction(tokenId, auctionKey, totalAmountSold);
+        vm.snapshotGasLastCall("Auctions#sellByAuction");
     }
 
     function test_collectCreatorProceeds_authorized_withAmount_andCollectAll() public {
         (uint256 tokenId, AuctionKey memory auctionKey, uint128 creatorAmount) =
-            _createAuctionAndGraduate({isSellingToken1_: true, amount: 1e18});
+            _createAuctionAndComplete({isSellingToken1_: true, amount: 1e18});
 
         address recipientA = makeAddr("recipientA");
         address approvedCollector = makeAddr("approvedCollector");
@@ -81,7 +81,7 @@ contract AuctionsTest is BaseOrdersTest {
 
     function test_collectCreatorProceeds_reverts_ifCallerIsNotAuthorized() public {
         (uint256 tokenId, AuctionKey memory auctionKey,) =
-            _createAuctionAndGraduate({isSellingToken1_: true, amount: 1e18});
+            _createAuctionAndComplete({isSellingToken1_: true, amount: 1e18});
 
         address attacker = makeAddr("attacker");
         vm.prank(attacker);
@@ -91,7 +91,7 @@ contract AuctionsTest is BaseOrdersTest {
         auctions.collectCreatorProceeds(tokenId, auctionKey, 1);
     }
 
-    function test_emitsEvents_create_graduate_collect() public {
+    function test_emitsEvents_create_complete_collect() public {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
         uint32 duration = uint32(endTime - startTime);
@@ -115,25 +115,25 @@ contract AuctionsTest is BaseOrdersTest {
         token1.approve(address(auctions), totalAmountSold);
 
         uint112 saleRate = uint112(computeSaleRate(totalAmountSold, duration));
-        vm.expectEmit(true, false, false, true, address(auctions));
-        emit Auctions.AuctionFundsAdded(tokenId, auctionKey, totalAmountSold, saleRate);
-        auctions.createAuction(tokenId, auctionKey, totalAmountSold);
+        vm.expectEmit(false, false, false, true, address(auctions));
+        emit Auctions.AuctionFundsAdded(tokenId, auctionKey, saleRate);
+        auctions.sellByAuction(tokenId, auctionKey, totalAmountSold);
 
         advanceTime(duration);
 
-        vm.expectEmit(true, false, false, false, address(auctions));
-        emit Auctions.AuctionGraduated(tokenId, auctionKey, 0, 0, 0);
-        auctions.graduate(tokenId, auctionKey);
+        vm.expectEmit(false, false, false, false, address(auctions));
+        emit Auctions.AuctionCompleted(tokenId, auctionKey, 0, 0, 0);
+        auctions.completeAuction(tokenId, auctionKey);
 
         (uint128 saved0,) =
             core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
 
-        vm.expectEmit(true, true, false, true, address(auctions));
+        vm.expectEmit(false, false, false, true, address(auctions));
         emit Auctions.CreatorProceedsCollected(tokenId, auctionKey, address(this), saved0);
         auctions.collectCreatorProceeds(tokenId, auctionKey);
     }
 
-    function _createAuctionAndGraduate(bool isSellingToken1_, uint128 amount)
+    function _createAuctionAndComplete(bool isSellingToken1_, uint128 amount)
         internal
         returns (uint256 tokenId, AuctionKey memory auctionKey, uint128 creatorAmount)
     {
@@ -161,15 +161,15 @@ contract AuctionsTest is BaseOrdersTest {
         } else {
             token0.approve(address(auctions), amount);
         }
-        auctions.createAuction(tokenId, auctionKey, amount);
+        auctions.sellByAuction(tokenId, auctionKey, amount);
 
         advanceTime(duration);
-        uint128 boostAmount;
+        uint112 boostRate;
         uint64 boostEndTime;
-        (creatorAmount, boostAmount, boostEndTime) = auctions.graduate(tokenId, auctionKey);
+        (creatorAmount, boostRate, boostEndTime) = auctions.completeAuction(tokenId, auctionKey);
 
         assertGt(creatorAmount, 0, "creatorAmount");
-        assertGt(boostAmount, 0, "boostAmount");
+        assertGt(boostRate, 0, "boostRate");
         assertGt(boostEndTime, 0, "boostEndTime");
     }
 }

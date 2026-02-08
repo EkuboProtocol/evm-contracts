@@ -22,7 +22,7 @@ Each auction is encoded by:
 - `AuctionKey` (token pair + packed config)
 - `tokenId` (auction NFT, also used as TWAMM salt)
 
-When `createAuction` is called, the contract computes a sale rate from:
+When `sellByAuction` is called, the contract computes a sale rate from:
 
 - sell amount
 - remaining time until configured end
@@ -49,14 +49,14 @@ Using fee `0` on the launch pool makes stop/exit operations effectively zero-fee
 
 The auction NFT owner (or approved operator) controls creator-side operations using `authorizedForNft(tokenId)`:
 
-- `createAuction`
+- `sellByAuction`
 - `collectCreatorProceeds` (all overloads)
 
 This cleanly separates control from addresses and enables transfer/approval semantics via ERC721.
 
 ## 4. Permissionless Graduation
 
-After end time, `graduate` is permissionless.
+After end time, `completeAuction` is permissionless.
 Any caller can finalize:
 
 1. Collect proceeds from the auction TWAMM order.
@@ -70,7 +70,7 @@ This avoids dependence on a privileged "finalizer" and guarantees liveness if an
 
 ## 5. Creator Proceeds via Saved Balances
 
-Creator proceeds are not immediately pushed to the creator during `graduate`.
+Creator proceeds are not immediately pushed to the creator during `completeAuction`.
 They are first credited to Core saved balances, then pulled by an authorized NFT controller:
 
 - collect specific amount to specific recipient,
@@ -99,10 +99,10 @@ Economically, this can seed post-launch liquidity behavior and align incentives 
 ## Lifecycle Summary
 
 1. Mint auction NFT.
-2. Authorized owner/approved account calls `createAuction`.
+2. Authorized owner/approved account calls `sellByAuction`.
 3. Market participants place TWAMM buy DCA orders as desired.
 4. Auction runs until end time.
-5. Anyone calls `graduate` after end:
+5. Anyone calls `completeAuction` after end:
    - proceeds are split,
    - creator share saved,
    - boost share streamed to graduation pool.

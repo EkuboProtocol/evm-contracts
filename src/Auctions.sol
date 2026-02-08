@@ -28,15 +28,15 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// 1. Mint auction NFT:
 ///    An auction is represented by an ERC721 token minted from this contract.
 ///    The owner (or approved operator) controls auction actions through `authorizedForNft`.
-/// 2. Create auction:
-///    `createAuction` initializes the TWAMM launch pool if needed and creates/increases the
+/// 2. Sell by auction:
+///    `sellByAuction` initializes the TWAMM launch pool if needed and creates/increases the
 ///    per-auction TWAMM order keyed by `salt = bytes32(tokenId)`.
 ///    Sell tokens are pulled from the caller and paid into Core through the lock/accountant flow.
 /// 3. Auction runs permissionlessly:
 ///    Anyone may execute virtual orders via TWAMM/Core mechanics; pricing/progress can be read with
 ///    `executeVirtualOrdersAndGetSaleStatus`.
-/// 4. Graduate auction (permissionless):
-///    After end time, `graduate` collects TWAMM proceeds and splits them into:
+/// 4. Complete auction (permissionless):
+///    After end time, `completeAuction` collects TWAMM proceeds and splits them into:
 ///    - creator proceeds: saved into Core saved balances under `(token0, token1, salt=tokenId)`,
 ///    - boost proceeds: optionally converted into BoostedFees incentives for the graduation pool.
 /// 5. Collect creator proceeds (owner/approved):
@@ -44,7 +44,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 ///    balances to any recipient or directly to the caller, optionally for partial amounts.
 ///    Collection debits saved balances and withdraws buy token via accountant in the same lock.
 /// 6. Events:
-///    `AuctionCreated`, `AuctionGraduated`, and `CreatorProceedsCollected` mark each major stage.
+///    `AuctionFundsAdded`, `AuctionCompleted`, and `CreatorProceedsCollected` mark each major stage.
 contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMulticallable {
     using CoreLib for *;
     using BoostedFeesLib for *;
@@ -56,36 +56,35 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @notice The BoostedFees extension address
     address public immutable BOOSTED_FEES;
 
-    uint8 private constant CALL_TYPE_CREATE_AUCTION = 0;
-    uint8 private constant CALL_TYPE_GRADUATE = 1;
+    uint8 private constant CALL_TYPE_SELL_BY_AUCTION = 0;
+    uint8 private constant CALL_TYPE_COMPLETE_AUCTION = 1;
     uint8 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
 
     /// @notice The auction has not ended yet
-    error CannotGraduateBeforeEndOfAuction();
+    error CannotCompleteAuctionBeforeEndOfAuction();
     /// @notice The auction cannot be created because the computed sale rate delta is zero.
     error ZeroSaleRateDelta();
     /// @notice Thrown if the computed auction sale rate exceeds the type(int112).max
     error SaleRateTooLarge();
-    /// @notice The auction cannot be graduated because no proceeds are available.
-    error NoProceedsToGraduate();
+    /// @notice The auction cannot be completed because no proceeds are available.
+    error NoProceedsToCompleteAuction();
     /// @notice Thrown when trying to add funds to an auction that has already started
     error AuctionAlreadyStarted();
 
     /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
-    /// @param amount The sell-token amount added to the auction.
     /// @param saleRate The TWAMM sale rate delta applied for this auction.
-    event AuctionFundsAdded(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
+    event AuctionFundsAdded(uint256 tokenId, AuctionKey auctionKey, uint112 saleRate);
 
-    /// @notice Emitted when an auction is graduated and proceeds are split.
+    /// @notice Emitted when an auction is completed and proceeds are split.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param creatorAmount The amount reserved in saved balances for creator proceeds.
-    /// @param boostAmount The amount routed to boosted-fee incentives.
+    /// @param boostRate The boost sale rate applied to the graduation pool incentives.
     /// @param boostEndTime The timestamp when the boost stops. The boost starts immediately.
-    event AuctionGraduated(
-        uint256 indexed tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount, uint64 boostEndTime
+    event AuctionCompleted(
+        uint256 tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint112 boostRate, uint64 boostEndTime
     );
 
     /// @notice Emitted when creator proceeds are collected from saved balances.
@@ -93,9 +92,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param auctionKey The auction key defining tokens and config.
     /// @param recipient The address receiving the collected proceeds.
     /// @param amount The amount of proceeds collected.
-    event CreatorProceedsCollected(
-        uint256 indexed tokenId, AuctionKey auctionKey, address indexed recipient, uint128 amount
-    );
+    event CreatorProceedsCollected(uint256 tokenId, AuctionKey auctionKey, address recipient, uint128 amount);
 
     constructor(address owner, ICore core, ITWAMM twamm, address boostedFees)
         UsesCore(core)
@@ -106,35 +103,35 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         BOOSTED_FEES = boostedFees;
     }
 
-    /// @notice Creates an auction order in the TWAMM launch pool for an existing auction NFT.
+    /// @notice Sells tokens under an auction in the TWAMM launch pool for an existing auction NFT.
     /// @dev Caller must be owner or approved for `tokenId`. Pulls sell tokens from caller.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param amount The amount of sell token to auction.
-    /// @return computedAmount The exact amount that is being sold, always less than the desired amount due to rounding.
-    function createAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
+    /// @return saleRate The TWAMM sale rate delta applied for this call.
+    function sellByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
         payable
         authorizedForNft(tokenId)
-        returns (uint256 computedAmount)
+        returns (uint112 saleRate)
     {
-        computedAmount = abi.decode(
-            lock(abi.encode(CALL_TYPE_CREATE_AUCTION, msg.sender, tokenId, auctionKey, amount)), (uint256)
+        saleRate = abi.decode(
+            lock(abi.encode(CALL_TYPE_SELL_BY_AUCTION, msg.sender, tokenId, auctionKey, amount)), (uint112)
         );
     }
 
-    /// @notice Graduates an ended auction by collecting TWAMM proceeds and splitting creator/boost shares.
+    /// @notice Completes an ended auction by collecting TWAMM proceeds and splitting creator/boost shares.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @return creatorAmount The portion saved for creator proceeds.
-    /// @return boostAmount The portion routed to boosted-fee incentives.
+    /// @return boostRate The boost sale rate applied to graduation pool incentives (0 when no boost is added).
     /// @return boostEndTime The boost end timestamp (0 when no boost is added).
-    function graduate(uint256 tokenId, AuctionKey memory auctionKey)
+    function completeAuction(uint256 tokenId, AuctionKey memory auctionKey)
         external
         payable
-        returns (uint128 creatorAmount, uint128 boostAmount, uint64 boostEndTime)
+        returns (uint128 creatorAmount, uint112 boostRate, uint64 boostEndTime)
     {
-        return abi.decode(lock(abi.encode(CALL_TYPE_GRADUATE, tokenId, auctionKey)), (uint128, uint128, uint64));
+        return abi.decode(lock(abi.encode(CALL_TYPE_COMPLETE_AUCTION, tokenId, auctionKey)), (uint128, uint112, uint64));
     }
 
     /// @notice Collects creator proceeds from saved balances to a chosen recipient.
@@ -208,7 +205,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
             TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(tokenId), auctionKey.toOrderKey());
     }
 
-    /// @notice Lock callback dispatcher for creating auctions, graduating, and collecting creator proceeds.
+    /// @notice Lock callback dispatcher for selling by auction, completing auctions, and collecting creator proceeds.
     /// @param _lockId Lock id argument from BaseLocker callback.
     /// @param data ABI-encoded operation payload.
     /// @return result ABI-encoded return data for the requested operation.
@@ -216,7 +213,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         unchecked {
             uint8 callType = abi.decode(data, (uint8));
 
-            if (callType == CALL_TYPE_CREATE_AUCTION) {
+            if (callType == CALL_TYPE_SELL_BY_AUCTION) {
                 (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) =
                     abi.decode(data, (uint8, address, uint256, AuctionKey, uint128));
 
@@ -261,25 +258,25 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     ACCOUNTANT.payFrom(caller, auctionKey.sellToken(), amount);
                 }
 
-                emit AuctionFundsAdded(tokenId, auctionKey, amount, uint112(saleRateDelta));
-                result = abi.encode(amount);
-            } else if (callType == CALL_TYPE_GRADUATE) {
+                emit AuctionFundsAdded(tokenId, auctionKey, uint112(saleRateDelta));
+                result = abi.encode(uint112(saleRateDelta));
+            } else if (callType == CALL_TYPE_COMPLETE_AUCTION) {
                 (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint8, uint256, AuctionKey));
 
                 uint64 endTime = auctionKey.config.endTime();
                 if (block.timestamp < endTime) {
-                    revert CannotGraduateBeforeEndOfAuction();
+                    revert CannotCompleteAuctionBeforeEndOfAuction();
                 }
 
                 OrderKey memory orderKey = auctionKey.toOrderKey();
                 uint128 proceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), orderKey);
                 if (proceeds == 0) {
-                    revert NoProceedsToGraduate();
+                    revert NoProceedsToCompleteAuction();
                 }
 
                 uint128 creatorAmount = computeFee(proceeds, auctionKey.config.creatorFee());
                 uint128 boostAmount = proceeds - creatorAmount;
-
+                uint112 boostRate;
                 uint64 boostEndTime;
                 if (boostAmount != 0) {
                     PoolKey memory poolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
@@ -287,7 +284,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     uint256 afterTime = block.timestamp + uint256(auctionKey.config.boostDuration());
                     boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
                     uint256 duration = boostEndTime - block.timestamp;
-                    uint112 boostRate = uint112(computeSaleRate(boostAmount, duration));
+                    boostRate = uint112(computeSaleRate(boostAmount, duration));
 
                     (uint112 rate0, uint112 rate1) =
                         auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
@@ -314,8 +311,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     });
                 }
 
-                emit AuctionGraduated(tokenId, auctionKey, creatorAmount, boostAmount, boostEndTime);
-                result = abi.encode(creatorAmount, boostAmount, boostEndTime);
+                emit AuctionCompleted(tokenId, auctionKey, creatorAmount, boostRate, boostEndTime);
+                result = abi.encode(creatorAmount, boostRate, boostEndTime);
             } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
                 (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
                     abi.decode(data, (uint8, uint256, AuctionKey, address, uint128));

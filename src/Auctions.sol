@@ -82,7 +82,10 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param auctionKey The auction key defining tokens and config.
     /// @param creatorAmount The amount reserved in saved balances for creator proceeds.
     /// @param boostAmount The amount routed to boosted-fee incentives.
-    event AuctionGraduated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount);
+    /// @param boostEndTime The timestamp when the boost stops. The boost starts immediately.
+    event AuctionGraduated(
+        uint256 indexed tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount, uint64 boostEndTime
+    );
 
     /// @notice Emitted when creator proceeds are collected from saved balances.
     /// @param tokenId The auction NFT token id.
@@ -120,14 +123,13 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param auctionKey The auction key defining tokens and config.
     /// @return creatorAmount The portion saved for creator proceeds.
     /// @return boostAmount The portion routed to boosted-fee incentives.
-    /// @return boostStartTime The boost start timestamp (0 when no boost is added).
     /// @return boostEndTime The boost end timestamp (0 when no boost is added).
     function graduate(uint256 tokenId, AuctionKey memory auctionKey)
         external
         payable
-        returns (uint128 creatorAmount, uint128 boostAmount, uint64 boostStartTime, uint64 boostEndTime)
+        returns (uint128 creatorAmount, uint128 boostAmount, uint64 boostEndTime)
     {
-        return abi.decode(lock(abi.encode(CALL_TYPE_GRADUATE, tokenId, auctionKey)), (uint128, uint128, uint64, uint64));
+        return abi.decode(lock(abi.encode(CALL_TYPE_GRADUATE, tokenId, auctionKey)), (uint128, uint128, uint64));
     }
 
     /// @notice Collects creator proceeds from saved balances to a chosen recipient.
@@ -263,8 +265,27 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
 
                 uint128 creatorAmount = computeFee(proceeds, auctionKey.config.creatorFee());
                 uint128 boostAmount = proceeds - creatorAmount;
-                uint64 boostStartTime;
+
                 uint64 boostEndTime;
+                if (boostAmount != 0) {
+                    PoolKey memory poolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
+
+                    uint256 afterTime = block.timestamp + uint256(auctionKey.config.boostDuration());
+                    boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
+                    uint256 duration = boostEndTime - block.timestamp;
+                    uint112 boostRate = uint112(computeSaleRate(boostAmount, duration));
+
+                    (uint112 rate0, uint112 rate1) =
+                        auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
+
+                    (uint112 amount0, uint112 amount1) = CORE.addIncentives({
+                        poolKey: poolKey, startTime: 0, endTime: boostEndTime, rate0: rate0, rate1: rate1
+                    });
+
+                    uint112 actualBoostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
+                    // we need to
+                    creatorAmount += (boostAmount - actualBoostedAmount);
+                }
 
                 if (creatorAmount != 0) {
                     (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
@@ -279,24 +300,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     });
                 }
 
-                if (boostAmount != 0) {
-                    PoolKey memory poolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
-
-                    uint256 afterTime = block.timestamp + uint256(auctionKey.config.boostDuration());
-                    boostStartTime = uint64(block.timestamp);
-                    boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
-                    uint256 duration = boostEndTime - boostStartTime;
-                    uint112 rate = uint112(computeSaleRate(boostAmount, duration));
-
-                    if (auctionKey.buyToken() == poolKey.token0) {
-                        CORE.addIncentives(poolKey, 0, boostEndTime, rate, 0);
-                    } else {
-                        CORE.addIncentives(poolKey, 0, boostEndTime, 0, rate);
-                    }
-                }
-
-                emit AuctionGraduated(tokenId, auctionKey, creatorAmount, boostAmount);
-                result = abi.encode(creatorAmount, boostAmount, boostStartTime, boostEndTime);
+                emit AuctionGraduated(tokenId, auctionKey, creatorAmount, boostAmount, boostEndTime);
+                result = abi.encode(creatorAmount, boostAmount, boostEndTime);
             } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
                 (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
                     abi.decode(data, (uint8, uint256, AuctionKey, address, uint128));

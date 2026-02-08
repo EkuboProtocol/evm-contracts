@@ -18,12 +18,6 @@ contract AuctionsTest is BaseOrdersTest {
 
     Auctions auctions;
 
-    event AuctionFundsAdded(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
-    event AuctionGraduated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount);
-    event CreatorProceedsCollected(
-        uint256 indexed tokenId, AuctionKey auctionKey, address indexed recipient, uint128 amount
-    );
-
     function setUp() public virtual override {
         BaseOrdersTest.setUp();
         address boostedFees = address((uint160(boostedFeesCallPoints(true).toUint8()) << 152) + 1);
@@ -122,20 +116,20 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint112 saleRate = uint112(computeSaleRate(totalAmountSold, duration));
         vm.expectEmit(true, false, false, true, address(auctions));
-        emit AuctionFundsAdded(tokenId, auctionKey, totalAmountSold, saleRate);
+        emit Auctions.AuctionFundsAdded(tokenId, auctionKey, totalAmountSold, saleRate);
         auctions.createAuction(tokenId, auctionKey, totalAmountSold);
 
         advanceTime(duration);
 
         vm.expectEmit(true, false, false, false, address(auctions));
-        emit AuctionGraduated(tokenId, auctionKey, 0, 0);
+        emit Auctions.AuctionGraduated(tokenId, auctionKey, 0, 0, 0);
         auctions.graduate(tokenId, auctionKey);
 
         (uint128 saved0,) =
             core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
 
         vm.expectEmit(true, true, false, true, address(auctions));
-        emit CreatorProceedsCollected(tokenId, auctionKey, address(this), saved0);
+        emit Auctions.CreatorProceedsCollected(tokenId, auctionKey, address(this), saved0);
         auctions.collectCreatorProceeds(tokenId, auctionKey);
     }
 
@@ -171,13 +165,11 @@ contract AuctionsTest is BaseOrdersTest {
 
         advanceTime(duration);
         uint128 boostAmount;
-        uint64 boostStartTime;
         uint64 boostEndTime;
-        (creatorAmount, boostAmount, boostStartTime, boostEndTime) = auctions.graduate(tokenId, auctionKey);
+        (creatorAmount, boostAmount, boostEndTime) = auctions.graduate(tokenId, auctionKey);
 
         assertGt(creatorAmount, 0, "creatorAmount");
         assertGt(boostAmount, 0, "boostAmount");
-        assertEq(boostStartTime, uint64(block.timestamp), "boostStartTime");
-        assertGt(boostEndTime, boostStartTime, "boostEndTime");
+        assertGt(boostEndTime, 0, "boostEndTime");
     }
 }

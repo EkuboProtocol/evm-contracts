@@ -9,12 +9,12 @@ contract AuctionKeyTest is Test {
     function test_sellToken_whenIsSellingToken1False(
         address token0,
         address token1,
-        uint64 creatorFee,
+        uint32 creatorFee,
         uint24 boostDuration,
         uint64 graduationPoolFee,
         uint24 graduationPoolTickSpacing,
-        uint40 startTime,
-        uint24 auctionDuration
+        uint64 startTime,
+        uint32 auctionDuration
     ) public pure {
         vm.assume(token0 != token1);
         AuctionConfig config = createAuctionConfig({
@@ -35,12 +35,12 @@ contract AuctionKeyTest is Test {
     function test_sellToken_whenIsSellingToken1True(
         address token0,
         address token1,
-        uint64 creatorFee,
+        uint32 creatorFee,
         uint24 boostDuration,
         uint64 graduationPoolFee,
         uint24 graduationPoolTickSpacing,
-        uint40 startTime,
-        uint24 auctionDuration
+        uint64 startTime,
+        uint32 auctionDuration
     ) public pure {
         vm.assume(token0 != token1);
         AuctionConfig config = createAuctionConfig({

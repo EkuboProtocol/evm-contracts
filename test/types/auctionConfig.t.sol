@@ -7,13 +7,13 @@ import {AuctionConfig, createAuctionConfig} from "../../src/types/auctionConfig.
 contract AuctionConfigTest is Test {
     function test_conversionToAndFrom(AuctionConfig config) public pure {
         uint256 rawConfig = uint256(AuctionConfig.unwrap(config));
-        uint256 canonicalConfig = (rawConfig & 0xffffffffffffffff00ffffffffffffffffffffffffffffffffffffffffffff00);
-        if (((rawConfig >> 184) & 0xff) != 0) canonicalConfig |= (uint256(1) << 184);
+        uint256 canonicalConfig = rawConfig & ~(uint256(0xff) << 216) & ~uint256(0xff);
+        if (((rawConfig >> 216) & 0xff) != 0) canonicalConfig |= (uint256(1) << 216);
 
         assertEq(
             AuctionConfig.unwrap(
                 createAuctionConfig({
-                    _creatorFee: config.creatorFee(),
+                    _creatorFee: uint32(config.creatorFee() >> 32),
                     _isSellingToken1: config.isSellingToken1(),
                     _boostDuration: config.boostDuration(),
                     _graduationPoolFee: config.graduationPoolFee(),
@@ -27,13 +27,13 @@ contract AuctionConfigTest is Test {
     }
 
     function test_conversionFromAndTo(
-        uint64 creatorFee_,
+        uint32 creatorFee_,
         bool isSellingToken1_,
         uint24 boostDuration_,
         uint64 graduationPoolFee_,
         uint24 graduationPoolTickSpacing_,
-        uint40 startTime_,
-        uint24 auctionDuration_
+        uint64 startTime_,
+        uint32 auctionDuration_
     ) public pure {
         AuctionConfig config = createAuctionConfig({
             _creatorFee: creatorFee_,
@@ -45,14 +45,18 @@ contract AuctionConfigTest is Test {
             _auctionDuration: auctionDuration_
         });
 
-        assertEq(config.creatorFee(), creatorFee_);
+        assertEq(config.creatorFee(), uint64(creatorFee_) << 32);
         assertEq(config.isSellingToken1(), isSellingToken1_);
         assertEq(config.boostDuration(), boostDuration_);
         assertEq(config.graduationPoolFee(), graduationPoolFee_);
         assertEq(config.graduationPoolTickSpacing(), graduationPoolTickSpacing_);
         assertEq(config.startTime(), startTime_);
         assertEq(config.auctionDuration(), auctionDuration_);
-        assertEq(config.endTime(), uint64(startTime_) + uint64(auctionDuration_));
+        uint64 expectedEndTime;
+        unchecked {
+            expectedEndTime = startTime_ + uint64(auctionDuration_);
+        }
+        assertEq(config.endTime(), expectedEndTime);
     }
 
     function test_conversionFromAndToDirtyBits(
@@ -64,13 +68,13 @@ contract AuctionConfigTest is Test {
         bytes32 startTimeDirty,
         bytes32 auctionDurationDirty
     ) public pure {
-        uint64 creatorFee_;
+        uint32 creatorFee_;
         bool isSellingToken1_;
         uint24 boostDuration_;
         uint64 graduationPoolFee_;
         uint24 graduationPoolTickSpacing_;
         uint64 startTime_;
-        uint24 auctionDuration_;
+        uint32 auctionDuration_;
 
         assembly ("memory-safe") {
             creatorFee_ := creatorFeeDirty
@@ -88,16 +92,16 @@ contract AuctionConfigTest is Test {
             _boostDuration: boostDuration_,
             _graduationPoolFee: graduationPoolFee_,
             _graduationPoolTickSpacing: graduationPoolTickSpacing_,
-            _startTime: uint40(startTime_),
+            _startTime: startTime_,
             _auctionDuration: auctionDuration_
         });
 
-        assertEq(config.creatorFee(), creatorFee_, "creatorFee");
+        assertEq(config.creatorFee(), uint64(creatorFee_) << 32, "creatorFee");
         assertEq(config.isSellingToken1(), isSellingToken1_, "isSellingToken1");
         assertEq(config.boostDuration(), boostDuration_, "boostDuration");
         assertEq(config.graduationPoolFee(), graduationPoolFee_, "graduationPoolFee");
         assertEq(config.graduationPoolTickSpacing(), graduationPoolTickSpacing_, "graduationPoolTickSpacing");
-        assertEq(config.startTime(), uint40(startTime_), "startTime");
+        assertEq(config.startTime(), startTime_, "startTime");
         assertEq(config.auctionDuration(), auctionDuration_, "auctionDuration");
     }
 }

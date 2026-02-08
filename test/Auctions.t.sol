@@ -11,13 +11,14 @@ import {nextValidTime} from "../src/math/time.sol";
 import {computeSaleRate} from "../src/math/twamm.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {BaseNonfungibleToken} from "../src/base/BaseNonfungibleToken.sol";
+import {boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 
 contract AuctionsTest is BaseOrdersTest {
     using CoreLib for *;
 
     Auctions auctions;
 
-    event AuctionCreated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
+    event AuctionFundsAdded(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
     event AuctionGraduated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount);
     event CreatorProceedsCollected(
         uint256 indexed tokenId, AuctionKey auctionKey, address indexed recipient, uint128 amount
@@ -25,13 +26,15 @@ contract AuctionsTest is BaseOrdersTest {
 
     function setUp() public virtual override {
         BaseOrdersTest.setUp();
-        auctions = new Auctions(address(this), core, twamm, address(0));
+        address boostedFees = address((uint160(boostedFeesCallPoints(true).toUint8()) << 152) + 1);
+        deployCodeTo("BoostedFees.sol", abi.encode(core, true), boostedFees);
+        auctions = new Auctions(address(this), core, twamm, boostedFees);
     }
 
     function test_create_auction_gas() public {
         uint64 startTime = uint64(nextValidTime(block.timestamp, block.timestamp + 1));
         uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 3600 - 1));
-        uint24 duration = uint24(endTime - startTime);
+        uint32 duration = uint32(endTime - startTime);
         uint128 totalAmountSold = 69_420e18;
         AuctionConfig config = createAuctionConfig({
             _creatorFee: 0,
@@ -39,7 +42,7 @@ contract AuctionsTest is BaseOrdersTest {
             _boostDuration: 1 days,
             _graduationPoolFee: uint64((uint256(1) << 64) / 100),
             _graduationPoolTickSpacing: 1000,
-            _startTime: uint40(startTime),
+            _startTime: startTime,
             _auctionDuration: duration
         });
         AuctionKey memory auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
@@ -97,20 +100,21 @@ contract AuctionsTest is BaseOrdersTest {
     function test_emitsEvents_create_graduate_collect() public {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 3600 - 1));
-        uint24 duration = uint24(endTime - startTime);
+        uint32 duration = uint32(endTime - startTime);
         uint128 totalAmountSold = 1e18;
         AuctionConfig config = createAuctionConfig({
-            _creatorFee: type(uint64).max,
+            _creatorFee: type(uint32).max,
             _isSellingToken1: true,
             _boostDuration: 1 days,
             _graduationPoolFee: uint64((uint256(1) << 64) / 100),
             _graduationPoolTickSpacing: 1000,
-            _startTime: uint40(startTime),
+            _startTime: startTime,
             _auctionDuration: duration
         });
         AuctionKey memory auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
         PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
         core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
         createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
 
         uint256 tokenId = auctions.mint();
@@ -118,7 +122,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint112 saleRate = uint112(computeSaleRate(totalAmountSold, duration));
         vm.expectEmit(true, false, false, true, address(auctions));
-        emit AuctionCreated(tokenId, auctionKey, totalAmountSold, saleRate);
+        emit AuctionFundsAdded(tokenId, auctionKey, totalAmountSold, saleRate);
         auctions.createAuction(tokenId, auctionKey, totalAmountSold);
 
         advanceTime(duration);
@@ -141,19 +145,20 @@ contract AuctionsTest is BaseOrdersTest {
     {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 3600 - 1));
-        uint24 duration = uint24(endTime - startTime);
+        uint32 duration = uint32(endTime - startTime);
         AuctionConfig config = createAuctionConfig({
-            _creatorFee: type(uint64).max,
+            _creatorFee: type(uint32).max,
             _isSellingToken1: isSellingToken1_,
             _boostDuration: 1 days,
             _graduationPoolFee: uint64((uint256(1) << 64) / 100),
             _graduationPoolTickSpacing: 1000,
-            _startTime: uint40(startTime),
+            _startTime: startTime,
             _auctionDuration: duration
         });
         auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
         PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
         core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
         createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
 
         tokenId = auctions.mint();
@@ -171,8 +176,8 @@ contract AuctionsTest is BaseOrdersTest {
         (creatorAmount, boostAmount, boostStartTime, boostEndTime) = auctions.graduate(tokenId, auctionKey);
 
         assertGt(creatorAmount, 0, "creatorAmount");
-        assertEq(boostAmount, 0, "boostAmount");
-        assertEq(boostStartTime, 0, "boostStartTime");
-        assertEq(boostEndTime, 0, "boostEndTime");
+        assertGt(boostAmount, 0, "boostAmount");
+        assertEq(boostStartTime, uint64(block.timestamp), "boostStartTime");
+        assertGt(boostEndTime, boostStartTime, "boostEndTime");
     }
 }

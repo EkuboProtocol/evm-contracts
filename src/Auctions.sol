@@ -7,16 +7,19 @@ import {PoolKey} from "./types/poolKey.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {AuctionKey} from "./types/auctionKey.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
+import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {computeSaleRate} from "./math/twamm.sol";
 import {computeFee} from "./math/fee.sol";
 import {nextValidTime} from "./math/time.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {BoostedFeesLib} from "./libraries/BoostedFeesLib.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Auctions
@@ -42,7 +45,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 ///    Collection debits saved balances and withdraws buy token via accountant in the same lock.
 /// 6. Events:
 ///    `AuctionCreated`, `AuctionGraduated`, and `CreatorProceedsCollected` mark each major stage.
-contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
+contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMulticallable {
     using CoreLib for *;
     using BoostedFeesLib for *;
     using TWAMMLib for *;
@@ -64,12 +67,15 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @notice The auction cannot be graduated because no proceeds are available.
     error NoProceedsToGraduate();
 
+    /// @notice Thrown when the auction has already ended
+    error AuctionAlreadyEnded();
+
     /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param amount The sell-token amount added to the auction.
     /// @param saleRate The TWAMM sale rate delta applied for this auction.
-    event AuctionCreated(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
+    event AuctionFundsAdded(uint256 indexed tokenId, AuctionKey auctionKey, uint128 amount, uint112 saleRate);
 
     /// @notice Emitted when an auction is graduated and proceeds are split.
     /// @param tokenId The auction NFT token id.
@@ -103,6 +109,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @param amount The amount of sell token to auction.
     function createAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
+        payable
         authorizedForNft(tokenId)
     {
         lock(abi.encode(CALL_TYPE_CREATE_AUCTION, msg.sender, tokenId, auctionKey, amount));
@@ -117,6 +124,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @return boostEndTime The boost end timestamp (0 when no boost is added).
     function graduate(uint256 tokenId, AuctionKey memory auctionKey)
         external
+        payable
         returns (uint128 creatorAmount, uint128 boostAmount, uint64 boostStartTime, uint64 boostEndTime)
     {
         return abi.decode(lock(abi.encode(CALL_TYPE_GRADUATE, tokenId, auctionKey)), (uint128, uint128, uint64, uint64));
@@ -130,6 +138,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @param amount Amount of buy token to collect.
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount)
         public
+        payable
         authorizedForNft(tokenId)
     {
         lock(abi.encode(CALL_TYPE_COLLECT_CREATOR_PROCEEDS, tokenId, auctionKey, recipient, amount));
@@ -141,6 +150,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @param recipient Address to receive proceeds.
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient)
         external
+        payable
         authorizedForNft(tokenId)
     {
         (uint128 saved0, uint128 saved1) =
@@ -155,6 +165,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @param amount Amount of buy token to collect.
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
+        payable
         authorizedForNft(tokenId)
     {
         collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
@@ -163,7 +174,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @notice Collects all currently saved creator proceeds to the caller.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
-    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey) external authorizedForNft(tokenId) {
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey)
+        external
+        payable
+        authorizedForNft(tokenId)
+    {
         (uint128 saved0, uint128 saved1) =
             CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
         uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
@@ -179,6 +194,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     /// @return purchasedAmount Proceeds available to collect.
     function executeVirtualOrdersAndGetSaleStatus(uint256 tokenId, AuctionKey memory auctionKey)
         external
+        payable
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
     {
         (saleRate, amountSold, remainingSellAmount, purchasedAmount) =
@@ -186,115 +202,123 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken {
     }
 
     /// @notice Lock callback dispatcher for creating auctions, graduating, and collecting creator proceeds.
-    /// @param lockId Lock id argument from BaseLocker callback.
+    /// @param _lockId Lock id argument from BaseLocker callback.
     /// @param data ABI-encoded operation payload.
     /// @return result ABI-encoded return data for the requested operation.
-    function handleLockData(uint256 lockId, bytes memory data) internal override returns (bytes memory result) {
-        lockId;
-        uint8 callType = abi.decode(data, (uint8));
+    function handleLockData(uint256 _lockId, bytes memory data) internal override returns (bytes memory result) {
+        unchecked {
+            uint8 callType = abi.decode(data, (uint8));
 
-        if (callType == CALL_TYPE_CREATE_AUCTION) {
-            (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) =
-                abi.decode(data, (uint8, address, uint256, AuctionKey, uint128));
+            if (callType == CALL_TYPE_CREATE_AUCTION) {
+                (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) =
+                    abi.decode(data, (uint8, address, uint256, AuctionKey, uint128));
 
-            uint64 startTime = uint64(auctionKey.config.startTime());
-            uint64 endTime = auctionKey.config.endTime();
+                uint256 startTime = auctionKey.config.startTime();
+                uint256 endTime = startTime + auctionKey.config.auctionDuration();
+                uint256 realStart = FixedPointMathLib.max(block.timestamp, startTime);
 
-            PoolKey memory twammPoolKey = auctionKey.toLaunchPoolKey(address(TWAMM));
-            if (!CORE.poolState(twammPoolKey.toPoolId()).isInitialized()) {
-                // The initial tick does not matter since we do not add liquidity
-                CORE.initializePool(twammPoolKey, 0);
-            }
-
-            uint64 realStart = uint64(FixedPointMathLib.max(block.timestamp, startTime));
-            uint256 remainingDuration = endTime - realStart;
-            uint112 saleRateDelta = uint112(computeSaleRate(amount, remainingDuration));
-            if (saleRateDelta == 0) {
-                revert ZeroSaleRateDelta();
-            }
-
-            int256 amountDelta = CORE.updateSaleRate({
-                twamm: TWAMM,
-                salt: bytes32(tokenId),
-                orderKey: auctionKey.toOrderKey(),
-                saleRateDelta: int112(int256(uint256(saleRateDelta)))
-            });
-
-            if (amountDelta != 0) {
-                ACCOUNTANT.payFrom(caller, auctionKey.sellToken(), uint256(amountDelta));
-            }
-            emit AuctionCreated(tokenId, auctionKey, amount, saleRateDelta);
-        } else if (callType == CALL_TYPE_GRADUATE) {
-            (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint8, uint256, AuctionKey));
-
-            uint64 endTime = auctionKey.config.endTime();
-            if (block.timestamp < endTime) {
-                revert CannotGraduateBeforeEndOfAuction();
-            }
-
-            OrderKey memory orderKey = auctionKey.toOrderKey();
-            uint128 proceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), orderKey);
-            if (proceeds == 0) {
-                revert NoProceedsToGraduate();
-            }
-
-            uint128 creatorAmount = computeFee(proceeds, auctionKey.config.creatorFee());
-            uint128 boostAmount = proceeds - creatorAmount;
-            uint64 boostStartTime;
-            uint64 boostEndTime;
-
-            if (creatorAmount != 0) {
-                (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
-                    ? (int256(uint256(creatorAmount)), int256(0))
-                    : (int256(0), int256(uint256(creatorAmount)));
-                CORE.updateSavedBalances({
-                    token0: auctionKey.token0,
-                    token1: auctionKey.token1,
-                    salt: bytes32(tokenId),
-                    delta0: delta0,
-                    delta1: delta1
-                });
-            }
-
-            if (boostAmount != 0) {
-                PoolKey memory poolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
-
-                uint256 afterTime = block.timestamp + uint256(auctionKey.config.boostDuration());
-                boostStartTime = uint64(block.timestamp);
-                boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
-                uint256 duration = boostEndTime - boostStartTime;
-                uint112 rate = uint112(computeSaleRate(boostAmount, duration));
-
-                if (auctionKey.buyToken() == poolKey.token0) {
-                    CORE.addIncentives(poolKey, 0, boostEndTime, rate, 0);
-                } else {
-                    CORE.addIncentives(poolKey, 0, boostEndTime, 0, rate);
+                if (realStart >= endTime) {
+                    revert AuctionAlreadyEnded();
                 }
-            }
 
-            emit AuctionGraduated(tokenId, auctionKey, creatorAmount, boostAmount);
-            result = abi.encode(creatorAmount, boostAmount, boostStartTime, boostEndTime);
-        } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
-            (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
-                abi.decode(data, (uint8, uint256, AuctionKey, address, uint128));
+                uint256 remainingDuration = endTime - realStart;
+                uint112 saleRateDelta = uint112(computeSaleRate(amount, remainingDuration));
+                if (saleRateDelta == 0) {
+                    revert ZeroSaleRateDelta();
+                }
 
-            if (amount != 0) {
-                (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
-                    ? (-int256(uint256(amount)), int256(0))
-                    : (int256(0), -int256(uint256(amount)));
-                CORE.updateSavedBalances({
-                    token0: auctionKey.token0,
-                    token1: auctionKey.token1,
+                PoolKey memory twammPoolKey = auctionKey.toLaunchPoolKey(address(TWAMM));
+                if (!CORE.poolState(twammPoolKey.toPoolId()).isInitialized()) {
+                    // The initial tick does not matter since we do not add liquidity
+                    CORE.initializePool(twammPoolKey, 0);
+                }
+
+                int256 amountDelta = CORE.updateSaleRate({
+                    twamm: TWAMM,
                     salt: bytes32(tokenId),
-                    delta0: delta0,
-                    delta1: delta1
+                    orderKey: auctionKey.toOrderKey(),
+                    saleRateDelta: int112(int256(uint256(saleRateDelta)))
                 });
 
-                ACCOUNTANT.withdraw(auctionKey.buyToken(), recipient, amount);
-                emit CreatorProceedsCollected(tokenId, auctionKey, recipient, amount);
+                if (auctionKey.sellToken() == NATIVE_TOKEN_ADDRESS) {
+                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(amountDelta));
+                } else {
+                    ACCOUNTANT.payFrom(caller, auctionKey.sellToken(), uint256(amountDelta));
+                }
+
+                emit AuctionFundsAdded(tokenId, auctionKey, amount, saleRateDelta);
+            } else if (callType == CALL_TYPE_GRADUATE) {
+                (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint8, uint256, AuctionKey));
+
+                uint64 endTime = auctionKey.config.endTime();
+                if (block.timestamp < endTime) {
+                    revert CannotGraduateBeforeEndOfAuction();
+                }
+
+                OrderKey memory orderKey = auctionKey.toOrderKey();
+                uint128 proceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), orderKey);
+                if (proceeds == 0) {
+                    revert NoProceedsToGraduate();
+                }
+
+                uint128 creatorAmount = computeFee(proceeds, auctionKey.config.creatorFee());
+                uint128 boostAmount = proceeds - creatorAmount;
+                uint64 boostStartTime;
+                uint64 boostEndTime;
+
+                if (creatorAmount != 0) {
+                    (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
+                        ? (int256(uint256(creatorAmount)), int256(0))
+                        : (int256(0), int256(uint256(creatorAmount)));
+                    CORE.updateSavedBalances({
+                        token0: auctionKey.token0,
+                        token1: auctionKey.token1,
+                        salt: bytes32(tokenId),
+                        delta0: delta0,
+                        delta1: delta1
+                    });
+                }
+
+                if (boostAmount != 0) {
+                    PoolKey memory poolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
+
+                    uint256 afterTime = block.timestamp + uint256(auctionKey.config.boostDuration());
+                    boostStartTime = uint64(block.timestamp);
+                    boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
+                    uint256 duration = boostEndTime - boostStartTime;
+                    uint112 rate = uint112(computeSaleRate(boostAmount, duration));
+
+                    if (auctionKey.buyToken() == poolKey.token0) {
+                        CORE.addIncentives(poolKey, 0, boostEndTime, rate, 0);
+                    } else {
+                        CORE.addIncentives(poolKey, 0, boostEndTime, 0, rate);
+                    }
+                }
+
+                emit AuctionGraduated(tokenId, auctionKey, creatorAmount, boostAmount);
+                result = abi.encode(creatorAmount, boostAmount, boostStartTime, boostEndTime);
+            } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
+                (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
+                    abi.decode(data, (uint8, uint256, AuctionKey, address, uint128));
+
+                if (amount != 0) {
+                    (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
+                        ? (-int256(uint256(amount)), int256(0))
+                        : (int256(0), -int256(uint256(amount)));
+                    CORE.updateSavedBalances({
+                        token0: auctionKey.token0,
+                        token1: auctionKey.token1,
+                        salt: bytes32(tokenId),
+                        delta0: delta0,
+                        delta1: delta1
+                    });
+
+                    ACCOUNTANT.withdraw(auctionKey.buyToken(), recipient, amount);
+                    emit CreatorProceedsCollected(tokenId, auctionKey, recipient, amount);
+                }
+            } else {
+                revert();
             }
-        } else {
-            revert();
         }
     }
 }

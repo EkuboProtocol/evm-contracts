@@ -26,8 +26,8 @@ contract AuctionsTest is BaseOrdersTest {
     }
 
     function test_create_auction_gas() public {
-        uint64 startTime = uint64(nextValidTime(block.timestamp, block.timestamp + 1));
-        uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 3600 - 1));
+        uint64 startTime = uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp()));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
         uint32 duration = uint32(endTime - startTime);
         uint128 totalAmountSold = 69_420e18;
         AuctionConfig config = createAuctionConfig({
@@ -93,7 +93,7 @@ contract AuctionsTest is BaseOrdersTest {
 
     function test_emitsEvents_create_graduate_collect() public {
         uint64 startTime = alignToNextValidTime();
-        uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 3600 - 1));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
         uint32 duration = uint32(endTime - startTime);
         uint128 totalAmountSold = 1e18;
         AuctionConfig config = createAuctionConfig({
@@ -138,7 +138,7 @@ contract AuctionsTest is BaseOrdersTest {
         returns (uint256 tokenId, AuctionKey memory auctionKey, uint128 creatorAmount)
     {
         uint64 startTime = alignToNextValidTime();
-        uint64 endTime = uint64(nextValidTime(block.timestamp, startTime + 3600 - 1));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
         uint32 duration = uint32(endTime - startTime);
         AuctionConfig config = createAuctionConfig({
             _creatorFee: type(uint32).max,

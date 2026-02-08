@@ -19,8 +19,6 @@ struct AuctionKey {
     AuctionConfig config;
 }
 
-error InvalidTokenOrder();
-
 /// @notice Extracts the sell token from an auction key
 function sellToken(AuctionKey memory auctionKey) pure returns (address r) {
     bool sellingToken1 = auctionKey.config.isSellingToken1();

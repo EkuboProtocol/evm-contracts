@@ -247,7 +247,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                             twamm: TWAMM,
                             salt: bytes32(tokenId),
                             orderKey: auctionKey.toOrderKey(),
-                            saleRateDelta: int112(int256(uint256(saleRateDelta)))
+                            saleRateDelta: int112(int256(saleRateDelta))
                         })
                     )
                 );

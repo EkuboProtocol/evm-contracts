@@ -12,7 +12,7 @@ contract AuctionKeyTest is Test {
         uint32 creatorFee,
         uint24 boostDuration,
         uint64 graduationPoolFee,
-        uint24 graduationPoolTickSpacing,
+        uint32 graduationPoolTickSpacing,
         uint64 startTime,
         uint32 auctionDuration
     ) public pure {
@@ -38,7 +38,7 @@ contract AuctionKeyTest is Test {
         uint32 creatorFee,
         uint24 boostDuration,
         uint64 graduationPoolFee,
-        uint24 graduationPoolTickSpacing,
+        uint32 graduationPoolTickSpacing,
         uint64 startTime,
         uint32 auctionDuration
     ) public pure {

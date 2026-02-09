@@ -7,7 +7,7 @@ import {AuctionConfig, createAuctionConfig} from "../../src/types/auctionConfig.
 contract AuctionConfigTest is Test {
     function test_conversionToAndFrom(AuctionConfig config) public pure {
         uint256 rawConfig = uint256(AuctionConfig.unwrap(config));
-        uint256 canonicalConfig = rawConfig & ~(uint256(0xff) << 216) & ~uint256(0xff);
+        uint256 canonicalConfig = rawConfig & ~(uint256(0xff) << 216);
         if (((rawConfig >> 216) & 0xff) != 0) canonicalConfig |= (uint256(1) << 216);
 
         assertEq(
@@ -31,7 +31,7 @@ contract AuctionConfigTest is Test {
         bool isSellingToken1_,
         uint24 boostDuration_,
         uint64 graduationPoolFee_,
-        uint24 graduationPoolTickSpacing_,
+        uint32 graduationPoolTickSpacing_,
         uint64 startTime_,
         uint32 auctionDuration_
     ) public pure {
@@ -72,7 +72,7 @@ contract AuctionConfigTest is Test {
         bool isSellingToken1_;
         uint24 boostDuration_;
         uint64 graduationPoolFee_;
-        uint24 graduationPoolTickSpacing_;
+        uint32 graduationPoolTickSpacing_;
         uint64 startTime_;
         uint32 auctionDuration_;
 

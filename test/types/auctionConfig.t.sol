@@ -13,7 +13,7 @@ contract AuctionConfigTest is Test {
         assertEq(
             AuctionConfig.unwrap(
                 createAuctionConfig({
-                    _creatorFee: uint32(config.creatorFee() >> 32),
+                    _creatorFee: config.creatorFee(),
                     _isSellingToken1: config.isSellingToken1(),
                     _minBoostDuration: config.minBoostDuration(),
                     _graduationPoolFee: config.graduationPoolFee(),
@@ -45,7 +45,7 @@ contract AuctionConfigTest is Test {
             _auctionDuration: auctionDuration_
         });
 
-        assertEq(config.creatorFee(), uint64(creatorFee_) << 32);
+        assertEq(config.creatorFee(), creatorFee_);
         assertEq(config.isSellingToken1(), isSellingToken1_);
         assertEq(config.minBoostDuration(), minBoostDuration_);
         assertEq(config.graduationPoolFee(), graduationPoolFee_);
@@ -96,7 +96,7 @@ contract AuctionConfigTest is Test {
             _auctionDuration: auctionDuration_
         });
 
-        assertEq(config.creatorFee(), uint64(creatorFee_) << 32, "creatorFee");
+        assertEq(config.creatorFee(), creatorFee_, "creatorFee");
         assertEq(config.isSellingToken1(), isSellingToken1_, "isSellingToken1");
         assertEq(config.minBoostDuration(), minBoostDuration_, "minBoostDuration");
         assertEq(config.graduationPoolFee(), graduationPoolFee_, "graduationPoolFee");

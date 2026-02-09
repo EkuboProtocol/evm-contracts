@@ -15,10 +15,10 @@ using {
     endTime
 } for AuctionConfig global;
 
-/// @notice Extracts the creator fee (0.64 fixed-point) from an auction config
-function creatorFee(AuctionConfig config) pure returns (uint64 v) {
+/// @notice Extracts the creator fee (0.32 fixed-point) from an auction config
+function creatorFee(AuctionConfig config) pure returns (uint32 v) {
     assembly ("memory-safe") {
-        v := shl(32, shr(224, config))
+        v := shr(224, config)
     }
 }
 

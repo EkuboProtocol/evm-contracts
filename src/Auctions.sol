@@ -288,7 +288,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 uint128 auctionProceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), auctionKey.toOrderKey());
                 if (auctionProceeds == 0) revert NoProceedsToCompleteAuction();
 
-                uint128 creatorAmount = computeFee({amount: auctionProceeds, fee: auctionKey.config.creatorFee()});
+                uint128 creatorAmount =
+                    computeFee({amount: auctionProceeds, fee: uint64(auctionKey.config.creatorFee()) << 32});
                 uint256 boostEligibleAmount = auctionProceeds - creatorAmount;
                 uint64 boostEndTime;
                 uint112 boostRate;

@@ -12,18 +12,23 @@ import {computeSaleRate} from "../src/math/twamm.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {BaseNonfungibleToken} from "../src/base/BaseNonfungibleToken.sol";
 import {boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
+import {ManualPoolBooster} from "../src/ManualPoolBooster.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 contract AuctionsTest is BaseOrdersTest {
     using CoreLib for *;
 
     Auctions auctions;
+    ManualPoolBooster booster;
 
     function setUp() public virtual override {
         BaseOrdersTest.setUp();
         address boostedFees = address((uint160(boostedFeesCallPoints(true).toUint8()) << 152) + 1);
         deployCodeTo("BoostedFees.sol", abi.encode(core, true), boostedFees);
         auctions = new Auctions(address(this), core, twamm, boostedFees);
+        booster = new ManualPoolBooster(core);
+        token0.approve(address(booster), type(uint256).max);
+        token1.approve(address(booster), type(uint256).max);
     }
 
     function test_create_auction_gas() public {
@@ -180,27 +185,6 @@ contract AuctionsTest is BaseOrdersTest {
         auctions.sellByAuction(tokenId, auctionKey, 1e18);
     }
 
-    function test_sellByAuction_reverts_ifMinBoostDurationTooLarge() public {
-        uint64 startTime = alignToNextValidTime();
-        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
-        uint32 duration = uint32(endTime - startTime);
-        AuctionConfig config = createAuctionConfig({
-            _creatorFee: type(uint32).max,
-            _isSellingToken1: true,
-            _minBoostDuration: uint24(180 days) + 1,
-            _graduationPoolFee: uint64((uint256(1) << 64) / 100),
-            _graduationPoolTickSpacing: 1000,
-            _startTime: startTime,
-            _auctionDuration: duration
-        });
-        AuctionKey memory auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
-
-        uint256 tokenId = auctions.mint();
-        token1.approve(address(auctions), 1e18);
-        vm.expectRevert(Auctions.MinBoostDurationTooLarge.selector);
-        auctions.sellByAuction(tokenId, auctionKey, 1e18);
-    }
-
     function test_completeAuction_reverts_ifAuctionNotEnded() public {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
@@ -306,6 +290,93 @@ contract AuctionsTest is BaseOrdersTest {
             core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
         assertEq(saved0, creatorAmount, "creator overflow saved");
         assertEq(saved1, 0, "saved1 empty");
+    }
+
+    function test_completeAuction_retriesLaterEndTime_whenFirstCandidateCannotBeBoosted() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+
+        AuctionConfig config = createAuctionConfig({
+            _creatorFee: 0,
+            _isSellingToken1: true,
+            _minBoostDuration: 0,
+            _graduationPoolFee: uint64((uint256(1) << 64) / 100),
+            _graduationPoolTickSpacing: 1000,
+            _startTime: startTime,
+            _auctionDuration: duration
+        });
+        AuctionKey memory auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        PoolKey memory graduationPool = auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES());
+        core.initializePool(launchPool, 0);
+        core.initializePool(graduationPool, 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+        auctions.sellByAuction(tokenId, auctionKey, 1e18);
+
+        advanceTime(duration);
+
+        uint64 firstCandidateEndTime =
+            uint64(nextValidTime(block.timestamp, block.timestamp + config.minBoostDuration()));
+        booster.boost({
+            poolKey: graduationPool,
+            startTime: 0,
+            endTime: firstCandidateEndTime,
+            rate0: uint112(MAX_ABS_VALUE_SALE_RATE_DELTA),
+            rate1: 0
+        });
+
+        (, uint112 boostRate, uint64 boostEndTime) = auctions.completeAuction(tokenId, auctionKey);
+        assertGt(boostRate, 0, "boost rate set");
+        assertGt(boostEndTime, firstCandidateEndTime, "used a later end time");
+    }
+
+    function test_completeAuction_reverts_whenAllBoostWindowsAreSaturated() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+
+        AuctionConfig config = createAuctionConfig({
+            _creatorFee: 0,
+            _isSellingToken1: true,
+            _minBoostDuration: 0,
+            _graduationPoolFee: uint64((uint256(1) << 64) / 100),
+            _graduationPoolTickSpacing: 1000,
+            _startTime: startTime,
+            _auctionDuration: duration
+        });
+        AuctionKey memory auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        PoolKey memory graduationPool = auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES());
+        core.initializePool(launchPool, 0);
+        core.initializePool(graduationPool, 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+        auctions.sellByAuction(tokenId, auctionKey, 1e18);
+
+        advanceTime(duration);
+
+        uint256 candidateEndTime = block.timestamp + config.minBoostDuration();
+        while (true) {
+            candidateEndTime = nextValidTime(block.timestamp, candidateEndTime);
+            if (candidateEndTime == 0) break;
+
+            booster.boost({
+                poolKey: graduationPool,
+                startTime: 0,
+                endTime: uint64(candidateEndTime),
+                rate0: uint112(MAX_ABS_VALUE_SALE_RATE_DELTA),
+                rate1: 0
+            });
+        }
+
+        vm.expectRevert(Auctions.NoBoostWindowAvailable.selector);
+        auctions.completeAuction(tokenId, auctionKey);
     }
 
     function test_collectCreatorProceeds_recipientOverload_collectsAll() public {

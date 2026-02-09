@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ICore} from "./interfaces/ICore.sol";
+import {IFlashAccountant} from "./interfaces/IFlashAccountant.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {AuctionKey} from "./types/auctionKey.sol";
@@ -59,7 +60,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     uint8 private constant CALL_TYPE_SELL_BY_AUCTION = 0;
     uint8 private constant CALL_TYPE_COMPLETE_AUCTION = 1;
     uint8 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
-    uint24 private constant MAX_MIN_BOOST_DURATION = 180 days;
 
     /// @notice The auction has not ended yet
     error CannotCompleteAuctionBeforeEndOfAuction();
@@ -73,8 +73,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     error AuctionAlreadyStarted();
     /// @notice The graduation pool tick spacing is invalid.
     error InvalidGraduationPoolTickSpacing();
-    /// @notice The minimum boost duration is larger than the supported maximum.
-    error MinBoostDurationTooLarge();
+    /// @notice Thrown when no boost window that could be boosted was found
+    error NoBoostWindowAvailable();
 
     /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
     /// @param tokenId The auction NFT token id.
@@ -230,10 +230,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 if (graduationPoolTickSpacing == 0 || graduationPoolTickSpacing > MAX_TICK_SPACING) {
                     revert InvalidGraduationPoolTickSpacing();
                 }
-                if (auctionKey.config.minBoostDuration() > MAX_MIN_BOOST_DURATION) {
-                    revert MinBoostDurationTooLarge();
-                }
-
                 uint256 startTime = auctionKey.config.startTime();
                 uint256 endTime = startTime + auctionKey.config.auctionDuration();
 
@@ -280,8 +276,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
             } else if (callType == CALL_TYPE_COMPLETE_AUCTION) {
                 (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint8, uint256, AuctionKey));
 
-                uint64 endTime = auctionKey.config.endTime();
-                if (block.timestamp < endTime) {
+                uint64 auctionEndTime = auctionKey.config.endTime();
+                if (block.timestamp < auctionEndTime) {
                     revert CannotCompleteAuctionBeforeEndOfAuction();
                 }
 
@@ -295,35 +291,37 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 uint112 boostRate;
 
                 if (boostEligibleAmount != 0) {
-                    boostEndTime = uint64(
-                        nextValidTime({
-                            currentTime: block.timestamp,
-                            afterTime: block.timestamp + auctionKey.config.minBoostDuration()
-                        })
-                    );
-                    uint256 duration = boostEndTime - block.timestamp;
-                    boostRate = uint112(
-                        FixedPointMathLib.min(
-                            (uint256(boostEligibleAmount) << 32) / duration, MAX_ABS_VALUE_SALE_RATE_DELTA
-                        )
-                    );
+                    uint256 candidateBoostEndTime = block.timestamp + auctionKey.config.minBoostDuration();
+                    PoolKey memory graduationPoolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
+                    while (true) {
+                        candidateBoostEndTime =
+                            nextValidTime({currentTime: block.timestamp, afterTime: candidateBoostEndTime});
+                        if (candidateBoostEndTime == 0) revert NoBoostWindowAvailable();
 
-                    (uint112 rate0, uint112 rate1) =
-                        auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
+                        uint256 duration = candidateBoostEndTime - block.timestamp;
+                        boostRate = uint112(
+                            FixedPointMathLib.min((boostEligibleAmount << 32) / duration, MAX_ABS_VALUE_SALE_RATE_DELTA)
+                        );
 
-                    // todo: it's possible to grief this by boosting the pool for the computed end time
-                    // such that it causes the rate delta on the end time to underflow, preventing the incentives from being added
-                    (uint112 amount0, uint112 amount1) = CORE.addIncentives({
-                        poolKey: auctionKey.toGraduationPoolKey(BOOSTED_FEES),
-                        startTime: 0,
-                        endTime: boostEndTime,
-                        rate0: rate0,
-                        rate1: rate1
-                    });
+                        (uint112 rate0, uint112 rate1) =
+                            auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
 
-                    uint112 actualBoostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
-                    // we need to make sure the debts are zeroed at the end so we add any leftover here
-                    creatorAmount = auctionProceeds - actualBoostedAmount;
+                        (bool success, bytes memory forwardResult) = tryForward(
+                            BOOSTED_FEES, abi.encode(graduationPoolKey, 0, uint64(candidateBoostEndTime), rate0, rate1)
+                        );
+
+                        if (success) {
+                            (uint112 amount0, uint112 amount1) = abi.decode(forwardResult, (uint112, uint112));
+                            uint112 actualBoostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
+                            // we need to make sure the debts are zeroed at the end so we add any leftover here
+                            creatorAmount = auctionProceeds - actualBoostedAmount;
+
+                            boostEndTime = uint64(candidateBoostEndTime);
+                            break;
+                        } else {
+                            // try a later valid end time if this one cannot be boosted
+                        }
+                    }
                 }
 
                 if (creatorAmount != 0) {
@@ -364,5 +362,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 revert();
             }
         }
+    }
+
+    /// @notice Forwards data through core and returns success status with returned/revert bytes.
+    function tryForward(address to, bytes memory data) private returns (bool success, bytes memory result) {
+        (success, result) =
+            address(CORE).call(abi.encodePacked(IFlashAccountant.forward.selector, uint256(uint160(to)), data));
     }
 }

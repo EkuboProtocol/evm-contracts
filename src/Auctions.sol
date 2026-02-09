@@ -268,34 +268,36 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     revert CannotCompleteAuctionBeforeEndOfAuction();
                 }
 
-                OrderKey memory orderKey = auctionKey.toOrderKey();
-                uint128 proceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), orderKey);
-                if (proceeds == 0) {
-                    revert NoProceedsToCompleteAuction();
-                }
+                uint128 auctionProceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), auctionKey.toOrderKey());
+                if (auctionProceeds == 0) revert NoProceedsToCompleteAuction();
 
-                uint128 creatorAmount = computeFee(proceeds, auctionKey.config.creatorFee());
-                uint128 boostAmount = proceeds - creatorAmount;
-                uint112 boostRate;
+                uint128 creatorAmount = computeFee({amount: auctionProceeds, fee: auctionKey.config.creatorFee()});
                 uint64 boostEndTime;
-                if (boostAmount != 0) {
-                    PoolKey memory poolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
+                uint112 boostRate;
 
-                    uint256 afterTime = block.timestamp + uint256(auctionKey.config.boostDuration());
-                    boostEndTime = uint64(nextValidTime(block.timestamp, afterTime));
+                if (auctionProceeds > creatorAmount) {
+                    boostEndTime = uint64(
+                        nextValidTime({
+                            currentTime: block.timestamp, afterTime: block.timestamp + auctionKey.config.boostDuration()
+                        })
+                    );
                     uint256 duration = boostEndTime - block.timestamp;
-                    boostRate = uint112(computeSaleRate(boostAmount, duration));
+                    boostRate = uint112(computeSaleRate(auctionProceeds - creatorAmount, duration));
 
                     (uint112 rate0, uint112 rate1) =
                         auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
 
                     (uint112 amount0, uint112 amount1) = CORE.addIncentives({
-                        poolKey: poolKey, startTime: 0, endTime: boostEndTime, rate0: rate0, rate1: rate1
+                        poolKey: auctionKey.toGraduationPoolKey(BOOSTED_FEES),
+                        startTime: 0,
+                        endTime: boostEndTime,
+                        rate0: rate0,
+                        rate1: rate1
                     });
 
                     uint112 actualBoostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
-                    // we need to
-                    creatorAmount += (boostAmount - actualBoostedAmount);
+                    // we need to make sure the debts are zeroed at the end so we add any leftover here
+                    creatorAmount = auctionProceeds - actualBoostedAmount;
                 }
 
                 if (creatorAmount != 0) {

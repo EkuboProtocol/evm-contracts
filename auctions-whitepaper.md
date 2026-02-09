@@ -1,135 +1,67 @@
 # Auctions Whitepaper
 
-## Overview
+## Purpose
 
-The `Auctions` contract is a launch mechanism built on Ekubo's TWAMM model.
+An auction in Ekubo is designed to do two things at once:
 
-At a high level, an auction is not a custom order book or bespoke pricing engine. It is a TWAMM sell order with strict rules around control, lifecycle, and settlement:
+1. Raise funds for a new token launch.
+2. Bootstrap healthy liquidity after the sale ends.
 
-- The sale is represented by an NFT (`tokenId`).
-- The sale is executed as a TWAMM order over a fixed time window.
-- The sale cannot be canceled once created.
-- Anyone can participate on the buy side at any time by placing a DCA buy order on the same TWAMM pool.
-- Buyers can stop their own TWAMM buy order with zero pool fee (launch pool fee is `0`) or collect proceeds at any time, per normal TWAMM behavior.
-- After the auction ends, anyone can trigger graduation, which splits proceeds between creator proceeds and a boost incentive stream for a configured pool.
+The mechanism is meant to be fair, transparent, and simple for participants to understand.
 
-## Core Design
+## How The Auction Works
 
-## 1. Auction = Uncancelable TWAMM Sell Schedule
+An auction creator chooses a sale window and starts selling tokens over time.
+Instead of a one-block sale, buyers can join at any point during the window.
 
-Each auction is encoded by:
+Participants who want to buy can enter with a time-based buy order, adjust it, stop it, or collect their purchase results as the sale runs.
+This makes participation flexible instead of all-or-nothing.
 
-- `AuctionKey` (token pair + packed config)
-- `tokenId` (auction NFT, also used as TWAMM salt)
+The seller can add more inventory to the same auction before it starts.
+Once the sale is underway, the sale itself is not cancelable.
+That rule exists to reduce discretion and improve trust for buyers.
 
-When `sellByAuction` is called, the contract computes a sale rate from:
+## What Happens When The Sale Ends
 
-- sell amount
-- remaining time until configured end
+After the auction ends, anyone can finalize it.
+Finalization does two things:
 
-Then it increases TWAMM sale rate for `(owner = Auctions, salt = tokenId, orderKey = auctionKey.toOrderKey())`.
+1. Separates the seller's proceeds.
+2. Sends a portion of value into a post-sale liquidity boost.
 
-There is intentionally no "cancel auction" path in `Auctions`.
-This is a fairness choice: once the schedule is published onchain, seller discretion is removed.
+This means the auction is not only about selling tokens.
+It also helps the market transition into deeper trading conditions after launch.
 
-## 2. Permissionless Buy-Side Participation
+## Creator Proceeds
 
-The launch pool is a normal TWAMM full-range pool (fee `0`, TWAMM extension).
-Participants join by placing their own TWAMM buy orders directly against that pool.
+Creator proceeds are withdrawable by the auction controller.
+They can be collected in parts or all at once, and can be sent to a chosen recipient.
 
-Because this is standard TWAMM behavior:
+This gives teams operational flexibility without weakening auction fairness.
 
-- buyers can join late,
-- buyers can increase/decrease/stop their own orders,
-- buyers can collect their own proceeds whenever they want.
+## Liquidity Bootstrapping
 
-Using fee `0` on the launch pool makes stop/exit operations effectively zero-fee at the pool level.
+A share of the completed auction value is routed into incentives for a designated pool.
+The intent is to support liquidity immediately after launch, rather than leaving post-sale trading unsupported.
 
-## 3. NFT-Gated Seller Controls
+In practical terms, the auction does not end at fundraising.
+It continues into market bootstrapping.
 
-The auction NFT owner (or approved operator) controls creator-side operations using `authorizedForNft(tokenId)`:
+## Design Goals
 
-- `sellByAuction`
-- `collectCreatorProceeds` (all overloads)
+- Fairness: no mid-sale cancellation of the auction schedule.
+- Openness: anyone can participate during the sale window.
+- Flexibility: participants can manage their own buy flow over time.
+- Reliable completion: anyone can finalize after end time.
+- Better post-launch markets: auction value can fund liquidity incentives.
 
-This cleanly separates control from addresses and enables transfer/approval semantics via ERC721.
+## Why This Structure
 
-## 4. Permissionless Graduation
+Many launches optimize only for initial distribution.
+Ekubo auctions are structured to optimize both distribution and the first phase of market quality.
 
-After end time, `completeAuction` is permissionless.
-Any caller can finalize:
+By combining fundraising and liquidity bootstrapping in one flow, the mechanism aims to produce launches that are:
 
-1. Collect proceeds from the auction TWAMM order.
-2. Split proceeds into:
-   - `creatorAmount = computeFee(proceeds, creatorFee)`
-   - `boostAmount = proceeds - creatorAmount`
-3. Save creator proceeds in Core saved balances keyed by `(token0, token1, salt=tokenId)`.
-4. Convert boost amount into a boost stream on the configured graduation pool.
-
-This avoids dependence on a privileged "finalizer" and guarantees liveness if anyone is willing to execute.
-
-## 5. Creator Proceeds via Saved Balances
-
-Creator proceeds are not immediately pushed to the creator during `completeAuction`.
-They are first credited to Core saved balances, then pulled by an authorized NFT controller:
-
-- collect specific amount to specific recipient,
-- collect all to specific recipient,
-- collect specific amount to caller,
-- collect all to caller.
-
-This design:
-
-- supports partial withdrawals,
-- supports delegated collection,
-- keeps graduation simple and permissionless,
-- avoids forced transfer to an address that may not be the desired recipient.
-
-## 6. Post-Sale Boost
-
-A portion of proceeds can be routed into a BoostedFees schedule for a configured graduation pool:
-
-- pool parameters come from auction config (`graduationPoolFee`, `graduationPoolTickSpacing`),
-- duration comes from `boostDuration`,
-- time alignment uses Ekubo valid-time constraints (`nextValidTime`),
-- incentives are added as a TWAMM-like rate stream.
-
-Economically, this can seed post-launch liquidity behavior and align incentives after primary sale completion.
-
-## Lifecycle Summary
-
-1. Mint auction NFT.
-2. Authorized owner/approved account calls `sellByAuction`.
-3. Market participants place TWAMM buy DCA orders as desired.
-4. Auction runs until end time.
-5. Anyone calls `completeAuction` after end:
-   - proceeds are split,
-   - creator share saved,
-   - boost share streamed to graduation pool.
-6. Authorized NFT owner/approved account collects creator proceeds in chosen amounts/recipients.
-
-## Important Design Decisions
-
-- **Uncancelable auction schedule**: improves fairness and predictability.
-- **Permissionless participation**: no allowlist or coordinator needed for buyers.
-- **Permissionless graduation**: no finalization trust bottleneck.
-- **NFT-based authorization**: transferable control surface and clean approval model.
-- **Saved-balance accounting for creator proceeds**: flexible and robust withdrawal flow.
-- **Boost as native onchain incentives**: ties launch outcome to post-launch liquidity incentives.
-- **No-op/revert discipline**:
-  - creation reverts if computed sale rate delta is zero,
-  - graduation reverts if no proceeds exist,
-  - zero-amount collection is a no-op without event emission.
-
-## Practical Implications
-
-- Launches are transparent and mechanically constrained once started.
-- Buyers interact with familiar TWAMM primitives instead of custom auction logic.
-- Finalization and settlement are resilient to inactive creators.
-- Post-sale liquidity incentives are automatically derived from actual sale proceeds.
-
-## Conclusion
-
-`Auctions` is intentionally minimal: it composes existing Ekubo primitives (TWAMM, Core saved balances, BoostedFees) into a launch flow with hard guarantees around fairness, liveness, and predictable control.
-
-Rather than inventing a new market mechanism, it packages a strict policy layer around TWAMM to make onchain launches simple to reason about and hard to manipulate.
+- easier to trust,
+- easier to participate in,
+- and better prepared for real trading after day one.

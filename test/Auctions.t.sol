@@ -12,6 +12,7 @@ import {computeSaleRate} from "../src/math/twamm.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {BaseNonfungibleToken} from "../src/base/BaseNonfungibleToken.sol";
 import {boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 contract AuctionsTest is BaseOrdersTest {
     using CoreLib for *;
@@ -232,6 +233,104 @@ contract AuctionsTest is BaseOrdersTest {
         assertEq(token0.balanceOf(address(this)), recipientBefore, "recipient unchanged");
     }
 
+    function test_collectCreatorProceeds_zeroAmount_emitsNoAuctionEvent() public {
+        (uint256 tokenId, AuctionKey memory auctionKey,) =
+            _createAuctionAndComplete({isSellingToken1_: true, amount: 1e18});
+
+        vm.recordLogs();
+        auctions.collectCreatorProceeds(tokenId, auctionKey, address(this), 0);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        uint256 auctionsLogs;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(auctions)) auctionsLogs++;
+        }
+        assertEq(auctionsLogs, 0, "no auctions events for zero-amount collect");
+    }
+
+    function testFuzz_completeAuction_succeedsWhenProceedsExist(
+        bool isSellingToken1_,
+        uint32 durationSeed,
+        uint128 amountSeed,
+        uint32 creatorFeeSeed
+    ) public {
+        uint64 startTime = alignToNextValidTime();
+        uint32 requestedDuration = uint32(bound(uint256(durationSeed), 60, 2 days));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + requestedDuration - 1));
+        uint32 duration = uint32(endTime - startTime);
+
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: isSellingToken1_, startTime: startTime, duration: duration, creatorFee: creatorFeeSeed
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, 1_000_000e18, 1_000_000e18);
+
+        uint128 amount = uint128(bound(uint256(amountSeed), uint256(duration), 1_000_000e18));
+        uint256 tokenId = auctions.mint();
+        if (isSellingToken1_) {
+            token1.approve(address(auctions), amount);
+        } else {
+            token0.approve(address(auctions), amount);
+        }
+        auctions.sellByAuction(tokenId, auctionKey, amount);
+
+        advanceTime(duration);
+        (,,, uint128 purchasedAmount) = auctions.executeVirtualOrdersAndGetSaleStatus(tokenId, auctionKey);
+        vm.assume(purchasedAmount > 0);
+
+        (uint128 creatorAmount, uint112 boostRate, uint64 boostEndTime) = auctions.completeAuction(tokenId, auctionKey);
+        assertLe(creatorAmount, purchasedAmount, "creator amount bounded by proceeds");
+        if (boostRate > 0) {
+            assertGt(boostEndTime, uint64(block.timestamp), "boostEndTime set when boost exists");
+        } else {
+            assertEq(boostEndTime, 0, "boostEndTime is zero when boost is zero");
+        }
+
+        (uint128 saved0, uint128 saved1) =
+            core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
+        if (isSellingToken1_) {
+            assertEq(saved0, creatorAmount, "saved0 creator balance");
+            assertEq(saved1, 0, "saved1 empty");
+        } else {
+            assertEq(saved0, 0, "saved0 empty");
+            assertEq(saved1, creatorAmount, "saved1 creator balance");
+        }
+    }
+
+    function testFuzz_collectCreatorProceeds_partialThenAll(bool isSellingToken1_, uint128 amountSeed, uint96 splitSeed)
+        public
+    {
+        uint128 amount = uint128(bound(uint256(amountSeed), 1e18, 100_000e18));
+        (uint256 tokenId, AuctionKey memory auctionKey, uint128 creatorAmount) =
+            _createAuctionAndComplete({isSellingToken1_: isSellingToken1_, amount: amount});
+
+        uint256 splitBps = bound(uint256(splitSeed), 0, 1_000_000);
+        uint128 partialAmount = uint128((uint256(creatorAmount) * splitBps) / 1_000_000);
+
+        address recipientA = makeAddr("recipientA_fuzz");
+        address recipientB = makeAddr("recipientB_fuzz");
+        address buyToken = auctionKey.buyToken();
+        uint256 recipientABefore = _balanceOf(buyToken, recipientA);
+        uint256 recipientBBefore = _balanceOf(buyToken, recipientB);
+
+        auctions.collectCreatorProceeds(tokenId, auctionKey, recipientA, partialAmount);
+        auctions.collectCreatorProceeds(tokenId, auctionKey, recipientB);
+
+        assertEq(_balanceOf(buyToken, recipientA), recipientABefore + partialAmount, "recipientA received partial");
+        assertEq(
+            _balanceOf(buyToken, recipientB),
+            recipientBBefore + (creatorAmount - partialAmount),
+            "recipientB received remainder"
+        );
+
+        (uint128 saved0, uint128 saved1) =
+            core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
+        assertEq(saved0, 0, "saved0 cleared");
+        assertEq(saved1, 0, "saved1 cleared");
+    }
+
     function test_emitsEvents_create_complete_collect() public {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
@@ -329,5 +428,11 @@ contract AuctionsTest is BaseOrdersTest {
         assertGt(creatorAmount, 0, "creatorAmount");
         assertGt(boostRate, 0, "boostRate");
         assertGt(boostEndTime, 0, "boostEndTime");
+    }
+
+    function _balanceOf(address token, address account) internal view returns (uint256 balance) {
+        (bool success, bytes memory data) = token.staticcall(abi.encodeWithSignature("balanceOf(address)", account));
+        require(success && data.length >= 32, "balanceOf call failed");
+        balance = abi.decode(data, (uint256));
     }
 }

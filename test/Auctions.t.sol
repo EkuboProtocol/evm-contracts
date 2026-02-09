@@ -91,6 +91,147 @@ contract AuctionsTest is BaseOrdersTest {
         auctions.collectCreatorProceeds(tokenId, auctionKey, 1);
     }
 
+    function test_sellByAuction_reverts_ifCallerIsNotAuthorized() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+
+        uint256 tokenId = auctions.mint();
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(
+            abi.encodeWithSelector(BaseNonfungibleToken.NotUnauthorizedForToken.selector, attacker, tokenId)
+        );
+        auctions.sellByAuction(tokenId, auctionKey, 1e18);
+    }
+
+    function test_sellByAuction_reverts_ifAuctionAlreadyStarted() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+
+        vm.warp(startTime + 1);
+        vm.expectRevert(Auctions.AuctionAlreadyStarted.selector);
+        auctions.sellByAuction(tokenId, auctionKey, 1e18);
+    }
+
+    function test_sellByAuction_reverts_ifSaleRateDeltaIsZero() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+
+        uint256 tokenId = auctions.mint();
+        vm.expectRevert(Auctions.ZeroSaleRateDelta.selector);
+        auctions.sellByAuction(tokenId, auctionKey, 0);
+    }
+
+    function test_completeAuction_reverts_ifAuctionNotEnded() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+        auctions.sellByAuction(tokenId, auctionKey, 1e18);
+
+        vm.expectRevert(Auctions.CannotCompleteAuctionBeforeEndOfAuction.selector);
+        auctions.completeAuction(tokenId, auctionKey);
+    }
+
+    function test_completeAuction_reverts_ifNoProceeds() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+        auctions.sellByAuction(tokenId, auctionKey, 1e18);
+
+        advanceTime(duration);
+        vm.expectRevert(Auctions.NoProceedsToCompleteAuction.selector);
+        auctions.completeAuction(tokenId, auctionKey);
+    }
+
+    function test_completeAuction_isPermissionless() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+        auctions.sellByAuction(tokenId, auctionKey, 1e18);
+
+        advanceTime(duration);
+
+        address completer = makeAddr("completer");
+        vm.prank(completer);
+        (uint128 creatorAmount, uint112 boostRate, uint64 boostEndTime) = auctions.completeAuction(tokenId, auctionKey);
+        assertGt(creatorAmount, 0, "creatorAmount");
+        assertGt(boostRate, 0, "boostRate");
+        assertGt(boostEndTime, 0, "boostEndTime");
+    }
+
+    function test_collectCreatorProceeds_recipientOverload_collectsAll() public {
+        (uint256 tokenId, AuctionKey memory auctionKey, uint128 creatorAmount) =
+            _createAuctionAndComplete({isSellingToken1_: true, amount: 1e18});
+
+        address recipient = makeAddr("recipient");
+        uint256 recipientBefore = token0.balanceOf(recipient);
+        auctions.collectCreatorProceeds(tokenId, auctionKey, recipient);
+        assertEq(token0.balanceOf(recipient), recipientBefore + creatorAmount, "recipient received all");
+
+        (uint128 saved0, uint128 saved1) =
+            core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
+        assertEq(saved0, 0, "saved0 cleared");
+        assertEq(saved1, 0, "saved1 cleared");
+    }
+
+    function test_collectCreatorProceeds_zeroAmount_isNoop() public {
+        (uint256 tokenId, AuctionKey memory auctionKey,) =
+            _createAuctionAndComplete({isSellingToken1_: true, amount: 1e18});
+
+        (uint128 saved0Before, uint128 saved1Before) =
+            core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
+        uint256 recipientBefore = token0.balanceOf(address(this));
+
+        auctions.collectCreatorProceeds(tokenId, auctionKey, address(this), 0);
+
+        (uint128 saved0After, uint128 saved1After) =
+            core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
+        assertEq(saved0After, saved0Before, "saved0 unchanged");
+        assertEq(saved1After, saved1Before, "saved1 unchanged");
+        assertEq(token0.balanceOf(address(this)), recipientBefore, "recipient unchanged");
+    }
+
     function test_emitsEvents_create_complete_collect() public {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
@@ -131,6 +272,23 @@ contract AuctionsTest is BaseOrdersTest {
         vm.expectEmit(false, false, false, true, address(auctions));
         emit Auctions.CreatorProceedsCollected(tokenId, auctionKey, address(this), saved0);
         auctions.collectCreatorProceeds(tokenId, auctionKey);
+    }
+
+    function _buildAuctionKey(bool isSellingToken1_, uint64 startTime, uint32 duration, uint32 creatorFee)
+        internal
+        view
+        returns (AuctionKey memory auctionKey)
+    {
+        AuctionConfig config = createAuctionConfig({
+            _creatorFee: creatorFee,
+            _isSellingToken1: isSellingToken1_,
+            _minBoostDuration: 1 days,
+            _graduationPoolFee: uint64((uint256(1) << 64) / 100),
+            _graduationPoolTickSpacing: 1000,
+            _startTime: startTime,
+            _auctionDuration: duration
+        });
+        auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
     }
 
     function _createAuctionAndComplete(bool isSellingToken1_, uint128 amount)

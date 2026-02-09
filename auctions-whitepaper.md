@@ -2,66 +2,85 @@
 
 ## Purpose
 
-An auction in Ekubo is designed to do two things at once:
+An Ekubo auction is designed to do two things in one flow:
 
-1. Raise funds for a new token launch.
-2. Bootstrap healthy liquidity after the sale ends.
+1. Sell launch inventory over a fixed time window using TWAMM.
+2. Route post-sale value into both creator proceeds and optional liquidity incentives.
 
-The mechanism is meant to be fair, transparent, and simple for participants to understand.
+The mechanism is permissionless to complete, predictable once configured, and built around onchain accounting.
 
-## How The Auction Works
+## Core Objects
 
-An auction creator chooses a sale window and starts selling tokens over time.
-Instead of a one-block sale, buyers can join at any point during the window.
+Each auction is keyed by:
 
-Participants who want to buy can enter with a time-based buy order, adjust it, stop it, or collect their purchase results as the sale runs.
-This makes participation flexible instead of all-or-nothing.
+- `token0`/`token1` pair,
+- an `AuctionConfig` (sale direction, timing, creator fee, boost settings, graduation pool settings),
+- and an auction NFT `tokenId`.
 
-The seller can add more inventory to the same auction before it starts.
-Once the sale is underway, the sale itself is not cancelable.
-That rule exists to reduce discretion and improve trust for buyers.
+`tokenId` is also used as the TWAMM order salt and the saved-balance accounting key.
 
-## What Happens When The Sale Ends
+## Lifecycle
 
-After the auction ends, anyone can finalize it.
-Finalization does two things:
+1. **Mint auction NFT**
+   The creator (or a later approved operator) mints and controls an ERC-721 auction NFT.
 
-1. Separates the seller's proceeds.
-2. Sends a portion of value into a post-sale liquidity boost.
+2. **Fund auction before start**
+   `sellByAuction(tokenId, auctionKey, amount)` can be called by the NFT owner/approved operator while
+   `block.timestamp <= startTime` (the contract reverts once `block.timestamp > startTime`).
 
-This means the auction is not only about selling tokens.
-It also helps the market transition into deeper trading conditions after launch.
+   The call:
+   - validates graduation pool tick spacing and max supported min boost duration,
+   - computes sale rate from `amount / auctionDuration`,
+   - initializes the launch TWAMM pool if needed,
+   - increases the TWAMM order sale rate for `salt = bytes32(tokenId)`,
+   - pulls sell tokens from the caller.
 
-## Creator Proceeds
+   Multiple pre-start calls can add more inventory to the same auction order.
 
-Creator proceeds are withdrawable by the auction controller.
-They can be collected in parts or all at once, and can be sent to a chosen recipient.
+3. **Auction runs in TWAMM**
+   Price discovery and execution are handled by TWAMM/Core virtual orders. Participants interact with the launch pool directly through TWAMM-compatible flows.
 
-This gives teams operational flexibility without weakening auction fairness.
+4. **Permissionless completion after end time**
+   Anyone can call `completeAuction` once `block.timestamp >= endTime`.
 
-## Liquidity Bootstrapping
+   Completion:
+   - collects purchased proceeds from the TWAMM order,
+   - reverts if proceeds are zero,
+   - computes creator share from `creatorFee`,
+   - treats the remainder as boost-eligible,
+   - optionally adds incentives to the graduation pool until an aligned `boostEndTime`.
 
-A share of the completed auction value is routed into incentives for a designated pool.
-The intent is to support liquidity immediately after launch, rather than leaving post-sale trading unsupported.
+   Important accounting detail:
+   the final creator amount is set to `auctionProceeds - actualBoostedAmount`.
+   So creator proceeds may be larger than the configured creator-fee share if boost amount is capped or otherwise less than boost-eligible amount.
 
-In practical terms, the auction does not end at fundraising.
-It continues into market bootstrapping.
+5. **Creator proceeds withdrawal**
+   Owner/approved operator calls `collectCreatorProceeds` (partial or all, to self or recipient).
+   Proceeds are held as Core saved balances under `(token0, token1, salt=bytes32(tokenId))` until withdrawn.
+
+## Access Control and Permissions
+
+- `sellByAuction` and all `collectCreatorProceeds` overloads require owner/approved access to the auction NFT.
+- `completeAuction` is permissionless.
+
+## Timing and Configuration Constraints
+
+- Auction cannot be newly funded once `block.timestamp > startTime`.
+- Completion is blocked before `endTime`.
+- `auctionDuration` must produce a non-zero sale rate for the funded amount.
+- Graduation pool tick spacing must be in `(0, MAX_TICK_SPACING]`.
+- `minBoostDuration` must be `<= 180 days`.
+
+## Proceeds and Incentives Semantics
+
+- Creator proceeds are stored in the buy-token side of saved balances.
+- Boost incentives are funded from the same collected proceeds.
+- If no boost can be applied, all proceeds become creator proceeds.
+- If only part of boost-eligible proceeds is applied (for example because of rate caps), unused amount is redirected to creator proceeds.
 
 ## Design Goals
 
-- Fairness: no mid-sale cancellation of the auction schedule.
-- Openness: anyone can participate during the sale window.
-- Flexibility: participants can manage their own buy flow over time.
-- Reliable completion: anyone can finalize after end time.
-- Better post-launch markets: auction value can fund liquidity incentives.
-
-## Why This Structure
-
-Many launches optimize only for initial distribution.
-Ekubo auctions are structured to optimize both distribution and the first phase of market quality.
-
-By combining fundraising and liquidity bootstrapping in one flow, the mechanism aims to produce launches that are:
-
-- easier to trust,
-- easier to participate in,
-- and better prepared for real trading after day one.
+- Deterministic launch schedule once auction starts.
+- Permissionless completion after end time.
+- Onchain, auditable split between creator proceeds and liquidity incentives.
+- Flexible creator withdrawal without custody handoffs.

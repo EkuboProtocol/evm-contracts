@@ -4,7 +4,6 @@ pragma solidity =0.8.33;
 import {ICore} from "./interfaces/ICore.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {OrderKey} from "./types/orderKey.sol";
 import {AuctionKey} from "./types/auctionKey.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
@@ -23,7 +22,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Auctions
-/// @notice Launchpad protocol for creating fair launches using Ekubo Protocol's TWAMM.
+/// @notice Launchpad protocol for creating TWAMM-based token auctions with optional post-sale boost incentives.
 /// @dev Auction lifecycle:
 /// 1. Mint auction NFT:
 ///    An auction is represented by an ERC721 token minted from this contract.
@@ -36,9 +35,10 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 ///    Anyone may execute virtual orders via TWAMM/Core mechanics; pricing/progress can be read with
 ///    `executeVirtualOrdersAndGetSaleStatus`.
 /// 4. Complete auction (permissionless):
-///    After end time, `completeAuction` collects TWAMM proceeds and splits them into:
-///    - creator proceeds: saved into Core saved balances under `(token0, token1, salt=tokenId)`,
-///    - boost proceeds: optionally converted into BoostedFees incentives for the graduation pool.
+///    After end time, `completeAuction` collects TWAMM proceeds and computes creator/boost allocations.
+///    The final creator proceeds are set to `auctionProceeds - actualBoostedAmount`, so they can exceed
+///    the configured creator-fee share when boost allocation is capped or partially applied.
+///    Creator proceeds are saved under `(token0, token1, salt=tokenId)`.
 /// 5. Collect creator proceeds (owner/approved):
 ///    Authorized NFT controller calls `collectCreatorProceeds` overloads to withdraw saved creator
 ///    balances to any recipient or directly to the caller, optionally for partial amounts.
@@ -108,8 +108,9 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         BOOSTED_FEES = boostedFees;
     }
 
-    /// @notice Sells tokens under an auction in the TWAMM launch pool for an existing auction NFT.
-    /// @dev Caller must be owner or approved for `tokenId`. Pulls sell tokens from caller.
+    /// @notice Adds sell inventory for an auction NFT into the TWAMM launch order.
+    /// @dev Caller must be owner or approved for `tokenId`. Reverts if `block.timestamp > startTime`.
+    /// Pulls sell tokens from caller and updates order `salt = bytes32(tokenId)`.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param amount The amount of sell token to auction.
@@ -125,10 +126,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         );
     }
 
-    /// @notice Completes an ended auction by collecting TWAMM proceeds and splitting creator/boost shares.
+    /// @notice Completes an ended auction by collecting TWAMM proceeds and allocating creator/boost shares.
+    /// @dev Permissionless. Reverts before end time or when no proceeds exist.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
-    /// @return creatorAmount The portion saved for creator proceeds.
+    /// @return creatorAmount The amount saved for creator proceeds after any boost allocation/capping effects.
     /// @return boostRate The boost sale rate applied to graduation pool incentives (0 when no boost is added).
     /// @return boostEndTime The boost end timestamp (0 when no boost is added).
     function completeAuction(uint256 tokenId, AuctionKey memory auctionKey)
@@ -154,6 +156,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     }
 
     /// @notice Collects all currently saved creator proceeds to a chosen recipient.
+    /// @dev Reads the buy-token side of saved balances keyed by `bytes32(tokenId)`.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param recipient Address to receive proceeds.
@@ -181,6 +184,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     }
 
     /// @notice Collects all currently saved creator proceeds to the caller.
+    /// @dev Reads the buy-token side of saved balances keyed by `bytes32(tokenId)`.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey)
@@ -200,7 +204,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @return saleRate Current sale rate of the underlying TWAMM order.
     /// @return amountSold Total amount sold so far.
     /// @return remainingSellAmount Remaining amount of sell token.
-    /// @return purchasedAmount Proceeds available to collect.
+    /// @return purchasedAmount Proceeds currently claimable from the TWAMM order by `completeAuction`.
     function executeVirtualOrdersAndGetSaleStatus(uint256 tokenId, AuctionKey memory auctionKey)
         external
         payable

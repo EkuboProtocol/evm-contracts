@@ -7,7 +7,6 @@ import {Core} from "../src/Core.sol";
 import {CallPoints} from "../src/types/callPoints.sol";
 import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
-import {Auctions} from "../src/Auctions.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {Incentives} from "../src/Incentives.sol";
@@ -189,7 +188,7 @@ contract DeployAll is Script {
             "MEVCaptureRouter"
         );
 
-        (address boostedFeesConcentrated,) = deployExtension(
+        deployExtension(
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(true),
@@ -214,13 +213,6 @@ contract DeployAll is Script {
             DEPLOYMENT_SALT,
             0x7A2fF5819Dc71Bb99133a97c38dA512E60c30475,
             "BoostedFeesDataFetcher"
-        );
-
-        deployIfNeeded(
-            abi.encodePacked(type(Auctions).creationCode, abi.encode(core, twamm, boostedFeesConcentrated)),
-            DEPLOYMENT_SALT,
-            address(0),
-            "Auctions"
         );
 
         vm.stopBroadcast();

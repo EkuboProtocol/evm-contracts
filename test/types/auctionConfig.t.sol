@@ -15,7 +15,7 @@ contract AuctionConfigTest is Test {
                 createAuctionConfig({
                     _creatorFee: uint32(config.creatorFee() >> 32),
                     _isSellingToken1: config.isSellingToken1(),
-                    _boostDuration: config.boostDuration(),
+                    _minBoostDuration: config.minBoostDuration(),
                     _graduationPoolFee: config.graduationPoolFee(),
                     _graduationPoolTickSpacing: config.graduationPoolTickSpacing(),
                     _startTime: config.startTime(),
@@ -29,7 +29,7 @@ contract AuctionConfigTest is Test {
     function test_conversionFromAndTo(
         uint32 creatorFee_,
         bool isSellingToken1_,
-        uint24 boostDuration_,
+        uint24 minBoostDuration_,
         uint64 graduationPoolFee_,
         uint32 graduationPoolTickSpacing_,
         uint64 startTime_,
@@ -38,7 +38,7 @@ contract AuctionConfigTest is Test {
         AuctionConfig config = createAuctionConfig({
             _creatorFee: creatorFee_,
             _isSellingToken1: isSellingToken1_,
-            _boostDuration: boostDuration_,
+            _minBoostDuration: minBoostDuration_,
             _graduationPoolFee: graduationPoolFee_,
             _graduationPoolTickSpacing: graduationPoolTickSpacing_,
             _startTime: startTime_,
@@ -47,7 +47,7 @@ contract AuctionConfigTest is Test {
 
         assertEq(config.creatorFee(), uint64(creatorFee_) << 32);
         assertEq(config.isSellingToken1(), isSellingToken1_);
-        assertEq(config.boostDuration(), boostDuration_);
+        assertEq(config.minBoostDuration(), minBoostDuration_);
         assertEq(config.graduationPoolFee(), graduationPoolFee_);
         assertEq(config.graduationPoolTickSpacing(), graduationPoolTickSpacing_);
         assertEq(config.startTime(), startTime_);
@@ -62,7 +62,7 @@ contract AuctionConfigTest is Test {
     function test_conversionFromAndToDirtyBits(
         bytes32 creatorFeeDirty,
         bytes32 isSellingToken1Dirty,
-        bytes32 boostDurationDirty,
+        bytes32 minBoostDurationDirty,
         bytes32 graduationPoolFeeDirty,
         bytes32 graduationPoolTickSpacingDirty,
         bytes32 startTimeDirty,
@@ -70,7 +70,7 @@ contract AuctionConfigTest is Test {
     ) public pure {
         uint32 creatorFee_;
         bool isSellingToken1_;
-        uint24 boostDuration_;
+        uint24 minBoostDuration_;
         uint64 graduationPoolFee_;
         uint32 graduationPoolTickSpacing_;
         uint64 startTime_;
@@ -79,7 +79,7 @@ contract AuctionConfigTest is Test {
         assembly ("memory-safe") {
             creatorFee_ := creatorFeeDirty
             isSellingToken1_ := isSellingToken1Dirty
-            boostDuration_ := boostDurationDirty
+            minBoostDuration_ := minBoostDurationDirty
             graduationPoolFee_ := graduationPoolFeeDirty
             graduationPoolTickSpacing_ := graduationPoolTickSpacingDirty
             startTime_ := startTimeDirty
@@ -89,7 +89,7 @@ contract AuctionConfigTest is Test {
         AuctionConfig config = createAuctionConfig({
             _creatorFee: creatorFee_,
             _isSellingToken1: isSellingToken1_,
-            _boostDuration: boostDuration_,
+            _minBoostDuration: minBoostDuration_,
             _graduationPoolFee: graduationPoolFee_,
             _graduationPoolTickSpacing: graduationPoolTickSpacing_,
             _startTime: startTime_,
@@ -98,7 +98,7 @@ contract AuctionConfigTest is Test {
 
         assertEq(config.creatorFee(), uint64(creatorFee_) << 32, "creatorFee");
         assertEq(config.isSellingToken1(), isSellingToken1_, "isSellingToken1");
-        assertEq(config.boostDuration(), boostDuration_, "boostDuration");
+        assertEq(config.minBoostDuration(), minBoostDuration_, "minBoostDuration");
         assertEq(config.graduationPoolFee(), graduationPoolFee_, "graduationPoolFee");
         assertEq(config.graduationPoolTickSpacing(), graduationPoolTickSpacing_, "graduationPoolTickSpacing");
         assertEq(config.startTime(), startTime_, "startTime");

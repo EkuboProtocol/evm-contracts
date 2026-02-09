@@ -33,7 +33,7 @@ contract AuctionsTest is BaseOrdersTest {
         AuctionConfig config = createAuctionConfig({
             _creatorFee: 0,
             _isSellingToken1: true,
-            _boostDuration: 1 days,
+            _minBoostDuration: 1 days,
             _graduationPoolFee: uint64((uint256(1) << 64) / 100),
             _graduationPoolTickSpacing: 1000,
             _startTime: startTime,
@@ -99,7 +99,7 @@ contract AuctionsTest is BaseOrdersTest {
         AuctionConfig config = createAuctionConfig({
             _creatorFee: type(uint32).max,
             _isSellingToken1: true,
-            _boostDuration: 1 days,
+            _minBoostDuration: 1 days,
             _graduationPoolFee: uint64((uint256(1) << 64) / 100),
             _graduationPoolTickSpacing: 1000,
             _startTime: startTime,
@@ -143,7 +143,7 @@ contract AuctionsTest is BaseOrdersTest {
         AuctionConfig config = createAuctionConfig({
             _creatorFee: type(uint32).max,
             _isSellingToken1: isSellingToken1_,
-            _boostDuration: 1 days,
+            _minBoostDuration: 1 days,
             _graduationPoolFee: uint64((uint256(1) << 64) / 100),
             _graduationPoolTickSpacing: 1000,
             _startTime: startTime,

@@ -278,7 +278,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 if (auctionProceeds > creatorAmount) {
                     boostEndTime = uint64(
                         nextValidTime({
-                            currentTime: block.timestamp, afterTime: block.timestamp + auctionKey.config.boostDuration()
+                            currentTime: block.timestamp,
+                            afterTime: block.timestamp + auctionKey.config.minBoostDuration()
                         })
                     );
                     uint256 duration = boostEndTime - block.timestamp;

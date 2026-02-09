@@ -7,7 +7,7 @@ type AuctionConfig is bytes32;
 using {
     creatorFee,
     isSellingToken1,
-    boostDuration,
+    minBoostDuration,
     graduationPoolFee,
     graduationPoolTickSpacing,
     startTime,
@@ -29,8 +29,8 @@ function isSellingToken1(AuctionConfig config) pure returns (bool v) {
     }
 }
 
-/// @notice Extracts boost duration from an auction config
-function boostDuration(AuctionConfig config) pure returns (uint24 v) {
+/// @notice Extracts minimum boost duration from an auction config
+function minBoostDuration(AuctionConfig config) pure returns (uint24 v) {
     assembly ("memory-safe") {
         v := and(shr(192, config), 0xffffff)
     }
@@ -75,7 +75,7 @@ function endTime(AuctionConfig config) pure returns (uint64 v) {
 function createAuctionConfig(
     uint32 _creatorFee,
     bool _isSellingToken1,
-    uint24 _boostDuration,
+    uint24 _minBoostDuration,
     uint64 _graduationPoolFee,
     uint32 _graduationPoolTickSpacing,
     uint64 _startTime,
@@ -85,7 +85,7 @@ function createAuctionConfig(
         v := add(
             add(
                 shl(224, and(_creatorFee, 0xffffffff)),
-                add(shl(216, iszero(iszero(_isSellingToken1))), shl(192, and(_boostDuration, 0xffffff)))
+                add(shl(216, iszero(iszero(_isSellingToken1))), shl(192, and(_minBoostDuration, 0xffffff)))
             ),
             add(
                 add(

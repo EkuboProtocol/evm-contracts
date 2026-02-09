@@ -12,8 +12,8 @@ import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {computeSaleRate} from "./math/twamm.sol";
 import {computeFee} from "./math/fee.sol";
-import {nextValidTime} from "./math/time.sol";
-import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {nextValidTime, MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
+import {NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING} from "./math/constants.sol";
 import {BoostedFeesLib} from "./libraries/BoostedFeesLib.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -59,6 +59,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     uint8 private constant CALL_TYPE_SELL_BY_AUCTION = 0;
     uint8 private constant CALL_TYPE_COMPLETE_AUCTION = 1;
     uint8 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
+    uint24 private constant MAX_MIN_BOOST_DURATION = 180 days;
 
     /// @notice The auction has not ended yet
     error CannotCompleteAuctionBeforeEndOfAuction();
@@ -70,6 +71,10 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     error NoProceedsToCompleteAuction();
     /// @notice Thrown when trying to add funds to an auction that has already started
     error AuctionAlreadyStarted();
+    /// @notice The graduation pool tick spacing is invalid.
+    error InvalidGraduationPoolTickSpacing();
+    /// @notice The minimum boost duration is larger than the supported maximum.
+    error MinBoostDurationTooLarge();
 
     /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
     /// @param tokenId The auction NFT token id.
@@ -217,6 +222,14 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) =
                     abi.decode(data, (uint8, address, uint256, AuctionKey, uint128));
 
+                uint32 graduationPoolTickSpacing = auctionKey.config.graduationPoolTickSpacing();
+                if (graduationPoolTickSpacing == 0 || graduationPoolTickSpacing > MAX_TICK_SPACING) {
+                    revert InvalidGraduationPoolTickSpacing();
+                }
+                if (auctionKey.config.minBoostDuration() > MAX_MIN_BOOST_DURATION) {
+                    revert MinBoostDurationTooLarge();
+                }
+
                 uint256 startTime = auctionKey.config.startTime();
                 uint256 endTime = startTime + auctionKey.config.auctionDuration();
 
@@ -272,10 +285,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 if (auctionProceeds == 0) revert NoProceedsToCompleteAuction();
 
                 uint128 creatorAmount = computeFee({amount: auctionProceeds, fee: auctionKey.config.creatorFee()});
+                uint256 boostEligibleAmount = auctionProceeds - creatorAmount;
                 uint64 boostEndTime;
                 uint112 boostRate;
 
-                if (auctionProceeds > creatorAmount) {
+                if (boostEligibleAmount != 0) {
                     boostEndTime = uint64(
                         nextValidTime({
                             currentTime: block.timestamp,
@@ -283,11 +297,17 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                         })
                     );
                     uint256 duration = boostEndTime - block.timestamp;
-                    boostRate = uint112(computeSaleRate(auctionProceeds - creatorAmount, duration));
+                    boostRate = uint112(
+                        FixedPointMathLib.min(
+                            (uint256(boostEligibleAmount) << 32) / duration, MAX_ABS_VALUE_SALE_RATE_DELTA
+                        )
+                    );
 
                     (uint112 rate0, uint112 rate1) =
                         auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
 
+                    // todo: it's possible to grief this by boosting the pool for the computed end time
+                    // such that it causes the rate delta on the end time to underflow, preventing the incentives from being added
                     (uint112 amount0, uint112 amount1) = CORE.addIncentives({
                         poolKey: auctionKey.toGraduationPoolKey(BOOSTED_FEES),
                         startTime: 0,

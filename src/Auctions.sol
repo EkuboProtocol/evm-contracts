@@ -291,14 +291,13 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 uint112 boostRate;
 
                 if (boostEligibleAmount != 0) {
-                    uint256 candidateBoostEndTime = block.timestamp + auctionKey.config.minBoostDuration();
+                    boostEndTime = uint64(block.timestamp + auctionKey.config.minBoostDuration());
                     PoolKey memory graduationPoolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
                     while (true) {
-                        candidateBoostEndTime =
-                            nextValidTime({currentTime: block.timestamp, afterTime: candidateBoostEndTime});
-                        if (candidateBoostEndTime == 0) revert NoBoostWindowAvailable();
+                        boostEndTime = uint64(nextValidTime({currentTime: block.timestamp, afterTime: boostEndTime}));
+                        if (boostEndTime == 0) revert NoBoostWindowAvailable();
 
-                        uint256 duration = candidateBoostEndTime - block.timestamp;
+                        uint256 duration = boostEndTime - block.timestamp;
                         boostRate = uint112(
                             FixedPointMathLib.min((boostEligibleAmount << 32) / duration, MAX_ABS_VALUE_SALE_RATE_DELTA)
                         );
@@ -306,20 +305,15 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                         (uint112 rate0, uint112 rate1) =
                             auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
 
-                        (bool success, bytes memory forwardResult) = tryForward(
-                            BOOSTED_FEES, abi.encode(graduationPoolKey, 0, uint64(candidateBoostEndTime), rate0, rate1)
-                        );
+                        (bool success, bytes memory forwardResult) =
+                            tryForward(BOOSTED_FEES, abi.encode(graduationPoolKey, 0, boostEndTime, rate0, rate1));
 
                         if (success) {
                             (uint112 amount0, uint112 amount1) = abi.decode(forwardResult, (uint112, uint112));
                             uint112 actualBoostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
                             // we need to make sure the debts are zeroed at the end so we add any leftover here
                             creatorAmount = auctionProceeds - actualBoostedAmount;
-
-                            boostEndTime = uint64(candidateBoostEndTime);
                             break;
-                        } else {
-                            // try a later valid end time if this one cannot be boosted
                         }
                     }
                 }

@@ -57,9 +57,9 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @notice The BoostedFees extension address
     address public immutable BOOSTED_FEES;
 
-    uint8 private constant CALL_TYPE_SELL_BY_AUCTION = 0;
-    uint8 private constant CALL_TYPE_COMPLETE_AUCTION = 1;
-    uint8 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
+    uint256 private constant CALL_TYPE_SELL_BY_AUCTION = 0;
+    uint256 private constant CALL_TYPE_COMPLETE_AUCTION = 1;
+    uint256 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
 
     /// @notice The auction has not ended yet
     error CannotCompleteAuctionBeforeEndOfAuction();
@@ -79,7 +79,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
-    /// @param saleRate The TWAMM sale rate delta applied for this auction.
+    /// @param saleRate The TWAMM sale rate of this auction.
     event AuctionFundsAdded(uint256 tokenId, AuctionKey auctionKey, uint112 saleRate);
 
     /// @notice Emitted when an auction is completed and proceeds are split.
@@ -204,13 +204,13 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @return saleRate Current sale rate of the underlying TWAMM order.
     /// @return amountSold Total amount sold so far.
     /// @return remainingSellAmount Remaining amount of sell token.
-    /// @return purchasedAmount Proceeds currently claimable from the TWAMM order by `completeAuction`.
+    /// @return raisedAmount Current total proceeds of the auction.
     function executeVirtualOrdersAndGetSaleStatus(uint256 tokenId, AuctionKey memory auctionKey)
         external
         payable
-        returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 purchasedAmount)
+        returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 raisedAmount)
     {
-        (saleRate, amountSold, remainingSellAmount, purchasedAmount) =
+        (saleRate, amountSold, remainingSellAmount, raisedAmount) =
             TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(tokenId), auctionKey.toOrderKey());
     }
 
@@ -220,11 +220,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @return result ABI-encoded return data for the requested operation.
     function handleLockData(uint256 _lockId, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
-            uint8 callType = abi.decode(data, (uint8));
+            uint256 callType = abi.decode(data, (uint256));
 
             if (callType == CALL_TYPE_SELL_BY_AUCTION) {
                 (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) =
-                    abi.decode(data, (uint8, address, uint256, AuctionKey, uint128));
+                    abi.decode(data, (uint256, address, uint256, AuctionKey, uint128));
 
                 uint32 graduationPoolTickSpacing = auctionKey.config.graduationPoolTickSpacing();
                 if (graduationPoolTickSpacing == 0 || graduationPoolTickSpacing > MAX_TICK_SPACING) {
@@ -260,6 +260,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                             twamm: TWAMM,
                             salt: bytes32(tokenId),
                             orderKey: auctionKey.toOrderKey(),
+                            // cast is safe because of the overflow check above
                             saleRateDelta: int112(int256(saleRateDelta))
                         })
                     )
@@ -272,9 +273,9 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 }
 
                 emit AuctionFundsAdded(tokenId, auctionKey, uint112(saleRateDelta));
-                result = abi.encode(uint112(saleRateDelta));
+                result = abi.encode(saleRateDelta);
             } else if (callType == CALL_TYPE_COMPLETE_AUCTION) {
-                (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint8, uint256, AuctionKey));
+                (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint256, uint256, AuctionKey));
 
                 uint64 auctionEndTime = auctionKey.config.endTime();
                 if (block.timestamp < auctionEndTime) {
@@ -335,7 +336,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 result = abi.encode(creatorAmount, boostRate, boostEndTime);
             } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
                 (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
-                    abi.decode(data, (uint8, uint256, AuctionKey, address, uint128));
+                    abi.decode(data, (uint256, uint256, AuctionKey, address, uint128));
 
                 if (amount != 0) {
                     (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
@@ -358,7 +359,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         }
     }
 
-    /// @notice Forwards data through core and returns success status with returned/revert bytes.
+    /// @dev Calls ICore#forward and returns success status with returned/revert bytes so we can retry if necessary.
     function tryForward(address to, bytes memory data) private returns (bool success, bytes memory result) {
         (success, result) =
             address(CORE).call(abi.encodePacked(IFlashAccountant.forward.selector, uint256(uint160(to)), data));

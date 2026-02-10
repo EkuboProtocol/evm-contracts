@@ -8,7 +8,7 @@ import {AuctionKey} from "../src/types/auctionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {nextValidTime, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../src/math/time.sol";
-import {computeSaleRate} from "../src/math/twamm.sol";
+import {SaleRateOverflow, computeSaleRate} from "../src/math/twamm.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {BaseNonfungibleToken} from "../src/base/BaseNonfungibleToken.sol";
 import {boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
@@ -703,7 +703,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), amount);
 
-        vm.expectRevert(Auctions.SaleRateTooLarge.selector);
+        vm.expectRevert(SaleRateOverflow.selector);
         auctions.sellByAuction(tokenId, auctionKey, amount);
     }
 

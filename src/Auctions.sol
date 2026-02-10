@@ -9,7 +9,7 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {UsesCore} from "./base/UsesCore.sol";
-import {computeSaleRate} from "./math/twamm.sol";
+import {SaleRateOverflow, computeSaleRate} from "./math/twamm.sol";
 import {computeFee} from "./math/fee.sol";
 import {nextValidTime, MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
 import {NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING} from "./math/constants.sol";
@@ -43,8 +43,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     error CannotCompleteAuctionBeforeEndOfAuction();
     /// @notice The auction cannot be created because the sale rate delta is zero.
     error ZeroSaleRateDelta();
-    /// @notice Thrown if the sale rate exceeds type(int112).max.
-    error SaleRateTooLarge();
     /// @notice The auction cannot be completed because no proceeds are available.
     error NoProceedsToCompleteAuction();
     /// @notice Thrown when trying to add funds to an auction that has already started
@@ -93,16 +91,29 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param saleRate The TWAMM sale rate delta to add to the auction order.
-    /// @return saleRate The TWAMM sale rate delta applied for this call.
     function sellByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint112 saleRate)
         public
         payable
         authorizedForNft(tokenId)
-        returns (uint112)
     {
-        return abi.decode(
-            lock(abi.encode(CALL_TYPE_SELL_BY_AUCTION, msg.sender, tokenId, auctionKey, saleRate)), (uint112)
-        );
+        uint32 graduationPoolTickSpacing = auctionKey.config.graduationPoolTickSpacing();
+        if (graduationPoolTickSpacing == 0 || graduationPoolTickSpacing > MAX_TICK_SPACING) {
+            revert InvalidGraduationPoolTickSpacing();
+        }
+
+        if (saleRate == 0) {
+            revert ZeroSaleRateDelta();
+        }
+
+        if (saleRate > MAX_ABS_VALUE_SALE_RATE_DELTA) {
+            revert SaleRateOverflow();
+        }
+
+        if (auctionKey.config.startTime() < block.timestamp) {
+            revert AuctionAlreadyStarted();
+        }
+
+        lock(abi.encode(CALL_TYPE_SELL_BY_AUCTION, msg.sender, tokenId, auctionKey, int112(saleRate)));
     }
 
     /// @notice Adds sell inventory for an auction NFT launch order by amount.
@@ -117,16 +128,9 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         authorizedForNft(tokenId)
         returns (uint112 saleRate)
     {
-        uint256 saleRateDelta = computeSaleRate(amount, auctionKey.config.auctionDuration());
-        // This will also happen if the specified duration is zero
-        if (saleRateDelta == 0) {
-            revert ZeroSaleRateDelta();
-        }
-        if (saleRateDelta > uint112(type(int112).max)) {
-            revert SaleRateTooLarge();
-        }
+        saleRate = uint112(computeSaleRate(amount, auctionKey.config.auctionDuration()));
 
-        saleRate = sellByAuction(tokenId, auctionKey, uint112(saleRateDelta));
+        sellByAuction(tokenId, auctionKey, saleRate);
     }
 
     /// @notice Completes an ended auction by collecting TWAMM proceeds and allocating creator/boost shares.
@@ -255,25 +259,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
             uint256 callType = abi.decode(data, (uint256));
 
             if (callType == CALL_TYPE_SELL_BY_AUCTION) {
-                (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint112 saleRate) =
-                    abi.decode(data, (uint256, address, uint256, AuctionKey, uint112));
-
-                uint32 graduationPoolTickSpacing = auctionKey.config.graduationPoolTickSpacing();
-                if (graduationPoolTickSpacing == 0 || graduationPoolTickSpacing > MAX_TICK_SPACING) {
-                    revert InvalidGraduationPoolTickSpacing();
-                }
-                uint256 startTime = auctionKey.config.startTime();
-                if (startTime < block.timestamp) {
-                    revert AuctionAlreadyStarted();
-                }
-
-                if (saleRate == 0) {
-                    revert ZeroSaleRateDelta();
-                }
-
-                if (saleRate > uint112(type(int112).max)) {
-                    revert SaleRateTooLarge();
-                }
+                (, address caller, uint256 tokenId, AuctionKey memory auctionKey, int112 saleRateDelta) =
+                    abi.decode(data, (uint256, address, uint256, AuctionKey, int112));
 
                 PoolKey memory twammPoolKey = auctionKey.toLaunchPoolKey(address(TWAMM));
                 if (!CORE.poolState(twammPoolKey.toPoolId()).isInitialized()) {
@@ -288,7 +275,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                             salt: bytes32(tokenId),
                             orderKey: auctionKey.toOrderKey(),
                             // cast is safe because of the overflow check above
-                            saleRateDelta: int112(uint112(saleRate))
+                            saleRateDelta: saleRateDelta
                         })
                     )
                 );
@@ -299,8 +286,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     ACCOUNTANT.payFrom(caller, auctionKey.sellToken(), amount);
                 }
 
-                emit AuctionFundsAdded(tokenId, auctionKey, saleRate);
-                result = abi.encode(saleRate);
+                emit AuctionFundsAdded(tokenId, auctionKey, uint112(saleRateDelta));
             } else if (callType == CALL_TYPE_COMPLETE_AUCTION) {
                 (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint256, uint256, AuctionKey));
 

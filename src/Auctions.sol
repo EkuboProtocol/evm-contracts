@@ -22,29 +22,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Auctions
-/// @notice Launchpad protocol for creating TWAMM-based token auctions with optional post-sale boost incentives.
-/// @dev Auction lifecycle:
-/// 1. Mint auction NFT:
-///    An auction is represented by an ERC721 token minted from this contract.
-///    The owner (or approved operator) controls auction actions through `authorizedForNft`.
-/// 2. Sell by auction:
-///    `sellByAuction` initializes the TWAMM launch pool if needed and creates/increases the
-///    per-auction TWAMM order keyed by `salt = bytes32(tokenId)`.
-///    Sell tokens are pulled from the caller and paid into Core through the lock/accountant flow.
-/// 3. Auction runs permissionlessly:
-///    Anyone may execute virtual orders via TWAMM/Core mechanics; pricing/progress can be read with
-///    `executeVirtualOrdersAndGetSaleStatus`.
-/// 4. Complete auction (permissionless):
-///    After end time, `completeAuction` collects TWAMM proceeds and computes creator/boost allocations.
-///    The final creator proceeds are set to `auctionProceeds - actualBoostedAmount`, so they can exceed
-///    the configured creator-fee share when boost allocation is capped or partially applied.
-///    Creator proceeds are saved under `(token0, token1, salt=tokenId)`.
-/// 5. Collect creator proceeds (owner/approved):
-///    Authorized NFT controller calls `collectCreatorProceeds` overloads to withdraw saved creator
-///    balances to any recipient or directly to the caller, optionally for partial amounts.
-///    Collection debits saved balances and withdraws buy token via accountant in the same lock.
-/// 6. Events:
-///    `AuctionFundsAdded`, `AuctionCompleted`, and `CreatorProceedsCollected` mark each major stage.
+/// @notice TWAMM-based token auction manager.
 contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMulticallable {
     using CoreLib for *;
     using BoostedFeesLib for *;
@@ -63,9 +41,9 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
 
     /// @notice The auction has not ended yet
     error CannotCompleteAuctionBeforeEndOfAuction();
-    /// @notice The auction cannot be created because the computed sale rate delta is zero.
+    /// @notice The auction cannot be created because the sale rate delta is zero.
     error ZeroSaleRateDelta();
-    /// @notice Thrown if the computed auction sale rate exceeds the type(int112).max
+    /// @notice Thrown if the sale rate exceeds type(int112).max.
     error SaleRateTooLarge();
     /// @notice The auction cannot be completed because no proceeds are available.
     error NoProceedsToCompleteAuction();
@@ -109,9 +87,26 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         BOOSTED_FEES = boostedFees;
     }
 
-    /// @notice Adds sell inventory for an auction NFT into the TWAMM launch order.
+    /// @notice Adds TWAMM sale rate for an auction NFT launch order.
     /// @dev Caller must be owner or approved for `tokenId`. Reverts if `block.timestamp > startTime`.
-    /// Pulls sell tokens from caller and updates order `salt = bytes32(tokenId)`.
+    /// Pulls the exact required sell-token amount from caller and updates order `salt = bytes32(tokenId)`.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param saleRate The TWAMM sale rate delta to add to the auction order.
+    /// @return saleRate The TWAMM sale rate delta applied for this call.
+    function sellByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint112 saleRate)
+        public
+        payable
+        authorizedForNft(tokenId)
+        returns (uint112)
+    {
+        return abi.decode(
+            lock(abi.encode(CALL_TYPE_SELL_BY_AUCTION, msg.sender, tokenId, auctionKey, saleRate)), (uint112)
+        );
+    }
+
+    /// @notice Adds sell inventory for an auction NFT launch order by amount.
+    /// @dev Computes `saleRate = (amount << 32) / auctionDuration` and forwards to the sale-rate entrypoint.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param amount The amount of sell token to auction.
@@ -122,9 +117,16 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         authorizedForNft(tokenId)
         returns (uint112 saleRate)
     {
-        saleRate = abi.decode(
-            lock(abi.encode(CALL_TYPE_SELL_BY_AUCTION, msg.sender, tokenId, auctionKey, amount)), (uint112)
-        );
+        uint256 saleRateDelta = computeSaleRate(amount, auctionKey.config.auctionDuration());
+        // This will also happen if the specified duration is zero
+        if (saleRateDelta == 0) {
+            revert ZeroSaleRateDelta();
+        }
+        if (saleRateDelta > uint112(type(int112).max)) {
+            revert SaleRateTooLarge();
+        }
+
+        saleRate = sellByAuction(tokenId, auctionKey, uint112(saleRateDelta));
     }
 
     /// @notice Completes an ended auction by collecting TWAMM proceeds and allocating creator/boost shares.
@@ -253,28 +255,23 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
             uint256 callType = abi.decode(data, (uint256));
 
             if (callType == CALL_TYPE_SELL_BY_AUCTION) {
-                (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) =
-                    abi.decode(data, (uint256, address, uint256, AuctionKey, uint128));
+                (, address caller, uint256 tokenId, AuctionKey memory auctionKey, uint112 saleRate) =
+                    abi.decode(data, (uint256, address, uint256, AuctionKey, uint112));
 
                 uint32 graduationPoolTickSpacing = auctionKey.config.graduationPoolTickSpacing();
                 if (graduationPoolTickSpacing == 0 || graduationPoolTickSpacing > MAX_TICK_SPACING) {
                     revert InvalidGraduationPoolTickSpacing();
                 }
                 uint256 startTime = auctionKey.config.startTime();
-                uint256 endTime = startTime + auctionKey.config.auctionDuration();
-
                 if (startTime < block.timestamp) {
                     revert AuctionAlreadyStarted();
                 }
 
-                uint256 duration = endTime - startTime;
-                uint256 saleRateDelta = computeSaleRate(amount, duration);
-                // This will also happen if the specified duration is zero
-                if (saleRateDelta == 0) {
+                if (saleRate == 0) {
                     revert ZeroSaleRateDelta();
                 }
 
-                if (saleRateDelta > uint112(type(int112).max)) {
+                if (saleRate > uint112(type(int112).max)) {
                     revert SaleRateTooLarge();
                 }
 
@@ -284,14 +281,14 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     CORE.initializePool(twammPoolKey, 0);
                 }
 
-                amount = uint128(
+                uint128 amount = uint128(
                     uint256(
                         CORE.updateSaleRate({
                             twamm: TWAMM,
                             salt: bytes32(tokenId),
                             orderKey: auctionKey.toOrderKey(),
                             // cast is safe because of the overflow check above
-                            saleRateDelta: int112(int256(saleRateDelta))
+                            saleRateDelta: int112(uint112(saleRate))
                         })
                     )
                 );
@@ -302,8 +299,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     ACCOUNTANT.payFrom(caller, auctionKey.sellToken(), amount);
                 }
 
-                emit AuctionFundsAdded(tokenId, auctionKey, uint112(saleRateDelta));
-                result = abi.encode(saleRateDelta);
+                emit AuctionFundsAdded(tokenId, auctionKey, saleRate);
+                result = abi.encode(saleRate);
             } else if (callType == CALL_TYPE_COMPLETE_AUCTION) {
                 (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint256, uint256, AuctionKey));
 

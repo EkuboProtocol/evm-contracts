@@ -146,17 +146,16 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param auctionKey The auction key defining tokens and config.
     /// @return boostRate The boost sale rate applied to graduation pool incentives.
     /// @return boostEndTime The boost end timestamp.
-    /// @return boostedAmount The amount consumed from saved boost balances.
     function startBoost(AuctionKey memory auctionKey)
         external
         payable
-        returns (uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount)
+        returns (uint112 boostRate, uint64 boostEndTime)
     {
         bytes32 auctionId = auctionKey.toAuctionId();
         (uint128 saved0, uint128 saved1) =
             CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, auctionId);
         uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
-        return abi.decode(lock(abi.encode(CALL_TYPE_START_BOOST, auctionKey, amount)), (uint112, uint64, uint112));
+        return startBoost(auctionKey, amount);
     }
 
     /// @notice Starts boost on the graduation pool using a specific amount from saved boost proceeds.
@@ -165,13 +164,12 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param amount The amount of saved boost proceeds to use for this boost call.
     /// @return boostRate The boost sale rate applied to graduation pool incentives.
     /// @return boostEndTime The boost end timestamp.
-    /// @return boostedAmount The amount consumed from saved boost balances.
     function startBoost(AuctionKey memory auctionKey, uint128 amount)
-        external
+        public
         payable
-        returns (uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount)
+        returns (uint112 boostRate, uint64 boostEndTime)
     {
-        return abi.decode(lock(abi.encode(CALL_TYPE_START_BOOST, auctionKey, amount)), (uint112, uint64, uint112));
+        return abi.decode(lock(abi.encode(CALL_TYPE_START_BOOST, auctionKey, amount)), (uint112, uint64));
     }
 
     /// @notice Collects creator proceeds from saved balances to a chosen recipient.
@@ -404,7 +402,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 }
 
                 emit BoostStarted(auctionKey, boostRate, boostEndTime, boostedAmount);
-                result = abi.encode(boostRate, boostEndTime, boostedAmount);
+                result = abi.encode(boostRate, boostEndTime);
             } else {
                 revert();
             }

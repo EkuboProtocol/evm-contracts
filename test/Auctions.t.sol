@@ -311,7 +311,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         address boosterCaller = makeAddr("boosterCaller");
         vm.prank(boosterCaller);
-        (uint112 boostRate, uint64 boostEndTime,) = auctions.startBoost(auctionKey);
+        (uint112 boostRate, uint64 boostEndTime) = auctions.startBoost(auctionKey);
         assertGt(boostRate, 0, "boostRate");
         assertGt(boostEndTime, 0, "boostEndTime");
     }
@@ -349,12 +349,10 @@ contract AuctionsTest is BaseOrdersTest {
 
         advanceTime(duration);
         (uint128 creatorAmount, uint128 boostAmount) = auctions.completeAuction(tokenId, auctionKey);
-        (uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount) = auctions.startBoost(auctionKey);
+        (uint112 boostRate, uint64 boostEndTime) = auctions.startBoost(auctionKey);
 
         assertEq(boostRate, MAX_ABS_VALUE_SALE_RATE_DELTA, "boost rate capped");
         assertGt(boostEndTime, 0, "boost end time set");
-        assertGt(boostedAmount, 0, "some boost consumed");
-        assertLt(boostedAmount, boostAmount, "remaining boost saved");
         assertEq(creatorAmount, 0, "creator amount remains fee-based");
 
         (uint128 saved0, uint128 saved1) =
@@ -365,6 +363,9 @@ contract AuctionsTest is BaseOrdersTest {
         bytes32 auctionId = auctionKey.toAuctionId();
         (uint128 boostSaved0, uint128 boostSaved1) =
             core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, auctionId);
+        uint128 boostedAmount = boostAmount - boostSaved0;
+        assertGt(boostedAmount, 0, "some boost consumed");
+        assertLt(boostedAmount, boostAmount, "remaining boost saved");
         assertEq(boostSaved0, boostAmount - boostedAmount, "boost remainder saved");
         assertEq(boostSaved1, 0, "boost saved1 empty");
     }
@@ -540,15 +541,13 @@ contract AuctionsTest is BaseOrdersTest {
         assertLe(creatorAmount, purchasedAmount, "creator amount bounded by proceeds");
         assertEq(creatorAmount + boostAmount, purchasedAmount, "proceeds conserved");
         if (boostAmount > 0) {
-            (uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount) = auctions.startBoost(auctionKey);
+            (uint112 boostRate, uint64 boostEndTime) = auctions.startBoost(auctionKey);
             assertLe(boostRate, MAX_ABS_VALUE_SALE_RATE_DELTA, "boost rate capped");
             assertGt(boostEndTime, uint64(block.timestamp), "boostEndTime set when boost exists");
-            assertGt(boostedAmount, 0, "boosted amount set");
         } else {
-            (uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount) = auctions.startBoost(auctionKey);
+            (uint112 boostRate, uint64 boostEndTime) = auctions.startBoost(auctionKey);
             assertEq(boostRate, 0, "zero boost rate");
             assertGt(boostEndTime, uint64(block.timestamp), "boostEndTime still computed");
-            assertEq(boostedAmount, 0, "zero boosted amount");
         }
 
         (uint128 saved0, uint128 saved1) =

@@ -91,8 +91,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param auctionKey The auction key defining tokens and config.
     /// @param boostRate The boost sale rate applied to the graduation pool incentives.
     /// @param boostEndTime The timestamp when the boost stops.
-    /// @param boostedAmount The amount consumed from saved boost balances.
-    event BoostStarted(AuctionKey auctionKey, uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount);
+    event BoostStarted(AuctionKey auctionKey, uint112 boostRate, uint64 boostEndTime);
 
     /// @notice Emitted when creator proceeds are collected from saved balances.
     /// @param tokenId The auction NFT token id.
@@ -369,7 +368,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 }
             } else if (callType == CALL_TYPE_START_BOOST) {
                 (, AuctionKey memory auctionKey, uint128 boostAmount) = abi.decode(data, (uint256, AuctionKey, uint128));
-                bytes32 auctionId = auctionKey.toAuctionId();
                 uint64 boostEndTime = uint64(block.timestamp + auctionKey.config.minBoostDuration());
                 boostEndTime = uint64(nextValidTime({currentTime: block.timestamp, afterTime: boostEndTime}));
 
@@ -381,12 +379,11 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 );
                 (uint112 rate0, uint112 rate1) =
                     auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
-                {
-                    PoolKey memory graduationPoolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
-                    (uint112 amount0, uint112 amount1) =
-                        CORE.addIncentives(graduationPoolKey, 0, boostEndTime, rate0, rate1);
-                    boostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
-                }
+
+                PoolKey memory graduationPoolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
+                (uint112 amount0, uint112 amount1) =
+                    CORE.addIncentives(graduationPoolKey, 0, boostEndTime, rate0, rate1);
+                boostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
 
                 if (boostedAmount != 0) {
                     (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
@@ -395,13 +392,14 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     CORE.updateSavedBalances({
                         token0: auctionKey.token0,
                         token1: auctionKey.token1,
-                        salt: auctionId,
+                        salt: auctionKey.toAuctionId(),
                         delta0: delta0,
                         delta1: delta1
                     });
+
+                    emit BoostStarted(auctionKey, boostRate, boostEndTime);
                 }
 
-                emit BoostStarted(auctionKey, boostRate, boostEndTime, boostedAmount);
                 result = abi.encode(boostRate, boostEndTime);
             } else {
                 revert();

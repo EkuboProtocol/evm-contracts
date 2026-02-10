@@ -7,7 +7,7 @@ import {createOrderConfig} from "./orderConfig.sol";
 import {PoolKey} from "./poolKey.sol";
 import {createFullRangePoolConfig, createConcentratedPoolConfig} from "./poolConfig.sol";
 
-using {sellToken, buyToken, toOrderKey, toLaunchPoolKey, toGraduationPoolKey} for AuctionKey global;
+using {sellToken, buyToken, toOrderKey, toLaunchPoolKey, toGraduationPoolKey, toAuctionId} for AuctionKey global;
 
 /// @notice Auction key structure identifying an auction
 struct AuctionKey {
@@ -69,3 +69,11 @@ function toGraduationPoolKey(AuctionKey memory auctionKey, address boostedFees) 
     });
 }
 
+/// @notice Computes the auction id from an auction key
+/// @param auctionKey The auction key
+/// @return auctionId The computed auction id
+function toAuctionId(AuctionKey memory auctionKey) pure returns (bytes32 auctionId) {
+    assembly ("memory-safe") {
+        auctionId := keccak256(auctionKey, 96)
+    }
+}

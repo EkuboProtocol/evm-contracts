@@ -2,7 +2,6 @@
 pragma solidity =0.8.33;
 
 import {ICore} from "./interfaces/ICore.sol";
-import {IFlashAccountant} from "./interfaces/IFlashAccountant.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {AuctionKey} from "./types/auctionKey.sol";
@@ -60,6 +59,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     uint256 private constant CALL_TYPE_SELL_BY_AUCTION = 0;
     uint256 private constant CALL_TYPE_COMPLETE_AUCTION = 1;
     uint256 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
+    uint256 private constant CALL_TYPE_START_BOOST = 3;
 
     /// @notice The auction has not ended yet
     error CannotCompleteAuctionBeforeEndOfAuction();
@@ -73,8 +73,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     error AuctionAlreadyStarted();
     /// @notice The graduation pool tick spacing is invalid.
     error InvalidGraduationPoolTickSpacing();
-    /// @notice Thrown when no boost window that could be boosted was found
-    error NoBoostWindowAvailable();
 
     /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
     /// @param tokenId The auction NFT token id.
@@ -86,11 +84,15 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param creatorAmount The amount reserved in saved balances for creator proceeds.
+    /// @param boostAmount The amount reserved in saved balances for later boosting.
+    event AuctionCompleted(uint256 tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount);
+
+    /// @notice Emitted when a boost is started from saved boost proceeds.
+    /// @param auctionKey The auction key defining tokens and config.
     /// @param boostRate The boost sale rate applied to the graduation pool incentives.
-    /// @param boostEndTime The timestamp when the boost stops. The boost starts immediately.
-    event AuctionCompleted(
-        uint256 tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint112 boostRate, uint64 boostEndTime
-    );
+    /// @param boostEndTime The timestamp when the boost stops.
+    /// @param boostedAmount The amount consumed from saved boost balances.
+    event BoostStarted(AuctionKey auctionKey, uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount);
 
     /// @notice Emitted when creator proceeds are collected from saved balances.
     /// @param tokenId The auction NFT token id.
@@ -130,15 +132,46 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @dev Permissionless. Reverts before end time or when no proceeds exist.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
-    /// @return creatorAmount The amount saved for creator proceeds after any boost allocation/capping effects.
-    /// @return boostRate The boost sale rate applied to graduation pool incentives (0 when no boost is added).
-    /// @return boostEndTime The boost end timestamp (0 when no boost is added).
+    /// @return creatorAmount The amount saved for creator proceeds keyed by `bytes32(tokenId)`.
+    /// @return boostAmount The amount saved for future boosting keyed by `toAuctionId(auctionKey)`.
     function completeAuction(uint256 tokenId, AuctionKey memory auctionKey)
         external
         payable
-        returns (uint128 creatorAmount, uint112 boostRate, uint64 boostEndTime)
+        returns (uint128 creatorAmount, uint128 boostAmount)
     {
-        return abi.decode(lock(abi.encode(CALL_TYPE_COMPLETE_AUCTION, tokenId, auctionKey)), (uint128, uint112, uint64));
+        return abi.decode(lock(abi.encode(CALL_TYPE_COMPLETE_AUCTION, tokenId, auctionKey)), (uint128, uint128));
+    }
+
+    /// @notice Starts boost on the graduation pool using all currently saved boost proceeds for an auction key.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @return boostRate The boost sale rate applied to graduation pool incentives.
+    /// @return boostEndTime The boost end timestamp.
+    /// @return boostedAmount The amount consumed from saved boost balances.
+    function startBoost(AuctionKey memory auctionKey)
+        external
+        payable
+        returns (uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount)
+    {
+        bytes32 auctionId = auctionKey.toAuctionId();
+        (uint128 saved0, uint128 saved1) =
+            CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, auctionId);
+        uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
+        return abi.decode(lock(abi.encode(CALL_TYPE_START_BOOST, auctionKey, amount)), (uint112, uint64, uint112));
+    }
+
+    /// @notice Starts boost on the graduation pool using a specific amount from saved boost proceeds.
+    /// @dev Permissionless. Reverts if the requested amount is not available in saved boost balances.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @param amount The amount of saved boost proceeds to use for this boost call.
+    /// @return boostRate The boost sale rate applied to graduation pool incentives.
+    /// @return boostEndTime The boost end timestamp.
+    /// @return boostedAmount The amount consumed from saved boost balances.
+    function startBoost(AuctionKey memory auctionKey, uint128 amount)
+        external
+        payable
+        returns (uint112 boostRate, uint64 boostEndTime, uint112 boostedAmount)
+    {
+        return abi.decode(lock(abi.encode(CALL_TYPE_START_BOOST, auctionKey, amount)), (uint112, uint64, uint112));
     }
 
     /// @notice Collects creator proceeds from saved balances to a chosen recipient.
@@ -287,37 +320,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
 
                 uint128 creatorAmount =
                     computeFee({amount: auctionProceeds, fee: uint64(auctionKey.config.creatorFee()) << 32});
-                uint256 boostEligibleAmount = auctionProceeds - creatorAmount;
-                uint64 boostEndTime;
-                uint112 boostRate;
-
-                if (boostEligibleAmount != 0) {
-                    boostEndTime = uint64(block.timestamp + auctionKey.config.minBoostDuration());
-                    PoolKey memory graduationPoolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
-                    while (true) {
-                        boostEndTime = uint64(nextValidTime({currentTime: block.timestamp, afterTime: boostEndTime}));
-                        if (boostEndTime == 0) revert NoBoostWindowAvailable();
-
-                        uint256 duration = boostEndTime - block.timestamp;
-                        boostRate = uint112(
-                            FixedPointMathLib.min((boostEligibleAmount << 32) / duration, MAX_ABS_VALUE_SALE_RATE_DELTA)
-                        );
-
-                        (uint112 rate0, uint112 rate1) =
-                            auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
-
-                        (bool success, bytes memory forwardResult) =
-                            tryForward(BOOSTED_FEES, abi.encode(graduationPoolKey, 0, boostEndTime, rate0, rate1));
-
-                        if (success) {
-                            (uint112 amount0, uint112 amount1) = abi.decode(forwardResult, (uint112, uint112));
-                            uint112 actualBoostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
-                            // we need to make sure the debts are zeroed at the end so we add any leftover here
-                            creatorAmount = auctionProceeds - actualBoostedAmount;
-                            break;
-                        }
-                    }
-                }
+                uint128 boostAmount = auctionProceeds - creatorAmount;
 
                 if (creatorAmount != 0) {
                     (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
@@ -331,9 +334,22 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                         delta1: delta1
                     });
                 }
+                if (boostAmount != 0) {
+                    bytes32 auctionId = auctionKey.toAuctionId();
+                    (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
+                        ? (int256(uint256(boostAmount)), int256(0))
+                        : (int256(0), int256(uint256(boostAmount)));
+                    CORE.updateSavedBalances({
+                        token0: auctionKey.token0,
+                        token1: auctionKey.token1,
+                        salt: auctionId,
+                        delta0: delta0,
+                        delta1: delta1
+                    });
+                }
 
-                emit AuctionCompleted(tokenId, auctionKey, creatorAmount, boostRate, boostEndTime);
-                result = abi.encode(creatorAmount, boostRate, boostEndTime);
+                emit AuctionCompleted(tokenId, auctionKey, creatorAmount, boostAmount);
+                result = abi.encode(creatorAmount, boostAmount);
             } else if (callType == CALL_TYPE_COLLECT_CREATOR_PROCEEDS) {
                 (, uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount) =
                     abi.decode(data, (uint256, uint256, AuctionKey, address, uint128));
@@ -353,15 +369,45 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     ACCOUNTANT.withdraw(auctionKey.buyToken(), recipient, amount);
                     emit CreatorProceedsCollected(tokenId, auctionKey, recipient, amount);
                 }
+            } else if (callType == CALL_TYPE_START_BOOST) {
+                (, AuctionKey memory auctionKey, uint128 boostAmount) = abi.decode(data, (uint256, AuctionKey, uint128));
+                bytes32 auctionId = auctionKey.toAuctionId();
+                uint64 boostEndTime = uint64(block.timestamp + auctionKey.config.minBoostDuration());
+                boostEndTime = uint64(nextValidTime({currentTime: block.timestamp, afterTime: boostEndTime}));
+
+                uint112 boostRate;
+                uint112 boostedAmount;
+                uint256 duration = boostEndTime - block.timestamp;
+                boostRate = uint112(
+                    FixedPointMathLib.min((uint256(boostAmount) << 32) / duration, MAX_ABS_VALUE_SALE_RATE_DELTA)
+                );
+                (uint112 rate0, uint112 rate1) =
+                    auctionKey.config.isSellingToken1() ? (boostRate, uint112(0)) : (uint112(0), boostRate);
+                {
+                    PoolKey memory graduationPoolKey = auctionKey.toGraduationPoolKey(BOOSTED_FEES);
+                    (uint112 amount0, uint112 amount1) =
+                        CORE.addIncentives(graduationPoolKey, 0, boostEndTime, rate0, rate1);
+                    boostedAmount = auctionKey.config.isSellingToken1() ? amount0 : amount1;
+                }
+
+                if (boostedAmount != 0) {
+                    (int256 delta0, int256 delta1) = auctionKey.config.isSellingToken1()
+                        ? (-int256(uint256(boostedAmount)), int256(0))
+                        : (int256(0), -int256(uint256(boostedAmount)));
+                    CORE.updateSavedBalances({
+                        token0: auctionKey.token0,
+                        token1: auctionKey.token1,
+                        salt: auctionId,
+                        delta0: delta0,
+                        delta1: delta1
+                    });
+                }
+
+                emit BoostStarted(auctionKey, boostRate, boostEndTime, boostedAmount);
+                result = abi.encode(boostRate, boostEndTime, boostedAmount);
             } else {
                 revert();
             }
         }
-    }
-
-    /// @dev Calls ICore#forward and returns success status with returned/revert bytes so we can retry if necessary.
-    function tryForward(address to, bytes memory data) private returns (bool success, bytes memory result) {
-        (success, result) =
-            address(CORE).call(abi.encodePacked(IFlashAccountant.forward.selector, uint256(uint160(to)), data));
     }
 }

@@ -274,7 +274,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                             twamm: TWAMM,
                             salt: bytes32(tokenId),
                             orderKey: auctionKey.toOrderKey(),
-                            // cast is safe because of the overflow check above
+                            // cast is safe because of the earlier overflow checks
                             saleRateDelta: saleRateDelta
                         })
                     )

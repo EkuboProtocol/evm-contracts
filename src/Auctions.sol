@@ -122,7 +122,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param auctionKey The auction key defining tokens and config.
     /// @param amount The amount of sell token to auction.
     /// @return saleRate The TWAMM sale rate delta applied for this call.
-    function sellByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
+    function sellAmountByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
         payable
         authorizedForNft(tokenId)
@@ -250,7 +250,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
             TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(tokenId), auctionKey.toOrderKey());
     }
 
-    /// @notice Lock callback dispatcher for selling by auction, completing auctions, and collecting creator proceeds.
+    /// @dev Lock callback dispatcher for handling all of the supported auction actions.
     /// @param _lockId Lock id argument from BaseLocker callback.
     /// @param data ABI-encoded operation payload.
     /// @return result ABI-encoded return data for the requested operation.

@@ -14,9 +14,11 @@ import {BaseNonfungibleToken} from "../src/base/BaseNonfungibleToken.sol";
 import {boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {ManualPoolBooster} from "../src/ManualPoolBooster.sol";
 import {Vm} from "forge-std/Vm.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract AuctionsTest is BaseOrdersTest {
     using CoreLib for *;
+    using FixedPointMathLib for uint256;
 
     Auctions auctions;
     ManualPoolBooster booster;
@@ -50,7 +52,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint256 tokenId = auctions.mint();
 
         token1.approve(address(auctions), totalAmountSold);
-        auctions.sellByAuction(tokenId, auctionKey, totalAmountSold);
+        auctions.sellAmountByAuction(tokenId, auctionKey, totalAmountSold);
         vm.snapshotGasLastCall("Auctions#sellByAuction");
     }
 
@@ -68,7 +70,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
         auctions.completeAuction(tokenId, auctionKey);
@@ -89,7 +91,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
         auctions.completeAuction(tokenId, auctionKey);
@@ -154,7 +156,7 @@ contract AuctionsTest is BaseOrdersTest {
         vm.expectRevert(
             abi.encodeWithSelector(BaseNonfungibleToken.NotUnauthorizedForToken.selector, attacker, tokenId)
         );
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
     function test_sellByAuction_reverts_ifAuctionAlreadyStarted() public {
@@ -170,7 +172,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         vm.warp(startTime + 1);
         vm.expectRevert(Auctions.AuctionAlreadyStarted.selector);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
     function test_sellByAuction_reverts_ifSaleRateDeltaIsZero() public {
@@ -183,7 +185,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         vm.expectRevert(Auctions.ZeroSaleRateDelta.selector);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(0));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(0));
     }
 
     function test_sellByAuction_reverts_ifGraduationPoolTickSpacingIsZero() public {
@@ -204,7 +206,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
         vm.expectRevert(Auctions.InvalidGraduationPoolTickSpacing.selector);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
     function test_sellByAuction_reverts_ifGraduationPoolTickSpacingTooLarge() public {
@@ -225,7 +227,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
         vm.expectRevert(Auctions.InvalidGraduationPoolTickSpacing.selector);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
     function test_completeAuction_reverts_ifAuctionNotEnded() public {
@@ -242,7 +244,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         vm.expectRevert(Auctions.CannotCompleteAuctionBeforeEndOfAuction.selector);
         auctions.completeAuction(tokenId, auctionKey);
@@ -258,7 +260,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
         vm.expectRevert(Auctions.NoProceedsToCompleteAuction.selector);
@@ -279,7 +281,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
 
@@ -304,7 +306,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
         auctions.completeAuction(tokenId, auctionKey);
@@ -345,7 +347,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint128 totalAmountSold = 20_000_000_000_000_000_000_000_000;
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), totalAmountSold);
-        auctions.sellByAuction(tokenId, auctionKey, totalAmountSold);
+        auctions.sellAmountByAuction(tokenId, auctionKey, totalAmountSold);
 
         advanceTime(duration);
         (uint128 creatorAmount, uint128 boostAmount) = auctions.completeAuction(tokenId, auctionKey);
@@ -393,7 +395,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
 
@@ -435,7 +437,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        auctions.sellByAuction(tokenId, auctionKey, uint128(1e18));
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
 
@@ -531,7 +533,7 @@ contract AuctionsTest is BaseOrdersTest {
         } else {
             token0.approve(address(auctions), amount);
         }
-        auctions.sellByAuction(tokenId, auctionKey, amount);
+        auctions.sellAmountByAuction(tokenId, auctionKey, amount);
 
         advanceTime(duration);
         (,,, uint128 purchasedAmount) = auctions.executeVirtualOrdersAndGetSaleStatus(tokenId, auctionKey);
@@ -559,6 +561,72 @@ contract AuctionsTest is BaseOrdersTest {
             assertEq(saved0, 0, "saved0 empty");
             assertEq(saved1, creatorAmount, "saved1 creator balance");
         }
+    }
+
+    function testFuzz_completeAuction_alwaysCompletes_underUint128TotalSupply(
+        bool isSellingToken1_,
+        uint128 supply0Seed,
+        uint128 supply1Seed,
+        uint128 liquidity0Seed,
+        uint128 liquidity1Seed,
+        uint32 durationSeed,
+        uint128 saleRateSeed,
+        uint32 creatorFeeSeed,
+        address completer
+    ) public {
+        uint256 minInventory = 1e18;
+
+        uint64 startTime = alignToNextValidTime();
+        uint32 maxRequestedDuration = type(uint32).max - uint32(startTime);
+        uint32 requestedDuration = uint32(bound(uint256(durationSeed), 1, maxRequestedDuration));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + requestedDuration - 1));
+        uint32 duration = uint32(endTime - startTime);
+
+        // Constrain the exercised state space to the regime where each token has total supply < 2**128.
+        uint128 supply0 = uint128(bound(uint256(supply0Seed), minInventory + 2, type(uint128).max));
+        uint128 supply1 = uint128(bound(uint256(supply1Seed), minInventory + 2, type(uint128).max));
+        uint128 liquidity0 = uint128(bound(uint256(liquidity0Seed), 1, uint256(supply0) - minInventory));
+        uint128 liquidity1 = uint128(bound(uint256(liquidity1Seed), 1, uint256(supply1) - minInventory));
+        uint128 inventory0 = supply0 - liquidity0;
+        uint128 inventory1 = supply1 - liquidity1;
+
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: isSellingToken1_, startTime: startTime, duration: duration, creatorFee: creatorFeeSeed
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, liquidity0, liquidity1);
+
+        uint256 maxSaleRateByInventory0 = (uint256(inventory0) << 32) / duration;
+        uint256 maxSaleRateByInventory1 = (uint256(inventory1) << 32) / duration;
+        uint256 maxSaleRate = FixedPointMathLib.min(
+            MAX_ABS_VALUE_SALE_RATE_DELTA, FixedPointMathLib.min(maxSaleRateByInventory0, maxSaleRateByInventory1)
+        );
+        uint256 desiredMinSaleRate = FixedPointMathLib.max(1, ((minInventory << 32) + duration - 1) / duration);
+        uint256 minSaleRate = FixedPointMathLib.min(desiredMinSaleRate, maxSaleRate);
+        uint112 saleRate = uint112(bound(uint256(saleRateSeed), minSaleRate, maxSaleRate));
+
+        uint256 tokenId = auctions.mint();
+        uint256 counterTokenId = auctions.mint();
+        if (isSellingToken1_) {
+            token1.approve(address(auctions), inventory1);
+            token0.approve(address(auctions), inventory0);
+        } else {
+            token0.approve(address(auctions), inventory0);
+            token1.approve(address(auctions), inventory1);
+        }
+        auctions.sellByAuction(tokenId, auctionKey, saleRate);
+
+        AuctionKey memory counterAuctionKey = _buildAuctionKey({
+            isSellingToken1_: !isSellingToken1_, startTime: startTime, duration: duration, creatorFee: creatorFeeSeed
+        });
+        auctions.sellByAuction(counterTokenId, counterAuctionKey, saleRate);
+
+        advanceTime(duration);
+
+        vm.prank(completer);
+        auctions.completeAuction(tokenId, auctionKey);
     }
 
     function testFuzz_collectCreatorProceeds_partialThenAll(bool isSellingToken1_, uint128 amountSeed, uint96 splitSeed)
@@ -634,7 +702,7 @@ contract AuctionsTest is BaseOrdersTest {
         } else {
             token0.approve(address(auctions), amount);
         }
-        auctions.sellByAuction(tokenId, auctionKey, amount);
+        auctions.sellAmountByAuction(tokenId, auctionKey, amount);
 
         AuctionConfig wrongConfig = createAuctionConfig({
             _creatorFee: creatorFee,
@@ -704,7 +772,7 @@ contract AuctionsTest is BaseOrdersTest {
         token1.approve(address(auctions), amount);
 
         vm.expectRevert(SaleRateOverflow.selector);
-        auctions.sellByAuction(tokenId, auctionKey, amount);
+        auctions.sellAmountByAuction(tokenId, auctionKey, amount);
     }
 
     function testFuzz_completeAuction_fullCreatorFee_skipsBoost(
@@ -728,7 +796,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint256 tokenId = auctions.mint();
         if (isSellingToken1_) token1.approve(address(auctions), amount);
         else token0.approve(address(auctions), amount);
-        auctions.sellByAuction(tokenId, auctionKey, amount);
+        auctions.sellAmountByAuction(tokenId, auctionKey, amount);
 
         advanceTime(duration);
         (,,, uint128 purchasedAmount) = auctions.executeVirtualOrdersAndGetSaleStatus(tokenId, auctionKey);
@@ -764,8 +832,8 @@ contract AuctionsTest is BaseOrdersTest {
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), uint256(amount0) + uint256(amount1));
 
-        uint112 saleRate0 = auctions.sellByAuction(tokenId, auctionKey, amount0);
-        uint112 saleRate1 = auctions.sellByAuction(tokenId, auctionKey, amount1);
+        uint112 saleRate0 = auctions.sellAmountByAuction(tokenId, auctionKey, amount0);
+        uint112 saleRate1 = auctions.sellAmountByAuction(tokenId, auctionKey, amount1);
         (uint112 saleRate,,,) = auctions.executeVirtualOrdersAndGetSaleStatus(tokenId, auctionKey);
         assertEq(saleRate, uint112(uint256(saleRate0) + uint256(saleRate1)), "sale rates aggregate");
     }
@@ -823,7 +891,7 @@ contract AuctionsTest is BaseOrdersTest {
         uint112 saleRate = uint112(computeSaleRate(totalAmountSold, duration));
         vm.expectEmit(false, false, false, true, address(auctions));
         emit Auctions.AuctionFundsAdded(tokenId, auctionKey, saleRate);
-        auctions.sellByAuction(tokenId, auctionKey, totalAmountSold);
+        auctions.sellAmountByAuction(tokenId, auctionKey, totalAmountSold);
 
         advanceTime(duration);
 
@@ -884,7 +952,7 @@ contract AuctionsTest is BaseOrdersTest {
         } else {
             token0.approve(address(auctions), amount);
         }
-        auctions.sellByAuction(tokenId, auctionKey, amount);
+        auctions.sellAmountByAuction(tokenId, auctionKey, amount);
 
         advanceTime(duration);
         uint128 boostAmount;

@@ -140,11 +140,27 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @return creatorAmount The amount saved for creator proceeds keyed by `bytes32(tokenId)`.
     /// @return boostAmount The amount saved for future boosting keyed by `toAuctionId(auctionKey)`.
     function completeAuction(uint256 tokenId, AuctionKey memory auctionKey)
-        external
+        public
         payable
         returns (uint128 creatorAmount, uint128 boostAmount)
     {
         return abi.decode(lock(abi.encode(CALL_TYPE_COMPLETE_AUCTION, tokenId, auctionKey)), (uint128, uint128));
+    }
+
+    /// @notice Completes an auction and immediately starts boost using the returned boost amount.
+    /// @param tokenId The auction NFT token id.
+    /// @param auctionKey The auction key defining tokens and config.
+    /// @return creatorAmount The amount saved for creator proceeds keyed by `bytes32(tokenId)`.
+    /// @return boostAmount The amount used to start boost from saved balances.
+    /// @return boostRate The boost sale rate applied to graduation pool incentives.
+    /// @return boostEndTime The boost end timestamp.
+    function completeAuctionAndStartBoost(uint256 tokenId, AuctionKey memory auctionKey)
+        external
+        payable
+        returns (uint128 creatorAmount, uint128 boostAmount, uint112 boostRate, uint64 boostEndTime)
+    {
+        (creatorAmount, boostAmount) = completeAuction(tokenId, auctionKey);
+        (boostRate, boostEndTime) = startBoost(auctionKey, boostAmount);
     }
 
     /// @notice Starts boost on the graduation pool using all currently saved boost proceeds for an auction key.

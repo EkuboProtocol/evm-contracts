@@ -318,6 +318,38 @@ contract AuctionsTest is BaseOrdersTest {
         assertGt(boostEndTime, 0, "boostEndTime");
     }
 
+    function test_completeAuctionAndStartBoost_matchesSeparateCalls() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
+        advanceTime(duration);
+
+        uint256 snapshotId = vm.snapshot();
+        (uint128 creatorAmountExpected, uint128 boostAmountExpected) = auctions.completeAuction(tokenId, auctionKey);
+        (uint112 boostRateExpected, uint64 boostEndTimeExpected) = auctions.startBoost(auctionKey, boostAmountExpected);
+
+        vm.revertTo(snapshotId);
+
+        (uint128 creatorAmount, uint128 boostAmount, uint112 boostRate, uint64 boostEndTime) =
+            auctions.completeAuctionAndStartBoost(tokenId, auctionKey);
+
+        assertEq(creatorAmount, creatorAmountExpected, "creator amount");
+        assertEq(boostAmount, boostAmountExpected, "boost amount");
+        assertEq(boostRate, boostRateExpected, "boost rate");
+        assertEq(boostEndTime, boostEndTimeExpected, "boost end time");
+    }
+
     function test_completeAuction_capsBoostRate_andRedirectsOverflowToCreator_whenMinBoostDurationIsZero() public {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));

@@ -267,6 +267,33 @@ contract AuctionsTest is BaseOrdersTest {
         auctions.completeAuction(tokenId, auctionKey);
     }
 
+    function test_completeAuction_reverts_ifCreatorFeeMismatchedFromSell() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        uint32 creatorFee = type(uint32).max / 3;
+
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: creatorFee
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        core.initializePool(launchPool, 0);
+        core.initializePool(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()), 0);
+        createPosition(launchPool, MIN_TICK, MAX_TICK, 10_000e18, 10_000e18);
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
+
+        AuctionKey memory wrongAuctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: creatorFee + 1
+        });
+
+        advanceTime(duration);
+        vm.expectRevert(Auctions.NoProceedsToCompleteAuction.selector);
+        auctions.completeAuction(tokenId, wrongAuctionKey);
+    }
+
     function test_completeAuction_isPermissionless() public {
         uint64 startTime = alignToNextValidTime();
         uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));

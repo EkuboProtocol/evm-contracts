@@ -5,6 +5,7 @@ import {ICore} from "./interfaces/ICore.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {AuctionKey} from "./types/auctionKey.sol";
+import {AuctionConfig} from "./types/auctionConfig.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
@@ -18,6 +19,7 @@ import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @author Moody Salem <moody@ekubo.org>
@@ -87,7 +89,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
 
     /// @notice Adds TWAMM sale rate for an auction NFT launch order.
     /// @dev Caller must be owner or approved for `tokenId`. Reverts if `block.timestamp > startTime`.
-    /// Pulls the exact required sell-token amount from caller and updates order `salt = bytes32(tokenId)`.
+    /// Pulls the exact required sell-token amount from caller and updates order `salt = hash(tokenId, config)`.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param saleRate The TWAMM sale rate delta to add to the auction order.
@@ -262,8 +264,14 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         payable
         returns (uint112 saleRate, uint256 amountSold, uint256 remainingSellAmount, uint128 raisedAmount)
     {
+        bytes32 orderSalt = _twammOrderSalt(tokenId, auctionKey.config);
         (saleRate, amountSold, remainingSellAmount, raisedAmount) =
-            TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(tokenId), auctionKey.toOrderKey());
+            TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), orderSalt, auctionKey.toOrderKey());
+    }
+
+    /// @dev Derives the TWAMM order salt from immutable identity fields for a specific auction run.
+    function _twammOrderSalt(uint256 tokenId, AuctionConfig config) internal pure returns (bytes32) {
+        return EfficientHashLib.hash(tokenId, uint256(AuctionConfig.unwrap(config)));
     }
 
     /// @dev Lock callback dispatcher for handling all of the supported auction actions.
@@ -277,6 +285,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
             if (callType == CALL_TYPE_SELL_BY_AUCTION) {
                 (, address caller, uint256 tokenId, AuctionKey memory auctionKey, int112 saleRateDelta) =
                     abi.decode(data, (uint256, address, uint256, AuctionKey, int112));
+                bytes32 orderSalt = _twammOrderSalt(tokenId, auctionKey.config);
 
                 PoolKey memory twammPoolKey = auctionKey.toLaunchPoolKey(address(TWAMM));
                 if (!CORE.poolState(twammPoolKey.toPoolId()).isInitialized()) {
@@ -288,7 +297,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                     uint256(
                         CORE.updateSaleRate({
                             twamm: TWAMM,
-                            salt: bytes32(tokenId),
+                            salt: orderSalt,
                             orderKey: auctionKey.toOrderKey(),
                             // cast is safe because of the earlier overflow checks
                             saleRateDelta: saleRateDelta
@@ -305,13 +314,14 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 emit AuctionFundsAdded(tokenId, auctionKey, uint112(saleRateDelta));
             } else if (callType == CALL_TYPE_COMPLETE_AUCTION) {
                 (, uint256 tokenId, AuctionKey memory auctionKey) = abi.decode(data, (uint256, uint256, AuctionKey));
+                bytes32 orderSalt = _twammOrderSalt(tokenId, auctionKey.config);
 
                 uint64 auctionEndTime = auctionKey.config.endTime();
                 if (block.timestamp < auctionEndTime) {
                     revert CannotCompleteAuctionBeforeEndOfAuction();
                 }
 
-                uint128 auctionProceeds = CORE.collectProceeds(TWAMM, bytes32(tokenId), auctionKey.toOrderKey());
+                uint128 auctionProceeds = CORE.collectProceeds(TWAMM, orderSalt, auctionKey.toOrderKey());
                 if (auctionProceeds == 0) revert NoProceedsToCompleteAuction();
 
                 uint128 creatorAmount =

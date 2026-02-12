@@ -47,6 +47,8 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     error ZeroSaleRateDelta();
     /// @notice The auction cannot be completed because no proceeds are available.
     error NoProceedsToCompleteAuction();
+    /// @notice There is no valid future boost end time available.
+    error InvalidBoostEndTime();
     /// @notice Thrown when trying to add funds to an auction that has already started
     error AuctionAlreadyStarted();
     /// @notice The graduation pool tick spacing is invalid.
@@ -127,7 +129,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     function sellAmountByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
         payable
-        authorizedForNft(tokenId)
         returns (uint112 saleRate)
     {
         saleRate = uint112(computeSaleRate(amount, auctionKey.config.auctionDuration()));
@@ -214,11 +215,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param recipient Address to receive proceeds.
-    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient)
-        external
-        payable
-        authorizedForNft(tokenId)
-    {
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient) external payable {
         (uint128 saved0, uint128 saved1) =
             CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
         uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
@@ -229,11 +226,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
     /// @param amount Amount of buy token to collect.
-    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
-        external
-        payable
-        authorizedForNft(tokenId)
-    {
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) external payable {
         collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
     }
 
@@ -241,11 +234,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     /// @dev Reads the buy-token side of saved balances keyed by `bytes32(tokenId)`.
     /// @param tokenId The auction NFT token id.
     /// @param auctionKey The auction key defining tokens and config.
-    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey)
-        external
-        payable
-        authorizedForNft(tokenId)
-    {
+    function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey) external payable {
         (uint128 saved0, uint128 saved1) =
             CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
         uint128 amount = auctionKey.config.isSellingToken1() ? saved0 : saved1;
@@ -377,8 +366,12 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 }
             } else if (callType == CALL_TYPE_START_BOOST) {
                 (, AuctionKey memory auctionKey, uint128 boostAmount) = abi.decode(data, (uint256, AuctionKey, uint128));
-                uint64 boostEndTime = uint64(block.timestamp + auctionKey.config.minBoostDuration());
-                boostEndTime = uint64(nextValidTime({currentTime: block.timestamp, afterTime: boostEndTime}));
+                uint256 minBoostEndTime = block.timestamp + auctionKey.config.minBoostDuration();
+                uint256 boostEndTimeRaw = nextValidTime({currentTime: block.timestamp, afterTime: minBoostEndTime});
+                if (boostEndTimeRaw <= block.timestamp || boostEndTimeRaw > type(uint64).max) {
+                    revert InvalidBoostEndTime();
+                }
+                uint64 boostEndTime = uint64(boostEndTimeRaw);
 
                 uint112 boostRate;
                 uint112 boostedAmount;

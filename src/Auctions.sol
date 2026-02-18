@@ -178,7 +178,7 @@ contract Auctions is IAuctions, UsesCore, BaseLocker, BaseNonfungibleToken, Paya
 
     /// @inheritdoc IAuctions
     function maybeInitializePool(PoolKey memory poolKey, int32 tick)
-        external
+        public
         payable
         returns (bool initialized, SqrtRatio sqrtRatio)
     {
@@ -188,6 +188,24 @@ contract Auctions is IAuctions, UsesCore, BaseLocker, BaseNonfungibleToken, Paya
             initialized = true;
             sqrtRatio = CORE.initializePool(poolKey, tick);
         }
+    }
+
+    /// @inheritdoc IAuctions
+    function maybeInitializeLaunchPool(AuctionKey memory auctionKey, int32 tick)
+        external
+        payable
+        returns (bool initialized, SqrtRatio sqrtRatio)
+    {
+        return maybeInitializePool(auctionKey.toLaunchPoolKey(address(TWAMM)), tick);
+    }
+
+    /// @inheritdoc IAuctions
+    function maybeInitializeGraduationPool(AuctionKey memory auctionKey, int32 tick)
+        external
+        payable
+        returns (bool initialized, SqrtRatio sqrtRatio)
+    {
+        return maybeInitializePool(auctionKey.toGraduationPoolKey(BOOSTED_FEES), tick);
     }
 
     /// @dev Lock callback dispatcher for handling all of the supported auction actions.

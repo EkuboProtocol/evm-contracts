@@ -164,4 +164,24 @@ interface IAuctions is IBaseNonfungibleToken {
         external
         payable
         returns (bool initialized, SqrtRatio sqrtRatio);
+
+    /// @notice Initializes the launch pool for the given auction key if not yet initialized.
+    /// @param auctionKey The auction key used to derive the launch pool key.
+    /// @param tick The initialization tick to use when the pool is not initialized.
+    /// @return initialized Whether this call initialized the pool.
+    /// @return sqrtRatio The current or newly initialized sqrt ratio.
+    function maybeInitializeLaunchPool(AuctionKey memory auctionKey, int32 tick)
+        external
+        payable
+        returns (bool initialized, SqrtRatio sqrtRatio);
+
+    /// @notice Initializes the graduation pool for the given auction key if not yet initialized.
+    /// @param auctionKey The auction key used to derive the graduation pool key.
+    /// @param tick The initialization tick to use when the pool is not initialized.
+    /// @return initialized Whether this call initialized the pool.
+    /// @return sqrtRatio The current or newly initialized sqrt ratio.
+    function maybeInitializeGraduationPool(AuctionKey memory auctionKey, int32 tick)
+        external
+        payable
+        returns (bool initialized, SqrtRatio sqrtRatio);
 }

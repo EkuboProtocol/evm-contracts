@@ -8,6 +8,7 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {AuctionConfig, createAuctionConfig} from "../src/types/auctionConfig.sol";
 import {AuctionKey} from "../src/types/auctionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
 import {nextValidTime, MAX_ABS_VALUE_SALE_RATE_DELTA} from "../src/math/time.sol";
 import {SaleRateOverflow, computeSaleRate} from "../src/math/twamm.sol";
@@ -100,6 +101,56 @@ contract AuctionsTest is BaseOrdersTest {
         auctions.completeAuction(tokenId, auctionKey);
         auctions.startBoost(auctionKey);
         vm.snapshotGasLastCall("Auctions#startBoost");
+    }
+
+    function test_maybeInitializePool_initializesWhenUninitialized() public {
+        uint64 startTime = alignToNextValidTime();
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: 3600, creatorFee: type(uint32).max
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+
+        (bool initialized,) = auctions.maybeInitializePool(launchPool, 123);
+        assertTrue(initialized, "initialized");
+        assertFalse(core.poolState(launchPool.toPoolId()).sqrtRatio().isZero(), "pool initialized");
+    }
+
+    function test_maybeInitializePool_noopWhenAlreadyInitialized() public {
+        uint64 startTime = alignToNextValidTime();
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: 3600, creatorFee: type(uint32).max
+        });
+        PoolKey memory launchPool = auctionKey.toLaunchPoolKey(address(twamm));
+        core.initializePool(launchPool, 0);
+        uint256 sqrtRatioBefore = SqrtRatio.unwrap(core.poolState(launchPool.toPoolId()).sqrtRatio());
+
+        (bool initialized,) = auctions.maybeInitializePool(launchPool, 123);
+        assertFalse(initialized, "no-op");
+        assertEq(SqrtRatio.unwrap(core.poolState(launchPool.toPoolId()).sqrtRatio()), sqrtRatioBefore, "unchanged");
+    }
+
+    function test_maybeInitializeLaunchPool_usesAuctionKey() public {
+        uint64 startTime = alignToNextValidTime();
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: 3600, creatorFee: type(uint32).max
+        });
+
+        (bool initialized,) = auctions.maybeInitializeLaunchPool(auctionKey, 77);
+        assertTrue(initialized, "initialized");
+        assertFalse(core.poolState(auctionKey.toLaunchPoolKey(address(twamm)).toPoolId()).sqrtRatio().isZero());
+    }
+
+    function test_maybeInitializeGraduationPool_usesAuctionKey() public {
+        uint64 startTime = alignToNextValidTime();
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: 3600, creatorFee: type(uint32).max
+        });
+
+        (bool initialized,) = auctions.maybeInitializeGraduationPool(auctionKey, -77);
+        assertTrue(initialized, "initialized");
+        assertFalse(
+            core.poolState(auctionKey.toGraduationPoolKey(auctions.BOOSTED_FEES()).toPoolId()).sqrtRatio().isZero()
+        );
     }
 
     function test_collectCreatorProceeds_authorized_withAmount_andCollectAll() public {

@@ -92,7 +92,7 @@ contract SignedExclusiveSwapTest is FullTest {
         SwapParameters params,
         address authorizedLocker,
         uint64 deadline,
-        uint64 extraFee,
+        uint64 fee,
         uint256 nonce
     ) internal view returns (SignedSwapPayload memory payload) {
         payload = SignedSwapPayload({
@@ -100,7 +100,7 @@ contract SignedExclusiveSwapTest is FullTest {
             params: params,
             authorizedLocker: authorizedLocker,
             deadline: deadline,
-            extraFee: extraFee,
+            fee: fee,
             nonce: nonce,
             signature: bytes("")
         });
@@ -112,7 +112,7 @@ contract SignedExclusiveSwapTest is FullTest {
             _token1: address(token1),
             tick: 0,
             config: createConcentratedPoolConfig({
-                _fee: uint64(uint256(1 << 64) / 100), _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
             })
         });
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -120,7 +120,7 @@ contract SignedExclusiveSwapTest is FullTest {
         token0.approve(address(harness), type(uint256).max);
         token1.approve(address(harness), type(uint256).max);
 
-        uint64 extraFee = uint64(uint256(1 << 64) / 200); // 0.5%
+        uint64 fee = uint64(uint256(1 << 64) / 200); // 0.5%
         uint64 deadline = uint64(block.timestamp + 1 hours);
         uint256 nonce = 7;
 
@@ -131,7 +131,7 @@ contract SignedExclusiveSwapTest is FullTest {
             }),
             address(harness),
             deadline,
-            extraFee,
+            fee,
             nonce
         );
 
@@ -165,7 +165,7 @@ contract SignedExclusiveSwapTest is FullTest {
             _token1: address(token1),
             tick: 0,
             config: createConcentratedPoolConfig({
-                _fee: uint64(uint256(1 << 64) / 100), _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
             })
         });
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -200,7 +200,7 @@ contract SignedExclusiveSwapTest is FullTest {
             _token1: address(token1),
             tick: 0,
             config: createConcentratedPoolConfig({
-                _fee: uint64(uint256(1 << 64) / 100), _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
             })
         });
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -224,6 +224,35 @@ contract SignedExclusiveSwapTest is FullTest {
         payload.signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(ISignedExclusiveSwap.UnauthorizedLocker.selector);
+        harness.swapSigned(address(signedExclusiveSwap), payload, address(this), address(this));
+    }
+
+    function test_revert_nonzero_pool_fee() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: uint64(uint256(1 << 64) / 100), _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+
+        SignedSwapPayload memory payload = _createPayload(
+            poolKey,
+            createSwapParameters({
+                _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+            }),
+            address(0),
+            uint64(block.timestamp + 1 hours),
+            uint64(uint256(1 << 64) / 500),
+            101
+        );
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(payload);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        payload.signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert(ISignedExclusiveSwap.PoolFeeMustBeZero.selector);
         harness.swapSigned(address(signedExclusiveSwap), payload, address(this), address(this));
     }
 }

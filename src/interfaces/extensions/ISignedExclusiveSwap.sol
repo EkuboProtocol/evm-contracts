@@ -13,7 +13,7 @@ struct SignedSwapPayload {
     SwapParameters params;
     address authorizedLocker;
     uint64 deadline;
-    uint64 extraFee;
+    uint64 fee;
     uint256 nonce;
     bytes signature;
 }
@@ -35,6 +35,9 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
 
     /// @notice Thrown when a nonce has already been consumed.
     error NonceAlreadyUsed();
+
+    /// @notice Thrown when the pool fee is non-zero.
+    error PoolFeeMustBeZero();
 
     /// @notice Public entrypoint to donate pending extension-collected fees to LPs.
     function accumulatePoolFees(PoolKey memory poolKey) external;

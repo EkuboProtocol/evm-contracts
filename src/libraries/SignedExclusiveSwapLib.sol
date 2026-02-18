@@ -15,7 +15,7 @@ library SignedExclusiveSwapLib {
     bytes32 internal constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 internal constant _SIGNED_SWAP_TYPEHASH = keccak256(
-        "SignedSwap(address token0,address token1,bytes32 config,bytes32 params,address authorizedLocker,uint64 deadline,uint64 extraFee,uint256 nonce)"
+        "SignedSwap(address token0,address token1,bytes32 config,bytes32 params,address authorizedLocker,uint64 deadline,uint64 fee,uint256 nonce)"
     );
     bytes32 internal constant _NAME_HASH = keccak256("Ekubo SignedExclusiveSwap");
     bytes32 internal constant _VERSION_HASH = keccak256("1");
@@ -45,7 +45,7 @@ library SignedExclusiveSwapLib {
                 SwapParameters.unwrap(payload.params),
                 payload.authorizedLocker,
                 payload.deadline,
-                payload.extraFee,
+                payload.fee,
                 payload.nonce
             )
         );

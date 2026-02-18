@@ -19,7 +19,7 @@ Forward calls decode:
 - `params` (`SwapParameters`)
 - `authorizedLocker` (`address`, optional: `address(0)` means any locker)
 - `deadline` (`uint64`)
-- `extraFee` (`uint64`, Q64 fee rate)
+- `fee` (`uint64`, Q64 fee rate)
 - `nonce` (`uint256`)
 - `signature` (`bytes`)
 
@@ -28,7 +28,7 @@ The signature is EIP-712 typed data over:
 - `params`,
 - `authorizedLocker`,
 - `deadline`,
-- `extraFee`,
+- `fee`,
 - `nonce`,
 - plus domain separator fields (`name`, `version`, `chainId`, `verifyingContract`).
 
@@ -42,7 +42,7 @@ The signature is EIP-712 typed data over:
    - signature from immutable `CONTROLLER`.
 3. Extension accumulates pending extension fees for the pool if this is the first touch in the block.
 4. Extension executes `CORE.swap(...)`.
-5. Extension applies `extraFee` to the swapper result:
+5. Extension applies `fee` to the swapper result:
    - exact-in: fee is charged on output amount,
    - exact-out: fee is charged on required input amount.
 6. Charged fee is stored in Core saved balances under the extension owner.

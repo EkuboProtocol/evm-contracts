@@ -36,7 +36,7 @@ function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only swap extension with controller-signed, per-swap fee customization.
-/// @dev Extra fees are first collected into extension saved balances, then donated to LPs at the start of the next block.
+/// @dev Fees are first collected into extension saved balances, then donated to LPs at the start of the next block.
 contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
     using ExposedStorageLib for *;
@@ -78,6 +78,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
     /// @inheritdoc ISignedExclusiveSwap
     function accumulatePoolFees(PoolKey memory poolKey) public {
+        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
         PoolId poolId = poolKey.toPoolId();
         if (_poolLastUpdateTime[poolId] != uint32(block.timestamp)) {
             address target = address(CORE);
@@ -121,6 +122,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         if (payload.authorizedLocker != address(0) && payload.authorizedLocker != original.addr()) {
             revert UnauthorizedLocker();
         }
+        if (payload.poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
 
         _consumeNonce(payload.nonce);
 
@@ -138,34 +140,32 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         int256 saveDelta0;
         int256 saveDelta1;
 
-        if (payload.extraFee != 0) {
+        if (payload.fee != 0) {
             if (params.isExactOut()) {
                 if (balanceUpdate.delta0() > 0) {
-                    int128 fee = SafeCastLib.toInt128(
-                        computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), payload.extraFee)
-                    );
-                    saveDelta0 += fee;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
+                    int128 feeAmount =
+                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), payload.fee));
+                    saveDelta0 += feeAmount;
+                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                 } else if (balanceUpdate.delta1() > 0) {
-                    int128 fee = SafeCastLib.toInt128(
-                        computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), payload.extraFee)
-                    );
-                    saveDelta1 += fee;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
+                    int128 feeAmount =
+                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), payload.fee));
+                    saveDelta1 += feeAmount;
+                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
                 }
             } else {
                 if (balanceUpdate.delta0() < 0) {
-                    int128 fee = SafeCastLib.toInt128(
-                        computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), payload.extraFee)
+                    int128 feeAmount = SafeCastLib.toInt128(
+                        computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), payload.fee)
                     );
-                    saveDelta0 += fee;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
+                    saveDelta0 += feeAmount;
+                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                 } else if (balanceUpdate.delta1() < 0) {
-                    int128 fee = SafeCastLib.toInt128(
-                        computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), payload.extraFee)
+                    int128 feeAmount = SafeCastLib.toInt128(
+                        computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), payload.fee)
                     );
-                    saveDelta1 += fee;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
+                    saveDelta1 += feeAmount;
+                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
                 }
             }
         }

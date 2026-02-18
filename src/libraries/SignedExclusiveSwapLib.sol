@@ -2,7 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ICore} from "../interfaces/ICore.sol";
-import {SignedSwapPayload} from "../interfaces/extensions/ISignedExclusiveSwap.sol";
+import {ISignedExclusiveSwap, SignedSwapPayload} from "../interfaces/extensions/ISignedExclusiveSwap.sol";
 import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolConfig} from "../types/poolConfig.sol";
@@ -31,7 +31,11 @@ library SignedExclusiveSwapLib {
     }
 
     /// @notice Computes the EIP-712 digest expected by SignedExclusiveSwap for a payload.
-    function hashTypedData(SignedSwapPayload memory payload, address extension) internal view returns (bytes32 digest) {
+    function hashSignedSwapPayload(ISignedExclusiveSwap extension, SignedSwapPayload memory payload)
+        internal
+        view
+        returns (bytes32 digest)
+    {
         bytes32 structHash = keccak256(
             abi.encode(
                 _SIGNED_SWAP_TYPEHASH,
@@ -46,8 +50,9 @@ library SignedExclusiveSwapLib {
             )
         );
 
-        bytes32 domainSeparator =
-            keccak256(abi.encode(_EIP712_DOMAIN_TYPEHASH, _NAME_HASH, _VERSION_HASH, block.chainid, extension));
+        bytes32 domainSeparator = keccak256(
+            abi.encode(_EIP712_DOMAIN_TYPEHASH, _NAME_HASH, _VERSION_HASH, block.chainid, address(extension))
+        );
         digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 }

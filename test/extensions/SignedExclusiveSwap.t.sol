@@ -135,7 +135,7 @@ contract SignedExclusiveSwapTest is FullTest {
             nonce
         );
 
-        bytes32 digest = payload.hashTypedData(address(signedExclusiveSwap));
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(payload);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         payload.signature = abi.encodePacked(r, s, v);
 
@@ -184,7 +184,7 @@ contract SignedExclusiveSwapTest is FullTest {
             11
         );
 
-        bytes32 digest = payload.hashTypedData(address(signedExclusiveSwap));
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(payload);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         payload.signature = abi.encodePacked(r, s, v);
 
@@ -219,7 +219,7 @@ contract SignedExclusiveSwapTest is FullTest {
             99
         );
 
-        bytes32 digest = payload.hashTypedData(address(signedExclusiveSwap));
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(payload);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         payload.signature = abi.encodePacked(r, s, v);
 

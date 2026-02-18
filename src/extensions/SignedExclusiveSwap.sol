@@ -9,6 +9,7 @@ import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
+import {SignedExclusiveSwapLib} from "../libraries/SignedExclusiveSwapLib.sol";
 import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
@@ -16,7 +17,6 @@ import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUp
 import {SwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
-import {PoolConfig} from "../types/poolConfig.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {computeFee} from "../math/fee.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -40,14 +40,7 @@ function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
 contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
     using ExposedStorageLib for *;
-
-    bytes32 internal constant _EIP712_DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-    bytes32 internal constant _SIGNED_SWAP_TYPEHASH = keccak256(
-        "SignedSwap(address token0,address token1,bytes32 config,bytes32 params,address authorizedLocker,uint64 deadline,uint64 extraFee,uint256 nonce)"
-    );
-    bytes32 internal constant _NAME_HASH = keccak256("Ekubo SignedExclusiveSwap");
-    bytes32 internal constant _VERSION_HASH = keccak256("1");
+    using SignedExclusiveSwapLib for *;
 
     address public immutable CONTROLLER;
 
@@ -131,7 +124,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         _consumeNonce(payload.nonce);
 
-        bytes32 digest = _hashTypedData(payload);
+        bytes32 digest = this.hashSignedSwapPayload(payload);
         if (!SignatureCheckerLib.isValidSignatureNow(CONTROLLER, digest, payload.signature)) {
             revert InvalidSignature();
         }
@@ -188,27 +181,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
 
         result = abi.encode(balanceUpdate, stateAfter);
-    }
-
-    function _hashTypedData(SignedSwapPayload memory payload) internal view returns (bytes32 digest) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                _SIGNED_SWAP_TYPEHASH,
-                payload.poolKey.token0,
-                payload.poolKey.token1,
-                PoolConfig.unwrap(payload.poolKey.config),
-                SwapParameters.unwrap(payload.params),
-                payload.authorizedLocker,
-                payload.deadline,
-                payload.extraFee,
-                payload.nonce
-            )
-        );
-
-        bytes32 domainSeparator =
-            keccak256(abi.encode(_EIP712_DOMAIN_TYPEHASH, _NAME_HASH, _VERSION_HASH, block.chainid, address(this)));
-
-        digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 
     function _consumeNonce(uint256 nonce) internal {

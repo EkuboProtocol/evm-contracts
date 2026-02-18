@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {Auctions} from "../src/Auctions.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {AuctionConfig, createAuctionConfig} from "../src/types/auctionConfig.sol";
 import {AuctionKey} from "../src/types/auctionKey.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
@@ -48,6 +49,7 @@ contract AuctionsTest is BaseOrdersTest {
             _auctionDuration: duration
         });
         AuctionKey memory auctionKey = AuctionKey({token0: address(token0), token1: address(token1), config: config});
+        auctions.maybeInitializePool(auctionKey.toLaunchPoolKey(address(twamm)), 0);
 
         uint256 tokenId = auctions.mint();
 
@@ -257,6 +259,7 @@ contract AuctionsTest is BaseOrdersTest {
         AuctionKey memory auctionKey = _buildAuctionKey({
             isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
         });
+        auctions.maybeInitializePool(auctionKey.toLaunchPoolKey(address(twamm)), 0);
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
@@ -884,6 +887,7 @@ contract AuctionsTest is BaseOrdersTest {
         AuctionKey memory auctionKey = _buildAuctionKey({
             isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
         });
+        auctions.maybeInitializePool(auctionKey.toLaunchPoolKey(address(twamm)), 0);
 
         uint128 amount0 = uint128(bound(uint256(amount0Seed), uint256(duration), 500_000e18));
         uint128 amount1 = uint128(bound(uint256(amount1Seed), uint256(duration), 500_000e18));
@@ -895,6 +899,21 @@ contract AuctionsTest is BaseOrdersTest {
         uint112 saleRate1 = auctions.sellAmountByAuction(tokenId, auctionKey, amount1);
         (uint112 saleRate,,,) = auctions.executeVirtualOrdersAndGetSaleStatus(tokenId, auctionKey);
         assertEq(saleRate, uint112(uint256(saleRate0) + uint256(saleRate1)), "sale rates aggregate");
+    }
+
+    function test_sellByAuction_reverts_ifLaunchPoolNotInitialized() public {
+        uint64 startTime = alignToNextValidTime();
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), startTime + 3600 - 1));
+        uint32 duration = uint32(endTime - startTime);
+        AuctionKey memory auctionKey = _buildAuctionKey({
+            isSellingToken1_: true, startTime: startTime, duration: duration, creatorFee: type(uint32).max
+        });
+
+        uint256 tokenId = auctions.mint();
+        token1.approve(address(auctions), 1e18);
+
+        vm.expectRevert(ICore.PoolNotInitialized.selector);
+        auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
     function testFuzz_collectCreatorProceeds_callerOverload_collectsRemainingBothSides(

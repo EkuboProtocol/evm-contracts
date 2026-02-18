@@ -6,6 +6,7 @@ import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {AuctionKey} from "./types/auctionKey.sol";
 import {AuctionConfig} from "./types/auctionConfig.sol";
+import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
@@ -263,6 +264,19 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         return EfficientHashLib.hash(tokenId, uint256(AuctionConfig.unwrap(config)));
     }
 
+    function maybeInitializePool(PoolKey memory poolKey, int32 tick)
+        external
+        payable
+        returns (bool initialized, SqrtRatio sqrtRatio)
+    {
+        // the before update position hook shouldn't be taken into account here
+        sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
+        if (sqrtRatio.isZero()) {
+            initialized = true;
+            sqrtRatio = CORE.initializePool(poolKey, tick);
+        }
+    }
+
     /// @dev Lock callback dispatcher for handling all of the supported auction actions.
     /// @param _lockId Lock id argument from BaseLocker callback.
     /// @param data ABI-encoded operation payload.
@@ -275,12 +289,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
                 (, address caller, uint256 tokenId, AuctionKey memory auctionKey, int112 saleRateDelta) =
                     abi.decode(data, (uint256, address, uint256, AuctionKey, int112));
                 bytes32 orderSalt = _twammOrderSalt(tokenId, auctionKey.config);
-
-                PoolKey memory twammPoolKey = auctionKey.toLaunchPoolKey(address(TWAMM));
-                if (!CORE.poolState(twammPoolKey.toPoolId()).isInitialized()) {
-                    // The initial tick does not matter since we do not add liquidity to this pool
-                    CORE.initializePool(twammPoolKey, 0);
-                }
 
                 uint128 amount = uint128(
                     uint256(

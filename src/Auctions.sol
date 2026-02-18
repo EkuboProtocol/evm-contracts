@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ICore} from "./interfaces/ICore.sol";
+import {IAuctions} from "./interfaces/IAuctions.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {AuctionKey} from "./types/auctionKey.sol";
@@ -26,7 +27,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @title Auctions
 /// @notice TWAMM-based token auction manager.
-contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMulticallable {
+contract Auctions is IAuctions, UsesCore, BaseLocker, BaseNonfungibleToken, PayableMulticallable {
     using CoreLib for *;
     using BoostedFeesLib for *;
     using TWAMMLib for *;
@@ -42,45 +43,6 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
     uint256 private constant CALL_TYPE_COLLECT_CREATOR_PROCEEDS = 2;
     uint256 private constant CALL_TYPE_START_BOOST = 3;
 
-    /// @notice The auction has not ended yet
-    error CannotCompleteAuctionBeforeEndOfAuction();
-    /// @notice The auction cannot be created because the sale rate delta is zero.
-    error ZeroSaleRateDelta();
-    /// @notice The auction cannot be completed because no proceeds are available.
-    error NoProceedsToCompleteAuction();
-    /// @notice There is no valid future boost end time available.
-    error InvalidBoostEndTime();
-    /// @notice Thrown when trying to add funds to an auction that has already started
-    error AuctionAlreadyStarted();
-    /// @notice The graduation pool tick spacing is invalid.
-    error InvalidGraduationPoolTickSpacing();
-
-    /// @notice Emitted when an auction is created and its TWAMM sale rate is set.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param saleRate The TWAMM sale rate of this auction.
-    event AuctionFundsAdded(uint256 tokenId, AuctionKey auctionKey, uint112 saleRate);
-
-    /// @notice Emitted when an auction is completed and proceeds are split.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param creatorAmount The amount reserved in saved balances for creator proceeds.
-    /// @param boostAmount The amount reserved in saved balances for later boosting.
-    event AuctionCompleted(uint256 tokenId, AuctionKey auctionKey, uint128 creatorAmount, uint128 boostAmount);
-
-    /// @notice Emitted when a boost is started from saved boost proceeds.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param boostRate The boost sale rate applied to the graduation pool incentives.
-    /// @param boostEndTime The timestamp when the boost stops.
-    event BoostStarted(AuctionKey auctionKey, uint112 boostRate, uint64 boostEndTime);
-
-    /// @notice Emitted when creator proceeds are collected from saved balances.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param recipient The address receiving the collected proceeds.
-    /// @param amount The amount of proceeds collected.
-    event CreatorProceedsCollected(uint256 tokenId, AuctionKey auctionKey, address recipient, uint128 amount);
-
     constructor(address owner, ICore core, ITWAMM twamm, address boostedFees)
         UsesCore(core)
         BaseLocker(core)
@@ -90,12 +52,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         BOOSTED_FEES = boostedFees;
     }
 
-    /// @notice Adds TWAMM sale rate for an auction NFT launch order.
-    /// @dev Caller must be owner or approved for `tokenId`. Reverts if `block.timestamp > startTime`.
-    /// Pulls the exact required sell-token amount from caller and updates order `salt = hash(tokenId, config)`.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param saleRate The TWAMM sale rate delta to add to the auction order.
+    /// @inheritdoc IAuctions
     function sellByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint112 saleRate)
         public
         payable
@@ -121,12 +78,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         lock(abi.encode(CALL_TYPE_SELL_BY_AUCTION, msg.sender, tokenId, auctionKey, int112(saleRate)));
     }
 
-    /// @notice Adds sell inventory for an auction NFT launch order by amount.
-    /// @dev Computes `saleRate = (amount << 32) / auctionDuration` and forwards to the sale-rate entrypoint.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param amount The amount of sell token to auction.
-    /// @return saleRate The TWAMM sale rate delta applied for this call.
+    /// @inheritdoc IAuctions
     function sellAmountByAuction(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount)
         external
         payable
@@ -137,12 +89,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         sellByAuction(tokenId, auctionKey, saleRate);
     }
 
-    /// @notice Completes an ended auction by collecting TWAMM proceeds and allocating creator/boost shares.
-    /// @dev Permissionless. Reverts before end time or when no proceeds exist.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @return creatorAmount The amount saved for creator proceeds keyed by `bytes32(tokenId)`.
-    /// @return boostAmount The amount saved for future boosting keyed by `toAuctionId(auctionKey)`.
+    /// @inheritdoc IAuctions
     function completeAuction(uint256 tokenId, AuctionKey memory auctionKey)
         public
         payable
@@ -151,13 +98,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         return abi.decode(lock(abi.encode(CALL_TYPE_COMPLETE_AUCTION, tokenId, auctionKey)), (uint128, uint128));
     }
 
-    /// @notice Completes an auction and immediately starts boost using the returned boost amount.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @return creatorAmount The amount saved for creator proceeds keyed by `bytes32(tokenId)`.
-    /// @return boostAmount The amount used to start boost from saved balances.
-    /// @return boostRate The boost sale rate applied to graduation pool incentives.
-    /// @return boostEndTime The boost end timestamp.
+    /// @inheritdoc IAuctions
     function completeAuctionAndStartBoost(uint256 tokenId, AuctionKey memory auctionKey)
         external
         payable
@@ -167,10 +108,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         (boostRate, boostEndTime) = startBoost(auctionKey, boostAmount);
     }
 
-    /// @notice Starts boost on the graduation pool using all currently saved boost proceeds for an auction key.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @return boostRate The boost sale rate applied to graduation pool incentives.
-    /// @return boostEndTime The boost end timestamp.
+    /// @inheritdoc IAuctions
     function startBoost(AuctionKey memory auctionKey)
         external
         payable
@@ -183,12 +121,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         return startBoost(auctionKey, amount);
     }
 
-    /// @notice Starts boost on the graduation pool using a specific amount from saved boost proceeds.
-    /// @dev Permissionless. Reverts if the requested amount is not available in saved boost balances.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param amount The amount of saved boost proceeds to use for this boost call.
-    /// @return boostRate The boost sale rate applied to graduation pool incentives.
-    /// @return boostEndTime The boost end timestamp.
+    /// @inheritdoc IAuctions
     function startBoost(AuctionKey memory auctionKey, uint128 amount)
         public
         payable
@@ -197,12 +130,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         return abi.decode(lock(abi.encode(CALL_TYPE_START_BOOST, auctionKey, amount)), (uint112, uint64));
     }
 
-    /// @notice Collects creator proceeds from saved balances to a chosen recipient.
-    /// @dev This is the most explicit overload used by other collection overloads.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param recipient Address to receive proceeds.
-    /// @param amount Amount of buy token to collect.
+    /// @inheritdoc IAuctions
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient, uint128 amount)
         public
         payable
@@ -211,11 +139,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         lock(abi.encode(CALL_TYPE_COLLECT_CREATOR_PROCEEDS, tokenId, auctionKey, recipient, amount));
     }
 
-    /// @notice Collects all currently saved creator proceeds to a chosen recipient.
-    /// @dev Reads the buy-token side of saved balances keyed by `bytes32(tokenId)`.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param recipient Address to receive proceeds.
+    /// @inheritdoc IAuctions
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, address recipient) external payable {
         (uint128 saved0, uint128 saved1) =
             CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
@@ -223,18 +147,12 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         collectCreatorProceeds(tokenId, auctionKey, recipient, amount);
     }
 
-    /// @notice Collects a specific amount of creator proceeds to the caller.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @param amount Amount of buy token to collect.
+    /// @inheritdoc IAuctions
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey, uint128 amount) external payable {
         collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
     }
 
-    /// @notice Collects all currently saved creator proceeds to the caller.
-    /// @dev Reads the buy-token side of saved balances keyed by `bytes32(tokenId)`.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
+    /// @inheritdoc IAuctions
     function collectCreatorProceeds(uint256 tokenId, AuctionKey memory auctionKey) external payable {
         (uint128 saved0, uint128 saved1) =
             CORE.savedBalances(address(this), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
@@ -242,13 +160,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         collectCreatorProceeds(tokenId, auctionKey, msg.sender, amount);
     }
 
-    /// @notice Executes TWAMM virtual orders and returns current sale status for an auction.
-    /// @param tokenId The auction NFT token id.
-    /// @param auctionKey The auction key defining tokens and config.
-    /// @return saleRate Current sale rate of the underlying TWAMM order.
-    /// @return amountSold Total amount sold so far.
-    /// @return remainingSellAmount Remaining amount of sell token.
-    /// @return raisedAmount Current total proceeds of the auction.
+    /// @inheritdoc IAuctions
     function executeVirtualOrdersAndGetSaleStatus(uint256 tokenId, AuctionKey memory auctionKey)
         external
         payable
@@ -264,6 +176,7 @@ contract Auctions is UsesCore, BaseLocker, BaseNonfungibleToken, PayableMultical
         return EfficientHashLib.hash(tokenId, uint256(AuctionConfig.unwrap(config)));
     }
 
+    /// @inheritdoc IAuctions
     function maybeInitializePool(PoolKey memory poolKey, int32 tick)
         external
         payable

@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {Auctions} from "../src/Auctions.sol";
+import {IAuctions} from "../src/interfaces/IAuctions.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {AuctionConfig, createAuctionConfig} from "../src/types/auctionConfig.sol";
 import {AuctionKey} from "../src/types/auctionKey.sol";
@@ -173,7 +174,7 @@ contract AuctionsTest is BaseOrdersTest {
         token1.approve(address(auctions), 1e18);
 
         vm.warp(startTime + 1);
-        vm.expectRevert(Auctions.AuctionAlreadyStarted.selector);
+        vm.expectRevert(IAuctions.AuctionAlreadyStarted.selector);
         auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
@@ -186,7 +187,7 @@ contract AuctionsTest is BaseOrdersTest {
         });
 
         uint256 tokenId = auctions.mint();
-        vm.expectRevert(Auctions.ZeroSaleRateDelta.selector);
+        vm.expectRevert(IAuctions.ZeroSaleRateDelta.selector);
         auctions.sellAmountByAuction(tokenId, auctionKey, uint128(0));
     }
 
@@ -207,7 +208,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        vm.expectRevert(Auctions.InvalidGraduationPoolTickSpacing.selector);
+        vm.expectRevert(IAuctions.InvalidGraduationPoolTickSpacing.selector);
         auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
@@ -228,7 +229,7 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint256 tokenId = auctions.mint();
         token1.approve(address(auctions), 1e18);
-        vm.expectRevert(Auctions.InvalidGraduationPoolTickSpacing.selector);
+        vm.expectRevert(IAuctions.InvalidGraduationPoolTickSpacing.selector);
         auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
     }
 
@@ -248,7 +249,7 @@ contract AuctionsTest is BaseOrdersTest {
         token1.approve(address(auctions), 1e18);
         auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
-        vm.expectRevert(Auctions.CannotCompleteAuctionBeforeEndOfAuction.selector);
+        vm.expectRevert(IAuctions.CannotCompleteAuctionBeforeEndOfAuction.selector);
         auctions.completeAuction(tokenId, auctionKey);
     }
 
@@ -266,7 +267,7 @@ contract AuctionsTest is BaseOrdersTest {
         auctions.sellAmountByAuction(tokenId, auctionKey, uint128(1e18));
 
         advanceTime(duration);
-        vm.expectRevert(Auctions.NoProceedsToCompleteAuction.selector);
+        vm.expectRevert(IAuctions.NoProceedsToCompleteAuction.selector);
         auctions.completeAuction(tokenId, auctionKey);
     }
 
@@ -293,7 +294,7 @@ contract AuctionsTest is BaseOrdersTest {
         });
 
         advanceTime(duration);
-        vm.expectRevert(Auctions.NoProceedsToCompleteAuction.selector);
+        vm.expectRevert(IAuctions.NoProceedsToCompleteAuction.selector);
         auctions.completeAuction(tokenId, wrongAuctionKey);
     }
 
@@ -779,7 +780,7 @@ contract AuctionsTest is BaseOrdersTest {
             AuctionKey({token0: address(token0), token1: address(token1), config: wrongConfig});
 
         advanceTime(duration + 256);
-        vm.expectRevert(Auctions.NoProceedsToCompleteAuction.selector);
+        vm.expectRevert(IAuctions.NoProceedsToCompleteAuction.selector);
         auctions.completeAuction(tokenId, wrongAuctionKey);
     }
 
@@ -874,7 +875,7 @@ contract AuctionsTest is BaseOrdersTest {
         (uint256 tokenId, AuctionKey memory auctionKey,) =
             _createAuctionAndComplete({isSellingToken1_: isSellingToken1_, amount: amount});
 
-        vm.expectRevert(Auctions.NoProceedsToCompleteAuction.selector);
+        vm.expectRevert(IAuctions.NoProceedsToCompleteAuction.selector);
         auctions.completeAuction(tokenId, auctionKey);
     }
 
@@ -968,20 +969,20 @@ contract AuctionsTest is BaseOrdersTest {
 
         uint112 saleRate = uint112(computeSaleRate(totalAmountSold, duration));
         vm.expectEmit(false, false, false, true, address(auctions));
-        emit Auctions.AuctionFundsAdded(tokenId, auctionKey, saleRate);
+        emit IAuctions.AuctionFundsAdded(tokenId, auctionKey, saleRate);
         auctions.sellAmountByAuction(tokenId, auctionKey, totalAmountSold);
 
         advanceTime(duration);
 
         vm.expectEmit(false, false, false, false, address(auctions));
-        emit Auctions.AuctionCompleted(tokenId, auctionKey, 0, 0);
+        emit IAuctions.AuctionCompleted(tokenId, auctionKey, 0, 0);
         auctions.completeAuction(tokenId, auctionKey);
 
         (uint128 saved0,) =
             core.savedBalances(address(auctions), auctionKey.token0, auctionKey.token1, bytes32(tokenId));
 
         vm.expectEmit(false, false, false, true, address(auctions));
-        emit Auctions.CreatorProceedsCollected(tokenId, auctionKey, address(this), saved0);
+        emit IAuctions.CreatorProceedsCollected(tokenId, auctionKey, address(this), saved0);
         auctions.collectCreatorProceeds(tokenId, auctionKey);
     }
 

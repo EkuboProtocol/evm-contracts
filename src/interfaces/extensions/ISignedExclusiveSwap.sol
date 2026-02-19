@@ -2,21 +2,9 @@
 pragma solidity ^0.8.0;
 
 import {PoolKey} from "../../types/poolKey.sol";
-import {SwapParameters} from "../../types/swapParameters.sol";
 import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
-
-/// @notice Forward payload for signed exclusive swaps.
-struct SignedSwapPayload {
-    PoolKey poolKey;
-    SwapParameters params;
-    address authorizedLocker;
-    uint64 deadline;
-    uint64 fee;
-    uint256 nonce;
-    bytes signature;
-}
 
 /// @title Signed Exclusive Swap Interface
 /// @notice Extension that enforces forward-only swaps and applies signed, per-swap fee controls.

@@ -2,14 +2,15 @@
 
 ## What it does
 
-`SignedExclusiveSwap` is a forward-only Ekubo pool extension that gives an aggregator/controller per-swap control over extra fees via signature.
+`SignedExclusiveSwap` is a forward-only Ekubo pool extension that gives an aggregator/controller per-swap control over signed fees.
 
 It enforces:
 - direct swaps are blocked (`beforeSwap` always reverts),
 - swaps must be executed through `Core.forward(...)` with a signed payload,
 - nonces are one-time-use via a bitmap,
 - signatures can optionally restrict which locker is allowed to use them,
-- extra fees are collected by the extension first and donated to LPs at the beginning of the next block (MEVCapture-style timing).
+- pool fee must be zero for pools using this extension,
+- signed fees are collected by the extension first and donated to LPs at the beginning of the next block (MEVCapture-style timing).
 
 ## Payload
 
@@ -17,27 +18,28 @@ Forward calls decode:
 
 - `poolKey`
 - `params` (`SwapParameters`)
-- `authorizedLocker` (`address`, optional: `address(0)` means any locker)
-- `deadline` (`uint64`)
-- `fee` (`uint64`, Q64 fee rate)
-- `nonce` (`uint256`)
+- `meta` (`SignedSwapMeta`, one 256-bit word)
 - `signature` (`bytes`)
+
+`SignedSwapMeta` packs:
+- `authorizedLocker` (160 bits, `address(0)` means any locker),
+- `deadline` (32 bits),
+- `fee` (32 bits, Q32 fee rate),
+- `nonce` (32 bits).
 
 The signature is EIP-712 typed data over:
 - `token0`, `token1`, `config`,
 - `params`,
-- `authorizedLocker`,
-- `deadline`,
-- `fee`,
-- `nonce`,
+- `meta`,
 - plus domain separator fields (`name`, `version`, `chainId`, `verifyingContract`).
 
 ## Swap flow
 
 1. Caller holds a lock and forwards to extension.
 2. Extension validates:
-   - `block.timestamp <= deadline`,
-   - locker authorization (`authorizedLocker == 0 || authorizedLocker == originalLocker`),
+   - pool fee is zero,
+   - deadline from `meta` has not expired (wrap-safe 32-bit comparison),
+   - locker authorization from `meta` (`authorizedLocker == 0 || authorizedLocker == originalLocker`),
    - nonce not already used (then burns it),
    - signature from immutable `CONTROLLER`.
 3. Extension accumulates pending extension fees for the pool if this is the first touch in the block.
@@ -49,7 +51,7 @@ The signature is EIP-712 typed data over:
 
 ## Fee donation timing (MEVCapture-like)
 
-The extension does not immediately donate its extra fee to LPs.
+The extension does not immediately donate its signed fee to LPs.
 
 Instead, on first touch in a new block (`swap`, `beforeUpdatePosition`, or `beforeCollectFees` path), it:
 - reads extension saved balances for the pool,

@@ -3,7 +3,7 @@ pragma solidity =0.8.33;
 
 import {ICore, PoolKey, PositionId, CallPoints} from "../interfaces/ICore.sol";
 import {IExtension} from "../interfaces/ICore.sol";
-import {ISignedExclusiveSwap, SignedSwapPayload} from "../interfaces/extensions/ISignedExclusiveSwap.sol";
+import {ISignedExclusiveSwap} from "../interfaces/extensions/ISignedExclusiveSwap.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
@@ -15,6 +15,7 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
+import {SignedSwapMeta} from "../types/signedSwapMeta.sol";
 import {Locker} from "../types/locker.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 import {Bitmap} from "../types/bitmap.sol";
@@ -116,54 +117,55 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
-        SignedSwapPayload memory payload = abi.decode(data, (SignedSwapPayload));
+        (PoolKey memory poolKey, SwapParameters params, SignedSwapMeta meta, bytes memory signature) =
+            abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, bytes));
 
-        if (block.timestamp > payload.deadline) revert SignatureExpired();
-        if (payload.authorizedLocker != address(0) && payload.authorizedLocker != original.addr()) {
+        if (!meta.isNotExpired(uint32(block.timestamp))) revert SignatureExpired();
+
+        address authorized = meta.authorizedLocker();
+        if (authorized != address(0) && authorized != original.addr()) {
             revert UnauthorizedLocker();
         }
-        if (payload.poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
+        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
 
-        _consumeNonce(payload.nonce);
+        _consumeNonce(meta.nonce());
 
-        bytes32 digest = this.hashSignedSwapPayload(payload);
-        if (!SignatureCheckerLib.isValidSignatureNow(CONTROLLER, digest, payload.signature)) {
+        bytes32 digest = this.hashSignedSwapPayload(poolKey, params, meta);
+        if (!SignatureCheckerLib.isValidSignatureNow(CONTROLLER, digest, signature)) {
             revert InvalidSignature();
         }
 
-        accumulatePoolFees(payload.poolKey);
+        accumulatePoolFees(poolKey);
+        params = params.withDefaultSqrtRatioLimit();
 
-        SwapParameters params = payload.params.withDefaultSqrtRatioLimit();
-
-        (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, payload.poolKey, params);
+        (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
 
         int256 saveDelta0;
         int256 saveDelta1;
+        uint64 signedFee = uint64(meta.fee());
 
-        if (payload.fee != 0) {
+        if (signedFee != 0) {
             if (params.isExactOut()) {
                 if (balanceUpdate.delta0() > 0) {
                     int128 feeAmount =
-                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), payload.fee));
+                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), signedFee));
                     saveDelta0 += feeAmount;
                     balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                 } else if (balanceUpdate.delta1() > 0) {
                     int128 feeAmount =
-                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), payload.fee));
+                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), signedFee));
                     saveDelta1 += feeAmount;
                     balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
                 }
             } else {
                 if (balanceUpdate.delta0() < 0) {
-                    int128 feeAmount = SafeCastLib.toInt128(
-                        computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), payload.fee)
-                    );
+                    int128 feeAmount =
+                        SafeCastLib.toInt128(computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), signedFee));
                     saveDelta0 += feeAmount;
                     balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                 } else if (balanceUpdate.delta1() < 0) {
-                    int128 feeAmount = SafeCastLib.toInt128(
-                        computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), payload.fee)
-                    );
+                    int128 feeAmount =
+                        SafeCastLib.toInt128(computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), signedFee));
                     saveDelta1 += feeAmount;
                     balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
                 }
@@ -172,18 +174,14 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         if (saveDelta0 != 0 || saveDelta1 != 0) {
             CORE.updateSavedBalances(
-                payload.poolKey.token0,
-                payload.poolKey.token1,
-                PoolId.unwrap(payload.poolKey.toPoolId()),
-                saveDelta0,
-                saveDelta1
+                poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()), saveDelta0, saveDelta1
             );
         }
 
         result = abi.encode(balanceUpdate, stateAfter);
     }
 
-    function _consumeNonce(uint256 nonce) internal {
+    function _consumeNonce(uint32 nonce) internal {
         uint256 word = nonce >> 8;
         uint8 bit = uint8(nonce & 0xff);
 

@@ -77,10 +77,13 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     {
         if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
 
+        PoolId poolId = poolKey.toPoolId();
         _setPoolState(
-            poolKey.toPoolId(),
+            poolId,
             createSignedExclusiveSwapPoolState(defaultController, uint32(block.timestamp), defaultControllerIsEoa)
         );
+
+        emit PoolControllerUpdated(poolId, defaultController, defaultControllerIsEoa);
     }
 
     /// @notice We only allow swapping via forward to this extension.
@@ -152,6 +155,11 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @inheritdoc ISignedExclusiveSwap
+    function setNonceBitmap(uint256 word, Bitmap bitmap) external onlyOwner {
+        nonceBitmap[word] = bitmap;
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
     function setPoolController(PoolKey memory poolKey, address controller, bool isEoa) external onlyOwner {
         if (poolKey.config.extension() != address(this) || !CORE.poolState(poolKey.toPoolId()).isInitialized()) {
             revert ICore.PoolNotInitialized();
@@ -160,7 +168,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         PoolId poolId = poolKey.toPoolId();
         _setPoolState(poolId, _getPoolState(poolId).withController(controller, isEoa));
 
-        emit PoolControllerUpdated(PoolId.unwrap(poolId), controller, isEoa);
+        emit PoolControllerUpdated(poolId, controller, isEoa);
     }
 
     /// @inheritdoc ISignedExclusiveSwap

@@ -10,6 +10,7 @@ import {SignedSwapMeta, createSignedSwapMeta} from "../../src/types/signedSwapMe
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolState} from "../../src/types/poolState.sol";
+import {Bitmap} from "../../src/types/bitmap.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {SignedExclusiveSwapLib} from "../../src/libraries/SignedExclusiveSwapLib.sol";
 import {SignedExclusiveSwap, signedExclusiveSwapCallPoints} from "../../src/extensions/SignedExclusiveSwap.sol";
@@ -288,6 +289,30 @@ contract SignedExclusiveSwapTest is FullTest {
         });
     }
 
+    function test_initialize_pool_emits_pool_controller_updated() public {
+        vm.expectEmit(true, true, false, true, address(signedExclusiveSwap));
+        emit ISignedExclusiveSwap.PoolControllerUpdated(
+            PoolKey({
+                    token0: address(token0),
+                    token1: address(token1),
+                    config: createConcentratedPoolConfig({
+                        _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+                    })
+                }).toPoolId(),
+            controller,
+            true
+        );
+
+        createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+    }
+
     function test_owner_updates_default_controller_for_new_pools() public {
         uint256 nextControllerPk = 0xC0FFEE;
         address nextController = vm.addr(nextControllerPk);
@@ -527,6 +552,21 @@ contract SignedExclusiveSwapTest is FullTest {
     function test_revert_set_default_controller_not_owner() public {
         vm.expectRevert(Ownable.Unauthorized.selector);
         signedExclusiveSwap.setDefaultController(address(0x1234), true);
+    }
+
+    function test_owner_can_set_nonce_bitmap() public {
+        uint256 word = 42;
+        Bitmap bitmap = Bitmap.wrap(type(uint256).max);
+
+        vm.prank(admin);
+        signedExclusiveSwap.setNonceBitmap(word, bitmap);
+
+        assertEq(Bitmap.unwrap(signedExclusiveSwap.nonceBitmap(word)), type(uint256).max);
+    }
+
+    function test_revert_set_nonce_bitmap_not_owner() public {
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        signedExclusiveSwap.setNonceBitmap(1, Bitmap.wrap(123));
     }
 
     function test_revert_set_pool_controller_not_owner() public {

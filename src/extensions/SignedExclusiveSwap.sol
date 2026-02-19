@@ -171,8 +171,13 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
-        (PoolKey memory poolKey, SwapParameters params, SignedSwapMeta meta, bytes memory signature) =
-            abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, bytes));
+        (
+            PoolKey memory poolKey,
+            SwapParameters params,
+            SignedSwapMeta meta,
+            PoolBalanceUpdate minBalanceUpdate,
+            bytes memory signature
+        ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
         PoolId poolId = poolKey.toPoolId();
         SignedExclusiveSwapPoolState state = _getPoolState(poolId);
 
@@ -186,7 +191,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         _consumeNonce(meta.nonce());
 
-        bytes32 digest = this.hashSignedSwapPayload(poolKey, params, meta);
+        bytes32 digest = this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate);
         if (!_isValidControllerSignature(state.controller(), state.controllerIsEoa(), digest, signature)) {
             revert InvalidSignature();
         }
@@ -232,7 +237,21 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
         }
 
+        _validateMinBalanceUpdate(minBalanceUpdate, balanceUpdate);
+
         result = abi.encode(balanceUpdate, stateAfter);
+    }
+
+    function _validateMinBalanceUpdate(PoolBalanceUpdate minBalanceUpdate, PoolBalanceUpdate actualBalanceUpdate)
+        internal
+        pure
+    {
+        if (
+            actualBalanceUpdate.delta0() < minBalanceUpdate.delta0()
+                || actualBalanceUpdate.delta1() < minBalanceUpdate.delta1()
+        ) {
+            revert MinBalanceUpdateNotMet(minBalanceUpdate, actualBalanceUpdate);
+        }
     }
 
     function _consumeNonce(uint32 nonce) internal {

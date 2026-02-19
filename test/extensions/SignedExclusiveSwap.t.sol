@@ -8,7 +8,7 @@ import {createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SignedSwapMeta, createSignedSwapMeta} from "../../src/types/signedSwapMeta.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {SignedExclusiveSwapLib} from "../../src/libraries/SignedExclusiveSwapLib.sol";
@@ -54,12 +54,13 @@ contract SignedExclusiveSwapHarness is BaseLocker {
         PoolKey memory poolKey,
         SwapParameters params,
         SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate,
         bytes memory signature,
         address swapper,
         address recipient
     ) external returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) {
         (balanceUpdate, stateAfter) = abi.decode(
-            lock(abi.encode(extension, poolKey, params, meta, signature, swapper, recipient)),
+            lock(abi.encode(extension, poolKey, params, meta, minBalanceUpdate, signature, swapper, recipient)),
             (PoolBalanceUpdate, PoolState)
         );
     }
@@ -70,13 +71,16 @@ contract SignedExclusiveSwapHarness is BaseLocker {
             PoolKey memory poolKey,
             SwapParameters params,
             SignedSwapMeta meta,
+            PoolBalanceUpdate minBalanceUpdate,
             bytes memory signature,
             address swapper,
             address recipient
-        ) = abi.decode(data, (address, PoolKey, SwapParameters, SignedSwapMeta, bytes, address, address));
+        ) = abi.decode(
+            data, (address, PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes, address, address)
+        );
 
         (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) =
-            ICore(payable(address(ACCOUNTANT))).swap(extension, poolKey, params, meta, signature);
+            ICore(payable(address(ACCOUNTANT))).swap(extension, poolKey, params, meta, minBalanceUpdate, signature);
 
         if (params.isPriceIncreasing()) {
             if (balanceUpdate.delta0() != 0) {
@@ -108,6 +112,8 @@ contract SignedExclusiveSwapTest is FullTest {
     address internal admin;
     SignedExclusiveSwap internal signedExclusiveSwap;
     SignedExclusiveSwapHarness internal harness;
+    PoolBalanceUpdate internal constant MIN_BALANCE_UPDATE =
+        PoolBalanceUpdate.wrap(bytes32(0x8000000000000000000000000000000080000000000000000000000000000000));
 
     function setUp() public override {
         FullTest.setUp();
@@ -152,13 +158,20 @@ contract SignedExclusiveSwapTest is FullTest {
         });
         SignedSwapMeta meta = createSignedSwapMeta(address(harness), deadline, fee, nonce);
 
-        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey, params, meta);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
         coolAllContracts();
         (PoolBalanceUpdate balanceUpdate,) = harness.swapSigned(
-            address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this)
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
         );
 
         assertEq(balanceUpdate.delta0(), 100_000);
@@ -197,14 +210,32 @@ contract SignedExclusiveSwapTest is FullTest {
         SignedSwapMeta meta =
             createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 11);
 
-        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey, params, meta);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        harness.swapSigned(address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this));
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
 
         vm.expectRevert(ISignedExclusiveSwap.NonceAlreadyUsed.selector);
-        harness.swapSigned(address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this));
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
     }
 
     function test_revert_unauthorized_locker() public {
@@ -228,12 +259,21 @@ contract SignedExclusiveSwapTest is FullTest {
             address(0xBEEF), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 99
         );
 
-        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey, params, meta);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.expectRevert(ISignedExclusiveSwap.UnauthorizedLocker.selector);
-        harness.swapSigned(address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this));
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
     }
 
     function test_revert_nonzero_pool_fee() public {
@@ -274,11 +314,20 @@ contract SignedExclusiveSwapTest is FullTest {
         SignedSwapMeta meta =
             createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 121);
 
-        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey, params, meta);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(nextControllerPk, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        harness.swapSigned(address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this));
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
     }
 
     function test_owner_updates_existing_pool_controller_to_contract() public {
@@ -306,11 +355,173 @@ contract SignedExclusiveSwapTest is FullTest {
         SignedSwapMeta meta =
             createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 131);
 
-        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey, params, meta);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        harness.swapSigned(address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this));
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
+    }
+
+    function test_revert_min_balance_update_not_met() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+            _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+        });
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 211);
+        PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(type(int128).max, type(int128).max);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert();
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            minBalanceUpdate,
+            signature,
+            address(this),
+            address(this)
+        );
+    }
+
+    function test_min_balance_update_allows_reasonable_bounds_token0_input() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+            _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+        });
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 212);
+        PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(50_000, -60_000);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        (PoolBalanceUpdate actual,) = harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            minBalanceUpdate,
+            signature,
+            address(this),
+            address(this)
+        );
+
+        assertGe(actual.delta0(), minBalanceUpdate.delta0());
+        assertGe(actual.delta1(), minBalanceUpdate.delta1());
+    }
+
+    function test_revert_min_balance_update_too_strict_pool_output_token0_input() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+            _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+        });
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 213);
+        PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(50_000, -40_000);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert();
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            minBalanceUpdate,
+            signature,
+            address(this),
+            address(this)
+        );
+    }
+
+    function test_revert_min_balance_update_too_strict_pool_output_token1_input() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params =
+            createSwapParameters({_isToken1: true, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0});
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 214);
+        PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(-40_000, 50_000);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert();
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            minBalanceUpdate,
+            signature,
+            address(this),
+            address(this)
+        );
     }
 
     function test_revert_set_default_controller_not_owner() public {

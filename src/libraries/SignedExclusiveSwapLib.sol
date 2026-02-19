@@ -6,7 +6,7 @@ import {ISignedExclusiveSwap} from "../interfaces/extensions/ISignedExclusiveSwa
 import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PoolConfig} from "../types/poolConfig.sol";
+import {PoolId} from "../types/poolId.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {SignedSwapMeta} from "../types/signedSwapMeta.sol";
 import {FlashAccountantLib} from "./FlashAccountantLib.sol";
@@ -17,7 +17,7 @@ library SignedExclusiveSwapLib {
     bytes32 internal constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 internal constant _SIGNED_SWAP_TYPEHASH =
-        keccak256("SignedSwap(address token0,address token1,bytes32 config,bytes32 params,uint256 meta)");
+        keccak256("SignedSwap(bytes32 poolId,uint256 meta,bytes32 minBalanceUpdate)");
     bytes32 internal constant _NAME_HASH = keccak256("Ekubo SignedExclusiveSwap");
     bytes32 internal constant _VERSION_HASH = keccak256("1");
 
@@ -28,10 +28,11 @@ library SignedExclusiveSwapLib {
         PoolKey memory poolKey,
         SwapParameters params,
         SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate,
         bytes memory signature
     ) internal returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) {
         (balanceUpdate, stateAfter) = abi.decode(
-            FlashAccountantLib.forward(core, extension, abi.encode(poolKey, params, meta, signature)),
+            FlashAccountantLib.forward(core, extension, abi.encode(poolKey, params, meta, minBalanceUpdate, signature)),
             (PoolBalanceUpdate, PoolState)
         );
     }
@@ -39,18 +40,16 @@ library SignedExclusiveSwapLib {
     /// @notice Computes the EIP-712 digest expected by SignedExclusiveSwap for a payload.
     function hashSignedSwapPayload(
         ISignedExclusiveSwap extension,
-        PoolKey memory poolKey,
-        SwapParameters params,
-        SignedSwapMeta meta
+        PoolId poolId,
+        SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate
     ) internal view returns (bytes32 digest) {
         bytes32 structHash = keccak256(
             abi.encode(
                 _SIGNED_SWAP_TYPEHASH,
-                poolKey.token0,
-                poolKey.token1,
-                PoolConfig.unwrap(poolKey.config),
-                SwapParameters.unwrap(params),
-                SignedSwapMeta.unwrap(meta)
+                PoolId.unwrap(poolId),
+                SignedSwapMeta.unwrap(meta),
+                PoolBalanceUpdate.unwrap(minBalanceUpdate)
             )
         );
 

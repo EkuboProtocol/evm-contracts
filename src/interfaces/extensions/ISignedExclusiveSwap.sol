@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {PoolKey} from "../../types/poolKey.sol";
+import {PoolBalanceUpdate} from "../../types/poolBalanceUpdate.sol";
 import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
@@ -32,6 +33,9 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
 
     /// @notice Thrown when the pool fee is non-zero.
     error PoolFeeMustBeZero();
+
+    /// @notice Thrown when the signed minimum balance-update constraint is not met.
+    error MinBalanceUpdateNotMet(PoolBalanceUpdate minBalanceUpdate, PoolBalanceUpdate actualBalanceUpdate);
 
     /// @notice Public entrypoint to donate pending extension-collected fees to LPs.
     function accumulatePoolFees(PoolKey memory poolKey) external;

@@ -16,17 +16,24 @@ import {PoolState} from "../types/poolState.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {SignedSwapMeta} from "../types/signedSwapMeta.sol";
+import {
+    SignedExclusiveSwapPoolState,
+    createSignedExclusiveSwapPoolState
+} from "../types/signedExclusiveSwapPoolState.sol";
 import {Locker} from "../types/locker.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 import {Bitmap} from "../types/bitmap.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {computeFee} from "../math/fee.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {ECDSA} from "solady/utils/ECDSA.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
 function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: false,
-        afterInitializePool: false,
+        afterInitializePool: true,
         beforeSwap: true,
         afterSwap: false,
         beforeUpdatePosition: true,
@@ -38,22 +45,42 @@ function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
 
 /// @notice Forward-only swap extension with controller-signed, per-swap fee customization.
 /// @dev Fees are first collected into extension saved balances, then donated to LPs at the start of the next block.
-contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage {
+contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage, Ownable {
     using CoreLib for *;
     using ExposedStorageLib for *;
     using SignedExclusiveSwapLib for *;
+    using ECDSA for bytes32;
 
-    address public immutable CONTROLLER;
+    address public defaultController;
+    bool public defaultControllerIsEoa;
 
-    mapping(PoolId poolId => uint32 lastUpdateTime) internal _poolLastUpdateTime;
     mapping(uint256 => Bitmap) public nonceBitmap;
 
-    constructor(ICore core, address controller) BaseExtension(core) BaseForwardee(core) {
-        CONTROLLER = controller;
+    constructor(ICore core, address owner, address _defaultController, bool _defaultControllerIsEoa)
+        BaseExtension(core)
+        BaseForwardee(core)
+    {
+        _initializeOwner(owner);
+        defaultController = _defaultController;
+        defaultControllerIsEoa = _defaultControllerIsEoa;
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return signedExclusiveSwapCallPoints();
+    }
+
+    /// @inheritdoc IExtension
+    function afterInitializePool(address, PoolKey memory poolKey, int32, SqrtRatio)
+        external
+        override(BaseExtension, IExtension)
+        onlyCore
+    {
+        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
+
+        _setPoolState(
+            poolKey.toPoolId(),
+            createSignedExclusiveSwapPoolState(defaultController, uint32(block.timestamp), defaultControllerIsEoa)
+        );
     }
 
     /// @notice We only allow swapping via forward to this extension.
@@ -81,7 +108,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     function accumulatePoolFees(PoolKey memory poolKey) public {
         if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
         PoolId poolId = poolKey.toPoolId();
-        if (_poolLastUpdateTime[poolId] != uint32(block.timestamp)) {
+        if (_getPoolState(poolId).lastUpdateTime() != uint32(block.timestamp)) {
             address target = address(CORE);
             assembly ("memory-safe") {
                 let o := mload(0x40)
@@ -113,12 +140,41 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             );
         }
 
-        _poolLastUpdateTime[poolId] = uint32(block.timestamp);
+        _setPoolState(poolId, _getPoolState(poolId).withLastUpdateTime(uint32(block.timestamp)));
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function setDefaultController(address controller, bool isEoa) external onlyOwner {
+        defaultController = controller;
+        defaultControllerIsEoa = isEoa;
+
+        emit DefaultControllerUpdated(controller, isEoa);
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function setPoolController(PoolKey memory poolKey, address controller, bool isEoa) external onlyOwner {
+        if (poolKey.config.extension() != address(this) || !CORE.poolState(poolKey.toPoolId()).isInitialized()) {
+            revert ICore.PoolNotInitialized();
+        }
+
+        PoolId poolId = poolKey.toPoolId();
+        _setPoolState(poolId, _getPoolState(poolId).withController(controller, isEoa));
+
+        emit PoolControllerUpdated(PoolId.unwrap(poolId), controller, isEoa);
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function getPoolController(PoolKey memory poolKey) external view returns (address controller, bool isEoa) {
+        SignedExclusiveSwapPoolState state = _getPoolState(poolKey.toPoolId());
+        controller = state.controller();
+        isEoa = state.controllerIsEoa();
     }
 
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         (PoolKey memory poolKey, SwapParameters params, SignedSwapMeta meta, bytes memory signature) =
             abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, bytes));
+        PoolId poolId = poolKey.toPoolId();
+        SignedExclusiveSwapPoolState state = _getPoolState(poolId);
 
         if (!meta.isNotExpired(uint32(block.timestamp))) revert SignatureExpired();
 
@@ -131,7 +187,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         _consumeNonce(meta.nonce());
 
         bytes32 digest = this.hashSignedSwapPayload(poolKey, params, meta);
-        if (!SignatureCheckerLib.isValidSignatureNow(CONTROLLER, digest, signature)) {
+        if (!_isValidControllerSignature(state.controller(), state.controllerIsEoa(), digest, signature)) {
             revert InvalidSignature();
         }
 
@@ -173,9 +229,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
 
         if (saveDelta0 != 0 || saveDelta1 != 0) {
-            CORE.updateSavedBalances(
-                poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()), saveDelta0, saveDelta1
-            );
+            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
         }
 
         result = abi.encode(balanceUpdate, stateAfter);
@@ -204,6 +258,29 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
             fees1 := shr(128, shl(128, value))
             fees1 := sub(fees1, gt(fees1, 0))
+        }
+    }
+
+    function _isValidControllerSignature(address controller, bool isEoa, bytes32 digest, bytes memory signature)
+        internal
+        view
+        returns (bool valid)
+    {
+        if (isEoa) {
+            return digest.recover(signature) == controller;
+        }
+        return SignatureCheckerLib.isValidSignatureNow(controller, digest, signature);
+    }
+
+    function _getPoolState(PoolId poolId) internal view returns (SignedExclusiveSwapPoolState state) {
+        assembly ("memory-safe") {
+            state := sload(poolId)
+        }
+    }
+
+    function _setPoolState(PoolId poolId, SignedExclusiveSwapPoolState state) internal {
+        assembly ("memory-safe") {
+            sstore(poolId, state)
         }
     }
 }

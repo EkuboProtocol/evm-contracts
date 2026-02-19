@@ -17,7 +17,31 @@ import {ISignedExclusiveSwap} from "../../src/interfaces/extensions/ISignedExclu
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
-import {Locker} from "../../src/types/locker.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+
+contract MockSigner1271 {
+    address internal immutable _signer;
+    bytes4 internal constant _MAGIC_VALUE = 0x1626ba7e;
+
+    constructor(address signer) {
+        _signer = signer;
+    }
+
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
+        (uint8 v, bytes32 r, bytes32 s) = vmSafeDecodeSignature(signature);
+        if (ecrecover(hash, v, r, s) == _signer) return _MAGIC_VALUE;
+        return bytes4(0xffffffff);
+    }
+
+    function vmSafeDecodeSignature(bytes calldata signature) private pure returns (uint8 v, bytes32 r, bytes32 s) {
+        if (signature.length != 65) return (0, bytes32(0), bytes32(0));
+        assembly ("memory-safe") {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 32))
+            v := byte(0, calldataload(add(signature.offset, 64)))
+        }
+    }
+}
 
 contract SignedExclusiveSwapHarness is BaseLocker {
     using FlashAccountantLib for *;
@@ -80,17 +104,21 @@ contract SignedExclusiveSwapTest is FullTest {
 
     uint256 internal controllerPk;
     address internal controller;
+    uint256 internal adminPk;
+    address internal admin;
     SignedExclusiveSwap internal signedExclusiveSwap;
     SignedExclusiveSwapHarness internal harness;
 
     function setUp() public override {
         FullTest.setUp();
 
+        adminPk = 0xB0B;
+        admin = vm.addr(adminPk);
         controllerPk = 0xA11CE;
         controller = vm.addr(controllerPk);
 
         address deployAddress = address(uint160(signedExclusiveSwapCallPoints().toUint8()) << 152);
-        deployCodeTo("SignedExclusiveSwap.sol", abi.encode(core, controller), deployAddress);
+        deployCodeTo("SignedExclusiveSwap.sol", abi.encode(core, admin, controller, true), deployAddress);
         signedExclusiveSwap = SignedExclusiveSwap(deployAddress);
 
         harness = new SignedExclusiveSwapHarness(core);
@@ -209,7 +237,8 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_nonzero_pool_fee() public {
-        PoolKey memory poolKey = createPool({
+        vm.expectRevert(ISignedExclusiveSwap.PoolFeeMustBeZero.selector);
+        createPool({
             _token0: address(token0),
             _token1: address(token1),
             tick: 0,
@@ -217,18 +246,89 @@ contract SignedExclusiveSwapTest is FullTest {
                 _fee: uint64(uint256(1 << 64) / 100), _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
             })
         });
+    }
+
+    function test_owner_updates_default_controller_for_new_pools() public {
+        uint256 nextControllerPk = 0xC0FFEE;
+        address nextController = vm.addr(nextControllerPk);
+
+        vm.prank(admin);
+        signedExclusiveSwap.setDefaultController(nextController, true);
+
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
 
         SwapParameters params = createSwapParameters({
             _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
         });
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 101);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 121);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey, params, meta);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(nextControllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        harness.swapSigned(address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this));
+    }
+
+    function test_owner_updates_existing_pool_controller_to_contract() public {
+        MockSigner1271 contractController = new MockSigner1271(controller);
+
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        vm.prank(admin);
+        signedExclusiveSwap.setPoolController(poolKey, address(contractController), false);
+
+        SwapParameters params = createSwapParameters({
+            _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+        });
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 131);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey, params, meta);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        vm.expectRevert(ISignedExclusiveSwap.PoolFeeMustBeZero.selector);
         harness.swapSigned(address(signedExclusiveSwap), poolKey, params, meta, signature, address(this), address(this));
+    }
+
+    function test_revert_set_default_controller_not_owner() public {
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        signedExclusiveSwap.setDefaultController(address(0x1234), true);
+    }
+
+    function test_revert_set_pool_controller_not_owner() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        signedExclusiveSwap.setPoolController(poolKey, address(0x1234), true);
     }
 }

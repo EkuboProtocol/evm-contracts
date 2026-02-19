@@ -9,6 +9,12 @@ import {IExposedStorage} from "../IExposedStorage.sol";
 /// @title Signed Exclusive Swap Interface
 /// @notice Extension that enforces forward-only swaps and applies signed, per-swap fee controls.
 interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtension {
+    /// @notice Emitted when the default controller is updated.
+    event DefaultControllerUpdated(address indexed controller, bool isEoa);
+
+    /// @notice Emitted when a pool controller is updated.
+    event PoolControllerUpdated(bytes32 indexed poolId, address indexed controller, bool isEoa);
+
     /// @notice Thrown when attempting to swap directly without using forward.
     error SwapMustHappenThroughForward();
 
@@ -29,4 +35,13 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
 
     /// @notice Public entrypoint to donate pending extension-collected fees to LPs.
     function accumulatePoolFees(PoolKey memory poolKey) external;
+
+    /// @notice Updates the default controller used for newly initialized pools.
+    function setDefaultController(address controller, bool isEoa) external;
+
+    /// @notice Updates the controller for an existing pool.
+    function setPoolController(PoolKey memory poolKey, address controller, bool isEoa) external;
+
+    /// @notice Returns the current controller for a pool.
+    function getPoolController(PoolKey memory poolKey) external view returns (address controller, bool isEoa);
 }

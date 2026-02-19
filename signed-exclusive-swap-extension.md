@@ -41,7 +41,7 @@ The signature is EIP-712 typed data over:
    - deadline from `meta` has not expired (wrap-safe 32-bit comparison),
    - locker authorization from `meta` (`authorizedLocker == 0 || authorizedLocker == originalLocker`),
    - nonce not already used (then burns it),
-   - signature from immutable `CONTROLLER`.
+   - signature against the pool controller stored in per-pool state.
 3. Extension accumulates pending extension fees for the pool if this is the first touch in the block.
 4. Extension executes `CORE.swap(...)`.
 5. Extension applies `fee` to the swapper result:
@@ -71,3 +71,14 @@ Replay protection is intentionally simple:
 If the bit is set, the signature is invalid; otherwise it is toggled on during execution.
 
 Nonce lifecycle/reuse strategy is handled off-chain by the controller.
+
+## Controller management
+
+- Contract is `Ownable`.
+- `defaultController` and `defaultControllerIsEoa` are used for new pools in `afterInitializePool`.
+- Owner can update:
+  - default controller for future pools,
+  - per-pool controller for already initialized pools.
+- Pool state also stores an `isEoa` bit to choose an efficient signature verification path:
+  - EOA path uses direct ECDSA recovery,
+  - contract path uses ERC-1271 (`SignatureCheckerLib`).

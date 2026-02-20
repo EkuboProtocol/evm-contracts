@@ -191,6 +191,119 @@ contract SignedExclusiveSwapTest is FullTest {
         assertEq(saved1After, 1);
     }
 
+    /// forge-config: default.isolate = true
+    function test_gas_signed_swap_token0_input_no_meta_fee() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+            _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+        });
+        SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), 0, 300);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        coolAllContracts();
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
+        vm.snapshotGasLastCall("signedExclusiveSwap token0 input (no meta fee)");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_gas_signed_swap_token0_input_with_meta_fee() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+            _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+        });
+        uint32 fee = uint32(uint256(1 << 32) / 200); // 0.5%
+        SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), fee, 301);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        coolAllContracts();
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
+        vm.snapshotGasLastCall("signedExclusiveSwap token0 input (with meta fee)");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_gas_signed_swap_token1_input_with_meta_fee() public {
+        PoolKey memory poolKey = createPool({
+            _token0: address(token0),
+            _token1: address(token1),
+            tick: 0,
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+            })
+        });
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+            _isToken1: true, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+        });
+        uint32 fee = uint32(uint256(1 << 32) / 200); // 0.5%
+        SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), fee, 302);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        coolAllContracts();
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
+        vm.snapshotGasLastCall("signedExclusiveSwap token1 input (with meta fee)");
+    }
+
     function test_revert_nonce_reuse() public {
         PoolKey memory poolKey = createPool({
             _token0: address(token0),

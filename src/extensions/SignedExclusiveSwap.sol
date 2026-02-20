@@ -109,7 +109,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
     /// @inheritdoc ISignedExclusiveSwap
     function accumulatePoolFees(PoolKey memory poolKey) public {
-        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
         PoolId poolId = poolKey.toPoolId();
         if (_getPoolState(poolId).lastUpdateTime() != uint32(block.timestamp)) {
             address target = address(CORE);
@@ -171,13 +170,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         emit PoolControllerUpdated(poolId, controller, isEoa);
     }
 
-    /// @inheritdoc ISignedExclusiveSwap
-    function getPoolController(PoolKey memory poolKey) external view returns (address controller, bool isEoa) {
-        SignedExclusiveSwapPoolState state = _getPoolState(poolKey.toPoolId());
-        controller = state.controller();
-        isEoa = state.controllerIsEoa();
-    }
-
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         (
             PoolKey memory poolKey,
@@ -195,7 +187,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         if (authorized != address(0) && authorized != original.addr()) {
             revert UnauthorizedLocker();
         }
-        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
 
         _consumeNonce(meta.nonce());
 

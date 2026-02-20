@@ -50,7 +50,4 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
 
     /// @notice Updates the controller for an existing pool.
     function setPoolController(PoolKey memory poolKey, address controller, bool isEoa) external;
-
-    /// @notice Returns the current controller for a pool.
-    function getPoolController(PoolKey memory poolKey) external view returns (address controller, bool isEoa);
 }

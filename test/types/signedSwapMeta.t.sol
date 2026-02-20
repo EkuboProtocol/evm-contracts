@@ -2,7 +2,8 @@
 pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
-import {SignedSwapMeta, createSignedSwapMeta, authorizedLocker, isExpired} from "../../src/types/signedSwapMeta.sol";
+import {SignedSwapMeta, createSignedSwapMeta} from "../../src/types/signedSwapMeta.sol";
+import {Locker} from "../../src/types/locker.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract SignedSwapMetaTest is Test {
@@ -16,6 +17,12 @@ contract SignedSwapMetaTest is Test {
         assertEq(meta.deadline(), deadlineValue);
         assertEq(meta.fee(), feeValue);
         assertEq(meta.nonce(), nonceValue);
+    }
+
+    function test_isAuthorized(Locker locker, SignedSwapMeta meta) public pure {
+        assertEq(
+            meta.isAuthorized(locker), meta.authorizedLocker() == address(0) || meta.authorizedLocker() == locker.addr()
+        );
     }
 
     function test_isExpired_matchesCurrentGtDeadline_withinSignedWindow(uint256 current, uint256 deadline) public pure {

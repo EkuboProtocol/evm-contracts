@@ -183,8 +183,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         if (meta.isExpired(uint32(block.timestamp))) revert SignatureExpired();
 
-        address authorized = meta.authorizedLocker();
-        if (authorized != address(0) && authorized != original.addr()) {
+        if (!meta.isAuthorized(original)) {
             revert UnauthorizedLocker();
         }
 

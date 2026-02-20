@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
+import {Locker} from "./locker.sol";
+
 /// @notice Signed swap metadata packed into a single word.
 /// @dev Layout:
 /// - bits [255..96]: authorized locker (160 bits)
@@ -9,11 +11,18 @@ pragma solidity =0.8.33;
 /// - bits [31..0]: nonce (uint32)
 type SignedSwapMeta is uint256;
 
-using {authorizedLocker, deadline, fee, nonce, isExpired} for SignedSwapMeta global;
+using {authorizedLocker, isAuthorized, deadline, fee, nonce, isExpired} for SignedSwapMeta global;
 
 function authorizedLocker(SignedSwapMeta meta) pure returns (address locker) {
     assembly ("memory-safe") {
         locker := shr(96, meta)
+    }
+}
+
+function isAuthorized(SignedSwapMeta meta, Locker locker) pure returns (bool authorized) {
+    assembly ("memory-safe") {
+        let addr := shr(96, meta)
+        authorized := or(iszero(addr), eq(addr, shr(96, shl(96, locker))))
     }
 }
 

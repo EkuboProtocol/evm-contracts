@@ -9,7 +9,7 @@ pragma solidity =0.8.33;
 /// - bits [31..0]: nonce (uint32)
 type SignedSwapMeta is uint256;
 
-using {authorizedLocker, deadline, fee, nonce, isNotExpired, parseSignedSwapMeta} for SignedSwapMeta global;
+using {authorizedLocker, deadline, fee, nonce, isExpired} for SignedSwapMeta global;
 
 function authorizedLocker(SignedSwapMeta meta) pure returns (address locker) {
     assembly ("memory-safe") {
@@ -35,18 +35,6 @@ function nonce(SignedSwapMeta meta) pure returns (uint32 value) {
     }
 }
 
-function parseSignedSwapMeta(SignedSwapMeta meta)
-    pure
-    returns (address _authorizedLocker, uint32 _deadline, uint32 _fee, uint32 _nonce)
-{
-    assembly ("memory-safe") {
-        _authorizedLocker := shr(96, meta)
-        _deadline := and(shr(64, meta), 0xffffffff)
-        _fee := and(shr(32, meta), 0xffffffff)
-        _nonce := and(meta, 0xffffffff)
-    }
-}
-
 function createSignedSwapMeta(address _authorizedLocker, uint32 _deadline, uint32 _fee, uint32 _nonce)
     pure
     returns (SignedSwapMeta meta)
@@ -56,10 +44,10 @@ function createSignedSwapMeta(address _authorizedLocker, uint32 _deadline, uint3
     }
 }
 
-/// @notice Returns true if the deadline has not expired relative to `currentTimestamp`.
+/// @notice Returns true if the deadline is expired relative to `currentTimestamp`.
 /// @dev Uses modulo-2^32 comparison to remain valid across uint32 timestamp rollover.
-function isNotExpired(SignedSwapMeta meta, uint32 currentTimestamp) pure returns (bool valid) {
+function isExpired(SignedSwapMeta meta, uint32 currentTimestamp) pure returns (bool expired) {
     unchecked {
-        valid = int32(deadline(meta) - currentTimestamp) >= 0;
+        expired = int32(deadline(meta) - currentTimestamp) < 0;
     }
 }

@@ -181,7 +181,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         PoolId poolId = poolKey.toPoolId();
         SignedExclusiveSwapPoolState state = _getPoolState(poolId);
 
-        if (!meta.isNotExpired(uint32(block.timestamp))) revert SignatureExpired();
+        if (meta.isExpired(uint32(block.timestamp))) revert SignatureExpired();
 
         address authorized = meta.authorizedLocker();
         if (authorized != address(0) && authorized != original.addr()) {

@@ -2,16 +2,8 @@
 pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    SignedSwapMeta,
-    createSignedSwapMeta,
-    authorizedLocker,
-    deadline,
-    fee,
-    nonce,
-    parseSignedSwapMeta,
-    isNotExpired
-} from "../../src/types/signedSwapMeta.sol";
+import {SignedSwapMeta, createSignedSwapMeta, authorizedLocker, isExpired} from "../../src/types/signedSwapMeta.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract SignedSwapMetaTest is Test {
     function test_pack_unpack(address authorized, uint32 deadlineValue, uint32 feeValue, uint32 nonceValue)
@@ -20,31 +12,24 @@ contract SignedSwapMetaTest is Test {
     {
         SignedSwapMeta meta = createSignedSwapMeta(authorized, deadlineValue, feeValue, nonceValue);
 
-        assertEq(authorizedLocker(meta), authorized);
-        assertEq(deadline(meta), deadlineValue);
-        assertEq(fee(meta), feeValue);
-        assertEq(nonce(meta), nonceValue);
-
-        (address parsedAuthorized, uint32 parsedDeadline, uint32 parsedFee, uint32 parsedNonce) =
-            parseSignedSwapMeta(meta);
-        assertEq(parsedAuthorized, authorized);
-        assertEq(parsedDeadline, deadlineValue);
-        assertEq(parsedFee, feeValue);
-        assertEq(parsedNonce, nonceValue);
+        assertEq(meta.authorizedLocker(), authorized);
+        assertEq(meta.deadline(), deadlineValue);
+        assertEq(meta.fee(), feeValue);
+        assertEq(meta.nonce(), nonceValue);
     }
 
-    function test_isNotExpired_without_wrap() public pure {
-        SignedSwapMeta meta = createSignedSwapMeta(address(0), 1000, 0, 0);
-        assertTrue(isNotExpired(meta, 999));
-        assertTrue(isNotExpired(meta, 1000));
-        assertFalse(isNotExpired(meta, 1001));
+    function test_isExpired_matchesCurrentGtDeadline_withinSignedWindow(uint256 current, uint256 deadline) public pure {
+        current = bound(current, 0, type(uint256).max - type(uint32).max);
+        deadline = bound(
+            deadline, FixedPointMathLib.zeroFloorSub(current, 1 << 31), current + uint256(int256(type(int32).max))
+        );
+
+        SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(deadline), 0, 0);
+        assertEq(meta.isExpired(uint32(current)), current > deadline);
     }
 
-    function test_isNotExpired_with_wrap() public pure {
-        SignedSwapMeta metaFuture = createSignedSwapMeta(address(0), 3, 0, 0);
-        assertTrue(isNotExpired(metaFuture, type(uint32).max - 5));
-
-        SignedSwapMeta metaPast = createSignedSwapMeta(address(0), type(uint32).max - 5, 0, 0);
-        assertFalse(isNotExpired(metaPast, 3));
+    function test_isExpired_true_whenDeadlineFarAheadBeyondInt32Window() public pure {
+        SignedSwapMeta meta = createSignedSwapMeta(address(0), 3_124_842_406, 0, 0);
+        assertTrue(meta.isExpired(16));
     }
 }

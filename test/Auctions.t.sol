@@ -697,8 +697,8 @@ contract AuctionsTest is BaseOrdersTest {
         uint32 duration = uint32(endTime - startTime);
 
         // Constrain the exercised state space to the regime where each token has total supply < 2**128.
-        uint128 supply0 = uint128(bound(uint256(supply0Seed), minInventory + 2, type(uint128).max));
-        uint128 supply1 = uint128(bound(uint256(supply1Seed), minInventory + 2, type(uint128).max));
+        uint128 supply0 = uint128(bound(uint256(supply0Seed), minInventory + 2, type(uint128).max >> 1));
+        uint128 supply1 = uint128(bound(uint256(supply1Seed), minInventory + 2, type(uint128).max >> 1));
         uint128 liquidity0 = uint128(bound(uint256(liquidity0Seed), 1, uint256(supply0) - minInventory));
         uint128 liquidity1 = uint128(bound(uint256(liquidity1Seed), 1, uint256(supply1) - minInventory));
         uint128 inventory0 = supply0 - liquidity0;

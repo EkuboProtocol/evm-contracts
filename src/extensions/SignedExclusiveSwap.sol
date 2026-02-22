@@ -72,10 +72,9 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
 
         sqrtRatio = CORE.initializePool(poolKey, tick);
-
-        PoolId poolId = poolKey.toPoolId();
-        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp));
-        _setPoolState(poolId, state);
+        _setPoolState({
+            poolId: poolKey.toPoolId(), state: createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp))
+        });
     }
 
     /// @inheritdoc IExtension
@@ -118,8 +117,9 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
                 let o := mload(0x40)
                 mstore(o, shl(224, 0xf83d08ba))
                 mcopy(add(o, 4), poolKey, 96)
+                mstore(add(o, 100), poolId)
 
-                if iszero(call(gas(), target, 0, o, 100, 0, 0)) {
+                if iszero(call(gas(), target, 0, o, 132, 0, 0)) {
                     returndatacopy(o, 0, returndatasize())
                     revert(o, returndatasize())
                 }
@@ -130,11 +130,12 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     /// @dev Core lock callback used by `accumulatePoolFees`.
     function locked_6416899205(uint256) external onlyCore {
         PoolKey memory poolKey;
+        PoolId poolId;
         assembly ("memory-safe") {
             calldatacopy(poolKey, 36, 96)
+            poolId := calldataload(132)
         }
 
-        PoolId poolId = poolKey.toPoolId();
         (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
 
         if (fees0 != 0 || fees1 != 0) {
@@ -144,7 +145,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             );
         }
 
-        _setPoolState(poolId, _getPoolState(poolId).withLastUpdateTime(uint32(block.timestamp)));
+        _setPoolState({poolId: poolId, state: _getPoolState(poolId).withLastUpdateTime(uint32(block.timestamp))});
     }
 
     /// @inheritdoc ISignedExclusiveSwap
@@ -159,8 +160,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
 
         PoolId poolId = poolKey.toPoolId();
-        SignedExclusiveSwapPoolState state = _getPoolState(poolId).withController(controller);
-        _setPoolState(poolId, state);
+        _setPoolState({poolId: poolId, state: _getPoolState(poolId).withController(controller)});
     }
 
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
@@ -171,16 +171,22 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             PoolBalanceUpdate minBalanceUpdate,
             bytes memory signature
         ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
-        if (meta.isExpired(uint32(block.timestamp))) revert SignatureExpired();
 
+        if (meta.isExpired(uint32(block.timestamp))) revert SignatureExpired();
         if (!meta.isAuthorized(original)) {
             revert UnauthorizedLocker();
         }
 
         PoolId poolId = poolKey.toPoolId();
         SignedExclusiveSwapPoolState state = _getPoolState(poolId);
-        uint32 currentTime = uint32(block.timestamp);
 
+        if (!_isValidControllerSignature(
+                state.controller(), this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate), signature
+            )) {
+            revert InvalidSignature();
+        }
+
+        uint32 currentTime = uint32(block.timestamp);
         // Inline fee accumulation here to avoid an extra lock call from `accumulatePoolFees`.
         if (state.lastUpdateTime() != currentTime) {
             (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
@@ -200,18 +206,14 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             _setPoolState(poolId, state);
         }
 
-        bytes32 digest = this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate);
-        if (!_isValidControllerSignature(state.controller(), digest, signature)) {
-            revert InvalidSignature();
-        }
-
-        params = params.withDefaultSqrtRatioLimit();
-
         (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
 
-        _validateMinBalanceUpdate(minBalanceUpdate, balanceUpdate);
+        if (balanceUpdate.delta0() < minBalanceUpdate.delta0() || balanceUpdate.delta1() < minBalanceUpdate.delta1()) {
+            revert MinBalanceUpdateNotMet(minBalanceUpdate, balanceUpdate);
+        }
 
-        // now that all validation has succeeded, consume the nonce
+        // only now that all validation has succeeded, consume the nonce,
+        // which reduces the gas cost in the case of swaps exceeding the allowed amount
         _consumeNonce(meta.nonce());
 
         int256 saveDelta0;
@@ -251,18 +253,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
 
         result = abi.encode(balanceUpdate, stateAfter);
-    }
-
-    function _validateMinBalanceUpdate(PoolBalanceUpdate minBalanceUpdate, PoolBalanceUpdate actualBalanceUpdate)
-        internal
-        pure
-    {
-        if (
-            actualBalanceUpdate.delta0() < minBalanceUpdate.delta0()
-                || actualBalanceUpdate.delta1() < minBalanceUpdate.delta1()
-        ) {
-            revert MinBalanceUpdateNotMet(minBalanceUpdate, actualBalanceUpdate);
-        }
     }
 
     function _consumeNonce(uint32 nonce) internal {

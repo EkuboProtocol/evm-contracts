@@ -179,12 +179,30 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         _consumeNonce(meta.nonce());
 
-        // has to come before we read the pool state below
-        accumulatePoolFees(poolKey);
-
         PoolId poolId = poolKey.toPoolId();
-        bytes32 digest = this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate);
         SignedExclusiveSwapPoolState state = _getPoolState(poolId);
+        uint32 currentTime = uint32(block.timestamp);
+
+        // Inline fee accumulation here to avoid an extra lock call from `accumulatePoolFees`.
+        if (state.lastUpdateTime() != currentTime) {
+            (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
+
+            if (fees0 != 0 || fees1 != 0) {
+                CORE.accumulateAsFees(poolKey, fees0, fees1);
+                CORE.updateSavedBalances(
+                    poolKey.token0,
+                    poolKey.token1,
+                    PoolId.unwrap(poolId),
+                    -int256(uint256(fees0)),
+                    -int256(uint256(fees1))
+                );
+            }
+
+            state = state.withLastUpdateTime(currentTime);
+            _setPoolState(poolId, state);
+        }
+
+        bytes32 digest = this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate);
         if (!_isValidControllerSignature(state.controller(), digest, signature)) {
             revert InvalidSignature();
         }

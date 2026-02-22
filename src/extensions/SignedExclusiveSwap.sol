@@ -255,7 +255,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         result = abi.encode(balanceUpdate, stateAfter);
     }
 
-    function _consumeNonce(uint32 nonce) internal {
+    function _consumeNonce(uint64 nonce) internal {
         uint256 word = nonce >> 8;
         uint8 bit = uint8(nonce & 0xff);
 

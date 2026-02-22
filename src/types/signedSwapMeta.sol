@@ -5,51 +5,54 @@ import {Locker} from "./locker.sol";
 
 /// @notice Signed swap metadata packed into a single word.
 /// @dev Layout:
-/// - bits [255..96]: authorized locker (160 bits)
-/// - bits [95..64]: deadline (uint32)
-/// - bits [63..32]: fee (uint32)
-/// - bits [31..0]: nonce (uint32)
+/// - bits [255..224]: deadline (uint32)
+/// - bits [223..192]: fee (uint32)
+/// - bits [191..128]: nonce (uint64)
+/// - bits [127..0]: authorized locker lower 128 bits
 type SignedSwapMeta is uint256;
 
 using {authorizedLocker, isAuthorized, deadline, fee, nonce, isExpired} for SignedSwapMeta global;
 
 function authorizedLocker(SignedSwapMeta meta) pure returns (address locker) {
     assembly ("memory-safe") {
-        locker := shr(96, meta)
+        locker := and(meta, 0xffffffffffffffffffffffffffffffff)
     }
 }
 
 function isAuthorized(SignedSwapMeta meta, Locker locker) pure returns (bool authorized) {
     assembly ("memory-safe") {
-        let addr := shr(96, meta)
-        authorized := or(iszero(addr), eq(addr, shr(96, shl(96, locker))))
+        let shiftedMeta := shl(128, meta)
+        authorized := or(iszero(shiftedMeta), eq(shl(128, locker), shiftedMeta))
     }
 }
 
 function deadline(SignedSwapMeta meta) pure returns (uint32 value) {
     assembly ("memory-safe") {
-        value := and(shr(64, meta), 0xffffffff)
+        value := shr(224, meta)
     }
 }
 
 function fee(SignedSwapMeta meta) pure returns (uint32 value) {
     assembly ("memory-safe") {
-        value := and(shr(32, meta), 0xffffffff)
+        value := and(shr(192, meta), 0xffffffff)
     }
 }
 
-function nonce(SignedSwapMeta meta) pure returns (uint32 value) {
+function nonce(SignedSwapMeta meta) pure returns (uint64 value) {
     assembly ("memory-safe") {
-        value := and(meta, 0xffffffff)
+        value := and(shr(128, meta), 0xffffffffffffffff)
     }
 }
 
-function createSignedSwapMeta(address _authorizedLocker, uint32 _deadline, uint32 _fee, uint32 _nonce)
+function createSignedSwapMeta(address _authorizedLocker, uint32 _deadline, uint32 _fee, uint64 _nonce)
     pure
     returns (SignedSwapMeta meta)
 {
     assembly ("memory-safe") {
-        meta := or(or(shl(96, _authorizedLocker), shl(64, _deadline)), or(shl(32, _fee), _nonce))
+        meta := or(
+            or(shl(224, _deadline), shl(192, _fee)),
+            or(shl(128, _nonce), and(_authorizedLocker, 0xffffffffffffffffffffffffffffffff))
+        )
     }
 }
 

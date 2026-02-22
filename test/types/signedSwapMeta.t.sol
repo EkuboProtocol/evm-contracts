@@ -7,21 +7,23 @@ import {Locker} from "../../src/types/locker.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract SignedSwapMetaTest is Test {
-    function test_pack_unpack(address authorized, uint32 deadlineValue, uint32 feeValue, uint32 nonceValue)
+    function test_pack_unpack(address authorized, uint32 deadlineValue, uint32 feeValue, uint64 nonceValue)
         public
         pure
     {
         SignedSwapMeta meta = createSignedSwapMeta(authorized, deadlineValue, feeValue, nonceValue);
 
-        assertEq(meta.authorizedLocker(), authorized);
+        assertEq(meta.authorizedLocker(), address(uint160(uint128(uint160(authorized)))));
         assertEq(meta.deadline(), deadlineValue);
         assertEq(meta.fee(), feeValue);
         assertEq(meta.nonce(), nonceValue);
     }
 
     function test_isAuthorized(Locker locker, SignedSwapMeta meta) public pure {
+        address auth = meta.authorizedLocker();
+        address lockerAddr = locker.addr();
         assertEq(
-            meta.isAuthorized(locker), meta.authorizedLocker() == address(0) || meta.authorizedLocker() == locker.addr()
+            meta.isAuthorized(locker), auth == address(0) || uint128(uint160(auth)) == uint128(uint160(lockerAddr))
         );
     }
 

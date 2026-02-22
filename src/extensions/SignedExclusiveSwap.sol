@@ -16,6 +16,7 @@ import {PoolState} from "../types/poolState.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {SignedSwapMeta} from "../types/signedSwapMeta.sol";
+import {ControllerAddress} from "../types/controllerAddress.sol";
 import {
     SignedExclusiveSwapPoolState,
     createSignedExclusiveSwapPoolState
@@ -62,7 +63,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @inheritdoc ISignedExclusiveSwap
-    function initializePool(PoolKey memory poolKey, int32 tick, address controller, bool controllerIsEoa)
+    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
         external
         onlyOwner
         returns (SqrtRatio sqrtRatio)
@@ -73,8 +74,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         sqrtRatio = CORE.initializePool(poolKey, tick);
 
         PoolId poolId = poolKey.toPoolId();
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), controllerIsEoa);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp));
         _setPoolState(poolId, state);
     }
 
@@ -153,13 +153,13 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @inheritdoc ISignedExclusiveSwap
-    function setPoolController(PoolKey memory poolKey, address controller, bool isEoa) external onlyOwner {
+    function setPoolController(PoolKey memory poolKey, ControllerAddress controller) external onlyOwner {
         if (poolKey.config.extension() != address(this) || !CORE.poolState(poolKey.toPoolId()).isInitialized()) {
             revert ICore.PoolNotInitialized();
         }
 
         PoolId poolId = poolKey.toPoolId();
-        SignedExclusiveSwapPoolState state = _getPoolState(poolId).withController(controller, isEoa);
+        SignedExclusiveSwapPoolState state = _getPoolState(poolId).withController(controller);
         _setPoolState(poolId, state);
     }
 
@@ -185,7 +185,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         PoolId poolId = poolKey.toPoolId();
         bytes32 digest = this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate);
         SignedExclusiveSwapPoolState state = _getPoolState(poolId);
-        if (!_isValidControllerSignature(state.controller(), state.controllerIsEoa(), digest, signature)) {
+        if (!_isValidControllerSignature(state.controller(), digest, signature)) {
             revert InvalidSignature();
         }
 
@@ -272,15 +272,16 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
     }
 
-    function _isValidControllerSignature(address controller, bool isEoa, bytes32 digest, bytes memory signature)
+    function _isValidControllerSignature(ControllerAddress controller, bytes32 digest, bytes memory signature)
         internal
         view
         returns (bool valid)
     {
-        if (isEoa) {
-            return digest.recover(signature) == controller;
+        address controllerAddress = ControllerAddress.unwrap(controller);
+        if (controller.isEoa()) {
+            return digest.recover(signature) == controllerAddress;
         }
-        return SignatureCheckerLib.isValidSignatureNow(controller, digest, signature);
+        return SignatureCheckerLib.isValidERC1271SignatureNow(controllerAddress, digest, signature);
     }
 
     function _getPoolState(PoolId poolId) internal view returns (SignedExclusiveSwapPoolState state) {

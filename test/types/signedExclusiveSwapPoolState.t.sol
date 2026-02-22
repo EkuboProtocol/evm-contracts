@@ -7,49 +7,39 @@ import {
     createSignedExclusiveSwapPoolState,
     controller,
     lastUpdateTime,
-    controllerIsEoa,
     withLastUpdateTime,
     withController
 } from "../../src/types/signedExclusiveSwapPoolState.sol";
+import {ControllerAddress, isEoa} from "../../src/types/controllerAddress.sol";
 
 contract SignedExclusiveSwapPoolStateTest is Test {
-    function test_pack_unpack(address _controller, uint32 _lastUpdateTime, bool _controllerIsEoa) public pure {
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(_controller, _lastUpdateTime, _controllerIsEoa);
+    function test_pack_unpack(address _controller, uint32 _lastUpdateTime) public pure {
+        ControllerAddress controllerAddress = ControllerAddress.wrap(_controller);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState(controllerAddress, _lastUpdateTime);
 
-        assertEq(controller(state), _controller);
+        assertEq(ControllerAddress.unwrap(controller(state)), _controller);
         assertEq(lastUpdateTime(state), _lastUpdateTime);
-        assertEq(controllerIsEoa(state), _controllerIsEoa);
+        assertEq(isEoa(controller(state)), uint160(_controller) >> 159 == 0);
     }
 
-    function test_withLastUpdateTime(
-        address _controller,
-        uint32 _lastUpdateTime,
-        bool _controllerIsEoa,
-        uint32 nextTime
-    ) public pure {
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(_controller, _lastUpdateTime, _controllerIsEoa);
+    function test_withLastUpdateTime(address _controller, uint32 _lastUpdateTime, uint32 nextTime) public pure {
+        ControllerAddress controllerAddress = ControllerAddress.wrap(_controller);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState(controllerAddress, _lastUpdateTime);
         SignedExclusiveSwapPoolState updated = withLastUpdateTime(state, nextTime);
 
-        assertEq(controller(updated), _controller);
-        assertEq(controllerIsEoa(updated), _controllerIsEoa);
+        assertEq(ControllerAddress.unwrap(controller(updated)), _controller);
+        assertEq(isEoa(controller(updated)), uint160(_controller) >> 159 == 0);
         assertEq(lastUpdateTime(updated), nextTime);
     }
 
-    function test_withController(
-        address _controller,
-        uint32 _lastUpdateTime,
-        bool _controllerIsEoa,
-        address nextController,
-        bool nextControllerIsEoa
-    ) public pure {
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(_controller, _lastUpdateTime, _controllerIsEoa);
-        SignedExclusiveSwapPoolState updated = withController(state, nextController, nextControllerIsEoa);
+    function test_withController(address _controller, uint32 _lastUpdateTime, address nextController) public pure {
+        ControllerAddress controllerAddress = ControllerAddress.wrap(_controller);
+        ControllerAddress nextControllerAddress = ControllerAddress.wrap(nextController);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState(controllerAddress, _lastUpdateTime);
+        SignedExclusiveSwapPoolState updated = withController(state, nextControllerAddress);
 
-        assertEq(controller(updated), nextController);
-        assertEq(controllerIsEoa(updated), nextControllerIsEoa);
+        assertEq(ControllerAddress.unwrap(controller(updated)), nextController);
+        assertEq(isEoa(controller(updated)), uint160(nextController) >> 159 == 0);
         assertEq(lastUpdateTime(updated), _lastUpdateTime);
     }
 }

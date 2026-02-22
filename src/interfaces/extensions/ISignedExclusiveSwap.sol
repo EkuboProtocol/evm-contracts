@@ -6,6 +6,7 @@ import {PoolId} from "../../types/poolId.sol";
 import {PoolBalanceUpdate} from "../../types/poolBalanceUpdate.sol";
 import {Bitmap} from "../../types/bitmap.sol";
 import {SqrtRatio} from "../../types/sqrtRatio.sol";
+import {ControllerAddress} from "../../types/controllerAddress.sol";
 import {SignedExclusiveSwapPoolState} from "../../types/signedExclusiveSwapPoolState.sol";
 import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
@@ -47,9 +48,8 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     /// @notice Owner-only pool initialization for this extension.
     /// @param poolKey Pool configuration to initialize. Must point its extension to this contract.
     /// @param tick Initial tick for the pool.
-    /// @param controller Initial pool controller.
-    /// @param controllerIsEoa Whether `controller` is an EOA (`true`) or ERC-1271 contract (`false`).
-    function initializePool(PoolKey memory poolKey, int32 tick, address controller, bool controllerIsEoa)
+    /// @param controller Initial pool controller with EOA marker encoded in its first bit.
+    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
         external
         returns (SqrtRatio sqrtRatio);
 
@@ -60,5 +60,5 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     function setNonceBitmap(uint256 word, Bitmap bitmap) external;
 
     /// @notice Updates the controller for an existing pool.
-    function setPoolController(PoolKey memory poolKey, address controller, bool isEoa) external;
+    function setPoolController(PoolKey memory poolKey, ControllerAddress controller) external;
 }

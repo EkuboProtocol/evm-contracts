@@ -87,12 +87,13 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @inheritdoc IExtension
-    function beforeInitializePool(address caller, PoolKey calldata, int32)
+    function beforeInitializePool(address, PoolKey calldata, int32)
         external
+        view
         override(BaseExtension, IExtension)
         onlyCore
     {
-        if (caller != address(this)) revert PoolInitializationDisabled();
+        revert PoolInitializationDisabled();
     }
 
     /// @notice We only allow swapping via forward to this extension.

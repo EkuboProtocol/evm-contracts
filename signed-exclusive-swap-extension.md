@@ -113,8 +113,5 @@ These controls reduce the value of quote farming and make selective execution ma
 - Contract is `Ownable`.
 - Owner initializes pools with explicit `controller` and `controllerIsEoa` via `initializePool(poolKey, tick, controller, controllerIsEoa)`.
 - Direct `Core.initializePool(...)` for this extension is blocked by `beforeInitializePool`.
-- `defaultController` and `defaultControllerIsEoa` remain owner-configurable values, but pool initialization is explicit.
-- Owner can update:
-  - default controller values,
-  - per-pool controller for already initialized pools.
+- Owner can update per-pool controller for already initialized pools.
 - Controller signatures support both EOAs and ERC-1271 contract wallets.

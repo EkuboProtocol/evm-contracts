@@ -51,18 +51,10 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     using SignedExclusiveSwapLib for *;
     using ECDSA for bytes32;
 
-    address public defaultController;
-    bool public defaultControllerIsEoa;
-
     mapping(uint256 => Bitmap) public nonceBitmap;
 
-    constructor(ICore core, address owner, address _defaultController, bool _defaultControllerIsEoa)
-        BaseExtension(core)
-        BaseForwardee(core)
-    {
+    constructor(ICore core, address owner) BaseExtension(core) BaseForwardee(core) {
         _initializeOwner(owner);
-        defaultController = _defaultController;
-        defaultControllerIsEoa = _defaultControllerIsEoa;
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -153,14 +145,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
 
         _setPoolState(poolId, _getPoolState(poolId).withLastUpdateTime(uint32(block.timestamp)));
-    }
-
-    /// @inheritdoc ISignedExclusiveSwap
-    function setDefaultController(address controller, bool isEoa) external onlyOwner {
-        defaultController = controller;
-        defaultControllerIsEoa = isEoa;
-
-        emit DefaultControllerUpdated(controller, isEoa);
     }
 
     /// @inheritdoc ISignedExclusiveSwap

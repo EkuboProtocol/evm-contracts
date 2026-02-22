@@ -125,7 +125,7 @@ contract SignedExclusiveSwapTest is FullTest {
         controller = vm.addr(controllerPk);
 
         address deployAddress = address(uint160(signedExclusiveSwapCallPoints().toUint8()) << 152);
-        deployCodeTo("SignedExclusiveSwap.sol", abi.encode(core, admin, controller, true), deployAddress);
+        deployCodeTo("SignedExclusiveSwap.sol", abi.encode(core, admin), deployAddress);
         signedExclusiveSwap = SignedExclusiveSwap(deployAddress);
 
         harness = new SignedExclusiveSwapHarness(core);
@@ -422,16 +422,6 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
-    function test_owner_updates_default_controller() public {
-        address nextController = vm.addr(0xC0FFEE);
-
-        vm.prank(admin);
-        signedExclusiveSwap.setDefaultController(nextController, true);
-
-        assertEq(signedExclusiveSwap.defaultController(), nextController);
-        assertTrue(signedExclusiveSwap.defaultControllerIsEoa());
-    }
-
     function test_owner_updates_existing_pool_controller_to_contract() public {
         MockSigner1271 contractController = new MockSigner1271(controller);
 
@@ -589,11 +579,6 @@ contract SignedExclusiveSwapTest is FullTest {
             address(this),
             address(this)
         );
-    }
-
-    function test_revert_set_default_controller_not_owner() public {
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        signedExclusiveSwap.setDefaultController(address(0x1234), true);
     }
 
     function test_revert_initialize_pool_not_owner() public {

@@ -13,9 +13,6 @@ import {IExposedStorage} from "../IExposedStorage.sol";
 /// @title Signed Exclusive Swap Interface
 /// @notice Extension that enforces forward-only swaps and applies signed, per-swap fee controls.
 interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtension {
-    /// @notice Emitted when the default controller is updated.
-    event DefaultControllerUpdated(address indexed controller, bool isEoa);
-
     /// @notice Emitted when a pool controller is updated.
     event PoolControllerUpdated(PoolId indexed poolId, address indexed controller, bool isEoa);
 
@@ -57,9 +54,6 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
 
     /// @notice Public entrypoint to donate pending extension-collected fees to LPs.
     function accumulatePoolFees(PoolKey memory poolKey) external;
-
-    /// @notice Updates the default controller used for newly initialized pools.
-    function setDefaultController(address controller, bool isEoa) external;
 
     /// @notice Sets a nonce bitmap word, allowing explicit nonce reuse/reset management.
     function setNonceBitmap(uint256 word, Bitmap bitmap) external;

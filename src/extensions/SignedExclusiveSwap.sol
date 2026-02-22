@@ -32,8 +32,8 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
 function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
-        beforeInitializePool: false,
-        afterInitializePool: true,
+        beforeInitializePool: true,
+        afterInitializePool: false,
         beforeSwap: true,
         afterSwap: false,
         beforeUpdatePosition: true,
@@ -69,21 +69,30 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         return signedExclusiveSwapCallPoints();
     }
 
+    /// @inheritdoc ISignedExclusiveSwap
+    function initializePool(PoolKey memory poolKey, int32 tick, address controller, bool controllerIsEoa)
+        external
+        onlyOwner
+        returns (SqrtRatio sqrtRatio)
+    {
+        if (poolKey.config.extension() != address(this)) revert PoolExtensionMustBeSelf();
+        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
+
+        sqrtRatio = CORE.initializePool(poolKey, tick);
+
+        PoolId poolId = poolKey.toPoolId();
+        _setPoolState(poolId, createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), controllerIsEoa));
+
+        emit PoolControllerUpdated(poolId, controller, controllerIsEoa);
+    }
+
     /// @inheritdoc IExtension
-    function afterInitializePool(address, PoolKey memory poolKey, int32, SqrtRatio)
+    function beforeInitializePool(address caller, PoolKey calldata, int32)
         external
         override(BaseExtension, IExtension)
         onlyCore
     {
-        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
-
-        PoolId poolId = poolKey.toPoolId();
-        _setPoolState(
-            poolId,
-            createSignedExclusiveSwapPoolState(defaultController, uint32(block.timestamp), defaultControllerIsEoa)
-        );
-
-        emit PoolControllerUpdated(poolId, defaultController, defaultControllerIsEoa);
+        if (caller != address(this)) revert PoolInitializationDisabled();
     }
 
     /// @notice We only allow swapping via forward to this extension.

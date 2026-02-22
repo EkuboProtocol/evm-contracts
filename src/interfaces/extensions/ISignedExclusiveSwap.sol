@@ -5,6 +5,7 @@ import {PoolKey} from "../../types/poolKey.sol";
 import {PoolId} from "../../types/poolId.sol";
 import {PoolBalanceUpdate} from "../../types/poolBalanceUpdate.sol";
 import {Bitmap} from "../../types/bitmap.sol";
+import {SqrtRatio} from "../../types/sqrtRatio.sol";
 import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
@@ -36,8 +37,23 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     /// @notice Thrown when the pool fee is non-zero.
     error PoolFeeMustBeZero();
 
+    /// @notice Thrown when attempting to initialize a pool whose extension is not this contract.
+    error PoolExtensionMustBeSelf();
+
+    /// @notice Thrown when attempting to initialize pools directly through Core.
+    error PoolInitializationDisabled();
+
     /// @notice Thrown when the signed minimum balance-update constraint is not met.
     error MinBalanceUpdateNotMet(PoolBalanceUpdate minBalanceUpdate, PoolBalanceUpdate actualBalanceUpdate);
+
+    /// @notice Owner-only pool initialization for this extension.
+    /// @param poolKey Pool configuration to initialize. Must point its extension to this contract.
+    /// @param tick Initial tick for the pool.
+    /// @param controller Initial pool controller.
+    /// @param controllerIsEoa Whether `controller` is an EOA (`true`) or ERC-1271 contract (`false`).
+    function initializePool(PoolKey memory poolKey, int32 tick, address controller, bool controllerIsEoa)
+        external
+        returns (SqrtRatio sqrtRatio);
 
     /// @notice Public entrypoint to donate pending extension-collected fees to LPs.
     function accumulatePoolFees(PoolKey memory poolKey) external;

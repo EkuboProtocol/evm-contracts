@@ -137,15 +137,33 @@ contract SignedExclusiveSwapTest is FullTest {
         vm.cool(address(harness));
     }
 
-    function test_signed_swap_helper_and_deferred_fee_donation() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
+    function signedExclusiveSwapPoolKey(uint32 tickSpacing) internal view returns (PoolKey memory poolKey) {
+        poolKey = PoolKey({
+            token0: address(token0),
+            token1: address(token1),
             config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
+                _fee: 0, _tickSpacing: tickSpacing, _extension: address(signedExclusiveSwap)
             })
         });
+    }
+
+    function createSignedExclusiveSwapPool(int32 tick, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
+        poolKey = createSignedExclusiveSwapPool(tick, tickSpacing, controller, true);
+    }
+
+    function createSignedExclusiveSwapPool(
+        int32 tick,
+        uint32 tickSpacing,
+        address poolController,
+        bool poolControllerIsEoa
+    ) internal returns (PoolKey memory poolKey) {
+        poolKey = signedExclusiveSwapPoolKey(tickSpacing);
+        vm.prank(admin);
+        signedExclusiveSwap.initializePool(poolKey, tick, poolController, poolControllerIsEoa);
+    }
+
+    function test_signed_swap_helper_and_deferred_fee_donation() public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -193,14 +211,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_signed_swap_token0_input_no_meta_fee() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -230,14 +241,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_signed_swap_token0_input_with_meta_fee() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -268,14 +272,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_signed_swap_token1_input_with_meta_fee() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -305,14 +302,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_nonce_reuse() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -353,14 +343,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_unauthorized_locker() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -390,57 +373,28 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
-    function test_revert_nonzero_pool_fee() public {
-        vm.expectRevert(ISignedExclusiveSwap.PoolFeeMustBeZero.selector);
-        createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: uint64(uint256(1 << 64) / 100), _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+    function test_revert_direct_core_initialize_pool() public {
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+
+        vm.expectRevert(ISignedExclusiveSwap.PoolInitializationDisabled.selector);
+        core.initializePool(poolKey, 0);
     }
 
     function test_initialize_pool_emits_pool_controller_updated() public {
-        vm.expectEmit(true, true, false, true, address(signedExclusiveSwap));
-        emit ISignedExclusiveSwap.PoolControllerUpdated(
-            PoolKey({
-                    token0: address(token0),
-                    token1: address(token1),
-                    config: createConcentratedPoolConfig({
-                        _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-                    })
-                }).toPoolId(),
-            controller,
-            true
-        );
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
 
-        createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        vm.expectEmit(true, true, false, true, address(signedExclusiveSwap));
+        emit ISignedExclusiveSwap.PoolControllerUpdated(poolKey.toPoolId(), controller, true);
+
+        vm.prank(admin);
+        signedExclusiveSwap.initializePool(poolKey, 0, controller, true);
     }
 
-    function test_owner_updates_default_controller_for_new_pools() public {
+    function test_owner_initializes_pool_with_specified_controller() public {
         uint256 nextControllerPk = 0xC0FFEE;
         address nextController = vm.addr(nextControllerPk);
 
-        vm.prank(admin);
-        signedExclusiveSwap.setDefaultController(nextController, true);
-
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, nextController, true);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -468,17 +422,20 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
+    function test_owner_updates_default_controller() public {
+        address nextController = vm.addr(0xC0FFEE);
+
+        vm.prank(admin);
+        signedExclusiveSwap.setDefaultController(nextController, true);
+
+        assertEq(signedExclusiveSwap.defaultController(), nextController);
+        assertTrue(signedExclusiveSwap.defaultControllerIsEoa());
+    }
+
     function test_owner_updates_existing_pool_controller_to_contract() public {
         MockSigner1271 contractController = new MockSigner1271(controller);
 
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -510,14 +467,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_min_balance_update_not_met() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -548,14 +498,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_min_balance_update_allows_reasonable_bounds_token0_input() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -588,14 +531,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_min_balance_update_too_strict_pool_output_token0_input() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -626,14 +562,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_min_balance_update_too_strict_pool_output_token1_input() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -667,6 +596,25 @@ contract SignedExclusiveSwapTest is FullTest {
         signedExclusiveSwap.setDefaultController(address(0x1234), true);
     }
 
+    function test_revert_initialize_pool_not_owner() public {
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        signedExclusiveSwap.initializePool(poolKey, 0, controller, true);
+    }
+
+    function test_revert_initialize_pool_wrong_extension() public {
+        PoolKey memory poolKey = PoolKey({
+            token0: address(token0),
+            token1: address(token1),
+            config: createConcentratedPoolConfig({_fee: 0, _tickSpacing: 20_000, _extension: address(0)})
+        });
+
+        vm.prank(admin);
+        vm.expectRevert(ISignedExclusiveSwap.PoolExtensionMustBeSelf.selector);
+        signedExclusiveSwap.initializePool(poolKey, 0, controller, true);
+    }
+
     function test_owner_can_set_nonce_bitmap() public {
         uint256 word = 42;
         Bitmap bitmap = Bitmap.wrap(type(uint256).max);
@@ -683,14 +631,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_set_pool_controller_not_owner() public {
-        PoolKey memory poolKey = createPool({
-            _token0: address(token0),
-            _token1: address(token1),
-            tick: 0,
-            config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: 20_000, _extension: address(signedExclusiveSwap)
-            })
-        });
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
 
         vm.expectRevert(Ownable.Unauthorized.selector);
         signedExclusiveSwap.setPoolController(poolKey, address(0x1234), true);

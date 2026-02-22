@@ -6,6 +6,7 @@ import {PoolId} from "../../types/poolId.sol";
 import {PoolBalanceUpdate} from "../../types/poolBalanceUpdate.sol";
 import {Bitmap} from "../../types/bitmap.sol";
 import {SqrtRatio} from "../../types/sqrtRatio.sol";
+import {SignedExclusiveSwapPoolState} from "../../types/signedExclusiveSwapPoolState.sol";
 import {ILocker, IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
@@ -13,8 +14,8 @@ import {IExposedStorage} from "../IExposedStorage.sol";
 /// @title Signed Exclusive Swap Interface
 /// @notice Extension that enforces forward-only swaps and applies signed, per-swap fee controls.
 interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtension {
-    /// @notice Emitted when a pool controller is updated.
-    event PoolControllerUpdated(PoolId indexed poolId, address indexed controller, bool isEoa);
+    /// @notice Emitted when a pool state is updated.
+    event PoolStateUpdated(PoolId indexed poolId, SignedExclusiveSwapPoolState poolState);
 
     /// @notice Thrown when attempting to swap directly without using forward.
     error SwapMustHappenThroughForward();

@@ -11,6 +11,10 @@ import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {Bitmap} from "../../src/types/bitmap.sol";
+import {
+    SignedExclusiveSwapPoolState,
+    createSignedExclusiveSwapPoolState
+} from "../../src/types/signedExclusiveSwapPoolState.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {SignedExclusiveSwapLib} from "../../src/libraries/SignedExclusiveSwapLib.sol";
 import {SignedExclusiveSwap, signedExclusiveSwapCallPoints} from "../../src/extensions/SignedExclusiveSwap.sol";
@@ -380,11 +384,13 @@ contract SignedExclusiveSwapTest is FullTest {
         core.initializePool(poolKey, 0);
     }
 
-    function test_initialize_pool_emits_pool_controller_updated() public {
+    function test_initialize_pool_emits_pool_state_updated() public {
         PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        SignedExclusiveSwapPoolState expectedState =
+            createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), true);
 
-        vm.expectEmit(true, true, false, true, address(signedExclusiveSwap));
-        emit ISignedExclusiveSwap.PoolControllerUpdated(poolKey.toPoolId(), controller, true);
+        vm.expectEmit(true, false, false, true, address(signedExclusiveSwap));
+        emit ISignedExclusiveSwap.PoolStateUpdated(poolKey.toPoolId(), expectedState);
 
         vm.prank(admin);
         signedExclusiveSwap.initializePool(poolKey, 0, controller, true);

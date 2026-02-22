@@ -73,9 +73,9 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         sqrtRatio = CORE.initializePool(poolKey, tick);
 
         PoolId poolId = poolKey.toPoolId();
-        _setPoolState(poolId, createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), controllerIsEoa));
-
-        emit PoolControllerUpdated(poolId, controller, controllerIsEoa);
+        SignedExclusiveSwapPoolState state =
+            createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), controllerIsEoa);
+        _setPoolState(poolId, state);
     }
 
     /// @inheritdoc IExtension
@@ -159,9 +159,8 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
 
         PoolId poolId = poolKey.toPoolId();
-        _setPoolState(poolId, _getPoolState(poolId).withController(controller, isEoa));
-
-        emit PoolControllerUpdated(poolId, controller, isEoa);
+        SignedExclusiveSwapPoolState state = _getPoolState(poolId).withController(controller, isEoa);
+        _setPoolState(poolId, state);
     }
 
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
@@ -172,9 +171,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             PoolBalanceUpdate minBalanceUpdate,
             bytes memory signature
         ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
-        PoolId poolId = poolKey.toPoolId();
-        SignedExclusiveSwapPoolState state = _getPoolState(poolId);
-
         if (meta.isExpired(uint32(block.timestamp))) revert SignatureExpired();
 
         if (!meta.isAuthorized(original)) {
@@ -183,12 +179,16 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         _consumeNonce(meta.nonce());
 
+        // has to come before we read the pool state below
+        accumulatePoolFees(poolKey);
+
+        PoolId poolId = poolKey.toPoolId();
         bytes32 digest = this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate);
+        SignedExclusiveSwapPoolState state = _getPoolState(poolId);
         if (!_isValidControllerSignature(state.controller(), state.controllerIsEoa(), digest, signature)) {
             revert InvalidSignature();
         }
 
-        accumulatePoolFees(poolKey);
         params = params.withDefaultSqrtRatioLimit();
 
         (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
@@ -293,5 +293,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         assembly ("memory-safe") {
             sstore(poolId, state)
         }
+        emit PoolStateUpdated(poolId, state);
     }
 }

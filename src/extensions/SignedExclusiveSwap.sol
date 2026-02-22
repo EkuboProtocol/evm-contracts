@@ -177,8 +177,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             revert UnauthorizedLocker();
         }
 
-        _consumeNonce(meta.nonce());
-
         PoolId poolId = poolKey.toPoolId();
         SignedExclusiveSwapPoolState state = _getPoolState(poolId);
         uint32 currentTime = uint32(block.timestamp);
@@ -210,6 +208,11 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         params = params.withDefaultSqrtRatioLimit();
 
         (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
+
+        _validateMinBalanceUpdate(minBalanceUpdate, balanceUpdate);
+
+        // now that all validation has succeeded, consume the nonce
+        _consumeNonce(meta.nonce());
 
         int256 saveDelta0;
         int256 saveDelta1;
@@ -246,8 +249,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         if (saveDelta0 != 0 || saveDelta1 != 0) {
             CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
         }
-
-        _validateMinBalanceUpdate(minBalanceUpdate, balanceUpdate);
 
         result = abi.encode(balanceUpdate, stateAfter);
     }

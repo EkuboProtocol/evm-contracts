@@ -52,7 +52,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     using SignedExclusiveSwapLib for *;
     using ECDSA for bytes32;
 
-    uint256 internal constant _MAX_DEADLINE_FUTURE_WINDOW = 30 days;
+    uint32 internal constant _MAX_DEADLINE_FUTURE_WINDOW = 30 days;
 
     mapping(uint256 => Bitmap) public nonceBitmap;
 
@@ -174,8 +174,13 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             bytes memory signature
         ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
 
-        if (uint256(meta.deadline()) > block.timestamp + _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
-        if (meta.isExpired(uint32(block.timestamp))) revert SignatureExpired();
+        uint32 currentTimestamp = uint32(block.timestamp);
+        if (meta.isExpired(currentTimestamp)) revert SignatureExpired();
+        uint32 deadlineDelta;
+        unchecked {
+            deadlineDelta = meta.deadline() - currentTimestamp;
+        }
+        if (deadlineDelta > _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
         if (!meta.isAuthorized(original)) {
             revert UnauthorizedLocker();
         }

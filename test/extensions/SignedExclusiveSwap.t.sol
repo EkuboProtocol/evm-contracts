@@ -381,7 +381,14 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
-    function test_revert_deadline_too_far() public {
+    function test_revert_deadline_too_far_fuzz(uint256 currentTimestampInput) public {
+        vm.warp(currentTimestampInput);
+        uint32 currentTimestamp = uint32(currentTimestampInput);
+        uint32 deadlineTooFar;
+        unchecked {
+            deadlineTooFar = currentTimestamp + 30 days + 1;
+        }
+
         PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
@@ -391,9 +398,7 @@ contract SignedExclusiveSwapTest is FullTest {
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
             }).withDefaultSqrtRatioLimit();
-        SignedSwapMeta meta = createSignedSwapMeta(
-            address(0), uint32(block.timestamp + 30 days + 1), uint32(uint256(1 << 32) / 500), 100
-        );
+        SignedSwapMeta meta = createSignedSwapMeta(address(0), deadlineTooFar, uint32(uint256(1 << 32) / 500), 100);
 
         vm.expectRevert(ISignedExclusiveSwap.DeadlineTooFar.selector);
         harness.swapSigned(

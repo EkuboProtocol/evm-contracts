@@ -602,6 +602,68 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
+    function test_revert_signature_expired() public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+                _isToken1: true, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+            }).withDefaultSqrtRatioLimit();
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp - 1), uint32(uint256(1 << 32) / 500), 215);
+        PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(-40_000, 50_000);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert(ISignedExclusiveSwap.SignatureExpired.selector);
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            minBalanceUpdate,
+            signature,
+            address(this),
+            address(this)
+        );
+    }
+
+    function test_revert_invalid_signature() public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+                _isToken1: true, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+            }).withDefaultSqrtRatioLimit();
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 216);
+        PoolBalanceUpdate minBalanceUpdateSigned = createPoolBalanceUpdate(-40_000, 50_000);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdateSigned);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert(ISignedExclusiveSwap.InvalidSignature.selector);
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            createPoolBalanceUpdate(-30_000, 50_000),
+            signature,
+            address(this),
+            address(this)
+        );
+    }
+
     function test_revert_initialize_pool_not_owner() public {
         PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
 

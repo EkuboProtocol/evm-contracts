@@ -24,6 +24,9 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     /// @notice Thrown when the signed payload is expired.
     error SignatureExpired();
 
+    /// @notice Thrown when the signed payload deadline is too far in the future.
+    error DeadlineTooFar();
+
     /// @notice Thrown when signature verification fails.
     error InvalidSignature();
 

@@ -381,6 +381,26 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
+    function test_revert_deadline_too_far() public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+                _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+            }).withDefaultSqrtRatioLimit();
+        SignedSwapMeta meta = createSignedSwapMeta(
+            address(0), uint32(block.timestamp + 30 days + 1), uint32(uint256(1 << 32) / 500), 100
+        );
+
+        vm.expectRevert(ISignedExclusiveSwap.DeadlineTooFar.selector);
+        harness.swapSigned(
+            address(signedExclusiveSwap), poolKey, params, meta, MIN_BALANCE_UPDATE, hex"", address(this), address(this)
+        );
+    }
+
     function test_revert_direct_core_initialize_pool() public {
         PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
 

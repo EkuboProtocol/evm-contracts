@@ -13,18 +13,16 @@ contract SignedSwapMetaTest is Test {
     {
         SignedSwapMeta meta = createSignedSwapMeta(authorized, deadlineValue, feeValue, nonceValue);
 
-        assertEq(meta.authorizedLocker(), address(uint160(uint128(uint160(authorized)))));
+        assertEq(meta.authorizedLockerLow128(), uint128(uint160(authorized)));
         assertEq(meta.deadline(), deadlineValue);
         assertEq(meta.fee(), feeValue);
         assertEq(meta.nonce(), nonceValue);
     }
 
     function test_isAuthorized(Locker locker, SignedSwapMeta meta) public pure {
-        address auth = meta.authorizedLocker();
+        uint128 authLow128 = meta.authorizedLockerLow128();
         address lockerAddr = locker.addr();
-        assertEq(
-            meta.isAuthorized(locker), auth == address(0) || uint128(uint160(auth)) == uint128(uint160(lockerAddr))
-        );
+        assertEq(meta.isAuthorized(locker), authLow128 == 0 || authLow128 == uint128(uint160(lockerAddr)));
     }
 
     function test_isExpired_matchesCurrentGtDeadline_withinSignedWindow(uint256 current, uint256 deadline) public pure {

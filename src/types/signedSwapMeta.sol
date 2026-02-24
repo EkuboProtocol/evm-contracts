@@ -11,11 +11,11 @@ import {Locker} from "./locker.sol";
 /// - bits [127..0]: authorized locker lower 128 bits
 type SignedSwapMeta is uint256;
 
-using {authorizedLocker, isAuthorized, deadline, fee, nonce, isExpired} for SignedSwapMeta global;
+using {authorizedLockerLow128, isAuthorized, deadline, fee, nonce, isExpired} for SignedSwapMeta global;
 
-function authorizedLocker(SignedSwapMeta meta) pure returns (address locker) {
+function authorizedLockerLow128(SignedSwapMeta meta) pure returns (uint128 lockerLow128) {
     assembly ("memory-safe") {
-        locker := and(meta, 0xffffffffffffffffffffffffffffffff)
+        lockerLow128 := and(meta, 0xffffffffffffffffffffffffffffffff)
     }
 }
 

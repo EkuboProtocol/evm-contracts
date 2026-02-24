@@ -24,7 +24,7 @@ Forward calls decode:
 - `signature` (`bytes`)
 
 `SignedSwapMeta` packs:
-- `authorizedLocker` (160 bits, `address(0)` means any locker),
+- `authorizedLockerLow128` (lower 128 bits of locker address, `0` means any locker),
 - `deadline` (32 bits),
 - `fee` (32 bits, Q32 fee rate),
 - `nonce` (32 bits).

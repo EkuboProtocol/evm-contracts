@@ -10,6 +10,7 @@ import {PoolId} from "../types/poolId.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {SignedSwapMeta} from "../types/signedSwapMeta.sol";
 import {FlashAccountantLib} from "./FlashAccountantLib.sol";
+import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
 /// @title SignedExclusiveSwap Library
 /// @notice Helper methods for interacting with the SignedExclusiveSwap extension.
@@ -44,17 +45,19 @@ library SignedExclusiveSwapLib {
         SignedSwapMeta meta,
         PoolBalanceUpdate minBalanceUpdate
     ) internal view returns (bytes32 digest) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                _SIGNED_SWAP_TYPEHASH,
-                PoolId.unwrap(poolId),
-                SignedSwapMeta.unwrap(meta),
-                PoolBalanceUpdate.unwrap(minBalanceUpdate)
-            )
+        bytes32 structHash = EfficientHashLib.hash(
+            _SIGNED_SWAP_TYPEHASH,
+            PoolId.unwrap(poolId),
+            bytes32(SignedSwapMeta.unwrap(meta)),
+            PoolBalanceUpdate.unwrap(minBalanceUpdate)
         );
 
-        bytes32 domainSeparator = keccak256(
-            abi.encode(_EIP712_DOMAIN_TYPEHASH, _NAME_HASH, _VERSION_HASH, block.chainid, address(extension))
+        bytes32 domainSeparator = EfficientHashLib.hash(
+            _EIP712_DOMAIN_TYPEHASH,
+            _NAME_HASH,
+            _VERSION_HASH,
+            bytes32(block.chainid),
+            bytes32(uint256(uint160(address(extension))))
         );
         digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }

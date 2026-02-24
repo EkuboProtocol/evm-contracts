@@ -27,9 +27,7 @@ import {Bitmap} from "../types/bitmap.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {computeFee} from "../math/fee.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {ECDSA} from "solady/utils/ECDSA.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
 function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -50,7 +48,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     using CoreLib for *;
     using ExposedStorageLib for *;
     using SignedExclusiveSwapLib for *;
-    using ECDSA for bytes32;
 
     uint32 internal constant _MAX_DEADLINE_FUTURE_WINDOW = 30 days;
 
@@ -166,100 +163,105 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
-        (
-            PoolKey memory poolKey,
-            SwapParameters params,
-            SignedSwapMeta meta,
-            PoolBalanceUpdate minBalanceUpdate,
-            bytes memory signature
-        ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
-
-        uint32 currentTimestamp = uint32(block.timestamp);
-        if (meta.isExpired(currentTimestamp)) revert SignatureExpired();
-        uint32 deadlineDelta;
         unchecked {
-            deadlineDelta = meta.deadline() - currentTimestamp;
-        }
-        if (deadlineDelta > _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
-        if (!meta.isAuthorized(original)) {
-            revert UnauthorizedLocker();
-        }
+            (
+                PoolKey memory poolKey,
+                SwapParameters params,
+                SignedSwapMeta meta,
+                PoolBalanceUpdate minBalanceUpdate,
+                bytes memory signature
+            ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
 
-        PoolId poolId = poolKey.toPoolId();
-        SignedExclusiveSwapPoolState state = _getPoolState(poolId);
+            uint32 currentTimestamp = uint32(block.timestamp);
+            if (meta.isExpired(currentTimestamp)) revert SignatureExpired();
+            if ((meta.deadline() - currentTimestamp) > _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
+            if (!meta.isAuthorized(original)) revert UnauthorizedLocker();
 
-        if (!_isValidControllerSignature(
-                state.controller(), this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate), signature
-            )) {
-            revert InvalidSignature();
-        }
+            PoolId poolId = poolKey.toPoolId();
+            SignedExclusiveSwapPoolState state = _getPoolState(poolId);
 
-        // Inline fee accumulation here to avoid an extra lock call from `accumulatePoolFees`.
-        if (state.lastUpdateTime() != currentTimestamp) {
-            (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
-
-            if (fees0 != 0 || fees1 != 0) {
-                CORE.accumulateAsFees(poolKey, fees0, fees1);
-                CORE.updateSavedBalances(
-                    poolKey.token0,
-                    poolKey.token1,
-                    PoolId.unwrap(poolId),
-                    -int256(uint256(fees0)),
-                    -int256(uint256(fees1))
-                );
+            if (!state.controller()
+                    .isSignatureValid(this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate), signature)) {
+                revert InvalidSignature();
             }
 
-            state = state.withLastUpdateTime(currentTimestamp);
-            _setPoolState(poolId, state);
-        }
+            // Inline fee accumulation here to avoid an extra lock call from `accumulatePoolFees`.
+            if (state.lastUpdateTime() != currentTimestamp) {
+                (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
 
-        (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
-
-        if (balanceUpdate.delta0() < minBalanceUpdate.delta0() || balanceUpdate.delta1() < minBalanceUpdate.delta1()) {
-            revert MinBalanceUpdateNotMet(minBalanceUpdate, balanceUpdate);
-        }
-
-        // only now that all validation has succeeded, consume the nonce,
-        // which reduces the gas cost in the case of swaps exceeding the allowed amount
-        _consumeNonce(meta.nonce());
-
-        int256 saveDelta0;
-        int256 saveDelta1;
-        uint64 metaFeeX64 = uint64(meta.fee()) << 32;
-
-        if (metaFeeX64 != 0) {
-            if (params.isExactOut()) {
-                if (balanceUpdate.delta0() > 0) {
-                    int128 feeAmount =
-                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), metaFeeX64));
-                    saveDelta0 += feeAmount;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
-                } else if (balanceUpdate.delta1() > 0) {
-                    int128 feeAmount =
-                        SafeCastLib.toInt128(computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), metaFeeX64));
-                    saveDelta1 += feeAmount;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+                if (fees0 != 0 || fees1 != 0) {
+                    CORE.accumulateAsFees(poolKey, fees0, fees1);
+                    CORE.updateSavedBalances(
+                        poolKey.token0,
+                        poolKey.token1,
+                        PoolId.unwrap(poolId),
+                        -int256(uint256(fees0)),
+                        -int256(uint256(fees1))
+                    );
                 }
-            } else {
-                if (balanceUpdate.delta0() < 0) {
-                    int128 feeAmount =
-                        SafeCastLib.toInt128(computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), metaFeeX64));
-                    saveDelta0 += feeAmount;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
-                } else if (balanceUpdate.delta1() < 0) {
-                    int128 feeAmount =
-                        SafeCastLib.toInt128(computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), metaFeeX64));
-                    saveDelta1 += feeAmount;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+
+                state = state.withLastUpdateTime(currentTimestamp);
+                _setPoolState({poolId: poolId, state: state});
+            }
+
+            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
+
+            if (
+                balanceUpdate.delta0() < minBalanceUpdate.delta0() || balanceUpdate.delta1() < minBalanceUpdate.delta1()
+            ) {
+                revert MinBalanceUpdateNotMet(minBalanceUpdate, balanceUpdate);
+            }
+
+            // only now that all validation has succeeded, consume the nonce,
+            // which reduces the gas cost in the case of swaps exceeding the allowed amount
+            _consumeNonce(meta.nonce());
+
+            int256 saveDelta0;
+            int256 saveDelta1;
+            uint64 metaFeeX64 = uint64(meta.fee()) << 32;
+
+            if (metaFeeX64 != 0) {
+                if (params.isExactOut()) {
+                    if (balanceUpdate.delta0() > 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), metaFeeX64)
+                        );
+                        saveDelta0 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
+                    } else if (balanceUpdate.delta1() > 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), metaFeeX64)
+                        );
+                        saveDelta1 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+                    }
+                } else {
+                    if (balanceUpdate.delta0() < 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), metaFeeX64)
+                        );
+                        saveDelta0 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
+                    } else if (balanceUpdate.delta1() < 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), metaFeeX64)
+                        );
+                        saveDelta1 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+                    }
                 }
             }
-        }
 
-        if (saveDelta0 != 0 || saveDelta1 != 0) {
-            CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
-        }
+            if (saveDelta0 != 0 || saveDelta1 != 0) {
+                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
+            }
 
-        result = abi.encode(balanceUpdate, stateAfter);
+            result = abi.encode(balanceUpdate, stateAfter);
+        }
     }
 
     function _consumeNonce(uint64 nonce) internal {
@@ -288,18 +290,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             fees1 := shr(128, shl(128, value))
             fees1 := sub(fees1, gt(fees1, 0))
         }
-    }
-
-    function _isValidControllerSignature(ControllerAddress controller, bytes32 digest, bytes memory signature)
-        internal
-        view
-        returns (bool valid)
-    {
-        address controllerAddress = ControllerAddress.unwrap(controller);
-        if (controller.isEoa()) {
-            return digest.recover(signature) == controllerAddress;
-        }
-        return SignatureCheckerLib.isValidERC1271SignatureNow(controllerAddress, digest, signature);
     }
 
     function _getPoolState(PoolId poolId) internal view returns (SignedExclusiveSwapPoolState state) {

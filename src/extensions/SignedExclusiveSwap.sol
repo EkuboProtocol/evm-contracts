@@ -192,19 +192,19 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
                 revert InvalidSignature();
             }
 
+            int256 saveDelta0;
+            int256 saveDelta1;
+
             // Inline fee accumulation here to avoid an extra lock call from `accumulatePoolFees`.
             if (state.lastUpdateTime() != currentTimestamp) {
                 (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
 
                 if (fees0 != 0 || fees1 != 0) {
                     CORE.accumulateAsFees(poolKey, fees0, fees1);
-                    CORE.updateSavedBalances(
-                        poolKey.token0,
-                        poolKey.token1,
-                        PoolId.unwrap(poolId),
-                        -int256(uint256(fees0)),
-                        -int256(uint256(fees1))
-                    );
+
+                    // never overflows int256 container
+                    saveDelta0 = -int256(uint256(fees0));
+                    saveDelta1 = -int256(uint256(fees1));
                 }
 
                 state = state.withLastUpdateTime(currentTimestamp);
@@ -223,8 +223,6 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             // which reduces the gas cost in the case of swaps exceeding the allowed amount
             _consumeNonce(meta.nonce());
 
-            int256 saveDelta0;
-            int256 saveDelta1;
             uint64 metaFeeX64 = uint64(meta.fee()) << 32;
 
             if (metaFeeX64 != 0) {

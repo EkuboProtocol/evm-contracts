@@ -51,7 +51,7 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     /// @notice Owner-only pool initialization for this extension.
     /// @param poolKey Pool configuration to initialize. Must point its extension to this contract.
     /// @param tick Initial tick for the pool.
-    /// @param controller Initial pool controller with EOA marker encoded in its first bit.
+    /// @param controller Initial pool controller with EOA/contract type encoded in bit 159 (high bit: 0 = EOA, 1 = contract).
     function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
         external
         returns (SqrtRatio sqrtRatio);

@@ -27,7 +27,7 @@ Forward calls decode:
 - `authorizedLockerLow128` (lower 128 bits of locker address, `0` means any locker),
 - `deadline` (32 bits),
 - `fee` (32 bits, Q32 fee rate),
-- `nonce` (32 bits).
+- `nonce` (64 bits).
 
 The signature is EIP-712 over this exact type:
 

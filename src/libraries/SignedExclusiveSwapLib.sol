@@ -38,13 +38,27 @@ library SignedExclusiveSwapLib {
         );
     }
 
-    /// @notice Computes the EIP-712 digest expected by SignedExclusiveSwap for a payload.
+    function computeDomainSeparatorHash(ISignedExclusiveSwap extension)
+        internal
+        view
+        returns (bytes32 domainSeparator)
+    {
+        domainSeparator = EfficientHashLib.hash(
+            _EIP712_DOMAIN_TYPEHASH,
+            _NAME_HASH,
+            _VERSION_HASH,
+            bytes32(block.chainid),
+            bytes32(uint256(uint160(address(extension))))
+        );
+    }
+
+    /// @notice Computes the EIP-712 digest expected by SignedExclusiveSwap for a payload and a given domain separator.
     function hashSignedSwapPayload(
-        ISignedExclusiveSwap extension,
+        bytes32 domainSeparator,
         PoolId poolId,
         SignedSwapMeta meta,
         PoolBalanceUpdate minBalanceUpdate
-    ) internal view returns (bytes32 digest) {
+    ) internal pure returns (bytes32 digest) {
         bytes32 structHash = EfficientHashLib.hash(
             _SIGNED_SWAP_TYPEHASH,
             PoolId.unwrap(poolId),
@@ -52,13 +66,16 @@ library SignedExclusiveSwapLib {
             PoolBalanceUpdate.unwrap(minBalanceUpdate)
         );
 
-        bytes32 domainSeparator = EfficientHashLib.hash(
-            _EIP712_DOMAIN_TYPEHASH,
-            _NAME_HASH,
-            _VERSION_HASH,
-            bytes32(block.chainid),
-            bytes32(uint256(uint160(address(extension))))
-        );
         digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+    }
+
+    /// @notice Computes the EIP-712 digest expected by SignedExclusiveSwap for a payload, computing the domain separator from the address and chain ID.
+    function hashSignedSwapPayload(
+        ISignedExclusiveSwap extension,
+        PoolId poolId,
+        SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate
+    ) internal view returns (bytes32 digest) {
+        digest = hashSignedSwapPayload(computeDomainSeparatorHash(extension), poolId, meta, minBalanceUpdate);
     }
 }

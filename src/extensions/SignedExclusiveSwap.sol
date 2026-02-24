@@ -49,12 +49,16 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     using ExposedStorageLib for *;
     using SignedExclusiveSwapLib for *;
 
+    /// @dev Cached for performance
+    bytes32 private immutable _DOMAIN_SEPARATOR;
+
     uint32 internal constant _MAX_DEADLINE_FUTURE_WINDOW = 30 days;
 
     mapping(uint256 => Bitmap) public nonceBitmap;
 
     constructor(ICore core, address owner) BaseExtension(core) BaseForwardee(core) {
         _initializeOwner(owner);
+        _DOMAIN_SEPARATOR = this.computeDomainSeparatorHash();
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -181,7 +185,10 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             SignedExclusiveSwapPoolState state = _getPoolState(poolId);
 
             if (!state.controller()
-                    .isSignatureValid(this.hashSignedSwapPayload(poolId, meta, minBalanceUpdate), signature)) {
+                    .isSignatureValid(
+                        SignedExclusiveSwapLib.hashSignedSwapPayload(_DOMAIN_SEPARATOR, poolId, meta, minBalanceUpdate),
+                        signature
+                    )) {
                 revert InvalidSignature();
             }
 

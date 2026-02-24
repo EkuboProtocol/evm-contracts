@@ -194,9 +194,8 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             revert InvalidSignature();
         }
 
-        uint32 currentTime = uint32(block.timestamp);
         // Inline fee accumulation here to avoid an extra lock call from `accumulatePoolFees`.
-        if (state.lastUpdateTime() != currentTime) {
+        if (state.lastUpdateTime() != currentTimestamp) {
             (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
 
             if (fees0 != 0 || fees1 != 0) {
@@ -210,7 +209,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
                 );
             }
 
-            state = state.withLastUpdateTime(currentTime);
+            state = state.withLastUpdateTime(currentTimestamp);
             _setPoolState(poolId, state);
         }
 

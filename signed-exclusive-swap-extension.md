@@ -111,7 +111,7 @@ These controls reduce the value of quote farming and make selective execution ma
 ## Controller management
 
 - Contract is `Ownable`.
-- Owner initializes pools with explicit `controller` and `controllerIsEoa` via `initializePool(poolKey, tick, controller, controllerIsEoa)`.
+- Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller)`; the EOA/contract flag is encoded in the controller address (high bit at position 159).
 - Direct `Core.initializePool(...)` for this extension is blocked by `beforeInitializePool`.
 - Owner can update per-pool controller for already initialized pools.
 - Controller signatures support both EOAs and ERC-1271 contract wallets.

@@ -268,8 +268,10 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         uint8 bit = uint8(nonce & 0xff);
 
         Bitmap current = nonceBitmap[word];
-        if (current.isSet(bit)) revert NonceAlreadyUsed();
-        nonceBitmap[word] = current.toggle(bit);
+        Bitmap next = current.toggle(bit);
+
+        if (Bitmap.unwrap(next) < Bitmap.unwrap(current)) revert NonceAlreadyUsed();
+        nonceBitmap[word] = next;
     }
 
     function _loadSavedFees(PoolId poolId, address token0, address token1)

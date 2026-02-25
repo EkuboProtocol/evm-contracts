@@ -24,6 +24,7 @@ import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {EIP712} from "solady/utils/EIP712.sol";
 
 contract MockSigner1271 {
     address internal immutable _signer;
@@ -46,6 +47,36 @@ contract MockSigner1271 {
             s := calldataload(add(signature.offset, 32))
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
+    }
+}
+
+contract SignedExclusiveSwapEIP712Reference is EIP712 {
+    bytes32 internal constant _SIGNED_SWAP_TYPEHASH =
+        keccak256("SignedSwap(bytes32 poolId,uint256 meta,bytes32 minBalanceUpdate)");
+
+    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
+        name = "Ekubo SignedExclusiveSwap";
+        version = "1";
+    }
+
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparator();
+    }
+
+    function hashTypedData(bytes32 structHash) external view returns (bytes32) {
+        return _hashTypedData(structHash);
+    }
+
+    function hashSignedSwapStruct(PoolId poolId, SignedSwapMeta meta, PoolBalanceUpdate minBalanceUpdate)
+        external
+        pure
+        returns (bytes32)
+    {
+        return keccak256(
+            abi.encode(
+                _SIGNED_SWAP_TYPEHASH, PoolId.unwrap(poolId), bytes32(SignedSwapMeta.unwrap(meta)), minBalanceUpdate
+            )
+        );
     }
 }
 
@@ -117,6 +148,7 @@ contract SignedExclusiveSwapTest is FullTest {
     uint256 internal adminPk;
     address internal admin;
     SignedExclusiveSwap internal signedExclusiveSwap;
+    SignedExclusiveSwapEIP712Reference internal eip712Reference;
     SignedExclusiveSwapHarness internal harness;
     PoolBalanceUpdate internal constant MIN_BALANCE_UPDATE =
         PoolBalanceUpdate.wrap(bytes32(0x8000000000000000000000000000000080000000000000000000000000000000));
@@ -137,6 +169,7 @@ contract SignedExclusiveSwapTest is FullTest {
         address deployAddress = address(uint160(signedExclusiveSwapCallPoints().toUint8()) << 152);
         deployCodeTo("SignedExclusiveSwap.sol", abi.encode(core, admin), deployAddress);
         signedExclusiveSwap = SignedExclusiveSwap(deployAddress);
+        eip712Reference = new SignedExclusiveSwapEIP712Reference();
 
         harness = new SignedExclusiveSwapHarness(core);
     }
@@ -215,6 +248,24 @@ contract SignedExclusiveSwapTest is FullTest {
         (, uint128 saved1After) =
             core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId));
         assertEq(saved1After, 1);
+    }
+
+    function test_hash_signed_swap_payload_matches_solady_eip712() public view {
+        PoolId poolId = signedExclusiveSwapPoolKey(20_000).toPoolId();
+        SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), 1_234_567, 777);
+        PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(123_456, -234_567);
+
+        bytes32 structHash = eip712Reference.hashSignedSwapStruct(poolId, meta, minBalanceUpdate);
+        bytes32 digestFromEIP712 = eip712Reference.hashTypedData(structHash);
+        bytes32 digestFromLibrary = SignedExclusiveSwapLib.hashSignedSwapPayload(
+            ISignedExclusiveSwap(address(eip712Reference)), poolId, meta, minBalanceUpdate
+        );
+
+        assertEq(digestFromLibrary, digestFromEIP712);
+        assertEq(
+            SignedExclusiveSwapLib.computeDomainSeparatorHash(ISignedExclusiveSwap(address(eip712Reference))),
+            eip712Reference.domainSeparator()
+        );
     }
 
     /// forge-config: default.isolate = true

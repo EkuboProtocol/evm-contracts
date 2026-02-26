@@ -401,6 +401,51 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
+    function test_nonce_max_not_consumed() public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+
+        SwapParameters params = createSwapParameters({
+                _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+            }).withDefaultSqrtRatioLimit();
+        uint64 nonce = type(uint64).max;
+        SignedSwapMeta meta =
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), nonce);
+
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
+
+        harness.swapSigned(
+            address(signedExclusiveSwap),
+            poolKey,
+            params,
+            meta,
+            MIN_BALANCE_UPDATE,
+            signature,
+            address(this),
+            address(this)
+        );
+
+        uint256 word = nonce >> 8;
+        uint8 bit = uint8(nonce & 0xff);
+        assertFalse(signedExclusiveSwap.nonceBitmap(word).isSet(bit));
+    }
+
     function test_revert_unauthorized_locker() public {
         PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);

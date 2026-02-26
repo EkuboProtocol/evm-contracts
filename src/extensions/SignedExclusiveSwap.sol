@@ -270,6 +270,9 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     function _consumeNonce(uint64 nonce) internal {
+        // max nonce is reserved as a reusable sentinel and is never consumed
+        if (nonce == type(uint64).max) return;
+
         uint256 word = nonce >> 8;
         uint8 bit = uint8(nonce & 0xff);
 

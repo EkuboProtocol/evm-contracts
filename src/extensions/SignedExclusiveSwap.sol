@@ -167,7 +167,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @inheritdoc ISignedExclusiveSwap
-    function broadcastSignedSwaps(ISignedExclusiveSwap.SignedSwapBroadcast[] calldata signedSwaps) external {
+    function broadcastSignedSwaps(SignedSwapBroadcast[] calldata signedSwaps) external {
         for (uint256 i; i < signedSwaps.length;) {
             SignedSwapBroadcast calldata signedSwap = signedSwaps[i];
             _validateSignature(signedSwap.poolId, signedSwap.meta, signedSwap.minBalanceUpdate, signedSwap.signature);

@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {PoolKey} from "../../types/poolKey.sol";
 import {PoolId} from "../../types/poolId.sol";
 import {PoolBalanceUpdate} from "../../types/poolBalanceUpdate.sol";
+import {SignedSwapMeta} from "../../types/signedSwapMeta.sol";
 import {Bitmap} from "../../types/bitmap.sol";
 import {SqrtRatio} from "../../types/sqrtRatio.sol";
 import {ControllerAddress} from "../../types/controllerAddress.sol";
@@ -15,8 +16,19 @@ import {IExposedStorage} from "../IExposedStorage.sol";
 /// @title Signed Exclusive Swap Interface
 /// @notice Extension that enforces forward-only swaps and applies signed, per-swap fee controls.
 interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtension {
+    struct SignedSwapBroadcast {
+        PoolId poolId;
+        SignedSwapMeta meta;
+        PoolBalanceUpdate minBalanceUpdate;
+        bytes signature;
+    }
+
     /// @notice Emitted when a pool state is updated.
     event PoolStateUpdated(PoolId indexed poolId, SignedExclusiveSwapPoolState poolState);
+    /// @notice Emitted when a signed swap payload is validated and broadcast.
+    event SignedSwapBroadcasted(
+        PoolId indexed poolId, SignedSwapMeta meta, PoolBalanceUpdate minBalanceUpdate, bytes signature
+    );
 
     /// @notice Thrown when attempting to swap directly without using forward.
     error SwapMustHappenThroughForward();
@@ -64,4 +76,8 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
 
     /// @notice Updates the controller for an existing pool.
     function setPoolController(PoolKey memory poolKey, ControllerAddress controller) external;
+
+    /// @notice Validates signed swap payloads and emits one event per valid payload.
+    /// @dev Reverts if any payload signature is invalid for the pool's current controller.
+    function broadcastSignedSwaps(SignedSwapBroadcast[] calldata signedSwaps) external;
 }

@@ -360,6 +360,27 @@ contract SignedExclusiveSwapTest is FullTest {
         vm.snapshotGasLastCall("signedExclusiveSwap token1 input (with meta fee)");
     }
 
+    /// forge-config: default.isolate = true
+    function test_gas_broadcast_signed_swaps_single() public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+
+        SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 303);
+        PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(10, -20);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        ISignedExclusiveSwap.SignedSwapBroadcast[] memory signedSwaps =
+            new ISignedExclusiveSwap.SignedSwapBroadcast[](1);
+        signedSwaps[0] = ISignedExclusiveSwap.SignedSwapBroadcast({
+            poolId: poolKey.toPoolId(), meta: meta, minBalanceUpdate: minBalanceUpdate, signature: signature
+        });
+
+        coolAllContracts();
+        signedExclusiveSwap.broadcastSignedSwaps(signedSwaps);
+        vm.snapshotGasLastCall("signedExclusiveSwap broadcastSignedSwaps (single)");
+    }
+
     function test_revert_nonce_reuse() public {
         PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -783,6 +804,74 @@ contract SignedExclusiveSwapTest is FullTest {
             address(this),
             address(this)
         );
+    }
+
+    function test_broadcast_signed_swaps_emits_for_each_valid_signature() public {
+        PoolKey memory firstPoolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory secondPoolKey = createSignedExclusiveSwapPool(0, 10_000);
+
+        SignedSwapMeta firstMeta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 217);
+        SignedSwapMeta secondMeta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 1234, 218);
+        PoolBalanceUpdate firstMinBalanceUpdate = createPoolBalanceUpdate(10, -20);
+        PoolBalanceUpdate secondMinBalanceUpdate = createPoolBalanceUpdate(-30, 40);
+
+        bytes32 firstDigest =
+            signedExclusiveSwap.hashSignedSwapPayload(firstPoolKey.toPoolId(), firstMeta, firstMinBalanceUpdate);
+        (uint8 firstV, bytes32 firstR, bytes32 firstS) = vm.sign(controllerPk, firstDigest);
+        bytes memory firstSignature = abi.encodePacked(firstR, firstS, firstV);
+
+        bytes32 secondDigest =
+            signedExclusiveSwap.hashSignedSwapPayload(secondPoolKey.toPoolId(), secondMeta, secondMinBalanceUpdate);
+        (uint8 secondV, bytes32 secondR, bytes32 secondS) = vm.sign(controllerPk, secondDigest);
+        bytes memory secondSignature = abi.encodePacked(secondR, secondS, secondV);
+
+        ISignedExclusiveSwap.SignedSwapBroadcast[] memory signedSwaps =
+            new ISignedExclusiveSwap.SignedSwapBroadcast[](2);
+        signedSwaps[0] = ISignedExclusiveSwap.SignedSwapBroadcast({
+            poolId: firstPoolKey.toPoolId(),
+            meta: firstMeta,
+            minBalanceUpdate: firstMinBalanceUpdate,
+            signature: firstSignature
+        });
+        signedSwaps[1] = ISignedExclusiveSwap.SignedSwapBroadcast({
+            poolId: secondPoolKey.toPoolId(),
+            meta: secondMeta,
+            minBalanceUpdate: secondMinBalanceUpdate,
+            signature: secondSignature
+        });
+
+        vm.expectEmit(true, false, false, true, address(signedExclusiveSwap));
+        emit ISignedExclusiveSwap.SignedSwapBroadcasted(
+            firstPoolKey.toPoolId(), firstMeta, firstMinBalanceUpdate, firstSignature
+        );
+        vm.expectEmit(true, false, false, true, address(signedExclusiveSwap));
+        emit ISignedExclusiveSwap.SignedSwapBroadcasted(
+            secondPoolKey.toPoolId(), secondMeta, secondMinBalanceUpdate, secondSignature
+        );
+
+        signedExclusiveSwap.broadcastSignedSwaps(signedSwaps);
+    }
+
+    function test_revert_broadcast_signed_swaps_invalid_signature() public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+
+        SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 219);
+        PoolBalanceUpdate minBalanceUpdateSigned = createPoolBalanceUpdate(50, -60);
+        bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdateSigned);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        ISignedExclusiveSwap.SignedSwapBroadcast[] memory signedSwaps =
+            new ISignedExclusiveSwap.SignedSwapBroadcast[](1);
+        signedSwaps[0] = ISignedExclusiveSwap.SignedSwapBroadcast({
+            poolId: poolKey.toPoolId(),
+            meta: meta,
+            minBalanceUpdate: createPoolBalanceUpdate(51, -60),
+            signature: signature
+        });
+
+        vm.expectRevert(ISignedExclusiveSwap.InvalidSignature.selector);
+        signedExclusiveSwap.broadcastSignedSwaps(signedSwaps);
     }
 
     function test_revert_initialize_pool_not_owner() public {

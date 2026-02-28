@@ -166,6 +166,22 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         _setPoolState({poolId: poolId, state: _getPoolState(poolId).withController(controller)});
     }
 
+    /// @inheritdoc ISignedExclusiveSwap
+    function broadcastSignedSwaps(ISignedExclusiveSwap.SignedSwapBroadcast[] calldata signedSwaps) external {
+        for (uint256 i; i < signedSwaps.length;) {
+            SignedSwapBroadcast calldata signedSwap = signedSwaps[i];
+            _validateSignature(signedSwap.poolId, signedSwap.meta, signedSwap.minBalanceUpdate, signedSwap.signature);
+
+            emit SignedSwapBroadcasted(
+                signedSwap.poolId, signedSwap.meta, signedSwap.minBalanceUpdate, signedSwap.signature
+            );
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         unchecked {
             (
@@ -183,14 +199,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
             PoolId poolId = poolKey.toPoolId();
             SignedExclusiveSwapPoolState state = _getPoolState(poolId);
-
-            if (!state.controller()
-                    .isSignatureValid(
-                        SignedExclusiveSwapLib.hashSignedSwapPayload(_DOMAIN_SEPARATOR, poolId, meta, minBalanceUpdate),
-                        signature
-                    )) {
-                revert InvalidSignature();
-            }
+            _validateSignature(poolId, meta, minBalanceUpdate, signature, state);
 
             int256 saveDelta0;
             int256 saveDelta1;
@@ -266,6 +275,31 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             }
 
             result = abi.encode(balanceUpdate, stateAfter);
+        }
+    }
+
+    function _validateSignature(
+        PoolId poolId,
+        SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate,
+        bytes calldata signature
+    ) internal view {
+        _validateSignature(poolId, meta, minBalanceUpdate, signature, _getPoolState(poolId));
+    }
+
+    function _validateSignature(
+        PoolId poolId,
+        SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate,
+        bytes memory signature,
+        SignedExclusiveSwapPoolState state
+    ) internal view {
+        if (!state.controller()
+                .isSignatureValid(
+                    SignedExclusiveSwapLib.hashSignedSwapPayload(_DOMAIN_SEPARATOR, poolId, meta, minBalanceUpdate),
+                    signature
+                )) {
+            revert InvalidSignature();
         }
     }
 

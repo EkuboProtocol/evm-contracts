@@ -1,0 +1,349 @@
+// SPDX-License-Identifier: ekubo-license-v1.eth
+pragma solidity =0.8.33;
+
+import {ICore, PoolKey, PositionId, CallPoints} from "../interfaces/ICore.sol";
+import {IExtension} from "../interfaces/ICore.sol";
+import {ISignedExclusiveSwap} from "../interfaces/extensions/ISignedExclusiveSwap.sol";
+import {BaseExtension} from "../base/BaseExtension.sol";
+import {BaseForwardee} from "../base/BaseForwardee.sol";
+import {ExposedStorage} from "../base/ExposedStorage.sol";
+import {CoreLib} from "../libraries/CoreLib.sol";
+import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
+import {SignedExclusiveSwapLib} from "../libraries/SignedExclusiveSwapLib.sol";
+import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
+import {PoolId} from "../types/poolId.sol";
+import {PoolState} from "../types/poolState.sol";
+import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
+import {SignedSwapMeta} from "../types/signedSwapMeta.sol";
+import {ControllerAddress} from "../types/controllerAddress.sol";
+import {
+    SignedExclusiveSwapPoolState,
+    createSignedExclusiveSwapPoolState
+} from "../types/signedExclusiveSwapPoolState.sol";
+import {Locker} from "../types/locker.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
+import {Bitmap} from "../types/bitmap.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {computeFee} from "../math/fee.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+
+function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
+    return CallPoints({
+        beforeInitializePool: true,
+        afterInitializePool: false,
+        beforeSwap: true,
+        afterSwap: false,
+        beforeUpdatePosition: true,
+        afterUpdatePosition: false,
+        beforeCollectFees: true,
+        afterCollectFees: false
+    });
+}
+
+/// @notice Forward-only swap extension with controller-signed, per-swap fee customization.
+/// @dev Fees are first collected into extension saved balances, then donated to LPs at the start of the next block.
+contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage, Ownable {
+    using CoreLib for *;
+    using ExposedStorageLib for *;
+    using SignedExclusiveSwapLib for *;
+
+    /// @dev Cached for performance
+    bytes32 private immutable _DOMAIN_SEPARATOR;
+
+    uint32 internal constant _MAX_DEADLINE_FUTURE_WINDOW = 30 days;
+
+    mapping(uint256 => Bitmap) public nonceBitmap;
+
+    constructor(ICore core, address owner) BaseExtension(core) BaseForwardee(core) {
+        _initializeOwner(owner);
+        _DOMAIN_SEPARATOR = this.computeDomainSeparatorHash();
+    }
+
+    function getCallPoints() internal pure override returns (CallPoints memory) {
+        return signedExclusiveSwapCallPoints();
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
+        external
+        onlyOwner
+        returns (SqrtRatio sqrtRatio)
+    {
+        if (poolKey.config.extension() != address(this)) revert PoolExtensionMustBeSelf();
+        if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
+
+        sqrtRatio = CORE.initializePool(poolKey, tick);
+        _setPoolState({
+            poolId: poolKey.toPoolId(), state: createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp))
+        });
+    }
+
+    /// @inheritdoc IExtension
+    function beforeInitializePool(address, PoolKey calldata, int32)
+        external
+        view
+        override(BaseExtension, IExtension)
+        onlyCore
+    {
+        revert PoolInitializationDisabled();
+    }
+
+    /// @notice We only allow swapping via forward to this extension.
+    function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override(BaseExtension, IExtension) {
+        revert SwapMustHappenThroughForward();
+    }
+
+    /// @dev Prevents new liquidity from collecting extension fees that should belong to existing LPs.
+    function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128)
+        external
+        override(BaseExtension, IExtension)
+    {
+        accumulatePoolFees(poolKey);
+    }
+
+    /// @dev Allows fee collection to observe extension donations up to the start of the current block.
+    function beforeCollectFees(Locker, PoolKey memory poolKey, PositionId)
+        external
+        override(BaseExtension, IExtension)
+    {
+        accumulatePoolFees(poolKey);
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function accumulatePoolFees(PoolKey memory poolKey) public {
+        PoolId poolId = poolKey.toPoolId();
+        if (_getPoolState(poolId).lastUpdateTime() != uint32(block.timestamp)) {
+            address target = address(CORE);
+            assembly ("memory-safe") {
+                let o := mload(0x40)
+                mstore(o, shl(224, 0xf83d08ba))
+                mcopy(add(o, 4), poolKey, 96)
+                mstore(add(o, 100), poolId)
+
+                if iszero(call(gas(), target, 0, o, 132, 0, 0)) {
+                    returndatacopy(o, 0, returndatasize())
+                    revert(o, returndatasize())
+                }
+            }
+        }
+    }
+
+    /// @dev Core lock callback used by `accumulatePoolFees`.
+    function locked_6416899205(uint256) external onlyCore {
+        PoolKey memory poolKey;
+        PoolId poolId;
+        assembly ("memory-safe") {
+            calldatacopy(poolKey, 36, 96)
+            poolId := calldataload(132)
+        }
+
+        (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
+
+        if (fees0 != 0 || fees1 != 0) {
+            CORE.accumulateAsFees(poolKey, fees0, fees1);
+            CORE.updateSavedBalances(
+                poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), -int256(uint256(fees0)), -int256(uint256(fees1))
+            );
+        }
+
+        _setPoolState({poolId: poolId, state: _getPoolState(poolId).withLastUpdateTime(uint32(block.timestamp))});
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function setNonceBitmap(uint256 word, Bitmap bitmap) external onlyOwner {
+        nonceBitmap[word] = bitmap;
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function setPoolController(PoolKey memory poolKey, ControllerAddress controller) external onlyOwner {
+        if (poolKey.config.extension() != address(this) || !CORE.poolState(poolKey.toPoolId()).isInitialized()) {
+            revert ICore.PoolNotInitialized();
+        }
+
+        PoolId poolId = poolKey.toPoolId();
+        _setPoolState({poolId: poolId, state: _getPoolState(poolId).withController(controller)});
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function broadcastSignedSwaps(SignedSwapBroadcast[] calldata signedSwaps) external {
+        for (uint256 i; i < signedSwaps.length;) {
+            SignedSwapBroadcast calldata signedSwap = signedSwaps[i];
+            _validateSignature(signedSwap.poolId, signedSwap.meta, signedSwap.minBalanceUpdate, signedSwap.signature);
+
+            emit SignedSwapBroadcasted(
+                signedSwap.poolId, signedSwap.meta, signedSwap.minBalanceUpdate, signedSwap.signature
+            );
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
+        unchecked {
+            (
+                PoolKey memory poolKey,
+                SwapParameters params,
+                SignedSwapMeta meta,
+                PoolBalanceUpdate minBalanceUpdate,
+                bytes memory signature
+            ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
+
+            uint32 currentTimestamp = uint32(block.timestamp);
+            if (meta.isExpired(currentTimestamp)) revert SignatureExpired();
+            if ((meta.deadline() - currentTimestamp) > _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
+            if (!meta.isAuthorized(original)) revert UnauthorizedLocker();
+
+            PoolId poolId = poolKey.toPoolId();
+            SignedExclusiveSwapPoolState state = _getPoolState(poolId);
+            _validateSignature(poolId, meta, minBalanceUpdate, signature, state);
+
+            int256 saveDelta0;
+            int256 saveDelta1;
+
+            // Inline fee accumulation here to avoid an extra lock call from `accumulatePoolFees`.
+            if (state.lastUpdateTime() != currentTimestamp) {
+                (uint128 fees0, uint128 fees1) = _loadSavedFees(poolId, poolKey.token0, poolKey.token1);
+
+                if (fees0 != 0 || fees1 != 0) {
+                    CORE.accumulateAsFees(poolKey, fees0, fees1);
+
+                    // never overflows int256 container
+                    saveDelta0 = -int256(uint256(fees0));
+                    saveDelta1 = -int256(uint256(fees1));
+                }
+
+                state = state.withLastUpdateTime(currentTimestamp);
+                _setPoolState({poolId: poolId, state: state});
+            }
+
+            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params);
+
+            if (
+                balanceUpdate.delta0() < minBalanceUpdate.delta0() || balanceUpdate.delta1() < minBalanceUpdate.delta1()
+            ) {
+                revert MinBalanceUpdateNotMet(minBalanceUpdate, balanceUpdate);
+            }
+
+            // only now that all validation has succeeded, consume the nonce,
+            // which reduces the gas cost in the case of swaps exceeding the allowed amount
+            _consumeNonce(meta.nonce());
+
+            uint64 metaFeeX64 = uint64(meta.fee()) << 32;
+
+            if (metaFeeX64 != 0) {
+                if (params.isExactOut()) {
+                    if (balanceUpdate.delta0() > 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), metaFeeX64)
+                        );
+                        saveDelta0 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
+                    } else if (balanceUpdate.delta1() > 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), metaFeeX64)
+                        );
+                        saveDelta1 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+                    }
+                } else {
+                    if (balanceUpdate.delta0() < 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), metaFeeX64)
+                        );
+                        saveDelta0 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
+                    } else if (balanceUpdate.delta1() < 0) {
+                        int128 feeAmount = SafeCastLib.toInt128(
+                            computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), metaFeeX64)
+                        );
+                        saveDelta1 += feeAmount;
+                        balanceUpdate =
+                            createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+                    }
+                }
+            }
+
+            if (saveDelta0 != 0 || saveDelta1 != 0) {
+                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), saveDelta0, saveDelta1);
+            }
+
+            result = abi.encode(balanceUpdate, stateAfter);
+        }
+    }
+
+    function _validateSignature(
+        PoolId poolId,
+        SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate,
+        bytes calldata signature
+    ) internal view {
+        _validateSignature(poolId, meta, minBalanceUpdate, signature, _getPoolState(poolId));
+    }
+
+    function _validateSignature(
+        PoolId poolId,
+        SignedSwapMeta meta,
+        PoolBalanceUpdate minBalanceUpdate,
+        bytes memory signature,
+        SignedExclusiveSwapPoolState state
+    ) internal view {
+        if (!state.controller()
+                .isSignatureValid(
+                    SignedExclusiveSwapLib.hashSignedSwapPayload(_DOMAIN_SEPARATOR, poolId, meta, minBalanceUpdate),
+                    signature
+                )) {
+            revert InvalidSignature();
+        }
+    }
+
+    function _consumeNonce(uint64 nonce) internal {
+        // max nonce is reserved as a reusable sentinel and is never consumed
+        if (nonce == type(uint64).max) return;
+
+        uint256 word = nonce >> 8;
+        uint8 bit = uint8(nonce & 0xff);
+
+        Bitmap current = nonceBitmap[word];
+        Bitmap next = current.toggle(bit);
+
+        if (Bitmap.unwrap(next) < Bitmap.unwrap(current)) revert NonceAlreadyUsed();
+        nonceBitmap[word] = next;
+    }
+
+    function _loadSavedFees(PoolId poolId, address token0, address token1)
+        internal
+        view
+        returns (uint128 fees0, uint128 fees1)
+    {
+        StorageSlot feesSlot = CoreStorageLayout.savedBalancesSlot(address(this), token0, token1, PoolId.unwrap(poolId));
+        bytes32 value = CORE.sload(feesSlot);
+
+        assembly ("memory-safe") {
+            fees0 := shr(128, value)
+            fees0 := sub(fees0, gt(fees0, 0))
+
+            fees1 := shr(128, shl(128, value))
+            fees1 := sub(fees1, gt(fees1, 0))
+        }
+    }
+
+    function _getPoolState(PoolId poolId) internal view returns (SignedExclusiveSwapPoolState state) {
+        assembly ("memory-safe") {
+            state := sload(poolId)
+        }
+    }
+
+    function _setPoolState(PoolId poolId, SignedExclusiveSwapPoolState state) internal {
+        assembly ("memory-safe") {
+            sstore(poolId, state)
+        }
+        emit PoolStateUpdated(poolId, state);
+    }
+}

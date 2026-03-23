@@ -11,7 +11,6 @@ import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 contract IndexFundTest is BaseOracleTest {
-    address internal keeper = makeAddr("keeper");
     address internal subscriber = makeAddr("subscriber");
 
     TWAMM internal twamm;
@@ -58,17 +57,12 @@ contract IndexFundTest is BaseOracleTest {
             quoteToken: IERC20(address(token1)),
             tokenName_: "Index Fund",
             tokenSymbol_: "INDEX",
-            owner_: owner,
             initialSharePrice_: 1e18,
             collectionPeriod_: 300,
             sellOrderDuration_: 256,
             buyOrderDuration_: 256,
             initialComponents: components
         });
-
-        vm.prank(owner);
-        fund.setKeeper(keeper, true);
-
         token1.transfer(subscriber, 2_000e18);
     }
 
@@ -80,7 +74,6 @@ contract IndexFundTest is BaseOracleTest {
 
         advanceTime(301);
 
-        vm.prank(keeper);
         fund.closeEpoch();
 
         IndexFund.EpochState memory epoch = fund.getEpochState(fund.currentEpochId());
@@ -88,7 +81,6 @@ contract IndexFundTest is BaseOracleTest {
         assertEq(epoch.totalMintedShares, 1_000e18);
         assertEq(epoch.sharePriceQuote, 1e18);
 
-        vm.prank(keeper);
         fund.startRebalance();
 
         epoch = fund.getEpochState(fund.currentEpochId());
@@ -102,13 +94,11 @@ contract IndexFundTest is BaseOracleTest {
 
         vm.warp(epoch.buyEnd + 1);
 
-        vm.prank(keeper);
         fund.continueRebalance();
 
         epoch = fund.getEpochState(fund.currentEpochId());
         assertEq(uint8(epoch.rebalanceStage), uint8(IndexFund.RebalanceStage.Ready));
 
-        vm.prank(keeper);
         fund.settleEpoch();
 
         assertEq(fund.totalSupply(), 1_000e18);
@@ -131,14 +121,12 @@ contract IndexFundTest is BaseOracleTest {
 
         advanceTime(301);
 
-        vm.prank(keeper);
         fund.closeEpoch();
 
         IndexFund.EpochState memory epoch = fund.getEpochState(fund.currentEpochId());
         assertEq(epoch.totalRedemptionShares, 500e18);
         assertGt(epoch.totalRedemptionQuote, 0);
 
-        vm.prank(keeper);
         fund.startRebalance();
 
         epoch = fund.getEpochState(fund.currentEpochId());
@@ -152,13 +140,11 @@ contract IndexFundTest is BaseOracleTest {
 
         vm.warp(epoch.sellEnd + 1);
 
-        vm.prank(keeper);
         fund.continueRebalance();
 
         epoch = fund.getEpochState(fund.currentEpochId());
         assertEq(uint8(epoch.rebalanceStage), uint8(IndexFund.RebalanceStage.Ready));
 
-        vm.prank(keeper);
         fund.settleEpoch();
 
         assertEq(fund.totalSupply(), 500e18);

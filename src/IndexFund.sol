@@ -3,7 +3,6 @@ pragma solidity =0.8.33;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
-import {OwnableRoles} from "solady/auth/OwnableRoles.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -21,43 +20,89 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createOrderConfig} from "./types/orderConfig.sol";
 
-contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
+contract IndexFund is ERC20, UsesCore, BaseLocker {
     using TWAMMLib for *;
 
-    uint256 public constant KEEPER_ROLE = 1 << 0;
     uint256 public constant WEIGHT_SCALE = 1e18;
     uint256 private constant Q128 = 1 << 128;
 
     uint256 private constant CALL_TYPE_OPEN_ORDER = 0;
     uint256 private constant CALL_TYPE_COLLECT_ORDER = 1;
 
+    /// @notice Thrown when a required address argument is the zero address.
     error ZeroAddress();
+    /// @notice Thrown when an amount argument is zero.
     error ZeroAmount();
+    /// @notice Thrown when the component list is empty.
     error ZeroComponents();
+    /// @notice Thrown when component weights do not sum to `WEIGHT_SCALE`.
     error WeightsMustSumToOne();
+    /// @notice Thrown when the same component token is configured more than once.
     error DuplicateComponent();
+    /// @notice Thrown when the quote token is included as a portfolio component.
     error QuoteTokenCannotBeComponent();
+    /// @notice Thrown when the initial share price is zero.
     error InvalidInitialSharePrice();
+    /// @notice Thrown when the collection period is zero.
     error InvalidCollectionPeriod();
+    /// @notice Thrown when an order duration is zero.
     error InvalidOrderDuration();
+    /// @notice Thrown when an action is only allowed during the collection phase.
     error CollectionPhaseOnly();
+    /// @notice Thrown when an action is only allowed during the execution phase.
     error ExecutionPhaseOnly();
+    /// @notice Thrown when an epoch cannot be closed yet because the collection period is still active.
     error EpochNotReadyToClose();
+    /// @notice Thrown when epoch initialization is attempted while an epoch is already active.
     error EpochAlreadyStarted();
+    /// @notice Thrown when rebalance continuation is attempted before rebalance has started.
     error RebalanceNotStarted();
+    /// @notice Thrown when rebalance start is attempted more than once for the same epoch.
     error RebalanceAlreadyStarted();
+    /// @notice Thrown when an epoch is not yet ready to settle or claim against.
     error RebalanceNotReady();
+    /// @notice Thrown when configuration changes are attempted before the current epoch is fully settled.
     error PreviousEpochStillOpen();
+    /// @notice Thrown when an account has nothing queued to claim.
     error NothingToClaim();
+    /// @notice Thrown when there is no capital available to start an epoch.
     error NoCapital();
+    /// @notice Thrown when oracle liquidity for a component is below the configured minimum.
+    /// @param token The component token with insufficient observed liquidity.
+    /// @param observed The liquidity observed from the oracle window.
+    /// @param minimumRequired The minimum liquidity required by configuration.
     error InsufficientOracleLiquidity(address token, uint128 observed, uint128 minimumRequired);
+    /// @notice Thrown when a TWAMM order amount resolves to zero.
     error InvalidOrderAmount();
+    /// @notice Thrown when lock callback data does not match a supported internal call.
     error InvalidLockCall();
 
+    /// @notice Emitted when the component configuration is replaced.
     event ComponentsUpdated();
+    /// @notice Emitted when epoch timing parameters are updated.
+    /// @param collectionPeriod The new collection period in seconds.
+    /// @param sellOrderDuration The new sell-order TWAMM duration in seconds.
+    /// @param buyOrderDuration The new buy-order TWAMM duration in seconds.
     event EpochParametersUpdated(uint64 collectionPeriod, uint64 sellOrderDuration, uint64 buyOrderDuration);
+    /// @notice Emitted when quote tokens are queued for subscription into an epoch.
+    /// @param epochId The epoch receiving the subscription.
+    /// @param owner The account that supplied the quote tokens.
+    /// @param receiver The account that will be entitled to the minted shares.
+    /// @param amountQ The amount of quote tokens queued.
     event SubscriptionQueued(uint256 indexed epochId, address indexed owner, address indexed receiver, uint256 amountQ);
+    /// @notice Emitted when shares are queued for redemption in an epoch.
+    /// @param epochId The epoch receiving the redemption request.
+    /// @param owner The account that supplied the shares.
+    /// @param receiver The account that will be entitled to the redemption proceeds.
+    /// @param shares The amount of shares queued for redemption.
     event RedemptionQueued(uint256 indexed epochId, address indexed owner, address indexed receiver, uint256 shares);
+    /// @notice Emitted when collection closes and the epoch NAV snapshot is finalized.
+    /// @param epochId The closed epoch identifier.
+    /// @param collectionStart The timestamp at which collection began.
+    /// @param collectionEnd The timestamp at which collection ended.
+    /// @param navQuote The total portfolio NAV in quote-token terms before net flows.
+    /// @param sharePriceQuote The share price used for minting and redemptions in quote-token terms.
+    /// @param postFlowAumQuote The target post-flow AUM in quote-token terms.
     event EpochClosed(
         uint256 indexed epochId,
         uint64 collectionStart,
@@ -66,6 +111,14 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         uint256 sharePriceQuote,
         uint256 postFlowAumQuote
     );
+    /// @notice Emitted when a rebalance TWAMM order is opened for a component.
+    /// @param epochId The epoch being rebalanced.
+    /// @param token The component token being traded.
+    /// @param isBuyOrder Whether the opened order buys the component token.
+    /// @param salt The unique TWAMM order salt.
+    /// @param sellAmount The amount committed on the sell side of the order.
+    /// @param startTime The order start timestamp.
+    /// @param endTime The order end timestamp.
     event RebalanceOrderOpened(
         uint256 indexed epochId,
         address indexed token,
@@ -75,11 +128,31 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         uint64 startTime,
         uint64 endTime
     );
+    /// @notice Emitted when proceeds from a rebalance TWAMM order are collected.
+    /// @param epochId The epoch being rebalanced.
+    /// @param token The component token being traded.
+    /// @param isBuyOrder Whether the collected order was a buy order.
+    /// @param salt The unique TWAMM order salt.
+    /// @param proceeds The amount of proceeds collected from the order.
     event RebalanceOrderCollected(
         uint256 indexed epochId, address indexed token, bool indexed isBuyOrder, bytes32 salt, uint256 proceeds
     );
+    /// @notice Emitted when an epoch is settled and claim balances are finalized.
+    /// @param epochId The settled epoch identifier.
+    /// @param mintedShares The total shares minted for queued subscriptions.
+    /// @param redemptionQuoteReserved The quote tokens reserved for queued redemptions.
     event EpochSettled(uint256 indexed epochId, uint256 mintedShares, uint256 redemptionQuoteReserved);
+    /// @notice Emitted when a subscriber claims settled shares.
+    /// @param epochId The settled epoch identifier.
+    /// @param owner The account whose queued subscription was claimed.
+    /// @param receiver The account that received the shares.
+    /// @param shares The amount of shares claimed.
     event SharesClaimed(uint256 indexed epochId, address indexed owner, address indexed receiver, uint256 shares);
+    /// @notice Emitted when a redeemer claims settled quote tokens.
+    /// @param epochId The settled epoch identifier.
+    /// @param owner The account whose queued redemption was claimed.
+    /// @param receiver The account that received the quote tokens.
+    /// @param amountQ The amount of quote tokens claimed.
     event QuoteClaimed(uint256 indexed epochId, address indexed owner, address indexed receiver, uint256 amountQ);
 
     enum EpochPhase {
@@ -170,11 +243,6 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
     mapping(uint256 epochId => mapping(address receiver => uint256 shares)) public queuedRedemptions;
     mapping(uint256 epochId => mapping(address token => EpochComponentState)) private _epochComponentStates;
 
-    modifier onlyKeeper() {
-        _checkOwnerOrRoles(KEEPER_ROLE);
-        _;
-    }
-
     constructor(
         ICore core,
         ITWAMM twamm,
@@ -182,20 +250,17 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         IERC20 quoteToken,
         string memory tokenName_,
         string memory tokenSymbol_,
-        address owner_,
         uint256 initialSharePrice_,
         uint64 collectionPeriod_,
         uint64 sellOrderDuration_,
         uint64 buyOrderDuration_,
         ComponentConfig[] memory initialComponents
     ) UsesCore(core) BaseLocker(core) {
-        if (owner_ == address(0) || address(twamm) == address(0) || address(priceFetcher) == address(0)) {
+        if (address(twamm) == address(0) || address(priceFetcher) == address(0)) {
             revert ZeroAddress();
         }
         if (address(quoteToken) == address(0)) revert ZeroAddress();
         if (initialSharePrice_ == 0) revert InvalidInitialSharePrice();
-
-        _initializeOwner(owner_);
 
         QUOTE_TOKEN = quoteToken;
         PRICE_FETCHER = priceFetcher;
@@ -237,27 +302,6 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         return epochs[epochId];
     }
 
-    function setKeeper(address keeper, bool allowed) external onlyOwner {
-        if (keeper == address(0)) revert ZeroAddress();
-        if (allowed) {
-            _grantRoles(keeper, KEEPER_ROLE);
-        } else {
-            _removeRoles(keeper, KEEPER_ROLE);
-        }
-    }
-
-    function setEpochParameters(uint64 collectionPeriod_, uint64 sellOrderDuration_, uint64 buyOrderDuration_)
-        external
-        onlyOwner
-    {
-        _setEpochParameters(collectionPeriod_, sellOrderDuration_, buyOrderDuration_);
-    }
-
-    function setComponents(ComponentConfig[] calldata newComponents) external onlyOwner {
-        if (epochs[currentEpochId].phase != EpochPhase.Collection) revert PreviousEpochStillOpen();
-        _setComponents(newComponents);
-    }
-
     function queueSubscription(uint256 amountQ, address receiver) external {
         if (amountQ == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
@@ -289,7 +333,7 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         emit RedemptionQueued(currentEpochId, msg.sender, receiver, shares);
     }
 
-    function closeEpoch() external onlyKeeper {
+    function closeEpoch() external {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Collection) revert CollectionPhaseOnly();
         if (block.timestamp < uint256(epoch.collectionStart) + collectionPeriod) revert EpochNotReadyToClose();
@@ -366,7 +410,7 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         );
     }
 
-    function startRebalance() external onlyKeeper {
+    function startRebalance() external {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Execution) revert ExecutionPhaseOnly();
         if (epoch.rebalanceStage != RebalanceStage.None) revert RebalanceAlreadyStarted();
@@ -384,7 +428,7 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         epoch.rebalanceStage = RebalanceStage.Ready;
     }
 
-    function continueRebalance() external onlyKeeper {
+    function continueRebalance() external {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Execution) revert ExecutionPhaseOnly();
 
@@ -411,7 +455,7 @@ contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
         revert RebalanceNotReady();
     }
 
-    function settleEpoch() external onlyKeeper {
+    function settleEpoch() external {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Execution) revert ExecutionPhaseOnly();
         if (epoch.rebalanceStage != RebalanceStage.Ready) revert RebalanceNotReady();

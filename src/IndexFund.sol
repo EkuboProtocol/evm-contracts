@@ -4,7 +4,6 @@ pragma solidity =0.8.33;
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {OwnableRoles} from "solady/auth/OwnableRoles.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -22,7 +21,7 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createOrderConfig} from "./types/orderConfig.sol";
 
-contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker {
+contract IndexFund is ERC20, OwnableRoles, UsesCore, BaseLocker {
     using TWAMMLib for *;
 
     uint256 public constant KEEPER_ROLE = 1 << 0;
@@ -259,22 +258,22 @@ contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker
         _setComponents(newComponents);
     }
 
-    function queueSubscription(uint256 amountQ, address receiver) external nonReentrant {
+    function queueSubscription(uint256 amountQ, address receiver) external {
         if (amountQ == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Collection) revert CollectionPhaseOnly();
 
-        SafeTransferLib.safeTransferFrom(address(QUOTE_TOKEN), msg.sender, address(this), amountQ);
-
         queuedSubscriptions[currentEpochId][receiver] += amountQ;
         epoch.totalSubscriptionsQuote += amountQ;
+
+        SafeTransferLib.safeTransferFrom(address(QUOTE_TOKEN), msg.sender, address(this), amountQ);
 
         emit SubscriptionQueued(currentEpochId, msg.sender, receiver, amountQ);
     }
 
-    function queueRedemption(uint256 shares, address receiver) external nonReentrant {
+    function queueRedemption(uint256 shares, address receiver) external {
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
@@ -290,7 +289,7 @@ contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker
         emit RedemptionQueued(currentEpochId, msg.sender, receiver, shares);
     }
 
-    function closeEpoch() external onlyKeeper nonReentrant {
+    function closeEpoch() external onlyKeeper {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Collection) revert CollectionPhaseOnly();
         if (block.timestamp < uint256(epoch.collectionStart) + collectionPeriod) revert EpochNotReadyToClose();
@@ -367,7 +366,7 @@ contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker
         );
     }
 
-    function startRebalance() external onlyKeeper nonReentrant {
+    function startRebalance() external onlyKeeper {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Execution) revert ExecutionPhaseOnly();
         if (epoch.rebalanceStage != RebalanceStage.None) revert RebalanceAlreadyStarted();
@@ -385,7 +384,7 @@ contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker
         epoch.rebalanceStage = RebalanceStage.Ready;
     }
 
-    function continueRebalance() external onlyKeeper nonReentrant {
+    function continueRebalance() external onlyKeeper {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Execution) revert ExecutionPhaseOnly();
 
@@ -412,7 +411,7 @@ contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker
         revert RebalanceNotReady();
     }
 
-    function settleEpoch() external onlyKeeper nonReentrant {
+    function settleEpoch() external onlyKeeper {
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Execution) revert ExecutionPhaseOnly();
         if (epoch.rebalanceStage != RebalanceStage.Ready) revert RebalanceNotReady();
@@ -442,7 +441,7 @@ contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker
         epochs[currentEpochId].phase = EpochPhase.Collection;
     }
 
-    function claimShares(uint256 epochId, address receiver) external nonReentrant returns (uint256 claimedShares) {
+    function claimShares(uint256 epochId, address receiver) external returns (uint256 claimedShares) {
         if (receiver == address(0)) revert ZeroAddress();
 
         EpochState storage epoch = epochs[epochId];
@@ -470,7 +469,7 @@ contract IndexFund is ERC20, OwnableRoles, ReentrancyGuard, UsesCore, BaseLocker
         emit SharesClaimed(epochId, msg.sender, receiver, claimedShares);
     }
 
-    function claimQuote(uint256 epochId, address receiver) external nonReentrant returns (uint256 claimedQuote) {
+    function claimQuote(uint256 epochId, address receiver) external returns (uint256 claimedQuote) {
         if (receiver == address(0)) revert ZeroAddress();
 
         EpochState storage epoch = epochs[epochId];

@@ -5,6 +5,7 @@ import {BaseOracleTest} from "./extensions/Oracle.t.sol";
 import {IndexFund} from "../src/IndexFund.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
+import {ComponentConfig, createComponentConfig} from "../src/types/componentConfig.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -45,9 +46,8 @@ contract IndexFundTest is BaseOracleTest {
         oracle.expandCapacity(address(token1), 8);
         updateOraclePoolLiquidity(address(token1), 100_000e18);
 
-        IndexFund.ComponentConfig[] memory components = new IndexFund.ComponentConfig[](1);
-        components[0] =
-            IndexFund.ComponentConfig({token: address(token0), weight: 1, twammFee: 0, minOracleLiquidity: 1_000});
+        ComponentConfig[] memory components = new ComponentConfig[](1);
+        components[0] = createComponentConfig(address(token0), 1, 0);
 
         fund = new IndexFund({
             core: core,

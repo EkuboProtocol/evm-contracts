@@ -17,6 +17,7 @@ import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {computeSaleRate} from "./math/twamm.sol";
 import {nextValidTime} from "./math/time.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
+import {ComponentConfig} from "./types/componentConfig.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createOrderConfig} from "./types/orderConfig.sol";
 
@@ -28,8 +29,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
     uint256 private constant CALL_TYPE_OPEN_ORDER = 0;
     uint256 private constant CALL_TYPE_COLLECT_ORDER = 1;
 
-    /// @notice Thrown when a required address argument is the zero address.
-    error ZeroAddress();
     /// @notice Thrown when an amount argument is zero.
     error ZeroAmount();
     /// @notice Thrown when the component list is empty.
@@ -64,11 +63,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
     error NothingToClaim();
     /// @notice Thrown when there is no capital available to start an epoch.
     error NoCapital();
-    /// @notice Thrown when oracle liquidity for a component is below the configured minimum.
-    /// @param token The component token with insufficient observed liquidity.
-    /// @param observed The liquidity observed from the oracle window.
-    /// @param minimumRequired The minimum liquidity required by configuration.
-    error InsufficientOracleLiquidity(address token, uint128 observed, uint128 minimumRequired);
     /// @notice Thrown when a TWAMM order amount resolves to zero.
     error InvalidOrderAmount();
     /// @notice Thrown when lock callback data does not match a supported internal call.
@@ -171,13 +165,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         Collected
     }
 
-    struct ComponentConfig {
-        address token;
-        uint32 weight;
-        uint64 twammFee;
-        uint128 minOracleLiquidity;
-    }
-
     struct EpochState {
         uint64 collectionStart;
         uint64 collectionEnd;
@@ -202,7 +189,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
 
     struct EpochComponentState {
         uint256 priceX128;
-        uint128 oracleLiquidity;
         uint256 closeBalance;
         uint256 closeValueQuote;
         uint256 targetValueQuote;
@@ -254,10 +240,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         uint64 buyOrderDuration_,
         ComponentConfig[] memory initialComponents
     ) UsesCore(core) BaseLocker(core) {
-        if (address(twamm) == address(0) || address(priceFetcher) == address(0)) {
-            revert ZeroAddress();
-        }
-        if (address(quoteToken) == address(0)) revert ZeroAddress();
         if (initialSharePrice_ == 0) revert InvalidInitialSharePrice();
 
         QUOTE_TOKEN = quoteToken;
@@ -292,7 +274,7 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         return _totalComponentWeight;
     }
 
-    function getComponent(uint256 index) external view returns (ComponentConfig memory) {
+    function getComponent(uint256 index) external view returns (ComponentConfig) {
         return _components[index];
     }
 
@@ -306,7 +288,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
 
     function queueSubscription(uint256 amountQ, address receiver) external {
         if (amountQ == 0) revert ZeroAmount();
-        if (receiver == address(0)) revert ZeroAddress();
 
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Collection) revert CollectionPhaseOnly();
@@ -321,7 +302,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
 
     function queueRedemption(uint256 shares, address receiver) external {
         if (shares == 0) revert ZeroAmount();
-        if (receiver == address(0)) revert ZeroAddress();
 
         EpochState storage epoch = epochs[currentEpochId];
         if (epoch.phase != EpochPhase.Collection) revert CollectionPhaseOnly();
@@ -349,20 +329,15 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         uint256 postFlowAumQuote;
 
         for (uint256 i = 0; i < _components.length; ++i) {
-            ComponentConfig memory component = _components[i];
-            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token];
+            ComponentConfig component = _components[i];
+            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token()];
 
-            (uint256 priceX128, uint128 observedLiquidity) =
-                _getPriceX128(component.token, epoch.collectionStart, collectionEnd);
-            if (observedLiquidity < component.minOracleLiquidity) {
-                revert InsufficientOracleLiquidity(component.token, observedLiquidity, component.minOracleLiquidity);
-            }
+            uint256 priceX128 = _getPriceX128(component.token(), epoch.collectionStart, collectionEnd);
 
-            uint256 closeBalance = IERC20(component.token).balanceOf(address(this));
+            uint256 closeBalance = IERC20(component.token()).balanceOf(address(this));
             uint256 closeValueQuote = _quoteAmountFromPrice(closeBalance, priceX128);
 
             componentState.priceX128 = priceX128;
-            componentState.oracleLiquidity = observedLiquidity;
             componentState.closeBalance = closeBalance;
             componentState.closeValueQuote = closeValueQuote;
 
@@ -389,11 +364,11 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         epoch.rebalanceStage = RebalanceStage.None;
 
         for (uint256 i = 0; i < _components.length; ++i) {
-            ComponentConfig memory component = _components[i];
-            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token];
+            ComponentConfig component = _components[i];
+            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token()];
 
             uint256 targetValueQuote =
-                FixedPointMathLib.fullMulDiv(postFlowAumQuote, component.weight, _totalComponentWeight);
+                FixedPointMathLib.fullMulDiv(postFlowAumQuote, component.weight(), _totalComponentWeight);
             componentState.targetValueQuote = targetValueQuote;
 
             if (componentState.closeValueQuote > targetValueQuote) {
@@ -489,8 +464,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
     }
 
     function claimShares(uint256 epochId, address receiver) external returns (uint256 claimedShares) {
-        if (receiver == address(0)) revert ZeroAddress();
-
         EpochState storage epoch = epochs[epochId];
         if (epoch.phase != EpochPhase.Settled) revert RebalanceNotReady();
 
@@ -517,8 +490,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
     }
 
     function claimQuote(uint256 epochId, address receiver) external returns (uint256 claimedQuote) {
-        if (receiver == address(0)) revert ZeroAddress();
-
         EpochState storage epoch = epochs[epochId];
         if (epoch.phase != EpochPhase.Settled) revert RebalanceNotReady();
 
@@ -630,16 +601,15 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         delete _components;
 
         for (uint256 i = 0; i < length; ++i) {
-            ComponentConfig memory component = newComponents[i];
-            if (component.token == address(0)) revert ZeroAddress();
-            if (component.token == address(QUOTE_TOKEN)) revert QuoteTokenCannotBeComponent();
-            if (component.weight == 0) revert ZeroAmount();
+            ComponentConfig component = newComponents[i];
+            if (component.token() == address(QUOTE_TOKEN)) revert QuoteTokenCannotBeComponent();
+            if (component.weight() == 0) revert ZeroAmount();
 
             for (uint256 j = 0; j < i; ++j) {
-                if (newComponents[j].token == component.token) revert DuplicateComponent();
+                if (newComponents[j].token() == component.token()) revert DuplicateComponent();
             }
 
-            totalWeight += component.weight;
+            totalWeight += component.weight();
             _components.push(component);
         }
 
@@ -656,12 +626,12 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         epoch.sellEnd = endTime;
 
         for (uint256 i = 0; i < _components.length; ++i) {
-            ComponentConfig memory component = _components[i];
-            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token];
+            ComponentConfig component = _components[i];
+            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token()];
             uint256 plannedSellAmount = componentState.plannedSellAmount;
             if (plannedSellAmount == 0) continue;
 
-            bytes32 salt = _orderSalt(currentEpochId, component.token, false);
+            bytes32 salt = _orderSalt(currentEpochId, component.token(), false);
             uint256 openedAmount = _openOrder(component, false, plannedSellAmount, startTime, endTime, salt);
             if (openedAmount == 0) continue;
 
@@ -670,7 +640,7 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
             componentState.sellOrderStatus = OrderStatus.Open;
             openedAny = true;
 
-            emit RebalanceOrderOpened(currentEpochId, component.token, false, salt, openedAmount, startTime, endTime);
+            emit RebalanceOrderOpened(currentEpochId, component.token(), false, salt, openedAmount, startTime, endTime);
         }
     }
 
@@ -682,10 +652,10 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         uint256[] memory deficits = new uint256[](_components.length);
 
         for (uint256 i = 0; i < _components.length; ++i) {
-            ComponentConfig memory component = _components[i];
-            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token];
+            ComponentConfig component = _components[i];
+            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token()];
 
-            uint256 currentBalance = IERC20(component.token).balanceOf(address(this));
+            uint256 currentBalance = IERC20(component.token()).balanceOf(address(this));
             uint256 currentValueQuote = _quoteAmountFromPrice(currentBalance, componentState.priceX128);
 
             if (componentState.targetValueQuote > currentValueQuote) {
@@ -711,8 +681,8 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
             uint256 deficitQuote = deficits[i];
             if (deficitQuote == 0) continue;
 
-            ComponentConfig memory component = _components[i];
-            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token];
+            ComponentConfig component = _components[i];
+            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token()];
 
             uint256 buyQuoteAmount = deficitQuote == remainingDeficitQuote
                 ? remainingBudget
@@ -723,7 +693,7 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
 
             if (buyQuoteAmount == 0) continue;
 
-            bytes32 salt = _orderSalt(currentEpochId, component.token, true);
+            bytes32 salt = _orderSalt(currentEpochId, component.token(), true);
             uint256 openedAmount = _openOrder(component, true, buyQuoteAmount, startTime, endTime, salt);
             if (openedAmount == 0) continue;
 
@@ -732,7 +702,7 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
             componentState.buyOrderStatus = OrderStatus.Open;
             openedAny = true;
 
-            emit RebalanceOrderOpened(currentEpochId, component.token, true, salt, openedAmount, startTime, endTime);
+            emit RebalanceOrderOpened(currentEpochId, component.token(), true, salt, openedAmount, startTime, endTime);
         }
     }
 
@@ -741,8 +711,8 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         uint64 endTime = isBuyOrder ? epoch.buyEnd : epoch.sellEnd;
 
         for (uint256 i = 0; i < _components.length; ++i) {
-            ComponentConfig memory component = _components[i];
-            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token];
+            ComponentConfig component = _components[i];
+            EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token()];
             OrderStatus status = isBuyOrder ? componentState.buyOrderStatus : componentState.sellOrderStatus;
             if (status != OrderStatus.Open) continue;
 
@@ -766,12 +736,12 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
                 componentState.sellOrderStatus = OrderStatus.Collected;
             }
 
-            emit RebalanceOrderCollected(currentEpochId, component.token, isBuyOrder, salt, proceeds);
+            emit RebalanceOrderCollected(currentEpochId, component.token(), isBuyOrder, salt, proceeds);
         }
     }
 
     function _openOrder(
-        ComponentConfig memory component,
+        ComponentConfig component,
         bool isBuyOrder,
         uint256 sellAmount,
         uint64 startTime,
@@ -805,12 +775,12 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
         endTime = uint64(endTimeRaw);
     }
 
-    function _createOrderKey(ComponentConfig memory component, bool isBuyOrder, uint64 startTime, uint64 endTime)
+    function _createOrderKey(ComponentConfig component, bool isBuyOrder, uint64 startTime, uint64 endTime)
         internal
         view
         returns (OrderKey memory orderKey)
     {
-        address tokenA = component.token;
+        address tokenA = component.token();
         address tokenB = address(QUOTE_TOKEN);
         bool quoteIsToken1 = tokenB > tokenA;
 
@@ -818,7 +788,7 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
             token0: tokenA < tokenB ? tokenA : tokenB,
             token1: tokenA < tokenB ? tokenB : tokenA,
             config: createOrderConfig({
-                _fee: component.twammFee,
+                _fee: component.twammFee(),
                 _isToken1: isBuyOrder ? quoteIsToken1 : !quoteIsToken1,
                 _startTime: startTime,
                 _endTime: endTime
@@ -833,14 +803,14 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
     function _getPriceX128(address baseToken, uint64 startTime, uint64 endTime)
         internal
         view
-        returns (uint256 priceX128, uint128 liquidity)
+        returns (uint256 priceX128)
     {
-        if (baseToken == address(QUOTE_TOKEN)) return (Q128, type(uint128).max);
+        if (baseToken == address(QUOTE_TOKEN)) return Q128;
 
         PriceFetcher.PeriodAverage memory average =
             PRICE_FETCHER.getAveragesOverPeriod(baseToken, address(QUOTE_TOKEN), startTime, endTime);
         uint256 sqrtRatio = tickToSqrtRatio(average.tick).toFixed();
-        return (FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128), average.liquidity);
+        return FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128);
     }
 
     function _quoteAmountFromPrice(uint256 amountBase, uint256 priceX128) internal pure returns (uint256) {

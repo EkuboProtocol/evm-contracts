@@ -23,7 +23,6 @@ import {createOrderConfig} from "./types/orderConfig.sol";
 contract IndexFund is ERC20, UsesCore, BaseLocker {
     using TWAMMLib for *;
 
-    uint256 public constant WEIGHT_SCALE = 1e18;
     uint256 private constant Q128 = 1 << 128;
 
     uint256 private constant CALL_TYPE_OPEN_ORDER = 0;
@@ -35,8 +34,6 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
     error ZeroAmount();
     /// @notice Thrown when the component list is empty.
     error ZeroComponents();
-    /// @notice Thrown when component weights do not sum to `WEIGHT_SCALE`.
-    error WeightsMustSumToOne();
     /// @notice Thrown when the same component token is configured more than once.
     error DuplicateComponent();
     /// @notice Thrown when the quote token is included as a portfolio component.
@@ -176,7 +173,7 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
 
     struct ComponentConfig {
         address token;
-        uint256 weightX18;
+        uint32 weight;
         uint64 twammFee;
         uint128 minOracleLiquidity;
     }
@@ -237,6 +234,7 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
     string private _tokenSymbol;
 
     ComponentConfig[] private _components;
+    uint256 private _totalComponentWeight;
 
     mapping(uint256 epochId => EpochState) public epochs;
     mapping(uint256 epochId => mapping(address receiver => uint256 amountQ)) public queuedSubscriptions;
@@ -288,6 +286,10 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
 
     function componentCount() external view returns (uint256) {
         return _components.length;
+    }
+
+    function totalComponentWeight() external view returns (uint256) {
+        return _totalComponentWeight;
     }
 
     function getComponent(uint256 index) external view returns (ComponentConfig memory) {
@@ -390,7 +392,8 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
             ComponentConfig memory component = _components[i];
             EpochComponentState storage componentState = _epochComponentStates[currentEpochId][component.token];
 
-            uint256 targetValueQuote = FixedPointMathLib.fullMulDiv(postFlowAumQuote, component.weightX18, WEIGHT_SCALE);
+            uint256 targetValueQuote =
+                FixedPointMathLib.fullMulDiv(postFlowAumQuote, component.weight, _totalComponentWeight);
             componentState.targetValueQuote = targetValueQuote;
 
             if (componentState.closeValueQuote > targetValueQuote) {
@@ -630,17 +633,17 @@ contract IndexFund is ERC20, UsesCore, BaseLocker {
             ComponentConfig memory component = newComponents[i];
             if (component.token == address(0)) revert ZeroAddress();
             if (component.token == address(QUOTE_TOKEN)) revert QuoteTokenCannotBeComponent();
-            if (component.weightX18 == 0) revert ZeroAmount();
+            if (component.weight == 0) revert ZeroAmount();
 
             for (uint256 j = 0; j < i; ++j) {
                 if (newComponents[j].token == component.token) revert DuplicateComponent();
             }
 
-            totalWeight += component.weightX18;
+            totalWeight += component.weight;
             _components.push(component);
         }
 
-        if (totalWeight != WEIGHT_SCALE) revert WeightsMustSumToOne();
+        _totalComponentWeight = totalWeight;
 
         emit ComponentsUpdated();
     }

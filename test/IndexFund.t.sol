@@ -46,9 +46,8 @@ contract IndexFundTest is BaseOracleTest {
         updateOraclePoolLiquidity(address(token1), 100_000e18);
 
         IndexFund.ComponentConfig[] memory components = new IndexFund.ComponentConfig[](1);
-        components[0] = IndexFund.ComponentConfig({
-            token: address(token0), weightX18: 1e18, twammFee: 0, minOracleLiquidity: 1_000
-        });
+        components[0] =
+            IndexFund.ComponentConfig({token: address(token0), weight: 1, twammFee: 0, minOracleLiquidity: 1_000});
 
         fund = new IndexFund({
             core: core,

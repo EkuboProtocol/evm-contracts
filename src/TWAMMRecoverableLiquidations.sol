@@ -296,7 +296,7 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     {
         if (baseToken == quoteToken) return baseAmount;
         int32 tick = _getAverageTick(baseToken, quoteToken);
-        // tickToSqrtRatio returns Q64.64 sqrt(price); toFixed converts it to 128-bit fixed point for squaring into price.
+        // tickToSqrtRatio returns a SqrtRatio (Q64.64 sqrt(price)); SqrtRatio.toFixed() converts it to 128-bit fixed point.
         uint256 sqrtRatio = tickToSqrtRatio(tick).toFixed();
         uint256 ratio = FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128);
         quoteAmount = FixedPointMathLib.fullMulDivN(baseAmount, ratio, 128);
@@ -310,8 +310,9 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
 
                 (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
                 (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
+                int64 twapDuration = int64(uint64(TWAP_DURATION));
 
-                return tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / int64(uint64(TWAP_DURATION)));
+                return tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / twapDuration);
             }
 
             int32 baseTick = _getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);

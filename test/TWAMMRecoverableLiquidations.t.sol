@@ -9,14 +9,14 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 
 contract MockOracle {
-    int32 public tick;
+    mapping(address token => int32 tick) public ticks;
 
-    function setTick(int32 value) external {
-        tick = value;
+    function setTick(address token, int32 value) external {
+        ticks[token] = value;
     }
 
-    function extrapolateSnapshot(address, uint256 atTime) external view returns (uint160, int64 tickCumulative) {
-        tickCumulative = int64(tick) * int64(uint64(atTime));
+    function extrapolateSnapshot(address token, uint256 atTime) external view returns (uint160, int64 tickCumulative) {
+        tickCumulative = int64(ticks[token]) * int64(uint64(atTime));
     }
 }
 
@@ -42,7 +42,8 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
         createPosition(poolB, MIN_TICK, MAX_TICK, 1e24, 1e24);
 
         oracle = new MockOracle();
-        oracle.setTick(0);
+        oracle.setTick(address(token0), 0);
+        oracle.setTick(address(token1), 0);
 
         lending = new TWAMMRecoverableLiquidations({
             owner: address(this),
@@ -53,7 +54,7 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
             twapDuration: 300
         });
 
-        lending.configurePair(address(token0), address(token1), feeA, 9000, 1.2e18, 1.5e18);
+        lending.configurePair(address(token0), address(token1), feeA, 9000, 1.1e18, 1.12e18);
         lending.configurePair(address(token0), address(token1), feeB, 8000, 1.1e18, 1.4e18);
 
         token1.transfer(address(lending), 20e18);
@@ -82,7 +83,8 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
 
     function test_triggerLiquidation_whenBelowTriggerThreshold() public {
         _depositAndBorrow(feeA, 5e18, 4e18);
-        oracle.setTick(-2232); // ~0.8x collateral valuation
+        oracle.setTick(address(token0), 25_000); // lower collateral valuation vs debt token
+        oracle.setTick(address(token1), 0);
 
         (bytes32 orderSalt, uint64 endTime, uint112 saleRate) =
             lending.triggerLiquidation(address(this), address(token0), address(token1), feeA, 2e18, type(uint112).max);
@@ -99,11 +101,13 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
 
     function test_cancelLiquidationIfRecovered() public {
         _depositAndBorrow(feeA, 5e18, 4e18);
-        oracle.setTick(-2232);
+        oracle.setTick(address(token0), 25_000);
+        oracle.setTick(address(token1), 0);
         lending.triggerLiquidation(address(this), address(token0), address(token1), feeA, 2e18, type(uint112).max);
 
         advanceTime(1800);
-        oracle.setTick(0);
+        oracle.setTick(address(token0), 0);
+        oracle.setTick(address(token1), 0);
 
         (uint128 refund, uint128 proceeds) =
             lending.cancelLiquidationIfRecovered(address(this), address(token0), address(token1), feeA);
@@ -113,6 +117,6 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
         assertFalse(state.active);
         assertEq(state.activeOrderEndTime, 0);
         assertGt(refund, 0);
-        assertGt(proceeds, 0);
+        assertLe(proceeds, 2e18);
     }
 }

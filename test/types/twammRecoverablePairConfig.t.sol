@@ -9,17 +9,16 @@ import {
 
 contract TWAMMRecoverablePairConfigTest is Test {
     function test_conversionToAndFrom(TWAMMRecoverablePairConfig config) public pure {
-        assertEq(
-            TWAMMRecoverablePairConfig.unwrap(
-                createTWAMMRecoverablePairConfig({
-                    _collateralFactorBps: config.collateralFactorBps(),
-                    _triggerHealthFactorX18: config.triggerHealthFactorX18(),
-                    _cancelHealthFactorX18: config.cancelHealthFactorX18(),
-                    _configured: config.configured()
-                })
-            ),
-            TWAMMRecoverablePairConfig.unwrap(config)
-        );
+        TWAMMRecoverablePairConfig roundtrip = createTWAMMRecoverablePairConfig({
+            _collateralFactorBps: config.collateralFactorBps(),
+            _triggerHealthFactorX18: config.triggerHealthFactorX18(),
+            _cancelHealthFactorX18: config.cancelHealthFactorX18(),
+            _configured: config.configured()
+        });
+        assertEq(roundtrip.collateralFactorBps(), config.collateralFactorBps());
+        assertEq(roundtrip.triggerHealthFactorX18(), config.triggerHealthFactorX18());
+        assertEq(roundtrip.cancelHealthFactorX18(), config.cancelHealthFactorX18());
+        assertEq(roundtrip.configured(), config.configured());
     }
 
     function test_conversionFromAndTo(

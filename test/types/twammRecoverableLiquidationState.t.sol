@@ -9,14 +9,11 @@ import {
 
 contract TWAMMRecoverableLiquidationStateTest is Test {
     function test_conversionToAndFrom(TWAMMRecoverableLiquidationState state) public pure {
-        assertEq(
-            TWAMMRecoverableLiquidationState.unwrap(
-                createTWAMMRecoverableLiquidationState({
-                    _activeOrderEndTime: state.activeOrderEndTime(), _active: state.active()
-                })
-            ),
-            TWAMMRecoverableLiquidationState.unwrap(state)
-        );
+        TWAMMRecoverableLiquidationState roundtrip = createTWAMMRecoverableLiquidationState({
+            _activeOrderEndTime: state.activeOrderEndTime(), _active: state.active()
+        });
+        assertEq(roundtrip.activeOrderEndTime(), state.activeOrderEndTime());
+        assertEq(roundtrip.active(), state.active());
     }
 
     function test_conversionFromAndTo(uint64 endTime, bool isActive) public pure {

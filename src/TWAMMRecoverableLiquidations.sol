@@ -20,6 +20,15 @@ import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "./math/constants.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createOrderConfig} from "./types/orderConfig.sol";
+import {TWAMMRecoverablePairConfig, createTWAMMRecoverablePairConfig} from "./types/twammRecoverablePairConfig.sol";
+import {
+    TWAMMRecoverableBorrowerBalances,
+    createTWAMMRecoverableBorrowerBalances
+} from "./types/twammRecoverableBorrowerBalances.sol";
+import {
+    TWAMMRecoverableLiquidationState,
+    createTWAMMRecoverableLiquidationState
+} from "./types/twammRecoverableLiquidationState.sol";
 
 /// @title TWAMM Recoverable Liquidations
 /// @author Ekubo Protocol
@@ -45,8 +54,11 @@ contract TWAMMRecoverableLiquidations is
     uint32 public immutable LIQUIDATION_DURATION;
     uint32 public immutable TWAP_DURATION;
 
-    mapping(bytes32 pairId => PairConfig config) internal _pairConfigs;
-    mapping(bytes32 pairId => mapping(address borrower => BorrowerState state)) internal _borrowerStates;
+    mapping(bytes32 pairId => TWAMMRecoverablePairConfig config) internal _pairConfigs;
+    mapping(bytes32 pairId => mapping(address borrower => TWAMMRecoverableBorrowerBalances balances)) internal
+        _borrowerBalances;
+    mapping(bytes32 pairId => mapping(address borrower => TWAMMRecoverableLiquidationState state)) internal
+        _borrowerLiquidations;
 
     constructor(
         address owner,
@@ -81,12 +93,13 @@ contract TWAMMRecoverableLiquidations is
         if (triggerHealthFactorX18 >= cancelHealthFactorX18) revert InvalidHealthFactorThresholds();
 
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
-        _pairConfigs[pairId] = PairConfig({
-            collateralFactorBps: collateralFactorBps,
-            triggerHealthFactorX18: triggerHealthFactorX18,
-            cancelHealthFactorX18: cancelHealthFactorX18,
-            configured: true
-        });
+        if (triggerHealthFactorX18 > type(uint64).max || cancelHealthFactorX18 > type(uint64).max) {
+            revert InvalidHealthFactorThresholds();
+        }
+
+        _pairConfigs[pairId] = createTWAMMRecoverablePairConfig(
+            collateralFactorBps, uint64(triggerHealthFactorX18), uint64(cancelHealthFactorX18), true
+        );
 
         emit PairConfigured(
             collateralToken, debtToken, poolFee, collateralFactorBps, triggerHealthFactorX18, cancelHealthFactorX18
@@ -99,7 +112,7 @@ contract TWAMMRecoverableLiquidations is
         view
         returns (PairConfig memory)
     {
-        return _pairConfigs[_pairId(collateralToken, debtToken, poolFee)];
+        return _toPairConfig(_pairConfigs[_pairId(collateralToken, debtToken, poolFee)]);
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
@@ -109,8 +122,8 @@ contract TWAMMRecoverableLiquidations is
         returns (uint256)
     {
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
-        PairConfig memory pair = _requirePairConfigured(pairId);
-        return _healthFactorX18(_borrowerStates[pairId][borrower], pair, collateralToken, debtToken);
+        PairConfig memory pair = _toPairConfig(_requirePairConfigured(pairId));
+        return _healthFactorX18(_getBorrowerState(pairId, borrower), pair, collateralToken, debtToken);
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
@@ -119,7 +132,7 @@ contract TWAMMRecoverableLiquidations is
         view
         returns (BorrowerState memory)
     {
-        return _borrowerStates[_pairId(collateralToken, debtToken, poolFee)][borrower];
+        return _getBorrowerState(_pairId(collateralToken, debtToken, poolFee), borrower);
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
@@ -131,8 +144,9 @@ contract TWAMMRecoverableLiquidations is
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
         _requirePairConfigured(pairId);
 
-        BorrowerState storage state = _borrowerStates[pairId][msg.sender];
+        BorrowerState memory state = _getBorrowerState(pairId, msg.sender);
         state.collateralAmount += amount;
+        _setBorrowerBalances(pairId, msg.sender, state.collateralAmount, state.debtAmount);
 
         if (collateralToken == NATIVE_TOKEN_ADDRESS) {
             if (msg.value != amount) revert IncorrectPaymentAmount();
@@ -156,14 +170,15 @@ contract TWAMMRecoverableLiquidations is
         address recipient
     ) external {
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
-        PairConfig memory pair = _requirePairConfigured(pairId);
-        BorrowerState storage state = _borrowerStates[pairId][msg.sender];
+        PairConfig memory pair = _toPairConfig(_requirePairConfigured(pairId));
+        BorrowerState memory state = _getBorrowerState(pairId, msg.sender);
         if (state.active) revert LiquidationAlreadyActive();
         if (amount == 0 || amount > state.collateralAmount) revert InsufficientCollateral();
 
         state.collateralAmount -= amount;
         uint256 healthFactor = _healthFactorX18(state, pair, collateralToken, debtToken);
         if (healthFactor < pair.cancelHealthFactorX18) revert AccountStillUnhealthy(healthFactor);
+        _setBorrowerBalances(pairId, msg.sender, state.collateralAmount, state.debtAmount);
 
         if (collateralToken == NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeTransferETH(recipient, amount);
@@ -182,14 +197,15 @@ contract TWAMMRecoverableLiquidations is
         external
     {
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
-        PairConfig memory pair = _requirePairConfigured(pairId);
-        BorrowerState storage state = _borrowerStates[pairId][msg.sender];
+        PairConfig memory pair = _toPairConfig(_requirePairConfigured(pairId));
+        BorrowerState memory state = _getBorrowerState(pairId, msg.sender);
         if (state.active) revert LiquidationAlreadyActive();
         if (amount == 0) revert NoDebt();
 
         state.debtAmount += amount;
         uint256 healthFactor = _healthFactorX18(state, pair, collateralToken, debtToken);
         if (healthFactor < pair.cancelHealthFactorX18) revert AccountStillUnhealthy(healthFactor);
+        _setBorrowerBalances(pairId, msg.sender, state.collateralAmount, state.debtAmount);
 
         if (debtToken == NATIVE_TOKEN_ADDRESS) {
             if (address(this).balance < amount) revert InsufficientDebtLiquidity();
@@ -214,11 +230,12 @@ contract TWAMMRecoverableLiquidations is
         if (amount == 0) revert InvalidRepaymentAmount();
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
         _requirePairConfigured(pairId);
-        BorrowerState storage state = _borrowerStates[pairId][msg.sender];
+        BorrowerState memory state = _getBorrowerState(pairId, msg.sender);
         if (state.debtAmount == 0) revert NoDebt();
         repaidAmount = amount < state.debtAmount ? amount : state.debtAmount;
 
         state.debtAmount -= repaidAmount;
+        _setBorrowerBalances(pairId, msg.sender, state.collateralAmount, state.debtAmount);
 
         if (debtToken == NATIVE_TOKEN_ADDRESS) {
             if (msg.value != repaidAmount) revert IncorrectPaymentAmount();
@@ -243,8 +260,8 @@ contract TWAMMRecoverableLiquidations is
         uint112 maxSaleRate
     ) external returns (bytes32 orderSalt, uint64 endTime, uint112 saleRate) {
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
-        PairConfig memory pair = _requirePairConfigured(pairId);
-        BorrowerState storage state = _borrowerStates[pairId][borrower];
+        PairConfig memory pair = _toPairConfig(_requirePairConfigured(pairId));
+        BorrowerState memory state = _getBorrowerState(pairId, borrower);
         if (state.active) revert LiquidationAlreadyActive();
         if (state.debtAmount == 0) revert NoDebt();
         if (sellAmount == 0 || sellAmount > state.collateralAmount) revert InsufficientCollateral();
@@ -264,6 +281,7 @@ contract TWAMMRecoverableLiquidations is
 
         state.active = true;
         state.activeOrderEndTime = endTime;
+        _setBorrowerLiquidation(pairId, borrower, endTime, true);
 
         emit LiquidationStarted(borrower, collateralToken, debtToken, poolFee, orderSalt, endTime, sellAmount, saleRate);
     }
@@ -274,17 +292,19 @@ contract TWAMMRecoverableLiquidations is
         returns (uint128 refund, uint128 proceeds)
     {
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
-        PairConfig memory pair = _requirePairConfigured(pairId);
-        BorrowerState storage state = _borrowerStates[pairId][borrower];
+        PairConfig memory pair = _toPairConfig(_requirePairConfigured(pairId));
+        BorrowerState memory state = _getBorrowerState(pairId, borrower);
         if (!state.active) revert LiquidationNotActive();
 
         uint256 healthFactor = _healthFactorX18(state, pair, collateralToken, debtToken);
         if (healthFactor < pair.cancelHealthFactorX18) revert AccountStillUnhealthy(healthFactor);
 
         bytes32 orderSalt = _orderSalt(pairId, borrower);
-        (uint256 soldAmount, refund, proceeds) = _settleLiquidation(
+        uint256 soldAmount;
+        (state, soldAmount, refund, proceeds) = _settleLiquidation(
             state, orderSalt, _createOrderKey(collateralToken, debtToken, poolFee, state.activeOrderEndTime)
         );
+        _setBorrowerState(pairId, borrower, state);
 
         emit LiquidationCancelled(
             borrower, collateralToken, debtToken, poolFee, orderSalt, soldAmount, proceeds, refund
@@ -301,16 +321,18 @@ contract TWAMMRecoverableLiquidations is
     {
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
         _requirePairConfigured(pairId);
-        BorrowerState storage state = _borrowerStates[pairId][borrower];
+        BorrowerState memory state = _getBorrowerState(pairId, borrower);
         if (!state.active) revert LiquidationNotActive();
         if (block.timestamp < state.activeOrderEndTime) {
             revert LiquidationStillRunning(state.activeOrderEndTime);
         }
 
         bytes32 orderSalt = _orderSalt(pairId, borrower);
-        (uint256 soldAmount, refund, proceeds) = _settleLiquidation(
+        uint256 soldAmount;
+        (state, soldAmount, refund, proceeds) = _settleLiquidation(
             state, orderSalt, _createOrderKey(collateralToken, debtToken, poolFee, state.activeOrderEndTime)
         );
+        _setBorrowerState(pairId, borrower, state);
 
         emit LiquidationFinalized(
             borrower, collateralToken, debtToken, poolFee, orderSalt, soldAmount, proceeds, refund
@@ -366,9 +388,9 @@ contract TWAMMRecoverableLiquidations is
         }
     }
 
-    function _settleLiquidation(BorrowerState storage state, bytes32 orderSalt, OrderKey memory key)
+    function _settleLiquidation(BorrowerState memory state, bytes32 orderSalt, OrderKey memory key)
         internal
-        returns (uint256 soldAmount, uint128 refund, uint128 proceeds)
+        returns (BorrowerState memory updatedState, uint256 soldAmount, uint128 refund, uint128 proceeds)
     {
         state.active = false;
         state.activeOrderEndTime = 0;
@@ -385,6 +407,7 @@ contract TWAMMRecoverableLiquidations is
 
         proceeds = _collectProceeds(orderSalt, key, address(this));
         _applySettlement(state, soldAmount, proceeds);
+        updatedState = state;
     }
 
     function _updateSaleRate(bytes32 orderSalt, OrderKey memory key, int112 saleRateDelta, address recipient)
@@ -403,7 +426,7 @@ contract TWAMMRecoverableLiquidations is
         proceeds = abi.decode(lock(abi.encode(CALL_TYPE_COLLECT_PROCEEDS, orderSalt, key, recipient)), (uint128));
     }
 
-    function _applySettlement(BorrowerState storage state, uint256 soldAmount, uint128 proceeds) internal {
+    function _applySettlement(BorrowerState memory state, uint256 soldAmount, uint128 proceeds) internal pure {
         uint256 collateralAmount = state.collateralAmount;
         if (soldAmount > collateralAmount) soldAmount = collateralAmount;
         state.collateralAmount = uint128(collateralAmount - soldAmount);
@@ -484,8 +507,44 @@ contract TWAMMRecoverableLiquidations is
         return keccak256(abi.encodePacked(pairId, borrower));
     }
 
-    function _requirePairConfigured(bytes32 pairId) internal view returns (PairConfig memory pair) {
+    function _requirePairConfigured(bytes32 pairId) internal view returns (TWAMMRecoverablePairConfig pair) {
         pair = _pairConfigs[pairId];
-        if (!pair.configured) revert PairNotConfigured();
+        if (!pair.configured()) revert PairNotConfigured();
+    }
+
+    function _toPairConfig(TWAMMRecoverablePairConfig packed) internal pure returns (PairConfig memory pair) {
+        pair = PairConfig({
+            collateralFactorBps: packed.collateralFactorBps(),
+            triggerHealthFactorX18: packed.triggerHealthFactorX18(),
+            cancelHealthFactorX18: packed.cancelHealthFactorX18(),
+            configured: packed.configured()
+        });
+    }
+
+    function _getBorrowerState(bytes32 pairId, address borrower) internal view returns (BorrowerState memory state) {
+        TWAMMRecoverableBorrowerBalances packedBalances = _borrowerBalances[pairId][borrower];
+        TWAMMRecoverableLiquidationState packedLiquidation = _borrowerLiquidations[pairId][borrower];
+        state = BorrowerState({
+            collateralAmount: packedBalances.collateralAmount(),
+            debtAmount: packedBalances.debtAmount(),
+            activeOrderEndTime: packedLiquidation.activeOrderEndTime(),
+            active: packedLiquidation.active()
+        });
+    }
+
+    function _setBorrowerBalances(bytes32 pairId, address borrower, uint128 collateral, uint128 debt) internal {
+        _borrowerBalances[pairId][borrower] = createTWAMMRecoverableBorrowerBalances(collateral, debt);
+    }
+
+    function _setBorrowerLiquidation(bytes32 pairId, address borrower, uint64 activeOrderEndTime, bool activeState)
+        internal
+    {
+        _borrowerLiquidations[pairId][borrower] =
+            createTWAMMRecoverableLiquidationState(activeOrderEndTime, activeState);
+    }
+
+    function _setBorrowerState(bytes32 pairId, address borrower, BorrowerState memory state) internal {
+        _setBorrowerBalances(pairId, borrower, state.collateralAmount, state.debtAmount);
+        _setBorrowerLiquidation(pairId, borrower, state.activeOrderEndTime, state.active);
     }
 }

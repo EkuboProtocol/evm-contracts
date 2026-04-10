@@ -145,8 +145,8 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     function repay(uint128 amount) external payable returns (uint128 repaidAmount) {
         BorrowerState storage state = _borrowerStates[msg.sender];
         if (state.debtAmount == 0) revert NoDebt();
+        if (amount == 0) revert InvalidRepaymentAmount();
         repaidAmount = amount < state.debtAmount ? amount : state.debtAmount;
-        if (repaidAmount == 0) revert InsufficientDebt();
 
         state.debtAmount -= repaidAmount;
 
@@ -296,7 +296,7 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     {
         if (baseToken == quoteToken) return baseAmount;
         int32 tick = _getAverageTick(baseToken, quoteToken);
-        // tickToSqrtRatio returns a SqrtRatio (Q64.64 sqrt(price)); SqrtRatio.toFixed() converts it to 128-bit fixed point.
+        // tickToSqrtRatio returns a sqrtRatio (Q64.64 sqrt(price)); the returned value's toFixed() converts it to 128-bit fixed point.
         uint256 sqrtRatio = tickToSqrtRatio(tick).toFixed();
         uint256 ratio = FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128);
         quoteAmount = FixedPointMathLib.fullMulDivN(baseAmount, ratio, 128);
@@ -311,8 +311,10 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
                 (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
                 (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
                 int64 twapDuration = int64(uint64(TWAP_DURATION));
-
-                return tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / twapDuration);
+                int64 averageTick = (tickCumulativeEnd - tickCumulativeStart) / twapDuration;
+                if (averageTick < MIN_TICK) return tickSign * MIN_TICK;
+                if (averageTick > MAX_TICK) return tickSign * MAX_TICK;
+                return tickSign * int32(averageTick);
             }
 
             int32 baseTick = _getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);

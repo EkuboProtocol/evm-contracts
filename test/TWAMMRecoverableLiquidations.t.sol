@@ -97,7 +97,7 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
 
     function test_triggerLiquidation_whenBelowTriggerThreshold() public {
         _depositAndBorrow(5e18, 4e18);
-        oracle.setTick(-2232); // ~0.8x collateral valuation (about 20% lower, since 1.0001^(-2232) ≈ 0.8)
+        oracle.setTick(-2232); // ~0.8x collateral valuation (about 80% of original, since 1.0001^(-2232) ≈ 0.8)
 
         (uint256 nftId, uint64 endTime, uint112 saleRate) =
             lending.triggerLiquidation(address(this), 2e18, type(uint112).max);

@@ -424,15 +424,19 @@ contract TWAMMRecoverableLiquidations is
     function _applySettlement(BorrowerState memory state, uint256 soldAmount, uint128 proceeds)
         internal
         pure
-        returns (BorrowerState memory)
+        returns (BorrowerState memory updatedState)
     {
-        uint256 collateralAmount = state.collateralAmount;
-        if (soldAmount > collateralAmount) soldAmount = collateralAmount;
-        state.collateralAmount = uint128(collateralAmount - soldAmount);
+        uint128 currentCollateral = state.collateralAmount;
+        uint128 newCollateral = soldAmount >= currentCollateral ? 0 : uint128(uint256(currentCollateral) - soldAmount);
+        uint128 currentDebt = state.debtAmount;
+        uint128 newDebt = proceeds >= currentDebt ? 0 : currentDebt - proceeds;
 
-        uint128 debtAmount = state.debtAmount;
-        state.debtAmount = proceeds >= debtAmount ? 0 : debtAmount - proceeds;
-        return state;
+        updatedState = BorrowerState({
+            collateralAmount: newCollateral,
+            debtAmount: newDebt,
+            activeOrderEndTime: state.activeOrderEndTime,
+            active: state.active
+        });
     }
 
     function _healthFactorX18(

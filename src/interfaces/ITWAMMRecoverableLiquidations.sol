@@ -32,6 +32,7 @@ interface ITWAMMRecoverableLiquidations {
     error IncorrectPaymentAmount();
     error AccountHealthy(uint256 healthFactorX18);
     error AccountStillUnhealthy(uint256 healthFactorX18);
+    error LiquidationStillRunning();
     error InvalidOrderEndTime();
     error MaxSaleRateExceeded();
 

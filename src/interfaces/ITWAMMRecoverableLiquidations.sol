@@ -22,6 +22,7 @@ interface ITWAMMRecoverableLiquidations {
     error InsufficientCollateral();
     error InsufficientDebtLiquidity();
     error InsufficientDebt();
+    error IncorrectPaymentAmount();
     error AccountHealthy(uint256 healthFactorX18);
     error AccountStillUnhealthy(uint256 healthFactorX18);
     error InvalidOrderEndTime();

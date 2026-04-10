@@ -89,9 +89,9 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
         state.collateralAmount += amount;
 
         if (COLLATERAL_TOKEN == NATIVE_TOKEN_ADDRESS) {
-            if (msg.value != amount) revert InsufficientCollateral();
+            if (msg.value != amount) revert IncorrectPaymentAmount();
         } else {
-            if (msg.value != 0) revert InsufficientCollateral();
+            if (msg.value != 0) revert IncorrectPaymentAmount();
             SafeTransferLib.safeTransferFrom(COLLATERAL_TOKEN, msg.sender, address(this), amount);
         }
 
@@ -145,15 +145,15 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     function repay(uint128 amount) external payable returns (uint128 repaidAmount) {
         BorrowerState storage state = _borrowerStates[msg.sender];
         if (state.debtAmount == 0) revert NoDebt();
-        repaidAmount = FixedPointMathLib.min(amount, state.debtAmount);
+        repaidAmount = amount < state.debtAmount ? amount : state.debtAmount;
         if (repaidAmount == 0) revert InsufficientDebt();
 
         state.debtAmount -= repaidAmount;
 
         if (DEBT_TOKEN == NATIVE_TOKEN_ADDRESS) {
-            if (msg.value != repaidAmount) revert InsufficientDebt();
+            if (msg.value != repaidAmount) revert IncorrectPaymentAmount();
         } else {
-            if (msg.value != 0) revert InsufficientDebt();
+            if (msg.value != 0) revert IncorrectPaymentAmount();
             SafeTransferLib.safeTransferFrom(DEBT_TOKEN, msg.sender, address(this), repaidAmount);
         }
 
@@ -296,6 +296,7 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     {
         if (baseToken == quoteToken) return baseAmount;
         int32 tick = _getAverageTick(baseToken, quoteToken);
+        // tickToSqrtRatio returns Q64.64 sqrt(price); toFixed converts it to 128-bit fixed point for squaring into price.
         uint256 sqrtRatio = tickToSqrtRatio(tick).toFixed();
         uint256 ratio = FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128);
         quoteAmount = FixedPointMathLib.fullMulDivN(baseAmount, ratio, 128);
@@ -315,8 +316,10 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
 
             int32 baseTick = _getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);
             int32 quoteTick = _getAverageTick(NATIVE_TOKEN_ADDRESS, quoteToken);
-
-            return int32(FixedPointMathLib.min(MAX_TICK, FixedPointMathLib.max(MIN_TICK, int256(quoteTick - baseTick))));
+            int256 relativeTick = int256(quoteTick) - int256(baseTick);
+            if (relativeTick < MIN_TICK) return MIN_TICK;
+            if (relativeTick > MAX_TICK) return MAX_TICK;
+            return int32(relativeTick);
         }
     }
 

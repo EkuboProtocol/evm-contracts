@@ -304,7 +304,7 @@ contract TWAMMRecoverableLiquidations is
         BorrowerState storage state = _borrowerStates[pairId][borrower];
         if (!state.active) revert LiquidationNotActive();
         if (block.timestamp < state.activeOrderEndTime) {
-            revert LiquidationStillRunning();
+            revert LiquidationStillRunning(state.activeOrderEndTime);
         }
 
         bytes32 orderSalt = _orderSalt(pairId, borrower);
@@ -362,7 +362,7 @@ contract TWAMMRecoverableLiquidations is
             }
             result = abi.encode(proceeds);
         } else {
-            revert();
+            revert InvalidCallType();
         }
     }
 

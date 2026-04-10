@@ -27,6 +27,6 @@ function createTWAMMRecoverableLiquidationState(uint64 _activeOrderEndTime, bool
     returns (TWAMMRecoverableLiquidationState state)
 {
     assembly ("memory-safe") {
-        state := or(and(_activeOrderEndTime, 0xFFFFFFFFFFFFFFFF), shl(64, _active))
+        state := or(_activeOrderEndTime, shl(64, _active))
     }
 }

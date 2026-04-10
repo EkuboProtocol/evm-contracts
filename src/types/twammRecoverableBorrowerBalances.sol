@@ -30,6 +30,6 @@ function createTWAMMRecoverableBorrowerBalances(uint128 _collateralAmount, uint1
     returns (TWAMMRecoverableBorrowerBalances balances)
 {
     assembly ("memory-safe") {
-        balances := or(shl(128, _collateralAmount), and(_debtAmount, 0xffffffffffffffffffffffffffffffff))
+        balances := or(shl(128, _collateralAmount), _debtAmount)
     }
 }

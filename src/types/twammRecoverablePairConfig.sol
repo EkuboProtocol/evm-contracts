@@ -59,8 +59,8 @@ function createTWAMMRecoverablePairConfig(
     assembly ("memory-safe") {
         config := or(
             or(
-                or(and(_collateralFactorBps, 0xFFFF), shl(16, and(_triggerHealthFactorX18, 0xFFFFFFFFFFFFFFFF))),
-                shl(80, and(_cancelHealthFactorX18, 0xFFFFFFFFFFFFFFFF))
+                or(and(_collateralFactorBps, 0xFFFF), shl(16, _triggerHealthFactorX18)),
+                shl(80, _cancelHealthFactorX18)
             ),
             shl(144, _configured)
         )

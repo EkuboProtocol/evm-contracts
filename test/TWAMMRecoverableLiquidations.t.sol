@@ -95,6 +95,17 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
         assertEq(token0.balanceOf(recipient), 1e18);
     }
 
+    function test_repay_capsToOutstandingDebt() public {
+        _depositAndBorrow(5e18, 2e18);
+
+        token1.approve(address(lending), 10e18);
+        uint128 repaid = lending.repay(10e18);
+
+        ITWAMMRecoverableLiquidations.BorrowerState memory state = lending.getBorrowerState(address(this));
+        assertEq(repaid, 2e18);
+        assertEq(state.debtAmount, 0);
+    }
+
     function test_triggerLiquidation_whenBelowTriggerThreshold() public {
         _depositAndBorrow(5e18, 4e18);
         oracle.setTick(-2232); // ~0.8x collateral valuation (about 80% of original, since 1.0001^(-2232) ≈ 0.8)

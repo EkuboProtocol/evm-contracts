@@ -379,6 +379,7 @@ contract TWAMMRecoverableLiquidations is
 
         if (currentSaleRate != 0) {
             int256 refundAmount = _updateSaleRate(orderSalt, key, -int112(currentSaleRate), address(this));
+            if (refundAmount > 0) revert UnexpectedPositiveRefund();
             refund = uint128(uint256(-refundAmount));
         }
 
@@ -444,6 +445,7 @@ contract TWAMMRecoverableLiquidations is
                 (int32 tickSign, address otherToken) = baseIsNative ? (int32(1), quoteToken) : (int32(-1), baseToken);
                 (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
                 (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
+                // TWAP_DURATION is uint32, so this cast is always within int64 range.
                 int64 twapDuration = int64(uint64(TWAP_DURATION));
                 int64 averageTick = (tickCumulativeEnd - tickCumulativeStart) / twapDuration;
                 if (averageTick < MIN_TICK) return tickSign * MIN_TICK;

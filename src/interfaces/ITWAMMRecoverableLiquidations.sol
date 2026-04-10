@@ -31,6 +31,7 @@ interface ITWAMMRecoverableLiquidations {
     error InvalidRepaymentAmount();
     error IncorrectPaymentAmount();
     error InvalidCallType();
+    error UnexpectedPositiveRefund();
     error AccountHealthy(uint256 healthFactorX18);
     error AccountStillUnhealthy(uint256 healthFactorX18);
     error LiquidationStillRunning(uint64 endTime);

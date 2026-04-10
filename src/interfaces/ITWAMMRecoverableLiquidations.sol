@@ -120,8 +120,8 @@ interface ITWAMMRecoverableLiquidations {
         address debtToken,
         uint64 poolFee,
         uint16 collateralFactorBps,
-        uint256 triggerHealthFactorX18,
-        uint256 cancelHealthFactorX18
+        uint64 triggerHealthFactorX18,
+        uint64 cancelHealthFactorX18
     ) external;
 
     function getPairConfig(address collateralToken, address debtToken, uint64 poolFee)

@@ -85,21 +85,16 @@ contract TWAMMRecoverableLiquidations is
         address debtToken,
         uint64 poolFee,
         uint16 collateralFactorBps,
-        uint256 triggerHealthFactorX18,
-        uint256 cancelHealthFactorX18
+        uint64 triggerHealthFactorX18,
+        uint64 cancelHealthFactorX18
     ) external onlyOwner {
         if (collateralToken == debtToken) revert InvalidTokenPair();
         if (collateralFactorBps == 0 || collateralFactorBps > BPS_DENOMINATOR) revert InvalidCollateralFactorBps();
         if (triggerHealthFactorX18 >= cancelHealthFactorX18) revert InvalidHealthFactorThresholds();
 
         bytes32 pairId = _pairId(collateralToken, debtToken, poolFee);
-        if (triggerHealthFactorX18 > type(uint64).max || cancelHealthFactorX18 > type(uint64).max) {
-            revert InvalidHealthFactorThresholds();
-        }
-
-        _pairConfigs[pairId] = createTWAMMRecoverablePairConfig(
-            collateralFactorBps, uint64(triggerHealthFactorX18), uint64(cancelHealthFactorX18), true
-        );
+        _pairConfigs[pairId] =
+            createTWAMMRecoverablePairConfig(collateralFactorBps, triggerHealthFactorX18, cancelHealthFactorX18, true);
 
         emit PairConfigured(
             collateralToken, debtToken, poolFee, collateralFactorBps, triggerHealthFactorX18, cancelHealthFactorX18
@@ -406,7 +401,7 @@ contract TWAMMRecoverableLiquidations is
         }
 
         proceeds = _collectProceeds(orderSalt, key, address(this));
-        _applySettlement(state, soldAmount, proceeds);
+        state = _applySettlement(state, soldAmount, proceeds);
         updatedState = state;
     }
 
@@ -426,13 +421,18 @@ contract TWAMMRecoverableLiquidations is
         proceeds = abi.decode(lock(abi.encode(CALL_TYPE_COLLECT_PROCEEDS, orderSalt, key, recipient)), (uint128));
     }
 
-    function _applySettlement(BorrowerState memory state, uint256 soldAmount, uint128 proceeds) internal pure {
+    function _applySettlement(BorrowerState memory state, uint256 soldAmount, uint128 proceeds)
+        internal
+        pure
+        returns (BorrowerState memory)
+    {
         uint256 collateralAmount = state.collateralAmount;
         if (soldAmount > collateralAmount) soldAmount = collateralAmount;
         state.collateralAmount = uint128(collateralAmount - soldAmount);
 
         uint128 debtAmount = state.debtAmount;
         state.debtAmount = proceeds >= debtAmount ? 0 : debtAmount - proceeds;
+        return state;
     }
 
     function _healthFactorX18(

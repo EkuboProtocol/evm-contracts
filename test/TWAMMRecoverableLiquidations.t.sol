@@ -83,7 +83,7 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
 
     function test_triggerLiquidation_whenBelowTriggerThreshold() public {
         _depositAndBorrow(feeA, 5e18, 4e18);
-        oracle.setTick(address(token0), 25_000); // lower collateral valuation vs debt token
+        oracle.setTick(address(token0), 25_000); // widen relative tick to push health below trigger
         oracle.setTick(address(token1), 0);
 
         (bytes32 orderSalt, uint64 endTime, uint112 saleRate) =
@@ -117,6 +117,7 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
         assertFalse(state.active);
         assertEq(state.activeOrderEndTime, 0);
         assertGt(refund, 0);
+        // Proceeds from a cancellable liquidation cannot exceed the configured sell amount (2e18).
         assertLe(proceeds, 2e18);
     }
 }

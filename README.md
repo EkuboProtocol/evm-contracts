@@ -60,7 +60,7 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 
 - **`Incentives.sol`**: Enables efficiently delivering multiple airdrops
 - **`RevenueBuybacks.sol`**: Uses DCA orders to push revenue into buybacks of a specific token
-- **`TWAMMRecoverableLiquidations.sol`**: Reference liquidation manager that starts TWAMM liquidations below a trigger health factor and can cancel when health recovers
+- **`TWAMMRecoverableLiquidations.sol`**: Reference lending protocol with collateral deposits, borrowing, oracle/LTV health checks, and TWAMM liquidations that can be cancelled on health recovery
 - **`PositionsOwner.sol`**: Permissionlessly transfers collected revenue from a Positions contract to the Revenue Buybacks contract
 - **`TokenWrapper.sol`**: Vested token implementation that tightly integrates with Ekubo Protocol for cheaper swaps
 - **`TokenWrapperFactory.sol`**: Factory for deploying the TokenWrapper contract

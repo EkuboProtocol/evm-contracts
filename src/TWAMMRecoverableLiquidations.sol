@@ -4,31 +4,34 @@ pragma solidity =0.8.33;
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 import {IOrders} from "./interfaces/IOrders.sol";
 import {ITWAMMRecoverableLiquidations} from "./interfaces/ITWAMMRecoverableLiquidations.sol";
-import {IERC7726} from "./lens/ERC7726.sol";
+import {IOracle} from "./interfaces/extensions/IOracle.sol";
 import {nextValidTime} from "./math/time.sol";
-import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS, MIN_TICK, MAX_TICK} from "./math/constants.sol";
+import {tickToSqrtRatio} from "./math/ticks.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createOrderConfig} from "./types/orderConfig.sol";
 
 /// @title TWAMM Recoverable Liquidations
 /// @author Ekubo Protocol
-/// @notice Starts liquidations through TWAMM when health factor falls below a conservative threshold,
-/// and supports cancellation if health recovers before completion
-/// @dev Expects borrower collateral/debt accounting to be synchronized by an external lending protocol
+/// @notice Reference lending protocol with TWAMM-based recoverable liquidations
+/// @dev Users can deposit collateral, borrow debt assets, repay debt, and withdraw collateral subject to health checks.
+/// Liquidations are executed over time through TWAMM and can be cancelled if account health recovers.
 contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable, Multicallable {
     uint256 private constant BPS_DENOMINATOR = 10_000;
     uint256 private constant ONE_X18 = 1e18;
 
     IOrders public immutable ORDERS;
-    IERC7726 public immutable QUOTER;
+    IOracle public immutable ORACLE;
 
     address public immutable COLLATERAL_TOKEN;
     address public immutable DEBT_TOKEN;
     uint64 public immutable POOL_FEE;
     uint32 public immutable LIQUIDATION_DURATION;
+    uint32 public immutable TWAP_DURATION;
     uint16 public immutable COLLATERAL_FACTOR_BPS;
     uint256 public immutable TRIGGER_HEALTH_FACTOR_X18;
     uint256 public immutable CANCEL_HEALTH_FACTOR_X18;
@@ -38,11 +41,12 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     constructor(
         address owner,
         IOrders orders,
-        IERC7726 quoter,
+        IOracle oracle,
         address collateralToken,
         address debtToken,
         uint64 poolFee,
         uint32 liquidationDuration,
+        uint32 twapDuration,
         uint16 collateralFactorBps,
         uint256 triggerHealthFactorX18,
         uint256 cancelHealthFactorX18
@@ -50,16 +54,18 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
         if (owner == address(0)) revert InvalidOwner();
         if (collateralToken == debtToken) revert InvalidTokenPair();
         if (liquidationDuration == 0) revert InvalidLiquidationDuration();
+        if (twapDuration == 0) revert InvalidTwapDuration();
         if (collateralFactorBps == 0 || collateralFactorBps > BPS_DENOMINATOR) revert InvalidCollateralFactorBps();
         if (triggerHealthFactorX18 >= cancelHealthFactorX18) revert InvalidHealthFactorThresholds();
 
         _initializeOwner(owner);
         ORDERS = orders;
-        QUOTER = quoter;
+        ORACLE = oracle;
         COLLATERAL_TOKEN = collateralToken;
         DEBT_TOKEN = debtToken;
         POOL_FEE = poolFee;
         LIQUIDATION_DURATION = liquidationDuration;
+        TWAP_DURATION = twapDuration;
         COLLATERAL_FACTOR_BPS = collateralFactorBps;
         TRIGGER_HEALTH_FACTOR_X18 = triggerHealthFactorX18;
         CANCEL_HEALTH_FACTOR_X18 = cancelHealthFactorX18;
@@ -76,11 +82,83 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
-    function updateBorrowerState(address borrower, uint128 collateralAmount, uint128 debtAmount) external onlyOwner {
-        BorrowerState storage state = _borrowerStates[borrower];
-        state.collateralAmount = collateralAmount;
-        state.debtAmount = debtAmount;
-        emit BorrowerStateUpdated(borrower, collateralAmount, debtAmount);
+    function depositCollateral(uint128 amount) external payable {
+        if (amount == 0) revert InsufficientCollateral();
+
+        BorrowerState storage state = _borrowerStates[msg.sender];
+        state.collateralAmount += amount;
+
+        if (COLLATERAL_TOKEN == NATIVE_TOKEN_ADDRESS) {
+            if (msg.value != amount) revert InsufficientCollateral();
+        } else {
+            if (msg.value != 0) revert InsufficientCollateral();
+            SafeTransferLib.safeTransferFrom(COLLATERAL_TOKEN, msg.sender, address(this), amount);
+        }
+
+        emit CollateralDeposited(msg.sender, amount);
+        emit BorrowerStateUpdated(msg.sender, state.collateralAmount, state.debtAmount);
+    }
+
+    /// @inheritdoc ITWAMMRecoverableLiquidations
+    function withdrawCollateral(uint128 amount, address recipient) external {
+        BorrowerState storage state = _borrowerStates[msg.sender];
+        if (state.active) revert LiquidationAlreadyActive();
+        if (amount == 0 || amount > state.collateralAmount) revert InsufficientCollateral();
+
+        state.collateralAmount -= amount;
+        uint256 healthFactor = _healthFactorX18(state);
+        if (healthFactor < CANCEL_HEALTH_FACTOR_X18) revert AccountStillUnhealthy(healthFactor);
+
+        if (COLLATERAL_TOKEN == NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeTransferETH(recipient, amount);
+        } else {
+            SafeTransferLib.safeTransfer(COLLATERAL_TOKEN, recipient, amount);
+        }
+
+        emit CollateralWithdrawn(msg.sender, amount, recipient);
+        emit BorrowerStateUpdated(msg.sender, state.collateralAmount, state.debtAmount);
+    }
+
+    /// @inheritdoc ITWAMMRecoverableLiquidations
+    function borrow(uint128 amount, address recipient) external {
+        BorrowerState storage state = _borrowerStates[msg.sender];
+        if (state.active) revert LiquidationAlreadyActive();
+        if (amount == 0) revert NoDebt();
+
+        state.debtAmount += amount;
+        uint256 healthFactor = _healthFactorX18(state);
+        if (healthFactor < CANCEL_HEALTH_FACTOR_X18) revert AccountStillUnhealthy(healthFactor);
+
+        if (DEBT_TOKEN == NATIVE_TOKEN_ADDRESS) {
+            if (address(this).balance < amount) revert InsufficientDebtLiquidity();
+            SafeTransferLib.safeTransferETH(recipient, amount);
+        } else {
+            if (SafeTransferLib.balanceOf(DEBT_TOKEN, address(this)) < amount) revert InsufficientDebtLiquidity();
+            SafeTransferLib.safeTransfer(DEBT_TOKEN, recipient, amount);
+        }
+
+        emit DebtBorrowed(msg.sender, amount, recipient);
+        emit BorrowerStateUpdated(msg.sender, state.collateralAmount, state.debtAmount);
+    }
+
+    /// @inheritdoc ITWAMMRecoverableLiquidations
+    function repay(uint128 amount) external payable returns (uint128 repaidAmount) {
+        BorrowerState storage state = _borrowerStates[msg.sender];
+        if (state.debtAmount == 0) revert NoDebt();
+        repaidAmount = FixedPointMathLib.min(amount, state.debtAmount);
+        if (repaidAmount == 0) revert InsufficientDebt();
+
+        state.debtAmount -= repaidAmount;
+
+        if (DEBT_TOKEN == NATIVE_TOKEN_ADDRESS) {
+            if (msg.value != repaidAmount) revert InsufficientDebt();
+        } else {
+            if (msg.value != 0) revert InsufficientDebt();
+            SafeTransferLib.safeTransferFrom(DEBT_TOKEN, msg.sender, address(this), repaidAmount);
+        }
+
+        emit DebtRepaid(msg.sender, repaidAmount);
+        emit BorrowerStateUpdated(msg.sender, state.collateralAmount, state.debtAmount);
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
@@ -131,26 +209,21 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
-    function cancelLiquidationIfRecovered(address borrower, address refundRecipient, address proceedsRecipient)
-        external
-        returns (uint128 refund, uint128 proceeds)
-    {
+    function cancelLiquidationIfRecovered(address borrower) external returns (uint128 refund, uint128 proceeds) {
         BorrowerState storage state = _borrowerStates[borrower];
         if (!state.active) revert LiquidationNotActive();
 
         uint256 healthFactor = _healthFactorX18(state);
         if (healthFactor < CANCEL_HEALTH_FACTOR_X18) revert AccountStillUnhealthy(healthFactor);
 
-        (uint256 soldAmount, refund, proceeds) = _settleLiquidation(state, refundRecipient, proceedsRecipient);
+        (uint256 soldAmount, refund, proceeds) = _settleLiquidation(state);
 
         emit LiquidationCancelled(borrower, state.nftId, soldAmount, proceeds, refund);
+        emit BorrowerStateUpdated(borrower, state.collateralAmount, state.debtAmount);
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
-    function finalizeLiquidation(address borrower, address refundRecipient, address proceedsRecipient)
-        external
-        returns (uint128 refund, uint128 proceeds)
-    {
+    function finalizeLiquidation(address borrower) external returns (uint128 refund, uint128 proceeds) {
         BorrowerState storage state = _borrowerStates[borrower];
         if (!state.active) revert LiquidationNotActive();
         if (block.timestamp < state.activeOrderEndTime) {
@@ -158,9 +231,10 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
             revert AccountStillUnhealthy(healthFactor);
         }
 
-        (uint256 soldAmount, refund, proceeds) = _settleLiquidation(state, refundRecipient, proceedsRecipient);
+        (uint256 soldAmount, refund, proceeds) = _settleLiquidation(state);
 
         emit LiquidationFinalized(borrower, state.nftId, soldAmount, proceeds, refund);
+        emit BorrowerStateUpdated(borrower, state.collateralAmount, state.debtAmount);
     }
 
     /// @inheritdoc ITWAMMRecoverableLiquidations
@@ -174,7 +248,7 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
 
     receive() external payable {}
 
-    function _settleLiquidation(BorrowerState storage state, address refundRecipient, address proceedsRecipient)
+    function _settleLiquidation(BorrowerState storage state)
         internal
         returns (uint256 soldAmount, uint128 refund, uint128 proceeds)
     {
@@ -188,10 +262,10 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
         (uint112 currentSaleRate, uint256 amountSold,,) = ORDERS.executeVirtualOrdersAndGetCurrentOrderInfo(nftId, key);
         soldAmount = amountSold;
         if (currentSaleRate != 0) {
-            refund = ORDERS.decreaseSaleRate(nftId, key, currentSaleRate, refundRecipient);
+            refund = ORDERS.decreaseSaleRate(nftId, key, currentSaleRate, address(this));
         }
 
-        proceeds = ORDERS.collectProceeds(nftId, key, proceedsRecipient);
+        proceeds = ORDERS.collectProceeds(nftId, key, address(this));
 
         _applySettlement(state, soldAmount, proceeds);
     }
@@ -199,7 +273,6 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
     function _applySettlement(BorrowerState storage state, uint256 soldAmount, uint128 proceeds) internal {
         uint256 collateralAmount = state.collateralAmount;
         if (soldAmount > collateralAmount) soldAmount = collateralAmount;
-
         state.collateralAmount = uint128(collateralAmount - soldAmount);
 
         uint128 debtAmount = state.debtAmount;
@@ -210,10 +283,41 @@ contract TWAMMRecoverableLiquidations is ITWAMMRecoverableLiquidations, Ownable,
         if (state.debtAmount == 0) return type(uint256).max;
         if (state.collateralAmount == 0) return 0;
 
-        uint256 collateralValueInDebt = QUOTER.getQuote(state.collateralAmount, COLLATERAL_TOKEN, DEBT_TOKEN);
+        uint256 collateralValueInDebt = _quote(state.collateralAmount, COLLATERAL_TOKEN, DEBT_TOKEN);
         uint256 effectiveCollateralValueInDebt = (collateralValueInDebt * COLLATERAL_FACTOR_BPS) / BPS_DENOMINATOR;
 
         return (effectiveCollateralValueInDebt * ONE_X18) / state.debtAmount;
+    }
+
+    function _quote(uint256 baseAmount, address baseToken, address quoteToken)
+        internal
+        view
+        returns (uint256 quoteAmount)
+    {
+        if (baseToken == quoteToken) return baseAmount;
+        int32 tick = _getAverageTick(baseToken, quoteToken);
+        uint256 sqrtRatio = tickToSqrtRatio(tick).toFixed();
+        uint256 ratio = FixedPointMathLib.fullMulDivN(sqrtRatio, sqrtRatio, 128);
+        quoteAmount = FixedPointMathLib.fullMulDivN(baseAmount, ratio, 128);
+    }
+
+    function _getAverageTick(address baseToken, address quoteToken) internal view returns (int32 tick) {
+        unchecked {
+            bool baseIsNative = baseToken == NATIVE_TOKEN_ADDRESS;
+            if (baseIsNative || quoteToken == NATIVE_TOKEN_ADDRESS) {
+                (int32 tickSign, address otherToken) = baseIsNative ? (int32(1), quoteToken) : (int32(-1), baseToken);
+
+                (, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp - TWAP_DURATION);
+                (, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
+
+                return tickSign * int32((tickCumulativeEnd - tickCumulativeStart) / int64(uint64(TWAP_DURATION)));
+            }
+
+            int32 baseTick = _getAverageTick(NATIVE_TOKEN_ADDRESS, baseToken);
+            int32 quoteTick = _getAverageTick(NATIVE_TOKEN_ADDRESS, quoteToken);
+
+            return int32(FixedPointMathLib.min(MAX_TICK, FixedPointMathLib.max(MIN_TICK, int256(quoteTick - baseTick))));
+        }
     }
 
     function _createOrderKey(uint64 endTime) internal view returns (OrderKey memory key) {

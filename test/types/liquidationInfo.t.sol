@@ -25,9 +25,9 @@ contract LiquidationInfoTest is Test {
     }
 
     function test_endTime(uint64 _startTime, uint32 _duration) public pure {
-        if (_startTime > type(uint64).max - _duration) return;
         LiquidationInfo info = createLiquidationInfo({_startTime: _startTime, _duration: _duration});
-        assertEq(info.endTime(), _startTime + uint64(_duration));
+        uint64 expected = _duration > type(uint64).max - _startTime ? type(uint64).max : _startTime + uint64(_duration);
+        assertEq(info.endTime(), expected);
     }
 
     function test_active() public pure {

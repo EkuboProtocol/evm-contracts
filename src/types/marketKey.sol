@@ -25,5 +25,6 @@ function toMarketId(MarketKey memory key) pure returns (MarketId result) {
     (token0, token1) = key.collateralToken < key.debtToken
         ? (key.collateralToken, key.debtToken)
         : (key.debtToken, key.collateralToken);
+    // Market identity is pair + TWAMM pool fee. Risk parameters in config can be updated over time for the same market.
     result = MarketId.wrap(keccak256(abi.encodePacked(token0, token1, key.config.poolFee())));
 }

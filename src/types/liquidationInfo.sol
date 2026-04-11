@@ -18,7 +18,11 @@ function duration(LiquidationInfo info) pure returns (uint32 v) {
 }
 
 function endTime(LiquidationInfo info) pure returns (uint64) {
-    return info.startTime() + uint64(info.duration());
+    uint64 _startTime = info.startTime();
+    uint32 _duration = info.duration();
+    uint64 maxDelta = type(uint64).max - _startTime;
+    if (_duration > maxDelta) return type(uint64).max;
+    return _startTime + uint64(_duration);
 }
 
 function active(LiquidationInfo info) pure returns (bool) {

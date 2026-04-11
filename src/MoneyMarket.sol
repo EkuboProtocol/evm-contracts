@@ -21,9 +21,10 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createOrderConfig} from "./types/orderConfig.sol";
 import {MarketId} from "./types/marketId.sol";
-import {MoneyMarketConfig, createMoneyMarketConfig} from "./types/moneyMarketConfig.sol";
+import {MarketKey} from "./types/marketKey.sol";
+import {MoneyMarketConfig} from "./types/moneyMarketConfig.sol";
 import {MoneyMarketBorrowerBalances, createMoneyMarketBorrowerBalances} from "./types/moneyMarketBorrowerBalances.sol";
-import {MoneyMarketLiquidationState, createMoneyMarketLiquidationState} from "./types/moneyMarketLiquidationState.sol";
+import {LiquidationInfo, createLiquidationInfo} from "./types/liquidationInfo.sol";
 
 /// @title Money Market
 /// @author Ekubo Protocol
@@ -43,8 +44,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
     mapping(MarketId marketId => MoneyMarketConfig config) internal _marketConfigs;
     mapping(bytes32 positionId => mapping(address borrower => MoneyMarketBorrowerBalances balances)) internal
         _borrowerBalances;
-    mapping(bytes32 positionId => mapping(address borrower => MoneyMarketLiquidationState state)) internal
-        _borrowerLiquidations;
+    mapping(bytes32 positionId => mapping(address borrower => LiquidationInfo info)) internal _borrowerLiquidations;
 
     constructor(address owner, ICore core, ITWAMM twamm, IOracle oracle) BaseLocker(core) UsesCore(core) {
         if (owner == address(0)) revert InvalidOwner();
@@ -55,37 +55,25 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
     }
 
     /// @inheritdoc IMoneyMarket
-    function configureMarket(
-        address tokenA,
-        address tokenB,
-        uint64 poolFee,
-        uint32 ltvX32,
-        uint32 twapDuration,
-        uint32 liquidationDuration,
-        uint8 minLiquidityMagnitude
-    ) external onlyOwner {
-        if (tokenA == tokenB) revert InvalidTokenPair();
-        if (ltvX32 == 0) revert InvalidLtv();
-        if (twapDuration == 0) revert InvalidTwapDuration();
-        if (liquidationDuration == 0) revert InvalidLiquidationDuration();
-        if (minLiquidityMagnitude > 127) revert InvalidMinLiquidityMagnitude();
+    function configureMarket(MarketKey calldata marketKey) external onlyOwner {
+        if (marketKey.collateralToken == marketKey.debtToken) revert InvalidTokenPair();
+        MoneyMarketConfig config = marketKey.config;
+        if (config.ltvX32() == 0) revert InvalidLtv();
+        if (config.twapDuration() == 0) revert InvalidTwapDuration();
+        if (config.liquidationDuration() == 0) revert InvalidLiquidationDuration();
+        if (config.minLiquidityMagnitude() > 127) revert InvalidMinLiquidityMagnitude();
 
-        (address token0, address token1) = _sortedTokens(tokenA, tokenB);
-        MarketId marketId = _marketId(token0, token1, poolFee);
-        _marketConfigs[marketId] =
-            createMoneyMarketConfig(ltvX32, twapDuration, liquidationDuration, minLiquidityMagnitude);
+        (address token0, address token1) = _sortedTokens(marketKey.collateralToken, marketKey.debtToken);
+        MarketId marketId = _marketId(token0, token1, config.poolFee());
+        _marketConfigs[marketId] = config;
 
-        emit MarketConfigured(token0, token1, poolFee, ltvX32, twapDuration, liquidationDuration, minLiquidityMagnitude);
+        emit MarketConfigured(MarketKey({collateralToken: token0, debtToken: token1, config: config}));
     }
 
     /// @inheritdoc IMoneyMarket
-    function getMarketConfig(address tokenA, address tokenB, uint64 poolFee)
-        external
-        view
-        returns (MarketConfig memory)
-    {
+    function getMarketConfig(address tokenA, address tokenB, uint64 poolFee) external view returns (MoneyMarketConfig) {
         (address token0, address token1) = _sortedTokens(tokenA, tokenB);
-        return _toMarketConfig(_marketConfigs[_marketId(token0, token1, poolFee)]);
+        return _marketConfigs[_marketId(token0, token1, poolFee)];
     }
 
     /// @inheritdoc IMoneyMarket
@@ -94,7 +82,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         view
         returns (uint256)
     {
-        MarketConfig memory market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
+        MoneyMarketConfig market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
         bytes32 positionId = _positionId(collateralToken, debtToken, poolFee);
         return _healthFactorX32(_getBorrowerState(positionId, borrower), market, collateralToken, debtToken);
     }
@@ -136,8 +124,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
             poolFee,
             state.collateralAmount,
             state.debtAmount,
-            state.activeOrderEndTime,
-            state.liquidationAmount
+            state.liquidationInfo
         );
     }
 
@@ -149,10 +136,10 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         uint128 amount,
         address recipient
     ) external {
-        MarketConfig memory market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
+        MoneyMarketConfig market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
         bytes32 positionId = _positionId(collateralToken, debtToken, poolFee);
         BorrowerState memory state = _getBorrowerState(positionId, msg.sender);
-        if (state.activeOrderEndTime != 0) revert LiquidationAlreadyActive();
+        if (state.liquidationInfo.active()) revert LiquidationAlreadyActive();
         if (amount == 0 || amount > state.collateralAmount) revert InsufficientCollateral();
 
         state.collateralAmount -= amount;
@@ -174,8 +161,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
             poolFee,
             state.collateralAmount,
             state.debtAmount,
-            state.activeOrderEndTime,
-            state.liquidationAmount
+            state.liquidationInfo
         );
     }
 
@@ -183,10 +169,10 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
     function borrow(address collateralToken, address debtToken, uint64 poolFee, uint128 amount, address recipient)
         external
     {
-        MarketConfig memory market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
+        MoneyMarketConfig market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
         bytes32 positionId = _positionId(collateralToken, debtToken, poolFee);
         BorrowerState memory state = _getBorrowerState(positionId, msg.sender);
-        if (state.activeOrderEndTime != 0) revert LiquidationAlreadyActive();
+        if (state.liquidationInfo.active()) revert LiquidationAlreadyActive();
         if (amount == 0) revert NoDebt();
 
         state.debtAmount += amount;
@@ -210,8 +196,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
             poolFee,
             state.collateralAmount,
             state.debtAmount,
-            state.activeOrderEndTime,
-            state.liquidationAmount
+            state.liquidationInfo
         );
     }
 
@@ -246,8 +231,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
             poolFee,
             state.collateralAmount,
             state.debtAmount,
-            state.activeOrderEndTime,
-            state.liquidationAmount
+            state.liquidationInfo
         );
     }
 
@@ -260,17 +244,17 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         uint128 sellAmount,
         uint112 maxSaleRate
     ) external returns (bytes32 orderSalt, uint64 endTime, uint112 saleRate) {
-        MarketConfig memory market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
+        MoneyMarketConfig market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
         bytes32 positionId = _positionId(collateralToken, debtToken, poolFee);
         BorrowerState memory state = _getBorrowerState(positionId, borrower);
-        if (state.activeOrderEndTime != 0) revert LiquidationAlreadyActive();
+        if (state.liquidationInfo.active()) revert LiquidationAlreadyActive();
         if (state.debtAmount == 0) revert NoDebt();
         if (sellAmount == 0 || sellAmount > state.collateralAmount) revert InsufficientCollateral();
 
         uint256 healthFactor = _healthFactorX32(state, market, collateralToken, debtToken);
         if (healthFactor >= ONE_X32) revert AccountHealthy(healthFactor);
 
-        endTime = uint64(nextValidTime(block.timestamp, block.timestamp + uint256(market.liquidationDuration) - 1));
+        endTime = uint64(nextValidTime(block.timestamp, block.timestamp + uint256(market.liquidationDuration()) - 1));
         if (endTime <= block.timestamp) revert InvalidOrderEndTime();
 
         saleRate = uint112(computeSaleRate(sellAmount, uint32(endTime - block.timestamp)));
@@ -280,9 +264,10 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         OrderKey memory key = _createOrderKey(collateralToken, debtToken, poolFee, endTime);
         _updateSaleRate(orderSalt, key, int112(saleRate), address(this));
 
-        state.activeOrderEndTime = endTime;
-        state.liquidationAmount = sellAmount;
-        _setBorrowerLiquidation(positionId, borrower, endTime, sellAmount);
+        uint64 startTime = uint64(block.timestamp);
+        LiquidationInfo liquidationInfo = createLiquidationInfo(startTime, uint32(endTime - startTime));
+        state.liquidationInfo = liquidationInfo;
+        _setBorrowerLiquidation(positionId, borrower, liquidationInfo);
 
         emit LiquidationStarted(borrower, collateralToken, debtToken, poolFee, orderSalt, endTime, sellAmount, saleRate);
     }
@@ -292,18 +277,19 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         external
         returns (uint128 refund, uint128 proceeds)
     {
-        MarketConfig memory market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
+        MoneyMarketConfig market = _requireMarketConfigured(collateralToken, debtToken, poolFee);
         bytes32 positionId = _positionId(collateralToken, debtToken, poolFee);
         BorrowerState memory state = _getBorrowerState(positionId, borrower);
-        if (state.activeOrderEndTime == 0) revert LiquidationNotActive();
+        if (!state.liquidationInfo.active()) revert LiquidationNotActive();
 
         uint256 healthFactor = _healthFactorX32(state, market, collateralToken, debtToken);
         if (healthFactor < ONE_X32) revert AccountStillUnhealthy(healthFactor);
 
+        uint64 liquidationEndTime = state.liquidationInfo.endTime();
         bytes32 orderSalt = _orderSalt(positionId, borrower);
         uint256 soldAmount;
         (state, soldAmount, refund, proceeds) = _settleLiquidation(
-            state, orderSalt, _createOrderKey(collateralToken, debtToken, poolFee, state.activeOrderEndTime)
+            state, orderSalt, _createOrderKey(collateralToken, debtToken, poolFee, liquidationEndTime)
         );
         _setBorrowerState(positionId, borrower, state);
 
@@ -317,8 +303,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
             poolFee,
             state.collateralAmount,
             state.debtAmount,
-            state.activeOrderEndTime,
-            state.liquidationAmount
+            state.liquidationInfo
         );
     }
 
@@ -330,15 +315,16 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         _requireMarketConfigured(collateralToken, debtToken, poolFee);
         bytes32 positionId = _positionId(collateralToken, debtToken, poolFee);
         BorrowerState memory state = _getBorrowerState(positionId, borrower);
-        if (state.activeOrderEndTime == 0) revert LiquidationNotActive();
-        if (block.timestamp < state.activeOrderEndTime) {
-            revert LiquidationStillRunning(state.activeOrderEndTime);
+        if (!state.liquidationInfo.active()) revert LiquidationNotActive();
+        uint64 liquidationEndTime = state.liquidationInfo.endTime();
+        if (block.timestamp < liquidationEndTime) {
+            revert LiquidationStillRunning(liquidationEndTime);
         }
 
         bytes32 orderSalt = _orderSalt(positionId, borrower);
         uint256 soldAmount;
         (state, soldAmount, refund, proceeds) = _settleLiquidation(
-            state, orderSalt, _createOrderKey(collateralToken, debtToken, poolFee, state.activeOrderEndTime)
+            state, orderSalt, _createOrderKey(collateralToken, debtToken, poolFee, liquidationEndTime)
         );
         _setBorrowerState(positionId, borrower, state);
 
@@ -352,8 +338,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
             poolFee,
             state.collateralAmount,
             state.debtAmount,
-            state.activeOrderEndTime,
-            state.liquidationAmount
+            state.liquidationInfo
         );
     }
 
@@ -407,8 +392,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         internal
         returns (BorrowerState memory updatedState, uint256 soldAmount, uint128 refund, uint128 proceeds)
     {
-        state.activeOrderEndTime = 0;
-        state.liquidationAmount = 0;
+        state.liquidationInfo = LiquidationInfo.wrap(0);
 
         (uint112 currentSaleRate, uint256 amountSold,,) =
             TWAMM.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), orderSalt, key);
@@ -452,16 +436,13 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         uint128 newDebt = proceeds >= currentDebt ? 0 : currentDebt - proceeds;
 
         updatedState = BorrowerState({
-            collateralAmount: newCollateral,
-            debtAmount: newDebt,
-            activeOrderEndTime: state.activeOrderEndTime,
-            liquidationAmount: state.liquidationAmount
+            collateralAmount: newCollateral, debtAmount: newDebt, liquidationInfo: state.liquidationInfo
         });
     }
 
     function _healthFactorX32(
         BorrowerState memory state,
-        MarketConfig memory market,
+        MoneyMarketConfig market,
         address collateralToken,
         address debtToken
     ) internal view returns (uint256) {
@@ -470,11 +451,11 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
 
         uint256 collateralValueInDebt = _quote(state.collateralAmount, collateralToken, debtToken, market);
         uint256 effectiveCollateralValueInDebt =
-            FixedPointMathLib.fullMulDiv(collateralValueInDebt, market.ltvX32, ONE_X32);
+            FixedPointMathLib.fullMulDiv(collateralValueInDebt, market.ltvX32(), ONE_X32);
         return FixedPointMathLib.fullMulDiv(effectiveCollateralValueInDebt, ONE_X32, state.debtAmount);
     }
 
-    function _quote(uint256 baseAmount, address baseToken, address quoteToken, MarketConfig memory market)
+    function _quote(uint256 baseAmount, address baseToken, address quoteToken, MoneyMarketConfig market)
         internal
         view
         returns (uint256 quoteAmount)
@@ -486,7 +467,7 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         quoteAmount = FixedPointMathLib.fullMulDivN(baseAmount, ratio, 128);
     }
 
-    function _getAverageTick(address baseToken, address quoteToken, MarketConfig memory market)
+    function _getAverageTick(address baseToken, address quoteToken, MoneyMarketConfig market)
         internal
         view
         returns (int32 tick)
@@ -494,7 +475,8 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         bool baseIsNative = baseToken == NATIVE_TOKEN_ADDRESS;
         if (baseIsNative || quoteToken == NATIVE_TOKEN_ADDRESS) {
             (int32 tickSign, address otherToken) = baseIsNative ? (int32(1), quoteToken) : (int32(-1), baseToken);
-            uint256 startTime = block.timestamp > market.twapDuration ? block.timestamp - market.twapDuration : 0;
+            uint256 twapDuration = market.twapDuration();
+            uint256 startTime = block.timestamp > twapDuration ? block.timestamp - twapDuration : 0;
             (uint160 splStart, int64 tickCumulativeStart) = ORACLE.extrapolateSnapshot(otherToken, startTime);
             (uint160 splEnd, int64 tickCumulativeEnd) = ORACLE.extrapolateSnapshot(otherToken, block.timestamp);
 
@@ -502,15 +484,14 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
             if (splEnd == splStart) {
                 averageLiquidity = type(uint256).max;
             } else {
-                averageLiquidity = (uint256(market.twapDuration) << 128) / (uint256(splEnd) - uint256(splStart));
+                averageLiquidity = (twapDuration << 128) / (uint256(splEnd) - uint256(splStart));
             }
-            uint256 requiredLiquidity = uint256(1) << market.minLiquidityMagnitude;
+            uint256 requiredLiquidity = uint256(1) << market.minLiquidityMagnitude();
             if (averageLiquidity < requiredLiquidity) {
                 revert InsufficientOracleLiquidity(averageLiquidity, requiredLiquidity);
             }
 
-            int64 twapDuration = int64(uint64(market.twapDuration));
-            int64 averageTick = (tickCumulativeEnd - tickCumulativeStart) / twapDuration;
+            int64 averageTick = (tickCumulativeEnd - tickCumulativeStart) / int64(uint64(twapDuration));
             if (averageTick < MIN_TICK) return tickSign * MIN_TICK;
             if (averageTick > MAX_TICK) return tickSign * MAX_TICK;
             return tickSign * int32(averageTick);
@@ -558,21 +539,11 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
     function _requireMarketConfigured(address collateralToken, address debtToken, uint64 poolFee)
         internal
         view
-        returns (MarketConfig memory market)
+        returns (MoneyMarketConfig market)
     {
         (address token0, address token1) = _sortedTokens(collateralToken, debtToken);
-        MoneyMarketConfig packed = _marketConfigs[_marketId(token0, token1, poolFee)];
-        if (packed.ltvX32() == 0) revert MarketNotConfigured();
-        market = _toMarketConfig(packed);
-    }
-
-    function _toMarketConfig(MoneyMarketConfig packed) internal pure returns (MarketConfig memory market) {
-        market = MarketConfig({
-            ltvX32: packed.ltvX32(),
-            twapDuration: packed.twapDuration(),
-            liquidationDuration: packed.liquidationDuration(),
-            minLiquidityMagnitude: packed.minLiquidityMagnitude()
-        });
+        market = _marketConfigs[_marketId(token0, token1, poolFee)];
+        if (market.ltvX32() == 0) revert MarketNotConfigured();
     }
 
     function _getBorrowerState(bytes32 positionId, address borrower)
@@ -581,12 +552,11 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         returns (BorrowerState memory state)
     {
         MoneyMarketBorrowerBalances packedBalances = _borrowerBalances[positionId][borrower];
-        MoneyMarketLiquidationState packedLiquidation = _borrowerLiquidations[positionId][borrower];
+        LiquidationInfo liquidationInfo = _borrowerLiquidations[positionId][borrower];
         state = BorrowerState({
             collateralAmount: packedBalances.collateralAmount(),
             debtAmount: packedBalances.debtAmount(),
-            activeOrderEndTime: packedLiquidation.activeOrderEndTime(),
-            liquidationAmount: packedLiquidation.liquidationAmount()
+            liquidationInfo: liquidationInfo
         });
     }
 
@@ -594,18 +564,12 @@ contract MoneyMarket is IMoneyMarket, Ownable, PayableMulticallable, BaseLocker,
         _borrowerBalances[positionId][borrower] = createMoneyMarketBorrowerBalances(collateral, debt);
     }
 
-    function _setBorrowerLiquidation(
-        bytes32 positionId,
-        address borrower,
-        uint64 activeOrderEndTime,
-        uint128 _liquidationAmount
-    ) internal {
-        _borrowerLiquidations[positionId][borrower] =
-            createMoneyMarketLiquidationState(activeOrderEndTime, _liquidationAmount);
+    function _setBorrowerLiquidation(bytes32 positionId, address borrower, LiquidationInfo liquidationInfo) internal {
+        _borrowerLiquidations[positionId][borrower] = liquidationInfo;
     }
 
     function _setBorrowerState(bytes32 positionId, address borrower, BorrowerState memory state) internal {
         _setBorrowerBalances(positionId, borrower, state.collateralAmount, state.debtAmount);
-        _setBorrowerLiquidation(positionId, borrower, state.activeOrderEndTime, state.liquidationAmount);
+        _setBorrowerLiquidation(positionId, borrower, state.liquidationInfo);
     }
 }

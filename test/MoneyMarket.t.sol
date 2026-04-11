@@ -5,6 +5,8 @@ import {BaseOrdersTest} from "./Orders.t.sol";
 import {MoneyMarket} from "../src/MoneyMarket.sol";
 import {IMoneyMarket} from "../src/interfaces/IMoneyMarket.sol";
 import {IOracle} from "../src/interfaces/extensions/IOracle.sol";
+import {MarketKey} from "../src/types/marketKey.sol";
+import {MoneyMarketConfig, createMoneyMarketConfig} from "../src/types/moneyMarketConfig.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 
@@ -51,24 +53,34 @@ contract MoneyMarketTest is BaseOrdersTest {
 
         lending = new MoneyMarket({owner: address(this), core: core, twamm: twamm, oracle: IOracle(address(oracle))});
 
-        lending.configureMarket({
-            tokenA: address(token0),
-            tokenB: address(token1),
-            poolFee: feeA,
-            ltvX32: uint32((uint256(type(uint32).max) * 9) / 10),
-            twapDuration: 300,
-            liquidationDuration: 3600,
-            minLiquidityMagnitude: 0
-        });
-        lending.configureMarket({
-            tokenA: address(token0),
-            tokenB: address(token1),
-            poolFee: feeB,
-            ltvX32: uint32((uint256(type(uint32).max) * 8) / 10),
-            twapDuration: 300,
-            liquidationDuration: 3600,
-            minLiquidityMagnitude: 0
-        });
+        lending.configureMarket(
+            MarketKey({
+                collateralToken: address(token0),
+                debtToken: address(token1),
+                config: createMoneyMarketConfig({
+                    _poolFee: feeA,
+                    _borrowApyX32: uint32((uint256(type(uint32).max) * 5) / 100),
+                    _ltvX32: uint32((uint256(type(uint32).max) * 9) / 10),
+                    _twapDuration: 300,
+                    _liquidationDuration: 3600,
+                    _minLiquidityMagnitude: 0
+                })
+            })
+        );
+        lending.configureMarket(
+            MarketKey({
+                collateralToken: address(token0),
+                debtToken: address(token1),
+                config: createMoneyMarketConfig({
+                    _poolFee: feeB,
+                    _borrowApyX32: uint32((uint256(type(uint32).max) * 6) / 100),
+                    _ltvX32: uint32((uint256(type(uint32).max) * 8) / 10),
+                    _twapDuration: 300,
+                    _liquidationDuration: 3600,
+                    _minLiquidityMagnitude: 0
+                })
+            })
+        );
 
         token1.transfer(address(lending), 20e18);
     }
@@ -90,8 +102,8 @@ contract MoneyMarketTest is BaseOrdersTest {
 
         assertEq(stateA.collateralAmount, 5e18);
         assertEq(stateA.debtAmount, 2e18);
-        assertEq(stateA.activeOrderEndTime, 0);
-        assertEq(stateA.liquidationAmount, 0);
+        assertEq(stateA.liquidationInfo.startTime(), 0);
+        assertEq(stateA.liquidationInfo.duration(), 0);
         assertEq(stateB.collateralAmount, 5e18);
         assertEq(stateB.debtAmount, 2e18);
     }
@@ -109,8 +121,8 @@ contract MoneyMarketTest is BaseOrdersTest {
             lending.getBorrowerState(address(this), address(token0), address(token1), feeA);
 
         assertGt(uint256(orderSalt), 0);
-        assertEq(state.activeOrderEndTime, endTime);
-        assertEq(state.liquidationAmount, 2e18);
+        assertEq(state.liquidationInfo.endTime(), endTime);
+        assertGt(state.liquidationInfo.duration(), 0);
         assertGt(endTime, block.timestamp);
         assertGt(saleRate, 0);
     }
@@ -131,19 +143,21 @@ contract MoneyMarketTest is BaseOrdersTest {
 
         IMoneyMarket.BorrowerState memory state =
             lending.getBorrowerState(address(this), address(token0), address(token1), feeA);
-        assertEq(state.activeOrderEndTime, 0);
-        assertEq(state.liquidationAmount, 0);
+        assertEq(state.liquidationInfo.startTime(), 0);
+        assertEq(state.liquidationInfo.duration(), 0);
         assertGt(refund, 0);
         assertLe(proceeds, 2e18);
     }
 
     function test_marketConfigAccessibleFromEitherTokenOrder() public view {
-        IMoneyMarket.MarketConfig memory a = lending.getMarketConfig(address(token0), address(token1), feeA);
-        IMoneyMarket.MarketConfig memory b = lending.getMarketConfig(address(token1), address(token0), feeA);
+        MoneyMarketConfig a = lending.getMarketConfig(address(token0), address(token1), feeA);
+        MoneyMarketConfig b = lending.getMarketConfig(address(token1), address(token0), feeA);
 
-        assertEq(a.ltvX32, b.ltvX32);
-        assertEq(a.twapDuration, b.twapDuration);
-        assertEq(a.liquidationDuration, b.liquidationDuration);
-        assertEq(a.minLiquidityMagnitude, b.minLiquidityMagnitude);
+        assertEq(a.poolFee(), b.poolFee());
+        assertEq(a.borrowApyX32(), b.borrowApyX32());
+        assertEq(a.ltvX32(), b.ltvX32());
+        assertEq(a.twapDuration(), b.twapDuration());
+        assertEq(a.liquidationDuration(), b.liquidationDuration());
+        assertEq(a.minLiquidityMagnitude(), b.minLiquidityMagnitude());
     }
 }

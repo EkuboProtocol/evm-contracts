@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity ^0.8.0;
 
-interface ITWAMMRecoverableLiquidations {
-    struct PairConfig {
-        uint16 collateralFactorBps;
-        uint256 triggerHealthFactorX18;
-        uint256 cancelHealthFactorX18;
-        bool configured;
+interface IMoneyMarket {
+    struct MarketConfig {
+        uint32 ltvX32;
+        uint32 twapDuration;
+        uint32 liquidationDuration;
+        uint8 minLiquidityMagnitude;
     }
 
     struct BorrowerState {
         uint128 collateralAmount;
         uint128 debtAmount;
         uint64 activeOrderEndTime;
-        bool active;
+        uint128 liquidationAmount;
     }
 
     error InvalidOwner();
     error InvalidTokenPair();
-    error InvalidCollateralFactorBps();
+    error InvalidLtv();
+    error InvalidMinLiquidityMagnitude();
     error InvalidLiquidationDuration();
     error InvalidTwapDuration();
-    error InvalidHealthFactorThresholds();
-    error PairNotConfigured();
+    error MarketNotConfigured();
     error NoDebt();
     error LiquidationAlreadyActive();
     error LiquidationNotActive();
@@ -32,19 +32,21 @@ interface ITWAMMRecoverableLiquidations {
     error IncorrectPaymentAmount();
     error InvalidCallType();
     error UnexpectedPositiveRefund();
-    error AccountHealthy(uint256 healthFactorX18);
-    error AccountStillUnhealthy(uint256 healthFactorX18);
+    error AccountHealthy(uint256 healthFactorX32);
+    error AccountStillUnhealthy(uint256 healthFactorX32);
     error LiquidationStillRunning(uint64 endTime);
     error InvalidOrderEndTime();
     error MaxSaleRateExceeded();
+    error InsufficientOracleLiquidity(uint256 averageLiquidity, uint256 requiredLiquidity);
 
-    event PairConfigured(
-        address indexed collateralToken,
-        address indexed debtToken,
+    event MarketConfigured(
+        address indexed token0,
+        address indexed token1,
         uint64 indexed poolFee,
-        uint16 collateralFactorBps,
-        uint256 triggerHealthFactorX18,
-        uint256 cancelHealthFactorX18
+        uint32 ltvX32,
+        uint32 twapDuration,
+        uint32 liquidationDuration,
+        uint8 minLiquidityMagnitude
     );
     event BorrowerStateUpdated(
         address indexed borrower,
@@ -52,7 +54,9 @@ interface ITWAMMRecoverableLiquidations {
         address indexed debtToken,
         uint64 poolFee,
         uint128 collateralAmount,
-        uint128 debtAmount
+        uint128 debtAmount,
+        uint64 activeOrderEndTime,
+        uint128 liquidationAmount
     );
     event CollateralDeposited(
         address indexed borrower,
@@ -115,21 +119,19 @@ interface ITWAMMRecoverableLiquidations {
         uint128 refund
     );
 
-    function configurePair(
-        address collateralToken,
-        address debtToken,
+    function configureMarket(
+        address tokenA,
+        address tokenB,
         uint64 poolFee,
-        uint16 collateralFactorBps,
-        uint64 triggerHealthFactorX18,
-        uint64 cancelHealthFactorX18
+        uint32 ltvX32,
+        uint32 twapDuration,
+        uint32 liquidationDuration,
+        uint8 minLiquidityMagnitude
     ) external;
 
-    function getPairConfig(address collateralToken, address debtToken, uint64 poolFee)
-        external
-        view
-        returns (PairConfig memory);
+    function getMarketConfig(address tokenA, address tokenB, uint64 poolFee) external view returns (MarketConfig memory);
 
-    function healthFactorX18(address borrower, address collateralToken, address debtToken, uint64 poolFee)
+    function healthFactorX32(address borrower, address collateralToken, address debtToken, uint64 poolFee)
         external
         view
         returns (uint256);

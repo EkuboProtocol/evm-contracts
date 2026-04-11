@@ -2,8 +2,8 @@
 pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {TWAMMRecoverableLiquidations} from "../src/TWAMMRecoverableLiquidations.sol";
-import {ITWAMMRecoverableLiquidations} from "../src/interfaces/ITWAMMRecoverableLiquidations.sol";
+import {MoneyMarket} from "../src/MoneyMarket.sol";
+import {IMoneyMarket} from "../src/interfaces/IMoneyMarket.sol";
 import {IOracle} from "../src/interfaces/extensions/IOracle.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -15,17 +15,21 @@ contract MockOracle {
         ticks[token] = value;
     }
 
-    function extrapolateSnapshot(address token, uint256 atTime) external view returns (uint160, int64 tickCumulative) {
+    function extrapolateSnapshot(address token, uint256 atTime)
+        external
+        view
+        returns (uint160 secondsPerLiquidityCumulative, int64 tickCumulative)
+    {
+        secondsPerLiquidityCumulative = uint160(atTime << 64);
         tickCumulative = int64(ticks[token]) * int64(uint64(atTime));
     }
 }
 
-contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
+contract MoneyMarketTest is BaseOrdersTest {
     address internal borrower = makeAddr("borrower");
-    address internal recipient = makeAddr("recipient");
 
     MockOracle internal oracle;
-    TWAMMRecoverableLiquidations internal lending;
+    MoneyMarket internal lending;
 
     uint64 internal feeA;
     uint64 internal feeB;
@@ -45,17 +49,26 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
         oracle.setTick(address(token0), 0);
         oracle.setTick(address(token1), 0);
 
-        lending = new TWAMMRecoverableLiquidations({
-            owner: address(this),
-            core: core,
-            twamm: twamm,
-            oracle: IOracle(address(oracle)),
-            liquidationDuration: 3600,
-            twapDuration: 300
-        });
+        lending = new MoneyMarket({owner: address(this), core: core, twamm: twamm, oracle: IOracle(address(oracle))});
 
-        lending.configurePair(address(token0), address(token1), feeA, 9000, 1.1e18, 1.12e18);
-        lending.configurePair(address(token0), address(token1), feeB, 8000, 1.1e18, 1.4e18);
+        lending.configureMarket({
+            tokenA: address(token0),
+            tokenB: address(token1),
+            poolFee: feeA,
+            ltvX32: uint32((uint256(type(uint32).max) * 9) / 10),
+            twapDuration: 300,
+            liquidationDuration: 3600,
+            minLiquidityMagnitude: 0
+        });
+        lending.configureMarket({
+            tokenA: address(token0),
+            tokenB: address(token1),
+            poolFee: feeB,
+            ltvX32: uint32((uint256(type(uint32).max) * 8) / 10),
+            twapDuration: 300,
+            liquidationDuration: 3600,
+            minLiquidityMagnitude: 0
+        });
 
         token1.transfer(address(lending), 20e18);
     }
@@ -70,39 +83,43 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
         _depositAndBorrow(feeA, 5e18, 2e18);
         _depositAndBorrow(feeB, 5e18, 2e18);
 
-        ITWAMMRecoverableLiquidations.BorrowerState memory stateA =
+        IMoneyMarket.BorrowerState memory stateA =
             lending.getBorrowerState(address(this), address(token0), address(token1), feeA);
-        ITWAMMRecoverableLiquidations.BorrowerState memory stateB =
+        IMoneyMarket.BorrowerState memory stateB =
             lending.getBorrowerState(address(this), address(token0), address(token1), feeB);
 
         assertEq(stateA.collateralAmount, 5e18);
         assertEq(stateA.debtAmount, 2e18);
+        assertEq(stateA.activeOrderEndTime, 0);
+        assertEq(stateA.liquidationAmount, 0);
         assertEq(stateB.collateralAmount, 5e18);
         assertEq(stateB.debtAmount, 2e18);
     }
 
-    function test_triggerLiquidation_whenBelowTriggerThreshold() public {
-        _depositAndBorrow(feeA, 5e18, 4e18);
-        oracle.setTick(address(token0), 25_000); // widen relative tick to push health below trigger
+    function test_triggerLiquidation_whenBelowHealthThreshold() public {
+        _depositAndBorrow(feeA, 5e18, 44e17);
+        oracle.setTick(address(token0), 50_000);
         oracle.setTick(address(token1), 0);
+        advanceTime(300);
 
         (bytes32 orderSalt, uint64 endTime, uint112 saleRate) =
             lending.triggerLiquidation(address(this), address(token0), address(token1), feeA, 2e18, type(uint112).max);
 
-        ITWAMMRecoverableLiquidations.BorrowerState memory state =
+        IMoneyMarket.BorrowerState memory state =
             lending.getBorrowerState(address(this), address(token0), address(token1), feeA);
 
-        assertTrue(state.active);
         assertGt(uint256(orderSalt), 0);
         assertEq(state.activeOrderEndTime, endTime);
+        assertEq(state.liquidationAmount, 2e18);
         assertGt(endTime, block.timestamp);
         assertGt(saleRate, 0);
     }
 
     function test_cancelLiquidationIfRecovered() public {
-        _depositAndBorrow(feeA, 5e18, 4e18);
-        oracle.setTick(address(token0), 25_000);
+        _depositAndBorrow(feeA, 5e18, 44e17);
+        oracle.setTick(address(token0), 50_000);
         oracle.setTick(address(token1), 0);
+        advanceTime(300);
         lending.triggerLiquidation(address(this), address(token0), address(token1), feeA, 2e18, type(uint112).max);
 
         advanceTime(1800);
@@ -112,12 +129,21 @@ contract TWAMMRecoverableLiquidationsTest is BaseOrdersTest {
         (uint128 refund, uint128 proceeds) =
             lending.cancelLiquidationIfRecovered(address(this), address(token0), address(token1), feeA);
 
-        ITWAMMRecoverableLiquidations.BorrowerState memory state =
+        IMoneyMarket.BorrowerState memory state =
             lending.getBorrowerState(address(this), address(token0), address(token1), feeA);
-        assertFalse(state.active);
         assertEq(state.activeOrderEndTime, 0);
+        assertEq(state.liquidationAmount, 0);
         assertGt(refund, 0);
-        // Proceeds from a cancellable liquidation cannot exceed the configured sell amount (2e18).
         assertLe(proceeds, 2e18);
+    }
+
+    function test_marketConfigAccessibleFromEitherTokenOrder() public view {
+        IMoneyMarket.MarketConfig memory a = lending.getMarketConfig(address(token0), address(token1), feeA);
+        IMoneyMarket.MarketConfig memory b = lending.getMarketConfig(address(token1), address(token0), feeA);
+
+        assertEq(a.ltvX32, b.ltvX32);
+        assertEq(a.twapDuration, b.twapDuration);
+        assertEq(a.liquidationDuration, b.liquidationDuration);
+        assertEq(a.minLiquidityMagnitude, b.minLiquidityMagnitude);
     }
 }

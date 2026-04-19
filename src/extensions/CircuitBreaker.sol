@@ -76,7 +76,10 @@ contract CircuitBreaker is ICircuitBreaker, BaseExtension, ExposedStorage {
 
         // Breaker is tripped if the tick has moved by more than the expected amount in the last block
         if (tickDelta > AMPERAGE * poolKey.config.concentratedTickSpacing()) {
-            uint64 timeElapsed = uint64(block.timestamp) - lastSwapTimestamp;
+            uint64 timeElapsed;
+            unchecked {
+                timeElapsed = uint64(block.timestamp) - lastSwapTimestamp;
+            }
 
             // Breaker untrips after the halt duration. At this point, anyone who has left their liquidity in the pool is vulnerable.
             if (timeElapsed < HALT_DURATION) {

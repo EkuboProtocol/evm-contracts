@@ -54,6 +54,8 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     using CoreLib for *;
     using ExposedStorageLib for *;
 
+    uint256 internal constant MAX_START_TIME = type(uint256).max - type(uint32).max;
+
     function getPoolState(PoolId poolId) private view returns (CircuitBreakerPoolState state) {
         state = CircuitBreakerPoolState.wrap(circuitBreaker.sload(PoolId.unwrap(poolId)));
     }
@@ -64,10 +66,12 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         assertEq(circuitBreaker.HALT_DURATION(), DEFAULT_HALT_DURATION);
     }
 
-    function test_pool_initialization_success(uint64 fee, uint32 tickSpacing, int32 tick) public {
+    function test_pool_initialization_success(uint64 fee, uint32 tickSpacing, int32 tick, uint256 startTime) public {
         fee = uint64(bound(fee, 1, type(uint64).max));
         tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
+        startTime = bound(startTime, 0, MAX_START_TIME);
+        vm.warp(startTime);
 
         PoolKey memory poolKey = createCircuitBreakerPool(fee, tickSpacing, tick);
         CircuitBreakerPoolState state = getPoolState(poolKey.toPoolId());
@@ -109,7 +113,10 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_reverts_when_swap_exceeds_hard_limit() public {
+    function test_reverts_when_swap_exceeds_hard_limit(uint256 startTime) public {
+        startTime = bound(startTime, 0, MAX_START_TIME);
+        vm.warp(startTime);
+
         PoolKey memory poolKey =
             createCircuitBreakerPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -131,7 +138,10 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_before_swap_reverts_after_black_swan_move() public {
+    function test_before_swap_reverts_after_black_swan_move(uint256 startTime) public {
+        startTime = bound(startTime, 0, MAX_START_TIME);
+        vm.warp(startTime);
+
         PoolKey memory poolKey =
             createCircuitBreakerPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -145,9 +155,9 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
             }),
             recipient: address(this)
         });
-        uint64 resetTime = uint64(block.timestamp + DEFAULT_HALT_DURATION);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
+        uint256 resetTime = CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId());
 
         vm.expectRevert(abi.encodeWithSelector(ICircuitBreaker.BreakerTripped.selector, resetTime));
         router.swapAllowPartialFill({
@@ -160,7 +170,10 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_allows_swapping_again_after_halt_duration() public {
+    function test_allows_swapping_again_after_halt_duration(uint256 startTime) public {
+        startTime = bound(startTime, 0, MAX_START_TIME);
+        vm.warp(startTime);
+
         PoolKey memory poolKey =
             createCircuitBreakerPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -174,7 +187,7 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
             }),
             recipient: address(this)
         });
-        uint256 resetTime = block.timestamp + DEFAULT_HALT_DURATION;
+        uint256 resetTime = CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId());
 
         vm.roll(block.number + 1);
         vm.warp(resetTime);
@@ -191,13 +204,15 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_successful_swap_updates_last_swap_timestamp() public {
+    function test_successful_swap_updates_last_swap_timestamp(uint256 startTime) public {
+        startTime = bound(startTime, 0, MAX_START_TIME);
+        vm.warp(startTime);
+
         PoolKey memory poolKey =
             createCircuitBreakerPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
-        vm.warp(100);
 
         router.swapAllowPartialFill({
             poolKey: poolKey,
@@ -232,7 +247,10 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_library_reports_fuse_not_tripped_within_same_block() public {
+    function test_library_reports_fuse_not_tripped_within_same_block(uint256 startTime) public {
+        startTime = bound(startTime, 0, MAX_START_TIME);
+        vm.warp(startTime);
+
         PoolKey memory poolKey =
             createCircuitBreakerPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -251,7 +269,10 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_library_reports_fuse_tripped_next_block() public {
+    function test_library_reports_fuse_tripped_next_block(uint256 startTime) public {
+        startTime = bound(startTime, 0, MAX_START_TIME);
+        vm.warp(startTime);
+
         PoolKey memory poolKey =
             createCircuitBreakerPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
@@ -270,6 +291,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         vm.warp(block.timestamp + 1);
 
         assertTrue(CircuitBreakerLib.isFuseTripped(core, circuitBreaker, poolKey));
-        assertEq(CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId()), uint64(DEFAULT_HALT_DURATION + 1));
+        assertEq(CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId()), startTime + DEFAULT_HALT_DURATION);
     }
 }

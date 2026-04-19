@@ -51,7 +51,6 @@ abstract contract BaseCircuitBreakerTest is FullTest {
 }
 
 contract CircuitBreakerTest is BaseCircuitBreakerTest {
-    using CircuitBreakerLib for ICircuitBreaker;
     using CoreLib for *;
     using ExposedStorageLib for *;
 

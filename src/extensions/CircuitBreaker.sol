@@ -35,7 +35,7 @@ contract CircuitBreaker is ICircuitBreaker, BaseExtension, ExposedStorage {
     uint256 public immutable HALT_DURATION;
 
     constructor(ICore core, uint256 amperage, uint256 haltDuration) BaseExtension(core) {
-        if (haltDuration > type(uint32).max) {
+        if (haltDuration == 0 || haltDuration > type(uint32).max) {
             revert InvalidHaltDuration();
         }
         if (amperage == 0 || amperage > 255) {

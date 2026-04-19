@@ -67,7 +67,7 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
     }
 
     function test_pool_initialization_success(uint64 fee, uint32 tickSpacing, int32 tick, uint256 startTime) public {
-        fee = uint64(bound(fee, 1, type(uint64).max));
+        fee = uint64(bound(fee, 0, type(uint64).max));
         tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         startTime = bound(startTime, 0, MAX_START_TIME);

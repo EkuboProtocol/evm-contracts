@@ -24,8 +24,9 @@ library CircuitBreakerLib {
     }
 
     function resetTime(ICircuitBreaker circuitBreaker, PoolId poolId) internal view returns (uint64) {
+        uint64 elapsed = uint64(block.timestamp) - poolState(circuitBreaker, poolId).lastSwapTimestamp();
         unchecked {
-            return uint64(poolState(circuitBreaker, poolId).lastSwapTimestamp() + circuitBreaker.HALT_DURATION());
+            return uint64(block.timestamp - elapsed + circuitBreaker.HALT_DURATION());
         }
     }
 

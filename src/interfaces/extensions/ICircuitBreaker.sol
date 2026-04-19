@@ -9,6 +9,8 @@ interface ICircuitBreaker is IExposedStorage, IExtension {
 
     function HALT_DURATION() external view returns (uint256);
 
+    error InvalidAmperage();
+    error InvalidHaltDuration();
     error ConcentratedLiquidityPoolsOnly();
     error BreakerTripped(uint256 untilTime);
     error TickMovementExceedsHardLimit(uint256 maxDelta, int32 blockStartTick, int32 tickAfterSwap);

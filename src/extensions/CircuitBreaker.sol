@@ -35,8 +35,12 @@ contract CircuitBreaker is ICircuitBreaker, BaseExtension, ExposedStorage {
     uint256 public immutable HALT_DURATION;
 
     constructor(ICore core, uint256 amperage, uint256 haltDuration) BaseExtension(core) {
-        require(HALT_DURATION < type(uint32).max);
-        require(AMPERAGE < 256);
+        if (haltDuration > type(uint32).max) {
+            revert InvalidHaltDuration();
+        }
+        if (amperage == 0 || amperage > 255) {
+            revert InvalidAmperage();
+        }
 
         AMPERAGE = amperage;
         HALT_DURATION = haltDuration;
@@ -77,7 +81,7 @@ contract CircuitBreaker is ICircuitBreaker, BaseExtension, ExposedStorage {
             // Breaker untrips after the halt duration. At this point, anyone who has left their liquidity in the pool is vulnerable.
             if (timeElapsed < HALT_DURATION) {
                 unchecked {
-                    revert BreakerTripped(block.timestamp + HALT_DURATION);
+                    revert BreakerTripped(block.timestamp - timeElapsed + HALT_DURATION);
                 }
             }
         }

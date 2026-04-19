@@ -4,7 +4,7 @@ pragma solidity =0.8.33;
 import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {PoolConfig, createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
@@ -84,8 +84,9 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         );
     }
 
-    function test_sync_reverts_for_wrong_pool() public {
-        assertEq(uint32(circuitBreaker.AMPERAGE()), DEFAULT_AMPERAGE);
+    function test_before_initialize_pool_reverts_for_stableswap_pool() public {
+        vm.expectRevert(ICircuitBreaker.ConcentratedLiquidityPoolsOnly.selector);
+        createPool(address(token0), address(token1), 0, createStableswapPoolConfig(0, 4, 0, address(circuitBreaker)));
     }
 
     function test_before_swap_must_be_called_by_core() public {
@@ -145,9 +146,9 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
             }),
             recipient: address(this)
         });
+        uint64 resetTime = uint64(block.timestamp + DEFAULT_HALT_DURATION);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        uint64 resetTime = uint64(block.timestamp + DEFAULT_HALT_DURATION);
 
         vm.expectRevert(abi.encodeWithSelector(ICircuitBreaker.BreakerTripped.selector, resetTime));
         router.swapAllowPartialFill({

@@ -70,27 +70,29 @@ contract CircuitBreaker is ICircuitBreaker, BaseExtension, ExposedStorage {
         PoolId poolId = poolKey.toPoolId();
         CircuitBreakerPoolState state = getPoolState(poolId);
         int32 currentTick = CORE.poolState(poolId).tick();
-        uint256 tickDelta = FixedPointMathLib.dist(currentTick, state.blockStartTick());
-
         uint64 lastSwapTimestamp = state.lastSwapTimestamp();
 
-        // Breaker is tripped if the tick has moved by more than the expected amount in the last block
-        if (tickDelta > AMPERAGE * poolKey.config.concentratedTickSpacing()) {
-            uint64 timeElapsed;
-            unchecked {
-                timeElapsed = uint64(block.timestamp) - lastSwapTimestamp;
-            }
+        // Only evaluate the breaker against movement from the previous block.
+        // Same-block protection is enforced by the hard limit in afterSwap.
+        if (lastSwapTimestamp != uint64(block.timestamp)) {
+            uint256 tickDelta = FixedPointMathLib.dist(currentTick, state.blockStartTick());
 
-            // Breaker untrips after the halt duration. At this point, anyone who has left their liquidity in the pool is vulnerable.
-            if (timeElapsed < HALT_DURATION) {
+            // Breaker is tripped if the tick has moved by more than the expected amount in the last block
+            if (tickDelta > AMPERAGE * poolKey.config.concentratedTickSpacing()) {
+                uint64 timeElapsed;
                 unchecked {
-                    revert BreakerTripped(block.timestamp - timeElapsed + HALT_DURATION);
+                    timeElapsed = uint64(block.timestamp) - lastSwapTimestamp;
+                }
+
+                // Breaker untrips after the halt duration. At this point, anyone who has left their liquidity in the pool is vulnerable.
+                if (timeElapsed < HALT_DURATION) {
+                    unchecked {
+                        revert BreakerTripped(block.timestamp - timeElapsed + HALT_DURATION);
+                    }
                 }
             }
-        }
 
-        // We need to update the pool state at the beginning of each block so we know breaker was not tripped
-        if (lastSwapTimestamp != uint64(block.timestamp)) {
+            // We need to update the pool state at the beginning of each block so we know breaker was not tripped
             setPoolState(poolId, createCircuitBreakerPoolState(uint64(block.timestamp), currentTick));
         }
     }

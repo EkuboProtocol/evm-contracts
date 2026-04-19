@@ -73,7 +73,7 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         PoolKey memory poolKey = createCircuitBreakerPool(fee, tickSpacing, tick);
         CircuitBreakerPoolState state = getPoolState(poolKey.toPoolId());
 
-        assertEq(state.lastSwapTimestamp(), 0);
+        assertEq(state.lastSwapTimestamp(), uint64(block.timestamp));
         assertEq(state.blockStartTick(), tick);
     }
 
@@ -145,12 +145,11 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
             }),
             recipient: address(this)
         });
-        uint32 resetTime = uint32(block.timestamp + DEFAULT_HALT_DURATION);
-
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
+        uint64 resetTime = uint64(block.timestamp + DEFAULT_HALT_DURATION);
 
-        vm.expectRevert(abi.encodeWithSelector(ICircuitBreaker.SwappingPaused.selector, resetTime));
+        vm.expectRevert(abi.encodeWithSelector(ICircuitBreaker.BreakerTripped.selector, resetTime));
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
@@ -209,7 +208,7 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         });
 
         CircuitBreakerPoolState state = getPoolState(poolKey.toPoolId());
-        assertEq(state.lastSwapTimestamp(), uint32(block.timestamp));
+        assertEq(state.lastSwapTimestamp(), uint64(block.timestamp));
         assertEq(state.blockStartTick(), 0);
     }
 
@@ -271,6 +270,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         vm.warp(block.timestamp + 1);
 
         assertTrue(CircuitBreakerLib.isFuseTripped(core, circuitBreaker, poolKey));
-        assertEq(CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId()), uint32(DEFAULT_HALT_DURATION + 1));
+        assertEq(CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId()), uint64(DEFAULT_HALT_DURATION + 1));
     }
 }

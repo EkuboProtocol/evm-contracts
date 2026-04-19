@@ -23,9 +23,9 @@ library CircuitBreakerLib {
         state = CircuitBreakerPoolState.wrap(circuitBreaker.sload(PoolId.unwrap(poolId)));
     }
 
-    function resetTime(ICircuitBreaker circuitBreaker, PoolId poolId) internal view returns (uint32) {
+    function resetTime(ICircuitBreaker circuitBreaker, PoolId poolId) internal view returns (uint64) {
         unchecked {
-            return poolState(circuitBreaker, poolId).lastSwapTimestamp() + circuitBreaker.HALT_DURATION();
+            return uint64(poolState(circuitBreaker, poolId).lastSwapTimestamp() + circuitBreaker.HALT_DURATION());
         }
     }
 
@@ -34,7 +34,8 @@ library CircuitBreakerLib {
         view
         returns (uint256 elapsed)
     {
-        elapsed = block.timestamp - poolState(circuitBreaker, poolId).lastSwapTimestamp();
+        elapsed =
+            uint64(block.timestamp) - poolState(circuitBreaker, poolId).lastSwapTimestamp();
     }
 
     function isFuseTripped(ICore core, ICircuitBreaker circuitBreaker, PoolKey memory poolKey)
@@ -45,12 +46,12 @@ library CircuitBreakerLib {
         PoolId poolId = poolKey.toPoolId();
         CircuitBreakerPoolState state = poolState(circuitBreaker, poolId);
 
-        if (state.lastSwapTimestamp() == uint32(block.timestamp)) {
+        if (state.lastSwapTimestamp() == uint64(block.timestamp)) {
             return false;
         }
 
-        uint256 elapsed = block.timestamp - state.lastSwapTimestamp();
-        if (elapsed >= circuitBreaker.HALT_DURATION() && elapsed < type(uint32).max) {
+        uint64 elapsed = uint64(block.timestamp) - state.lastSwapTimestamp();
+        if (elapsed >= circuitBreaker.HALT_DURATION()) {
             return false;
         }
 

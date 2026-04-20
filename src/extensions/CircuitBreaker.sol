@@ -69,12 +69,12 @@ contract CircuitBreaker is ICircuitBreaker, BaseExtension, ExposedStorage {
     {
         PoolId poolId = poolKey.toPoolId();
         CircuitBreakerPoolState state = getPoolState(poolId);
-        int32 currentTick = CORE.poolState(poolId).tick();
         uint64 lastSwapTimestamp = state.lastSwapTimestamp();
 
         // Only evaluate the breaker against movement from the previous block.
         // Same-block protection is enforced by the hard limit in afterSwap.
         if (lastSwapTimestamp != uint64(block.timestamp)) {
+            int32 currentTick = CORE.poolState(poolId).tick();
             uint256 tickDelta = FixedPointMathLib.dist(currentTick, state.blockStartTick());
 
             // Breaker is tripped if the tick has moved by more than the expected amount in the last block

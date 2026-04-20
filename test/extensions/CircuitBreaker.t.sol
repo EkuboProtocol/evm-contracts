@@ -53,12 +53,9 @@ abstract contract BaseCircuitBreakerTest is FullTest {
 contract CircuitBreakerTest is BaseCircuitBreakerTest {
     using CoreLib for *;
     using ExposedStorageLib for *;
+    using CircuitBreakerLib for *;
 
     uint256 internal constant MAX_START_TIME = type(uint256).max - type(uint32).max;
-
-    function getPoolState(PoolId poolId) private view returns (CircuitBreakerPoolState state) {
-        state = CircuitBreakerPoolState.wrap(circuitBreaker.sload(PoolId.unwrap(poolId)));
-    }
 
     function test_isRegistered() public view {
         assertTrue(core.isExtensionRegistered(address(circuitBreaker)));
@@ -74,9 +71,9 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         vm.warp(startTime);
 
         PoolKey memory poolKey = createCircuitBreakerPool(fee, tickSpacing, tick);
-        CircuitBreakerPoolState state = getPoolState(poolKey.toPoolId());
+        CircuitBreakerPoolState state = circuitBreaker.poolState(poolKey.toPoolId());
 
-        assertEq(state.lastSwapTimestamp(), uint64(block.timestamp));
+        assertEq(state.lastSwapTimestamp(), uint64(vm.getBlockTimestamp()));
         assertEq(state.blockStartTick(), tick);
     }
 
@@ -112,7 +109,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         );
     }
 
-    /// forge-config: default.isolate = true
     function test_reverts_when_swap_exceeds_hard_limit(uint256 startTime) public {
         startTime = bound(startTime, 0, MAX_START_TIME);
         vm.warp(startTime);
@@ -137,7 +133,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         });
     }
 
-    /// forge-config: default.isolate = true
     function test_before_swap_reverts_after_black_swan_move(uint256 startTime) public {
         startTime = bound(startTime, 0, MAX_START_TIME);
         vm.warp(startTime);
@@ -155,8 +150,7 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
             }),
             recipient: address(this)
         });
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
+        vm.warp(startTime + 1);
         uint256 resetTime = CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId());
 
         vm.expectRevert(abi.encodeWithSelector(ICircuitBreaker.BreakerTripped.selector, resetTime));
@@ -169,7 +163,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         });
     }
 
-    /// forge-config: default.isolate = true
     function test_allows_swapping_again_after_halt_duration(uint256 startTime) public {
         startTime = bound(startTime, 0, MAX_START_TIME);
         vm.warp(startTime);
@@ -189,7 +182,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         });
         uint256 resetTime = CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId());
 
-        vm.roll(block.number + 1);
         vm.warp(resetTime);
 
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
@@ -203,7 +195,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         assertEq(balanceUpdate.delta0(), 1);
     }
 
-    /// forge-config: default.isolate = true
     function test_successful_swap_updates_last_swap_timestamp(uint256 startTime) public {
         startTime = bound(startTime, 0, MAX_START_TIME);
         vm.warp(startTime);
@@ -222,12 +213,11 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
             recipient: address(this)
         });
 
-        CircuitBreakerPoolState state = getPoolState(poolKey.toPoolId());
-        assertEq(state.lastSwapTimestamp(), uint64(block.timestamp));
+        CircuitBreakerPoolState state = circuitBreaker.poolState(poolKey.toPoolId());
+        assertEq(state.lastSwapTimestamp(), uint64(vm.getBlockTimestamp()));
         assertEq(state.blockStartTick(), 0);
     }
 
-    /// forge-config: default.isolate = true
     function test_gas_snapshot_swap_on_circuit_breaker_pool() public {
         PoolKey memory poolKey =
             createCircuitBreakerPool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
@@ -246,7 +236,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         vm.snapshotGasLastCall("circuit breaker swap token0 no movement");
     }
 
-    /// forge-config: default.isolate = true
     function test_library_reports_fuse_not_tripped_within_same_block(uint256 startTime) public {
         startTime = bound(startTime, 0, MAX_START_TIME);
         vm.warp(startTime);
@@ -268,7 +257,6 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
         assertFalse(CircuitBreakerLib.isFuseTripped(core, circuitBreaker, poolKey));
     }
 
-    /// forge-config: default.isolate = true
     function test_library_reports_fuse_tripped_next_block(uint256 startTime) public {
         startTime = bound(startTime, 0, MAX_START_TIME);
         vm.warp(startTime);
@@ -287,8 +275,7 @@ contract CircuitBreakerTest is BaseCircuitBreakerTest {
             recipient: address(this)
         });
 
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         assertTrue(CircuitBreakerLib.isFuseTripped(core, circuitBreaker, poolKey));
         assertEq(CircuitBreakerLib.resetTime(circuitBreaker, poolKey.toPoolId()), startTime + DEFAULT_HALT_DURATION);

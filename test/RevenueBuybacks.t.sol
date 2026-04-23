@@ -12,11 +12,9 @@ import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
 import {RevenueBuybacksLib} from "../src/libraries/RevenueBuybacksLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract RevenueBuybacksTest is BaseOrdersTest {
     using RevenueBuybacksLib for *;
-    using SafeTransferLib for address;
 
     IRevenueBuybacks rb;
     TestToken buybacksToken;

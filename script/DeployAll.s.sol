@@ -9,6 +9,7 @@ import {Oracle, oracleCallPoints} from "../src/extensions/Oracle.sol";
 import {TWAMM, twammCallPoints} from "../src/extensions/TWAMM.sol";
 import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
+import {CircuitBreaker, circuitBreakerCallPoints} from "../src/extensions/CircuitBreaker.sol";
 import {Incentives} from "../src/Incentives.sol";
 import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
 import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
@@ -201,6 +202,20 @@ contract DeployAll is Script {
             boostedFeesCallPoints(false),
             0x948b9C2C99718034954110cB61a6e08e107745f9,
             "BoostedFees(stableswap)"
+        );
+        deployExtension(
+            abi.encodePacked(
+                type(CircuitBreaker).creationCode,
+                abi.encode(
+                    core,
+                    vm.envOr("CIRCUIT_BREAKER_AMPERAGE", uint256(1)),
+                    vm.envOr("CIRCUIT_BREAKER_HALT_DURATION", uint256(7 days))
+                )
+            ),
+            DEPLOYMENT_SALT,
+            circuitBreakerCallPoints(),
+            vm.envOr("CIRCUIT_BREAKER_ADDRESS", address(0)),
+            "CircuitBreaker"
         );
         deployIfNeeded(
             abi.encodePacked(type(ManualPoolBooster).creationCode, abi.encode(core)),

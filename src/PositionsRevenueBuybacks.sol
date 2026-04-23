@@ -24,12 +24,14 @@ contract PositionsRevenueBuybacks is RevenueBuybacks {
         POSITIONS = _positions;
     }
 
-    /// @notice Withdraws protocol fees and rolls them into buyback orders for both tokens
-    /// @dev Can be called by anyone to trigger revenue buybacks for a token pair
+    /// @notice Withdraws protocol fees from Positions into this contract
+    /// @dev Can be called multiple times before rolling to batch buyback order updates
     /// @param token0 The first token of the pair to withdraw fees for
     /// @param token1 The second token of the pair to withdraw fees for
-    function withdrawAndRoll(address token0, address token1) external {
-        (uint128 amount0, uint128 amount1) = POSITIONS.getProtocolFees(token0, token1);
+    /// @return amount0 The amount of token0 withdrawn
+    /// @return amount1 The amount of token1 withdrawn
+    function withdrawProtocolFees(address token0, address token1) public returns (uint128 amount0, uint128 amount1) {
+        (amount0, amount1) = POSITIONS.getProtocolFees(token0, token1);
 
         assembly ("memory-safe") {
             // Leave 1 wei behind when possible to save gas on future protocol fee accrual.
@@ -39,9 +41,6 @@ contract PositionsRevenueBuybacks is RevenueBuybacks {
 
         if (amount0 != 0 || amount1 != 0) {
             POSITIONS.withdrawProtocolFees(token0, token1, amount0, amount1, address(this));
-
-            this.roll(token0);
-            this.roll(token1);
         }
     }
 }

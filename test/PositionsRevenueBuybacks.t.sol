@@ -67,15 +67,29 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         assertEq(positions.owner(), address(buybacks));
     }
 
-    function test_withdraw_and_roll_leaves_tokens_if_not_configured() public {
+    function test_withdraw_protocol_fees_leaves_tokens_if_not_configured() public {
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 2e18);
 
-        buybacks.withdrawAndRoll(address(token0), address(token1));
+        buybacks.withdrawProtocolFees(address(token0), address(token1));
         assertEq(token0.balanceOf(address(buybacks)), 1e18 - 1);
         assertEq(token1.balanceOf(address(buybacks)), 2e18 - 1);
     }
 
-    function test_withdraw_and_roll_with_one_token_configured() public {
+    function test_withdraw_protocol_fees_can_be_called_before_roll() public {
+        cheatDonateProtocolFees(address(token0), address(token1), 1e18, 2e18);
+
+        (uint128 amount0, uint128 amount1) = buybacks.withdrawProtocolFees(address(token0), address(token1));
+        assertEq(amount0, 1e18 - 1);
+        assertEq(amount1, 2e18 - 1);
+        assertEq(token0.balanceOf(address(buybacks)), 1e18 - 1);
+        assertEq(token1.balanceOf(address(buybacks)), 2e18 - 1);
+
+        (amount0, amount1) = positions.getProtocolFees(address(token0), address(token1));
+        assertEq(amount0, 1);
+        assertEq(amount1, 1);
+    }
+
+    function test_withdraw_protocol_fees_and_roll_with_one_token_configured() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
 
         configure(address(token0), 3600, 1800, poolFee);
@@ -94,12 +108,13 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
-        buybacks.withdrawAndRoll(address(token0), address(token1));
+        buybacks.withdrawProtocolFees(address(token0), address(token1));
+        buybacks.roll(address(token0));
         assertEq(token0.balanceOf(address(buybacks)), 0);
         assertEq(token1.balanceOf(address(buybacks)), 1e17 - 1);
     }
 
-    function test_withdraw_and_roll_with_token1_configured() public {
+    function test_withdraw_protocol_fees_and_roll_with_token1_configured() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
 
         configure(address(token1), 3600, 1800, poolFee);
@@ -118,10 +133,11 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
-        buybacks.withdrawAndRoll(address(token0), address(token1));
+        buybacks.withdrawProtocolFees(address(token0), address(token1));
+        buybacks.roll(address(token1));
     }
 
-    function test_withdraw_and_roll_with_both_tokens_configured(uint80 donate0, uint80 donate1) public {
+    function test_withdraw_protocol_fees_and_roll_with_both_tokens_configured(uint80 donate0, uint80 donate1) public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
 
         configure(address(token0), 3600, 1800, poolFee);
@@ -161,7 +177,9 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         assertEq(fees0, donate0);
         assertEq(fees1, donate1);
 
-        buybacks.withdrawAndRoll(address(token0), address(token1));
+        buybacks.withdrawProtocolFees(address(token0), address(token1));
+        buybacks.roll(address(token0));
+        buybacks.roll(address(token1));
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
         assertEq(fees0, donate0 == 0 ? 0 : 1);

@@ -7,7 +7,6 @@ import {Multicallable} from "solady/utils/Multicallable.sol";
 /// @title Base Ownable Executor
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Base contract that lets the owner execute arbitrary calls from this contract
-/// @dev `delegateCall` executes in this contract's storage context and is therefore intended for governance-controlled proxies
 abstract contract BaseOwnableExecutor is Ownable, Multicallable {
     error NotSelf();
 
@@ -34,26 +33,6 @@ abstract contract BaseOwnableExecutor is Ownable, Multicallable {
         returns (bytes memory result)
     {
         (bool success, bytes memory returnData) = target.call{value: value}(data);
-        if (!success) {
-            assembly ("memory-safe") {
-                revert(add(returnData, 32), mload(returnData))
-            }
-        }
-        return returnData;
-    }
-
-    /// @notice Executes an arbitrary delegatecall from this contract
-    /// @dev Reverts with the original revert data if the call fails
-    /// @param target The contract to delegatecall
-    /// @param data The calldata to forward to the target
-    /// @return result The raw return data from the target call
-    function delegateCall(address target, bytes calldata data)
-        external
-        payable
-        onlyOwner
-        returns (bytes memory result)
-    {
-        (bool success, bytes memory returnData) = target.delegatecall(data);
         if (!success) {
             assembly ("memory-safe") {
                 revert(add(returnData, 32), mload(returnData))

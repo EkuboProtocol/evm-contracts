@@ -7,11 +7,13 @@ import {nextValidTime} from "./math/time.sol";
 import {BaseOwnableExecutor} from "./base/BaseOwnableExecutor.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
 import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
+import {RevenueBuybacksStorageLayout} from "./libraries/RevenueBuybacksStorageLayout.sol";
 import {BuybacksState, createBuybacksState} from "./types/buybacksState.sol";
 import {OrderKey} from "./types/orderKey.sol";
 import {createOrderConfig} from "./types/orderConfig.sol";
 import {ExposedStorage} from "./base/ExposedStorage.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {StorageSlot} from "./types/storageSlot.sol";
 
 /// @title Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>
@@ -56,8 +58,9 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnableExecuto
 
         unchecked {
             BuybacksState state;
+            StorageSlot slot = RevenueBuybacksStorageLayout.stateSlot(token);
             assembly ("memory-safe") {
-                state := sload(token)
+                state := sload(slot)
             }
 
             if (!state.isConfigured()) {
@@ -92,7 +95,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnableExecuto
                 });
 
                 assembly ("memory-safe") {
-                    sstore(token, state)
+                    sstore(slot, state)
                 }
             }
 
@@ -116,8 +119,9 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnableExecuto
         }
 
         BuybacksState state;
+        StorageSlot slot = RevenueBuybacksStorageLayout.stateSlot(token);
         assembly ("memory-safe") {
-            state := sload(token)
+            state := sload(slot)
         }
         state = createBuybacksState({
             _targetOrderDuration: targetOrderDuration,
@@ -128,7 +132,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnableExecuto
             _lastFee: state.lastFee()
         });
         assembly ("memory-safe") {
-            sstore(token, state)
+            sstore(slot, state)
         }
 
         emit Configured(token, state);

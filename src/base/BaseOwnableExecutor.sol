@@ -8,16 +8,9 @@ import {Multicallable} from "solady/utils/Multicallable.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Base contract that lets the owner execute arbitrary calls from this contract
 abstract contract BaseOwnableExecutor is Ownable, Multicallable {
-    error NotSelf();
-
     /// @param owner The address that will own this contract and have administrative privileges
     constructor(address owner) {
         _initializeOwner(owner);
-    }
-
-    modifier onlySelf() {
-        if (msg.sender != address(this)) revert NotSelf();
-        _;
     }
 
     /// @notice Executes an arbitrary external call from this contract

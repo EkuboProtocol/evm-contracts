@@ -7,6 +7,7 @@ import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
 import {StorageSlot} from "../src/types/storageSlot.sol";
 
@@ -62,6 +63,14 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         assertEq(positions.owner(), address(buybacks));
     }
 
+    function test_owner_can_transfer_positions_ownership_away() public {
+        address newOwner = address(0xdeadbeef);
+
+        buybacks.call(address(positions), 0, abi.encodeWithSelector(Ownable.transferOwnership.selector, newOwner));
+
+        assertEq(positions.owner(), newOwner);
+    }
+
     function test_withdraw_protocol_fees_leaves_tokens_if_not_configured() public {
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 2e18);
 
@@ -82,6 +91,21 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         (amount0, amount1) = positions.getProtocolFees(address(token0), address(token1));
         assertEq(amount0, 1);
         assertEq(amount1, 1);
+    }
+
+    function test_owner_can_collect_withdrawn_tokens() public {
+        address recipient = address(0x1234);
+
+        cheatDonateProtocolFees(address(token0), address(token1), 1e18, 2e18);
+        buybacks.withdrawProtocolFees(address(token0), address(token1));
+
+        assertEq(token0.balanceOf(address(buybacks)), 1e18 - 1);
+        buybacks.call(
+            address(token0), 0, abi.encodeWithSelector(token0.transfer.selector, recipient, uint256(1e18 - 1))
+        );
+
+        assertEq(token0.balanceOf(address(buybacks)), 0);
+        assertEq(token0.balanceOf(recipient), 1e18 - 1);
     }
 
     function test_withdraw_protocol_fees_and_roll_with_one_token_configured() public {

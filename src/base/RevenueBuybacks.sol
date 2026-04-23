@@ -3,23 +3,23 @@ pragma solidity =0.8.33;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-import {nextValidTime} from "./math/time.sol";
-import {BaseOwnableExecutor} from "./base/BaseOwnableExecutor.sol";
-import {IOrders} from "./interfaces/IOrders.sol";
-import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
-import {RevenueBuybacksStorageLayout} from "./libraries/RevenueBuybacksStorageLayout.sol";
-import {BuybacksState, createBuybacksState} from "./types/buybacksState.sol";
-import {OrderKey} from "./types/orderKey.sol";
-import {createOrderConfig} from "./types/orderConfig.sol";
-import {ExposedStorage} from "./base/ExposedStorage.sol";
-import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
-import {StorageSlot} from "./types/storageSlot.sol";
+import {nextValidTime} from "../math/time.sol";
+import {BaseOwnableExecutor} from "./BaseOwnableExecutor.sol";
+import {IOrders} from "../interfaces/IOrders.sol";
+import {IRevenueBuybacks} from "../interfaces/IRevenueBuybacks.sol";
+import {RevenueBuybacksStorageLayout} from "../libraries/RevenueBuybacksStorageLayout.sol";
+import {BuybacksState, createBuybacksState} from "../types/buybacksState.sol";
+import {OrderKey} from "../types/orderKey.sol";
+import {createOrderConfig} from "../types/orderConfig.sol";
+import {ExposedStorage} from "./ExposedStorage.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 
 /// @title Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Creates revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
-/// @dev Manages the creation and execution of buyback orders for any tokens that are deposited to this contract
-contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnableExecutor {
+/// @dev Intended to be inherited by contracts that define how revenue is routed into this contract for buybacks
+abstract contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnableExecutor {
     /// @inheritdoc IRevenueBuybacks
     IOrders public immutable ORDERS;
 

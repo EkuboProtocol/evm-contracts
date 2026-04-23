@@ -3,7 +3,7 @@ pragma solidity =0.8.33;
 
 import {IOrders} from "./interfaces/IOrders.sol";
 import {IPositions} from "./interfaces/IPositions.sol";
-import {RevenueBuybacks} from "./RevenueBuybacks.sol";
+import {RevenueBuybacks} from "./base/RevenueBuybacks.sol";
 
 /// @title Positions Revenue Buybacks
 /// @author Moody Salem <moody@ekubo.org>

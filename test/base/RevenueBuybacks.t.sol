@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {BaseOrdersTest} from "./Orders.t.sol";
-import {BaseOwnableExecutor} from "../src/base/BaseOwnableExecutor.sol";
-import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
-import {IRevenueBuybacks} from "../src/interfaces/IRevenueBuybacks.sol";
-import {BuybacksState} from "../src/types/buybacksState.sol";
-import {PoolKey} from "../src/types/poolKey.sol";
-import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
-import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
+import {BaseOrdersTest} from "../Orders.t.sol";
+import {BaseOwnableExecutor} from "../../src/base/BaseOwnableExecutor.sol";
+import {RevenueBuybacks} from "../../src/base/RevenueBuybacks.sol";
+import {IOrders} from "../../src/interfaces/IOrders.sol";
+import {IRevenueBuybacks} from "../../src/interfaces/IRevenueBuybacks.sol";
+import {BuybacksState} from "../../src/types/buybacksState.sol";
+import {PoolKey} from "../../src/types/poolKey.sol";
+import {createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {TestToken} from "./TestToken.sol";
-import {RevenueBuybacksLib} from "../src/libraries/RevenueBuybacksLib.sol";
+import {TestToken} from "../TestToken.sol";
+import {RevenueBuybacksLib} from "../../src/libraries/RevenueBuybacksLib.sol";
+
+contract RevenueBuybacksHarness is RevenueBuybacks {
+    constructor(address owner, IOrders orders, address buyToken) RevenueBuybacks(owner, orders, buyToken) {}
+}
 
 contract RevenueBuybacksTest is BaseOrdersTest {
     using RevenueBuybacksLib for *;
@@ -33,7 +38,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
 
         // it always buys back the buybacksToken
-        rb = new RevenueBuybacks(address(this), orders, address(buybacksToken));
+        rb = new RevenueBuybacksHarness(address(this), orders, address(buybacksToken));
     }
 
     // transfers tokens directly to the buybacks contract for testing

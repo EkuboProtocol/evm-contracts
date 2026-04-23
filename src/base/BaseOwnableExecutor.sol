@@ -32,13 +32,13 @@ abstract contract BaseOwnableExecutor is Ownable, Multicallable {
         onlyOwner
         returns (bytes memory result)
     {
-        (bool success, bytes memory returnData) = target.call{value: value}(data);
+        bool success;
+        (success, result) = target.call{value: value}(data);
         if (!success) {
             assembly ("memory-safe") {
-                revert(add(returnData, 32), mload(returnData))
+                revert(add(result, 32), mload(result))
             }
         }
-        return returnData;
     }
 
     /// @notice Allows the contract to receive ETH so the owner can forward value in future calls

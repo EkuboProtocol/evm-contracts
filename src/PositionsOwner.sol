@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {Ownable} from "solady/auth/Ownable.sol";
-import {Multicallable} from "solady/utils/Multicallable.sol";
-
 import {IPositions} from "./interfaces/IPositions.sol";
 import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
+import {BaseOwnableExecutor} from "./base/BaseOwnableExecutor.sol";
 import {RevenueBuybacksLib} from "./libraries/RevenueBuybacksLib.sol";
 import {BuybacksState} from "./types/buybacksState.sol";
 
@@ -13,7 +11,7 @@ import {BuybacksState} from "./types/buybacksState.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Manages ownership of the Positions contract and facilitates buybacks with the collected revenue
 /// @dev This contract owns the Positions contract and transfers protocol revenue to a trusted buybacks contract
-contract PositionsOwner is Ownable, Multicallable {
+contract PositionsOwner is BaseOwnableExecutor {
     using RevenueBuybacksLib for *;
 
     /// @notice The Positions contract that this contract owns
@@ -27,17 +25,9 @@ contract PositionsOwner is Ownable, Multicallable {
     /// @param owner The address that will own this contract and have administrative privileges
     /// @param _positions The Positions contract instance that this contract will own
     /// @param _buybacks The trusted revenue buybacks contract that will receive protocol fees
-    constructor(address owner, IPositions _positions, IRevenueBuybacks _buybacks) {
-        _initializeOwner(owner);
+    constructor(address owner, IPositions _positions, IRevenueBuybacks _buybacks) BaseOwnableExecutor(owner) {
         POSITIONS = _positions;
         BUYBACKS = _buybacks;
-    }
-
-    /// @notice Transfers ownership of the Positions contract to a new owner
-    /// @dev Only callable by the owner of this contract
-    /// @param newOwner The address that will become the new owner of the Positions contract
-    function transferPositionsOwnership(address newOwner) external onlyOwner {
-        Ownable(address(POSITIONS)).transferOwnership(newOwner);
     }
 
     /// @notice Withdraws protocol fees and transfers them to the buybacks contract, then calls roll for both tokens.

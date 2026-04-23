@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {Ownable} from "solady/auth/Ownable.sol";
-import {Multicallable} from "solady/utils/Multicallable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {nextValidTime} from "./math/time.sol";
+import {BaseOwnableExecutor} from "./base/BaseOwnableExecutor.sol";
 import {IOrders} from "./interfaces/IOrders.sol";
 import {IRevenueBuybacks} from "./interfaces/IRevenueBuybacks.sol";
 import {BuybacksState, createBuybacksState} from "./types/buybacksState.sol";
@@ -18,7 +17,7 @@ import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Creates revenue buyback orders using TWAMM (Time-Weighted Average Market Maker)
 /// @dev Manages the creation and execution of buyback orders for any tokens that are deposited to this contract
-contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicallable {
+contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnableExecutor {
     /// @inheritdoc IRevenueBuybacks
     IOrders public immutable ORDERS;
 
@@ -32,8 +31,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     /// @param owner The address that will own this contract and have administrative privileges
     /// @param _orders The Orders contract instance for creating TWAMM orders
     /// @param _buyToken The token that will be purchased with collected revenue
-    constructor(address owner, IOrders _orders, address _buyToken) {
-        _initializeOwner(owner);
+    constructor(address owner, IOrders _orders, address _buyToken) BaseOwnableExecutor(owner) {
         ORDERS = _orders;
         BUY_TOKEN = _buyToken;
         NFT_ID = ORDERS.mint();
@@ -45,23 +43,9 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     }
 
     /// @inheritdoc IRevenueBuybacks
-    function withdraw(address token, address recipient, uint256 amount) external onlyOwner {
-        SafeTransferLib.safeTransfer(token, recipient, amount);
-    }
-
-    /// @inheritdoc IRevenueBuybacks
-    function withdrawNative(address recipient, uint256 amount) external onlyOwner {
-        SafeTransferLib.safeTransferETH(recipient, amount);
-    }
-
-    /// @inheritdoc IRevenueBuybacks
     function collect(address token, uint64 fee, uint64 endTime) external returns (uint128 proceeds) {
         proceeds = ORDERS.collectProceeds(NFT_ID, _createOrderKey(token, fee, 0, endTime), owner());
     }
-
-    /// @notice Allows the contract to receive ETH revenue
-    /// @dev Required to accept ETH payments when ETH is used as a revenue token
-    receive() external payable {}
 
     /// @inheritdoc IRevenueBuybacks
     function roll(address token) external returns (uint64 endTime, uint112 saleRate) {
@@ -123,7 +107,7 @@ contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, Ownable, Multicall
     /// @inheritdoc IRevenueBuybacks
     function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
         external
-        onlyOwner
+        onlySelf
     {
         if (token == BUY_TOKEN) revert CannotConfigureForBuyToken();
         if (minOrderDuration > targetOrderDuration) revert MinOrderDurationGreaterThanTargetOrderDuration();

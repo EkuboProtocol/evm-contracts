@@ -2,17 +2,21 @@
 pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
+import {BaseOwnableExecutor} from "../src/base/BaseOwnableExecutor.sol";
 import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
 import {IRevenueBuybacks} from "../src/interfaces/IRevenueBuybacks.sol";
 import {BuybacksState} from "../src/types/buybacksState.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
 import {RevenueBuybacksLib} from "../src/libraries/RevenueBuybacksLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract RevenueBuybacksTest is BaseOrdersTest {
     using RevenueBuybacksLib for *;
+    using SafeTransferLib for address;
 
     IRevenueBuybacks rb;
     TestToken buybacksToken;
@@ -43,6 +47,15 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
     }
 
+    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee) internal {
+        RevenueBuybacks(payable(address(rb)))
+            .call(
+                address(rb),
+                0,
+                abi.encodeCall(IRevenueBuybacks.configure, (token, targetOrderDuration, minOrderDuration, fee))
+            );
+    }
+
     function test_setUp_token_order() public view {
         assertGt(uint160(address(token1)), uint160(address(token0)));
         assertGt(uint160(address(buybacksToken)), uint160(address(token1)));
@@ -57,19 +70,31 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(token0.allowance(address(rb), address(orders)), type(uint256).max);
     }
 
-    function test_take_by_owner() public {
-        token0.transfer(address(rb), 100);
-        assertEq(token0.balanceOf(address(rb)), 100);
-        rb.withdraw(address(token0), address(0x1234), 100);
-        assertEq(token0.balanceOf(address(rb)), 0);
-        assertEq(token0.balanceOf(address(0x1234)), 100);
+    function test_call_can_execute_external_operations() public {
+        assertEq(token0.allowance(address(rb), address(orders)), 0);
+
+        RevenueBuybacks(payable(address(rb)))
+            .call(
+                address(token0), 0, abi.encodeWithSelector(token0.approve.selector, address(orders), type(uint256).max)
+            );
+
+        assertEq(token0.allowance(address(rb), address(orders)), type(uint256).max);
+    }
+
+    function test_call_fails_if_not_owner() public {
+        vm.prank(address(0xdeadbeef));
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        RevenueBuybacks(payable(address(rb)))
+            .call(
+                address(token0), 0, abi.encodeWithSelector(token0.approve.selector, address(orders), type(uint256).max)
+            );
     }
 
     function test_mint_on_create() public view {
         assertEq(orders.ownerOf(rb.NFT_ID()), address(rb));
     }
 
-    function test_configure() public {
+    function test_configure_via_call() public {
         BuybacksState state = rb.state(address(token0));
         assertEq(state.targetOrderDuration(), 0);
         assertEq(state.minOrderDuration(), 0);
@@ -79,7 +104,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(state.lastFee(), 0);
 
         uint64 nextFee = uint64((uint256(1) << 64) / 100);
-        rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: nextFee});
+        configure(address(token0), 3600, 1800, nextFee);
 
         state = rb.state(address(token0));
         assertEq(state.targetOrderDuration(), 3600);
@@ -90,23 +115,23 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(state.lastFee(), 0);
     }
 
+    function test_configure_direct_call_fails() public {
+        vm.expectRevert(BaseOwnableExecutor.NotSelf.selector);
+        rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: 0});
+    }
+
     function test_configure_invalid() public {
         vm.expectRevert(IRevenueBuybacks.MinOrderDurationGreaterThanTargetOrderDuration.selector);
-        rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 3601, fee: 0});
+        configure(address(token0), 3600, 3601, 0);
 
         vm.expectRevert(IRevenueBuybacks.MinOrderDurationMustBeGreaterThanZero.selector);
-        rb.configure({token: address(token0), targetOrderDuration: 10, minOrderDuration: 0, fee: 0});
+        configure(address(token0), 10, 0, 0);
     }
 
     function test_deconfigure() public {
-        rb.configure({
-            token: address(token0),
-            targetOrderDuration: 3600,
-            minOrderDuration: 1800,
-            fee: uint64((uint256(1) << 64) / 100)
-        });
+        configure(address(token0), 3600, 1800, uint64((uint256(1) << 64) / 100));
 
-        rb.configure({token: address(token0), targetOrderDuration: 0, minOrderDuration: 0, fee: 0});
+        configure(address(token0), 0, 0, 0);
 
         BuybacksState state = rb.state(address(token0));
         assertEq(state.targetOrderDuration(), 0);
@@ -115,14 +140,9 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_roll_token_not_configured() public {
-        rb.configure({
-            token: address(token0),
-            targetOrderDuration: 3600,
-            minOrderDuration: 1800,
-            fee: uint64((uint256(1) << 64) / 100)
-        });
+        configure(address(token0), 3600, 1800, uint64((uint256(1) << 64) / 100));
 
-        rb.configure({token: address(token0), targetOrderDuration: 0, minOrderDuration: 0, fee: 0});
+        configure(address(token0), 0, 0, 0);
 
         (uint64 endTime, uint112 saleRate) = rb.roll(address(token0));
         assertEq(endTime, 0);
@@ -132,7 +152,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     function test_roll_token() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
 
-        rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: poolFee});
+        configure(address(token0), 3600, 1800, poolFee);
 
         donate(address(token0), 1e18);
 
@@ -169,7 +189,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     function test_roll_eth() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
 
-        rb.configure({token: address(0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: poolFee});
+        configure(address(0), 3600, 1800, poolFee);
 
         donate(address(0), 1e18);
 
@@ -222,9 +242,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         vm.warp(startTime);
 
         address token = isEth ? address(0) : address(token0);
-        rb.configure({
-            token: token, targetOrderDuration: targetOrderDuration, minOrderDuration: minOrderDuration, fee: poolFee
-        });
+        configure(token, targetOrderDuration, minOrderDuration, poolFee);
 
         if (!isEth) {
             rb.approveMax(token);

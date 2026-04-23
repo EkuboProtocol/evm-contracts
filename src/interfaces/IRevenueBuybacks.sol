@@ -59,7 +59,7 @@ interface IRevenueBuybacks is IExposedStorage {
     function roll(address token) external returns (uint64 endTime, uint112 saleRate);
 
     /// @notice Configures buyback parameters for a revenue token
-    /// @dev Intended to be called through the contract's owner-controlled proxy surface
+    /// @dev Only callable by the owner, either directly or via the inherited multicall function
     /// @param token The revenue token to configure
     /// @param targetOrderDuration The target duration for new orders (in seconds)
     /// @param minOrderDuration The minimum duration threshold for creating new orders (in seconds)

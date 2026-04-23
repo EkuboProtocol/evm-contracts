@@ -2,7 +2,6 @@
 pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "../Orders.t.sol";
-import {BaseOwnableExecutor} from "../../src/base/BaseOwnableExecutor.sol";
 import {RevenueBuybacks} from "../../src/base/RevenueBuybacks.sol";
 import {IOrders} from "../../src/interfaces/IOrders.sol";
 import {IRevenueBuybacks} from "../../src/interfaces/IRevenueBuybacks.sol";
@@ -51,12 +50,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee) internal {
-        RevenueBuybacks(payable(address(rb)))
-            .call(
-                address(rb),
-                0,
-                abi.encodeCall(IRevenueBuybacks.configure, (token, targetOrderDuration, minOrderDuration, fee))
-            );
+        rb.configure(token, targetOrderDuration, minOrderDuration, fee);
     }
 
     function test_setUp_token_order() public view {
@@ -97,7 +91,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(orders.ownerOf(rb.NFT_ID()), address(rb));
     }
 
-    function test_configure_via_call() public {
+    function test_configure() public {
         BuybacksState state = rb.state(address(token0));
         assertEq(state.targetOrderDuration(), 0);
         assertEq(state.minOrderDuration(), 0);
@@ -118,8 +112,9 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(state.lastFee(), 0);
     }
 
-    function test_configure_direct_call_fails() public {
-        vm.expectRevert(BaseOwnableExecutor.NotSelf.selector);
+    function test_configure_fails_if_not_owner() public {
+        vm.prank(address(0xdeadbeef));
+        vm.expectRevert(Ownable.Unauthorized.selector);
         rb.configure({token: address(token0), targetOrderDuration: 3600, minOrderDuration: 1800, fee: 0});
     }
 

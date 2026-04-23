@@ -110,7 +110,7 @@ abstract contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnab
     /// @inheritdoc IRevenueBuybacks
     function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
         external
-        onlySelf
+        onlyOwner
     {
         if (token == BUY_TOKEN) revert CannotConfigureForBuyToken();
         if (minOrderDuration > targetOrderDuration) revert MinOrderDurationGreaterThanTargetOrderDuration();

@@ -2,7 +2,6 @@
 pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {IRevenueBuybacks} from "../src/interfaces/IRevenueBuybacks.sol";
 import {PositionsRevenueBuybacks} from "../src/PositionsRevenueBuybacks.sol";
 import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
@@ -51,11 +50,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
     }
 
     function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee) internal {
-        buybacks.call(
-            address(buybacks),
-            0,
-            abi.encodeCall(IRevenueBuybacks.configure, (token, targetOrderDuration, minOrderDuration, fee))
-        );
+        buybacks.configure(token, targetOrderDuration, minOrderDuration, fee);
     }
 
     function test_setUp_token_order() public view {

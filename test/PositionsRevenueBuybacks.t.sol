@@ -2,10 +2,8 @@
 pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
-import {IBaseNonfungibleToken} from "../src/interfaces/IBaseNonfungibleToken.sol";
 import {IRevenueBuybacks} from "../src/interfaces/IRevenueBuybacks.sol";
-import {PositionsOwner} from "../src/PositionsOwner.sol";
-import {RevenueBuybacks} from "../src/RevenueBuybacks.sol";
+import {PositionsRevenueBuybacks} from "../src/PositionsRevenueBuybacks.sol";
 import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
@@ -13,9 +11,8 @@ import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {TestToken} from "./TestToken.sol";
 import {StorageSlot} from "../src/types/storageSlot.sol";
 
-contract PositionsOwnerTest is BaseOrdersTest {
-    PositionsOwner positionsOwner;
-    RevenueBuybacks rb;
+contract PositionsRevenueBuybacksTest is BaseOrdersTest {
+    PositionsRevenueBuybacks buybacks;
     TestToken buybacksToken;
 
     function setUp() public override {
@@ -30,11 +27,10 @@ contract PositionsOwnerTest is BaseOrdersTest {
             (token0, token1) = (token1, token0);
         }
 
-        rb = new RevenueBuybacks(address(this), orders, address(buybacksToken));
-        positionsOwner = new PositionsOwner(address(this), positions, rb);
+        buybacks = new PositionsRevenueBuybacks(address(this), positions, orders, address(buybacksToken));
 
         vm.prank(positions.owner());
-        positions.transferOwnership(address(positionsOwner));
+        positions.transferOwnership(address(buybacks));
     }
 
     function cheatDonateProtocolFees(address token0, address token1, uint128 amount0, uint128 amount1) internal {
@@ -55,12 +51,11 @@ contract PositionsOwnerTest is BaseOrdersTest {
     }
 
     function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee) internal {
-        RevenueBuybacks(payable(address(rb)))
-            .call(
-                address(rb),
-                0,
-                abi.encodeCall(IRevenueBuybacks.configure, (token, targetOrderDuration, minOrderDuration, fee))
-            );
+        buybacks.call(
+            address(buybacks),
+            0,
+            abi.encodeCall(IRevenueBuybacks.configure, (token, targetOrderDuration, minOrderDuration, fee))
+        );
     }
 
     function test_setUp_token_order() public view {
@@ -69,22 +64,22 @@ contract PositionsOwnerTest is BaseOrdersTest {
     }
 
     function test_positions_ownership_transferred() public view {
-        assertEq(positions.owner(), address(positionsOwner));
+        assertEq(positions.owner(), address(buybacks));
     }
 
-    function test_withdraw_and_roll_leaves_tokens_in_buybacks_if_not_configured() public {
+    function test_withdraw_and_roll_leaves_tokens_if_not_configured() public {
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 2e18);
 
-        positionsOwner.withdrawAndRoll(address(token0), address(token1));
-        assertEq(token0.balanceOf(address(rb)), 1e18 - 1);
-        assertEq(token1.balanceOf(address(rb)), 2e18 - 1);
+        buybacks.withdrawAndRoll(address(token0), address(token1));
+        assertEq(token0.balanceOf(address(buybacks)), 1e18 - 1);
+        assertEq(token1.balanceOf(address(buybacks)), 2e18 - 1);
     }
 
     function test_withdraw_and_roll_with_one_token_configured() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
 
         configure(address(token0), 3600, 1800, poolFee);
-        rb.approveMax(address(token0));
+        buybacks.approveMax(address(token0));
 
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
@@ -99,16 +94,16 @@ contract PositionsOwnerTest is BaseOrdersTest {
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
-        positionsOwner.withdrawAndRoll(address(token0), address(token1));
-        assertEq(token0.balanceOf(address(rb)), 0);
-        assertEq(token1.balanceOf(address(rb)), 1e17 - 1);
+        buybacks.withdrawAndRoll(address(token0), address(token1));
+        assertEq(token0.balanceOf(address(buybacks)), 0);
+        assertEq(token1.balanceOf(address(buybacks)), 1e17 - 1);
     }
 
     function test_withdraw_and_roll_with_token1_configured() public {
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
 
         configure(address(token1), 3600, 1800, poolFee);
-        rb.approveMax(address(token1));
+        buybacks.approveMax(address(token1));
 
         PoolKey memory poolKey = PoolKey({
             token0: address(token1),
@@ -123,7 +118,7 @@ contract PositionsOwnerTest is BaseOrdersTest {
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
-        positionsOwner.withdrawAndRoll(address(token0), address(token1));
+        buybacks.withdrawAndRoll(address(token0), address(token1));
     }
 
     function test_withdraw_and_roll_with_both_tokens_configured(uint80 donate0, uint80 donate1) public {
@@ -131,8 +126,8 @@ contract PositionsOwnerTest is BaseOrdersTest {
 
         configure(address(token0), 3600, 1800, poolFee);
         configure(address(token1), 3600, 1800, poolFee);
-        rb.approveMax(address(token0));
-        rb.approveMax(address(token1));
+        buybacks.approveMax(address(token0));
+        buybacks.approveMax(address(token1));
 
         PoolKey memory poolKey0 = PoolKey({
             token0: address(token0),
@@ -166,13 +161,13 @@ contract PositionsOwnerTest is BaseOrdersTest {
         assertEq(fees0, donate0);
         assertEq(fees1, donate1);
 
-        positionsOwner.withdrawAndRoll(address(token0), address(token1));
+        buybacks.withdrawAndRoll(address(token0), address(token1));
 
         (fees0, fees1) = positions.getProtocolFees(address(token0), address(token1));
         assertEq(fees0, donate0 == 0 ? 0 : 1);
         assertEq(fees1, donate1 == 0 ? 0 : 1);
 
-        assertLe(token0.balanceOf(address(rb)), 1);
-        assertLe(token1.balanceOf(address(rb)), 1);
+        assertLe(token0.balanceOf(address(buybacks)), 1);
+        assertLe(token1.balanceOf(address(buybacks)), 1);
     }
 }

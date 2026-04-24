@@ -42,18 +42,6 @@ interface IRevenueBuybacks is IExposedStorage {
     /// @param token The token to approve for spending by the Orders contract
     function approveMax(address token) external;
 
-    /// @notice Withdraws leftover tokens from the contract (only callable by owner)
-    /// @dev Used to recover tokens that are not configured or are otherwise stuck in the contract
-    /// @param token The address of the token to withdraw
-    /// @param amount The amount of tokens to withdraw
-    function withdraw(address token, address recipient, uint256 amount) external;
-
-    /// @notice Withdraws leftover native tokens from the contract (only callable by owner)
-    /// @dev Used to recover tokens that are not configured or are otherwise stuck in the contract
-    /// @param recipient The address to receive the native tokens
-    /// @param amount The amount of tokens to withdraw
-    function withdrawNative(address recipient, uint256 amount) external;
-
     /// @notice Collects the proceeds from a completed buyback order
     /// @dev Can be called by anyone at any time to collect proceeds from orders that have finished
     /// @param token The revenue token that was sold in the order
@@ -70,8 +58,8 @@ interface IRevenueBuybacks is IExposedStorage {
     /// @return saleRate The sale rate of the order (amount of token sold per second)
     function roll(address token) external returns (uint64 endTime, uint112 saleRate);
 
-    /// @notice Configures buyback parameters for a revenue token (only callable by owner)
-    /// @dev Sets the timing and fee parameters for automated buyback order creation
+    /// @notice Configures buyback parameters for a revenue token
+    /// @dev Only callable by the owner, either directly or via the inherited multicall function
     /// @param token The revenue token to configure
     /// @param targetOrderDuration The target duration for new orders (in seconds)
     /// @param minOrderDuration The minimum duration threshold for creating new orders (in seconds)

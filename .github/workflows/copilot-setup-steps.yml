@@ -33,3 +33,5 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+      # so the solidity binary is made available
+      - run: forge build

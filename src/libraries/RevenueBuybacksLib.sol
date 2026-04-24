@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {IRevenueBuybacks} from "../interfaces/IRevenueBuybacks.sol";
+import {RevenueBuybacksStorageLayout} from "./RevenueBuybacksStorageLayout.sol";
 import {BuybacksState} from "../types/buybacksState.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 
@@ -15,7 +16,7 @@ library RevenueBuybacksLib {
     /// @param token The token address
     /// @return s The state of the buybacks for the token
     function state(IRevenueBuybacks rb, address token) internal view returns (BuybacksState s) {
-        s = BuybacksState.wrap(rb.sload(bytes32(uint256(uint160(token)))));
+        s = BuybacksState.wrap(rb.sload(RevenueBuybacksStorageLayout.stateSlot(token)));
     }
 
     /// @notice Gets the counts and metadata for snapshots of a token
@@ -30,7 +31,7 @@ library RevenueBuybacksLib {
         returns (BuybacksState sA, BuybacksState sB)
     {
         (bytes32 stateARaw, bytes32 stateBRaw) =
-            rb.sload(bytes32(uint256(uint160(tokenA))), bytes32(uint256(uint160(tokenB))));
+            rb.sload(RevenueBuybacksStorageLayout.stateSlot(tokenA), RevenueBuybacksStorageLayout.stateSlot(tokenB));
         sA = BuybacksState.wrap(stateARaw);
         sB = BuybacksState.wrap(stateBRaw);
     }

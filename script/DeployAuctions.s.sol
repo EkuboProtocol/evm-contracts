@@ -16,7 +16,7 @@ contract DeployAuctions is Script {
         address owner = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
         bytes32 salt = vm.envOr("SALT", bytes32(0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd));
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(0x00000000000014aA86C5d3c41765bb24e11bd701))));
-        ITWAMM twamm = ITWAMM(vm.envOr("TWAMM_ADDRESS", address(0xd4F1060cB9c1A13e1d2d20379b8aa2cF7541eD9b)));
+        ITWAMM twamm = ITWAMM(vm.envOr("TWAMM_ADDRESS", address(0xd47f1B1eDCfEaBb08F6eBd8FC337c27E636C75BA)));
         address boostedFees = vm.envOr("BOOSTED_FEES_ADDRESS", address(0xd4B54d0ca6979Da05F25895E6e269E678ba00f9e));
         string memory auctionsBaseUrl = _envStringOr("AUCTIONS_BASE_URL", "https://prod-api.ekubo.org/auctions/");
 

@@ -7,8 +7,6 @@ import {IOrders} from "../src/interfaces/IOrders.sol";
 import {PositionsRevenueBuybacks} from "../src/PositionsRevenueBuybacks.sol";
 
 contract DeployRevenueBuybacks is Script {
-    error UnrecognizedChainId();
-
     function run() public {
         address owner = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
         bytes32 salt = vm.envOr("SALT", bytes32(0x0));

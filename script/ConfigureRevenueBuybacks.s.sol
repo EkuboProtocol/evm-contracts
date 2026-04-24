@@ -11,7 +11,7 @@ contract ConfigureRevenueBuybacks is Script {
 
     function run() public {
         IRevenueBuybacks buybacks = IRevenueBuybacks(payable(vm.envAddress("BUYBACKS_ADDRESS")));
-        address token = vm.envAddress("TOKEN");
+        address token = vm.envAddress("SELL_TOKEN");
         uint32 targetOrderDuration = uint32(vm.envOr("TARGET_ORDER_DURATION", uint256(DEFAULT_TARGET_ORDER_DURATION)));
         uint32 minOrderDuration = uint32(vm.envOr("MIN_ORDER_DURATION", uint256(DEFAULT_MIN_ORDER_DURATION)));
         uint64 fee = uint64(vm.envOr("FEE", uint256(DEFAULT_FEE)));

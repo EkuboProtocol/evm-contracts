@@ -127,7 +127,7 @@ contract DeployAll is Script {
             abi.encodePacked(type(TWAMM).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
             twammCallPoints(),
-            0xd4F1060cB9c1A13e1d2d20379b8aa2cF7541eD9b,
+            0xd47f1B1eDCfEaBb08F6eBd8FC337c27E636C75BA,
             "TWAMM"
         );
         TWAMM twamm = TWAMM(twammAddress);
@@ -160,7 +160,7 @@ contract DeployAll is Script {
         deployIfNeeded(
             abi.encodePacked(type(TWAMMDataFetcher).creationCode, abi.encode(core, twamm)),
             DEPLOYMENT_SALT,
-            0xc07E5B80750247C8b5d7234a9C79dFC58785392b,
+            0xDEFe25E56a7891CC4c0E1401879f3dC81F1Cc4A6,
             "TWAMMDataFetcher"
         );
         deployIfNeeded(
@@ -211,7 +211,7 @@ contract DeployAll is Script {
         deployIfNeeded(
             abi.encodePacked(type(BoostedFeesDataFetcher).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0x7A2fF5819Dc71Bb99133a97c38dA512E60c30475,
+            0x50DabB063ab0B62a33abf49f1357f0981cec241F,
             "BoostedFeesDataFetcher"
         );
 

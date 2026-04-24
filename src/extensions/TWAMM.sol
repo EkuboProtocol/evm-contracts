@@ -23,7 +23,6 @@ import {OrderState, createOrderState} from "../types/orderState.sol";
 import {searchForNextInitializedTime, flipTime} from "../math/timeBitmap.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
-import {computeFee} from "../math/fee.sol";
 import {
     computeNextSqrtRatio,
     computeAmountFromSaleRate,
@@ -323,25 +322,10 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                     );
                 }
 
-                // user is withdrawing tokens, so they need to pay a fee to the liquidity providers
-                if (amountDelta < 0) {
-                    // negation and downcast will never overflow, since max sale rate times max duration is at most type(uint112).max
-                    uint128 fee = computeFee(uint128(uint256(-amountDelta)), poolKey.config.fee());
-                    if (isToken1) {
-                        CORE.accumulateAsFees(poolKey, 0, fee);
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
-                    } else {
-                        CORE.accumulateAsFees(poolKey, fee, 0);
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
-                    }
-
-                    amountDelta += int128(fee);
+                if (isToken1) {
+                    CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
                 } else {
-                    if (isToken1) {
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), 0, amountDelta);
-                    } else {
-                        CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
-                    }
+                    CORE.updateSavedBalances(poolKey.token0, poolKey.token1, bytes32(0), amountDelta, 0);
                 }
 
                 emit OrderUpdated(owner, salt, orderKey, saleRateDelta);

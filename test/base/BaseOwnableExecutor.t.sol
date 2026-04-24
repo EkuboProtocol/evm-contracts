@@ -49,6 +49,19 @@ contract BaseOwnableExecutorTest is Test {
         assertEq(callTarget.number(), 123);
     }
 
+    function test_call_forwards_value() public {
+        uint256 value = 1 ether;
+        vm.deal(address(executor), value);
+
+        uint256 initialTargetBalance = address(callTarget).balance;
+        bytes memory result = executor.call(address(callTarget), value, abi.encodeCall(CallTarget.setNumber, (123)));
+
+        assertEq(abi.decode(result, (uint256)), 123);
+        assertEq(callTarget.number(), 123);
+        assertEq(address(callTarget).balance, initialTargetBalance + value);
+        assertEq(address(executor).balance, 0);
+    }
+
     function test_call_fails_if_not_owner() public {
         vm.prank(address(0xdeadbeef));
         vm.expectRevert(Ownable.Unauthorized.selector);

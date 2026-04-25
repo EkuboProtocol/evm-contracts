@@ -52,7 +52,7 @@ error DeploymentFailed(string name, address expected);
 error UnexpectedAddress(string name, address expected, address actual);
 
 function deployIfNeeded(bytes memory initCode, bytes32 salt, address expectedAddress, string memory name)
-    returns (address deployed)
+    returns (address deployed, bool didDeploy)
 {
     bytes32 initCodeHash = keccak256(initCode);
     address expected = getCreate2Address(salt, initCodeHash);
@@ -63,7 +63,7 @@ function deployIfNeeded(bytes memory initCode, bytes32 salt, address expectedAdd
 
     if (expected.code.length != 0) {
         console2.log(name, "already deployed at", expected);
-        return expected;
+        return (expected, false);
     }
 
     (bool success,) = DETERMINISTIC_DEPLOYER.call(abi.encodePacked(salt, initCode));
@@ -72,7 +72,7 @@ function deployIfNeeded(bytes memory initCode, bytes32 salt, address expectedAdd
     }
 
     console2.log(name, "deployed at", expected);
-    return expected;
+    return (expected, true);
 }
 
 function deployExtension(
@@ -86,7 +86,7 @@ function deployExtension(
 
     bytes32 initCodeHash = keccak256(initCode);
     salt = findExtensionSalt(startingSalt, initCodeHash, callPoints);
-    deployed = deployIfNeeded(initCode, salt, expectedAddress, name);
+    (deployed,) = deployIfNeeded(initCode, salt, expectedAddress, name);
 }
 
 /// @title DeployAll
@@ -99,11 +99,11 @@ contract DeployAll is Script {
     function run() public {
         vm.startBroadcast();
 
-        Core core = Core(
-            payable(deployIfNeeded(
-                    type(Core).creationCode, DEPLOYMENT_SALT, 0x00000000000014aA86C5d3c41765bb24e11bd701, "Core"
-                ))
+        address coreAddress;
+        (coreAddress,) = deployIfNeeded(
+            type(Core).creationCode, DEPLOYMENT_SALT, 0x00000000000014aA86C5d3c41765bb24e11bd701, "Core"
         );
+        Core core = Core(payable(coreAddress));
 
         (address mevCaptureAddress,) = deployExtension(
             abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core)),
@@ -132,11 +132,11 @@ contract DeployAll is Script {
         );
         TWAMM twamm = TWAMM(twammAddress);
 
-        Incentives incentives = Incentives(
-            deployIfNeeded(
-                type(Incentives).creationCode, DEPLOYMENT_SALT, 0xC52D2656cb8C634263E6A15469588beB9C3Bb738, "Incentives"
-            )
+        address incentivesAddress;
+        (incentivesAddress,) = deployIfNeeded(
+            type(Incentives).creationCode, DEPLOYMENT_SALT, 0xC52D2656cb8C634263E6A15469588beB9C3Bb738, "Incentives"
         );
+        Incentives incentives = Incentives(incentivesAddress);
 
         deployIfNeeded(
             abi.encodePacked(type(TokenWrapperFactory).creationCode, abi.encode(core)),
@@ -181,7 +181,7 @@ contract DeployAll is Script {
             0x305Cf9A34dCb265522780D1D64544d3f7C450407,
             "TokenDataFetcher"
         );
-        address mevCaptureRouter = deployIfNeeded(
+        deployIfNeeded(
             abi.encodePacked(type(MEVCaptureRouter).creationCode, abi.encode(core, address(mevCapture))),
             MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT,
             0xd26f20001a72a18C002b00e6710000d68700ce00,

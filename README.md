@@ -84,3 +84,11 @@ See the [full license](./LICENSE).
 - **Documentation**: [docs.ekubo.org](https://docs.ekubo.org)
 - **Discord**: [discord.ekubo.org](https://discord.ekubo.org)
 - **Twitter**: [@EkuboProtocol](https://x.com/EkuboProtocol)
+
+## 💰 Bounty Contribution
+
+- **Task:** Pre-contest security triage for your next audit cycle
+- **Reward:** $1500
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+

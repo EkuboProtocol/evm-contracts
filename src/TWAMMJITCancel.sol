@@ -19,10 +19,7 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {PoolState} from "./types/poolState.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-
-interface IERC721Owner {
-    function ownerOf(uint256 id) external view returns (address owner);
-}
+import {IERC721} from "forge-std/interfaces/IERC721.sol";
 
 /// @notice Helper for reproducing the v3.1.0 TWAMM cancellation fee JIT-liquidity issue.
 contract TWAMMJITCancel is BaseLocker, UsesCore {
@@ -31,8 +28,8 @@ contract TWAMMJITCancel is BaseLocker, UsesCore {
 
     error NotOrderOwner(address caller, address owner, uint256 id);
 
-    IOrders public immutable ORDERS;
-    ITWAMM public immutable TWAMM;
+    IOrders private immutable ORDERS;
+    ITWAMM private immutable TWAMM;
 
     constructor(ICore core, IOrders orders, ITWAMM twamm) BaseLocker(core) UsesCore(core) {
         ORDERS = orders;
@@ -41,12 +38,12 @@ contract TWAMMJITCancel is BaseLocker, UsesCore {
 
     /// @notice Adds overwhelming same-lock liquidity, collects proceeds, decreases sale rate, then removes the liquidity.
     /// @dev The Orders NFT must approve this contract for `id`.
-    function collectProceedsAndDecreaseSaleRate(uint256 id, OrderKey memory orderKey)
+    function collectProceedsAndStopOrder(uint256 id, OrderKey memory orderKey)
         external
         payable
         returns (uint128 amount0, uint128 amount1)
     {
-        address owner = IERC721Owner(address(ORDERS)).ownerOf(id);
+        address owner = IERC721(address(ORDERS)).ownerOf(id);
         if (owner != msg.sender) revert NotOrderOwner(msg.sender, owner, id);
 
         lock(abi.encode(id, orderKey));

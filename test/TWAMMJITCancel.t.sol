@@ -42,7 +42,7 @@ contract TWAMMJITCancelTest is BaseOrdersTest {
 
         advanceTime(128);
 
-        (uint128 amount0, uint128 amount1) = helper.collectProceedsAndDecreaseSaleRate({id: id, orderKey: key});
+        (uint128 amount0, uint128 amount1) = helper.collectProceedsAndStopOrder({id: id, orderKey: key});
 
         uint128 remainingSellAmount = uint128(computeAmountFromSaleRate(saleRate, 128, false));
         uint128 cancellationFee = computeFee(remainingSellAmount, fee);
@@ -76,6 +76,6 @@ contract TWAMMJITCancelTest is BaseOrdersTest {
         address caller = address(0x1234);
         vm.expectRevert(abi.encodeWithSelector(TWAMMJITCancel.NotOrderOwner.selector, caller, address(this), id));
         vm.prank(caller);
-        helper.collectProceedsAndDecreaseSaleRate({id: id, orderKey: key});
+        helper.collectProceedsAndStopOrder({id: id, orderKey: key});
     }
 }

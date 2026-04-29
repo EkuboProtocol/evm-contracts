@@ -142,4 +142,6 @@ contract TWAMMJITCancel is BaseLocker, UsesCore {
             if (amount != 0) SafeTransferLib.safeTransfer(token, recipient, amount);
         }
     }
+
+    receive() external payable {}
 }

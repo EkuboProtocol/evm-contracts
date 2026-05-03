@@ -309,8 +309,9 @@ contract TWAMMStorageLayoutTest is Test {
         );
         bytes32 slot2 = StorageSlot.unwrap(
             TWAMMStorageLayout.twammPoolStateSlot(
-                PoolKey({token0: owner, token1: address(salt), config: PoolConfig.wrap(OrderId.unwrap(orderId))})
-                    .toPoolId()
+                PoolKey({
+                    token0: owner, token1: address(salt), config: PoolConfig.wrap(OrderId.unwrap(orderId))
+                }).toPoolId()
             )
         );
 

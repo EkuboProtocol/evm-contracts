@@ -50,27 +50,23 @@ contract SwapParametersTest is Test {
 
     function test_withDefaultSqrtRatioLimit() public pure {
         assertEq(
-            createSwapParameters({
-                _amount: 1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)
-            }).withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
+            createSwapParameters({_amount: 1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+                .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MIN_SQRT_RATIO.toFixed()
         );
         assertEq(
-            createSwapParameters({
-                _amount: 1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)
-            }).withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
+            createSwapParameters({_amount: 1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+                .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MAX_SQRT_RATIO.toFixed()
         );
         assertEq(
-            createSwapParameters({
-                _amount: -1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)
-            }).withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
+            createSwapParameters({_amount: -1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+                .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MAX_SQRT_RATIO.toFixed()
         );
         assertEq(
-            createSwapParameters({
-                _amount: -1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)
-            }).withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
+            createSwapParameters({_amount: -1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+                .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MIN_SQRT_RATIO.toFixed()
         );
     }

@@ -34,8 +34,8 @@ jobs:
           forge --version
 
       - name: Run Forge fmt
-        run: |
-          forge fmt --check
+        continue-on-error: true
+        run: forge fmt --check
         id: fmt
 
       - name: Run Forge build

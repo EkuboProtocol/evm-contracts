@@ -37,11 +37,6 @@ interface IRevenueBuybacks is IExposedStorage {
     /// @dev This is typically the protocol's governance or utility token
     function BUY_TOKEN() external view returns (address);
 
-    /// @notice Approves the Orders contract to spend unlimited amounts of a token
-    /// @dev Must be called at least once for each revenue token before creating buyback orders
-    /// @param token The token to approve for spending by the Orders contract
-    function approveMax(address token) external;
-
     /// @notice Collects the proceeds from a completed buyback order
     /// @dev Can be called by anyone at any time to collect proceeds from orders that have finished
     /// @param token The revenue token that was sold in the order

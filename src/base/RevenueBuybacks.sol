@@ -40,11 +40,6 @@ abstract contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnab
     }
 
     /// @inheritdoc IRevenueBuybacks
-    function approveMax(address token) external {
-        SafeTransferLib.safeApproveWithRetry(token, address(ORDERS), type(uint256).max);
-    }
-
-    /// @inheritdoc IRevenueBuybacks
     function collect(address token, uint64 fee, uint64 endTime) external returns (uint128 proceeds) {
         proceeds = ORDERS.collectProceeds(NFT_ID, _createOrderKey(token, fee, 0, endTime), owner());
     }
@@ -100,9 +95,19 @@ abstract contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnab
             }
 
             if (amountToSpend != 0) {
+                uint128 amount = uint128(amountToSpend);
+
+                if (!isEth) {
+                    SafeTransferLib.safeApprove(token, address(ORDERS), amount);
+                }
+
                 saleRate = ORDERS.increaseSellAmount{value: isEth ? amountToSpend : 0}(
-                    NFT_ID, _createOrderKey(token, state.fee(), 0, endTime), uint128(amountToSpend), type(uint112).max
+                    NFT_ID, _createOrderKey(token, state.fee(), 0, endTime), amount, type(uint112).max
                 );
+
+                if (!isEth) {
+                    SafeTransferLib.safeApprove(token, address(ORDERS), 0);
+                }
             }
         }
     }

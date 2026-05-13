@@ -58,15 +58,6 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertGt(uint160(address(buybacksToken)), uint160(address(token1)));
     }
 
-    function test_approve_max() public {
-        assertEq(token0.allowance(address(rb), address(orders)), 0);
-        rb.approveMax(address(token0));
-        assertEq(token0.allowance(address(rb), address(orders)), type(uint256).max);
-        // second time no op
-        rb.approveMax(address(token0));
-        assertEq(token0.allowance(address(rb), address(orders)), type(uint256).max);
-    }
-
     function test_call_can_execute_external_operations() public {
         assertEq(token0.allowance(address(rb), address(orders)), 0);
 
@@ -165,11 +156,10 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         buybacksToken.approve(address(positions), 1e18);
         positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
 
-        rb.approveMax(address(token0));
-
         (uint64 endTime, uint112 saleRate) = rb.roll(address(token0));
         assertEq(endTime, 3840);
         assertEq(saleRate, 1118772413649387861422245);
+        assertEq(token0.allowance(address(rb), address(orders)), 0);
 
         advanceTime(1800);
         assertEq(rb.collect(address(token0), poolFee, endTime), 317025440313111544);
@@ -182,6 +172,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         (endTime, saleRate) = rb.roll(address(token0));
         assertEq(endTime, 3840);
         assertEq(saleRate, 210640867876410004904364);
+        assertEq(token0.allowance(address(rb), address(orders)), 0);
     }
 
     function test_roll_eth() public {
@@ -241,10 +232,6 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         address token = isEth ? address(0) : address(token0);
         configure(token, targetOrderDuration, minOrderDuration, poolFee);
-
-        if (!isEth) {
-            rb.approveMax(token);
-        }
 
         donate(token, 1e18);
 

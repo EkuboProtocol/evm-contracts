@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ekubo Extension Authoring"
+  short_description: "Implement new Ekubo Core extensions safely and idiomatically."
+  default_prompt: "Use this skill to design and implement an Ekubo Protocol extension contract, including call points, registration, lock/forwarding flow, and tests."

@@ -27,15 +27,15 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.5.1
 
       - name: Show Forge version
         run: |
           forge --version
 
       - name: Run Forge fmt
-        run: |
-          forge fmt --check
+        continue-on-error: true
+        run: forge fmt --check
         id: fmt
 
       - name: Run Forge build

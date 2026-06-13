@@ -175,8 +175,10 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
         maybeAccumulateRewards(poolKey);
 
-        uint256 realDuration = uint256(endTime) - FixedPointMathLib.max(block.timestamp, startTime);
-        amount = uint224(((realDuration * rewardRate) + type(uint32).max) >> 32);
+        unchecked {
+            uint256 realDuration = uint256(endTime) - FixedPointMathLib.max(block.timestamp, startTime);
+            amount = uint224(((realDuration * rewardRate) + type(uint32).max) >> 32);
+        }
 
         if (amount > type(uint128).max) revert RewardAmountOverflow();
 
@@ -184,16 +186,19 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
         PoolId poolId = poolKey.toPoolId();
 
+        int256 rewardRateDelta = int256(uint256(rewardRate));
         if (startTime > block.timestamp) {
-            _updateTime(poolId, startTime, int256(uint256(rewardRate)));
+            _updateTime(poolId, startTime, rewardRateDelta);
         } else {
             SingleTokenRewardsPoolState state = poolRewardState[poolId];
             poolRewardState[poolId] = createSingleTokenRewardsPoolState(
-                state.lastAccumulated(), uint224(_addSaleRate(state.rewardRate(), int256(uint256(rewardRate))))
+                state.lastAccumulated(), uint224(_addSaleRate(state.rewardRate(), rewardRateDelta))
             );
         }
 
-        _updateTime(poolId, endTime, -int256(uint256(rewardRate)));
+        unchecked {
+            _updateTime(poolId, endTime, -rewardRateDelta);
+        }
 
         emit PoolRewarded(poolId, startTime, endTime, rewardRate, amount);
     }
@@ -206,7 +211,9 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
             uint128 liquidity = CORE.poolState(poolId).liquidity();
             _updateRewardSavedBalance(int256(uint256(amount)));
             if (liquidity != 0) {
-                rewardsGlobalPerLiquidity[poolId] += (uint256(amount) << 128) / liquidity;
+                unchecked {
+                    rewardsGlobalPerLiquidity[poolId] += (uint256(amount) << 128) / liquidity;
+                }
             }
         }
 
@@ -281,7 +288,9 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
         if (amount != 0) {
             uint128 amountUint128 = uint128(amount);
-            _updateRewardSavedBalance(-int256(uint256(amountUint128)));
+            unchecked {
+                _updateRewardSavedBalance(-int256(uint256(amountUint128)));
+            }
             CORE.withdraw(rewardToken, recipient, amountUint128);
         }
 
@@ -385,12 +394,16 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
     }
 
     function _addSaleRate(uint256 saleRate, int256 delta) private pure returns (uint256 next) {
-        next = uint256(int256(saleRate) + delta);
+        unchecked {
+            next = uint256(int256(saleRate) + delta);
+        }
         if (next > type(uint224).max) revert MaxRateDeltaPerTime();
     }
 
     function _addConstrainRateDelta(int256 rateDelta, int256 change) private pure returns (int256 next) {
-        next = rateDelta + change;
+        unchecked {
+            next = rateDelta + change;
+        }
 
         if (FixedPointMathLib.abs(next) > MAX_ABS_VALUE_REWARD_RATE_DELTA) {
             revert MaxRateDeltaPerTime();
@@ -410,7 +423,9 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
     function _flipTime(PoolId poolId, uint256 time) private {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
-        initializedTimeBitmap[poolId][word] ^= uint256(1) << index;
+        unchecked {
+            initializedTimeBitmap[poolId][word] ^= uint256(1) << index;
+        }
     }
 
     function _findNextInitializedTime(PoolId poolId, uint256 fromTime)

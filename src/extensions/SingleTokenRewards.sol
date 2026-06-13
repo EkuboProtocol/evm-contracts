@@ -2,7 +2,6 @@
 pragma solidity =0.8.33;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
@@ -11,9 +10,10 @@ import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {ISingleTokenRewards} from "../interfaces/extensions/ISingleTokenRewards.sol";
 import {
     SINGLE_TOKEN_REWARDS_ADD_REWARDS,
-    SINGLE_TOKEN_REWARDS_CLAIM_TO_OWNER,
-    SINGLE_TOKEN_REWARDS_CLAIM_TO_RECIPIENT
+    SINGLE_TOKEN_REWARDS_CLAIM_TO_RECIPIENT,
+    SINGLE_TOKEN_REWARDS_DONATE_REWARDS
 } from "../libraries/SingleTokenRewardsLib.sol";
+import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
 import {Bitmap} from "../types/bitmap.sol";
@@ -22,7 +22,9 @@ import {Locker} from "../types/locker.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
+import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {SingleTokenRewardsPoolState, createSingleTokenRewardsPoolState} from "../types/singleTokenRewardsPoolState.sol";
+import {PoolState} from "../types/poolState.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {bitmapWordAndIndexToTime, timeToBitmapWordAndIndex} from "../math/timeBitmap.sol";
@@ -34,7 +36,7 @@ function singleTokenRewardsCallPoints() pure returns (CallPoints memory) {
         beforeInitializePool: false,
         afterInitializePool: false,
         beforeSwap: true,
-        afterSwap: false,
+        afterSwap: true,
         beforeUpdatePosition: true,
         afterUpdatePosition: false,
         beforeCollectFees: false,
@@ -44,13 +46,15 @@ function singleTokenRewardsCallPoints() pure returns (CallPoints memory) {
 
 contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee {
     using CoreLib for *;
+    using FlashAccountantLib for *;
 
     /// @inheritdoc ISingleTokenRewards
     address public immutable rewardToken;
 
     mapping(PoolId => SingleTokenRewardsPoolState) public poolRewardState;
-    mapping(PoolId => uint256) public rewardsPerLiquidityGlobal;
-    mapping(PoolId => mapping(address => mapping(PositionId => uint256))) public positionRewards;
+    mapping(PoolId => uint256) public rewardsGlobalPerLiquidity;
+    mapping(PoolId => mapping(int32 => uint256)) public tickRewardsOutsidePerLiquidity;
+    mapping(PoolId => mapping(address => mapping(PositionId => uint256))) public positionRewardsSnapshotPerLiquidity;
 
     mapping(PoolId => mapping(uint256 => uint256)) private initializedTimeBitmap;
     mapping(PoolId => mapping(uint256 => int256)) public rewardRateDeltaAtTime;
@@ -69,7 +73,52 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         override(BaseExtension, IExtension)
         onlyCore
     {
+        PoolId poolId = poolKey.toPoolId();
         maybeAccumulateRewards(poolKey);
+        _storeTickBeforeSwap(poolId, CORE.poolState(poolId).tick());
+    }
+
+    /// @inheritdoc IExtension
+    function afterSwap(Locker, PoolKey memory poolKey, SwapParameters params, PoolBalanceUpdate, PoolState stateAfter)
+        external
+        override(BaseExtension, IExtension)
+        onlyCore
+    {
+        if (poolKey.config.isStableswap()) return;
+
+        PoolId poolId = poolKey.toPoolId();
+        int32 tickBefore = _loadTickBeforeSwap(poolId);
+        int32 tickAfter = stateAfter.tick();
+        if (tickBefore == tickAfter) return;
+
+        uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
+        uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
+        uint256 skipAhead = params.skipAhead();
+
+        if (tickAfter > tickBefore) {
+            int32 tick = tickBefore;
+            while (true) {
+                bool initialized;
+                (tick, initialized) = CORE.nextInitializedTick(poolId, tick, tickSpacing, skipAhead);
+                if (!initialized || tick > tickAfter) break;
+                unchecked {
+                    tickRewardsOutsidePerLiquidity[poolId][tick] =
+                        rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][tick];
+                }
+            }
+        } else {
+            int32 tick = tickBefore;
+            while (true) {
+                bool initialized;
+                (tick, initialized) = CORE.prevInitializedTick(poolId, tick, tickSpacing, skipAhead);
+                if (!initialized || tick <= tickAfter) break;
+                unchecked {
+                    tickRewardsOutsidePerLiquidity[poolId][tick] =
+                        rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][tick];
+                    tick--;
+                }
+            }
+        }
     }
 
     /// @inheritdoc IExtension
@@ -86,23 +135,33 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
         if (liquidityDelta != 0) {
             uint128 liquidityNext = addLiquidityDelta(liquidity, liquidityDelta);
-            uint256 _rewardsPerLiquidityGlobal = rewardsPerLiquidityGlobal[poolId];
-
-            uint256 rewardsPerLiquidityLast = positionRewards[poolId][owner][positionId];
+            uint256 rewardsInsidePerLiquidity =
+                _getRewardsInsidePerLiquidity(poolId, poolKey, positionId.tickLower(), positionId.tickUpper());
+            uint256 positionRewardsSnapshotPerLiquidity_ =
+                positionRewardsSnapshotPerLiquidity[poolId][owner][positionId];
+            uint256 amount =
+                _positionRewards(positionRewardsSnapshotPerLiquidity_, rewardsInsidePerLiquidity, liquidity);
 
             if (liquidityNext == 0) {
-                positionRewards[poolId][owner][positionId] = 0;
+                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickLower(), liquidityDelta);
+                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickUpper(), liquidityDelta);
+
+                positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = 0;
             } else {
-                uint256 amount = _positionRewards(rewardsPerLiquidityLast, _rewardsPerLiquidityGlobal, liquidity);
+                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickLower(), liquidityDelta);
+                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickUpper(), liquidityDelta);
+
+                uint256 rewardsInsideNextPerLiquidity =
+                    _getRewardsInsidePerLiquidity(poolId, poolKey, positionId.tickLower(), positionId.tickUpper());
                 unchecked {
-                    positionRewards[poolId][owner][positionId] =
-                        _rewardsPerLiquidityGlobal - ((amount << 128) / liquidityNext);
+                    positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] =
+                        rewardsInsideNextPerLiquidity - ((amount << 128) / liquidityNext);
                 }
             }
         }
     }
 
-    function _addRewards(address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate)
+    function _addRewards(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate)
         private
         returns (uint224 amount)
     {
@@ -119,9 +178,9 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         uint256 realDuration = uint256(endTime) - FixedPointMathLib.max(block.timestamp, startTime);
         amount = uint224(((realDuration * rewardRate) + type(uint32).max) >> 32);
 
-        if (amount != 0) {
-            SafeTransferLib.safeTransferFrom(rewardToken, payer, address(this), amount);
-        }
+        if (amount > type(uint128).max) revert RewardAmountOverflow();
+
+        if (amount != 0) _updateRewardSavedBalance(int256(uint256(amount)));
 
         PoolId poolId = poolKey.toPoolId();
 
@@ -137,6 +196,22 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         _updateTime(poolId, endTime, -int256(uint256(rewardRate)));
 
         emit PoolRewarded(poolId, startTime, endTime, rewardRate, amount);
+    }
+
+    function _donateRewards(PoolKey memory poolKey, uint128 amount) private returns (uint128) {
+        maybeAccumulateRewards(poolKey);
+
+        PoolId poolId = poolKey.toPoolId();
+        if (amount != 0) {
+            uint128 liquidity = CORE.poolState(poolId).liquidity();
+            _updateRewardSavedBalance(int256(uint256(amount)));
+            if (liquidity != 0) {
+                rewardsGlobalPerLiquidity[poolId] += (uint256(amount) << 128) / liquidity;
+            }
+        }
+
+        emit RewardsDonated(poolId, amount);
+        return amount;
     }
 
     /// @inheritdoc ISingleTokenRewards
@@ -179,35 +254,35 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
             uint128 liquidity = CORE.poolState(poolId).liquidity();
             if (rewardsAccrued != 0 && liquidity != 0) {
-                rewardsPerLiquidityGlobal[poolId] += (rewardsAccrued << 128) / liquidity;
+                rewardsGlobalPerLiquidity[poolId] += (rewardsAccrued << 128) / liquidity;
             }
 
             poolRewardState[poolId] = createSingleTokenRewardsPoolState(uint32(block.timestamp), uint224(rewardRate));
         }
     }
 
-    function _claimRewards(
-        PoolKey memory poolKey,
-        address caller,
-        address owner,
-        PositionId positionId,
-        address recipient
-    ) private returns (uint256 amount) {
-        if (recipient != owner && caller != owner) revert PositionOwnerOnly();
-
+    function _claimRewards(PoolKey memory poolKey, address owner, PositionId positionId, address recipient)
+        private
+        returns (uint256 amount)
+    {
         maybeAccumulateRewards(poolKey);
 
         PoolId poolId = poolKey.toPoolId();
         uint128 liquidity = CORE.poolPositions(poolId, owner, positionId).liquidity;
-        uint256 rewardsPerLiquidityLast = positionRewards[poolId][owner][positionId];
+        uint256 positionRewardsSnapshotPerLiquidity_ = positionRewardsSnapshotPerLiquidity[poolId][owner][positionId];
 
-        uint256 _rewardsPerLiquidityGlobal = rewardsPerLiquidityGlobal[poolId];
-        amount = _positionRewards(rewardsPerLiquidityLast, _rewardsPerLiquidityGlobal, liquidity);
+        uint256 rewardsInsidePerLiquidity =
+            _getRewardsInsidePerLiquidity(poolId, poolKey, positionId.tickLower(), positionId.tickUpper());
+        amount = _positionRewards(positionRewardsSnapshotPerLiquidity_, rewardsInsidePerLiquidity, liquidity);
 
-        positionRewards[poolId][owner][positionId] = liquidity == 0 ? 0 : _rewardsPerLiquidityGlobal;
+        positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = liquidity == 0 ? 0 : rewardsInsidePerLiquidity;
+
+        if (amount > type(uint128).max) revert RewardAmountOverflow();
 
         if (amount != 0) {
-            SafeTransferLib.safeTransfer(rewardToken, recipient, amount);
+            uint128 amountUint128 = uint128(amount);
+            _updateRewardSavedBalance(-int256(uint256(amountUint128)));
+            CORE.withdraw(rewardToken, recipient, amountUint128);
         }
 
         emit RewardsClaimed(poolId, owner, positionId, recipient, amount);
@@ -217,35 +292,94 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == SINGLE_TOKEN_REWARDS_ADD_REWARDS) {
-            (, address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
-                abi.decode(data, (uint256, address, PoolKey, uint64, uint64, uint224));
+            (, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
+                abi.decode(data, (uint256, PoolKey, uint64, uint64, uint224));
 
-            result = abi.encode(_addRewards(payer, poolKey, startTime, endTime, rewardRate));
-        } else if (callType == SINGLE_TOKEN_REWARDS_CLAIM_TO_OWNER) {
-            (, PoolKey memory poolKey, address owner, PositionId positionId) =
-                abi.decode(data, (uint256, PoolKey, address, PositionId));
-
-            result = abi.encode(_claimRewards(poolKey, original.addr(), owner, positionId, owner));
+            result = abi.encode(_addRewards(poolKey, startTime, endTime, rewardRate));
         } else if (callType == SINGLE_TOKEN_REWARDS_CLAIM_TO_RECIPIENT) {
             (, PoolKey memory poolKey, PositionId positionId, address recipient) =
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
 
             address owner = original.addr();
-            result = abi.encode(_claimRewards(poolKey, owner, owner, positionId, recipient));
+            result = abi.encode(_claimRewards(poolKey, owner, positionId, recipient));
+        } else if (callType == SINGLE_TOKEN_REWARDS_DONATE_REWARDS) {
+            (, PoolKey memory poolKey, uint128 amount) = abi.decode(data, (uint256, PoolKey, uint128));
+
+            result = abi.encode(_donateRewards(poolKey, amount));
         } else {
             revert();
         }
     }
 
-    function _positionRewards(uint256 rewardsPerLiquidityLast, uint256 _rewardsPerLiquidityGlobal, uint128 liquidity)
+    function _updateRewardSavedBalance(int256 delta) private {
+        CORE.updateSavedBalances(address(0), rewardToken, bytes32(0), 0, delta);
+    }
+
+    function _getRewardsInsidePerLiquidity(PoolId poolId, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         private
-        pure
-        returns (uint256 amount)
+        view
+        returns (uint256 rewardsInsidePerLiquidity)
     {
+        if (poolKey.config.isStableswap()) {
+            return rewardsGlobalPerLiquidity[poolId];
+        }
+
+        int32 tick = CORE.poolState(poolId).tick();
+        uint256 lower = tickRewardsOutsidePerLiquidity[poolId][tickLower];
+        uint256 upper = tickRewardsOutsidePerLiquidity[poolId][tickUpper];
+
+        unchecked {
+            if (tick < tickLower) {
+                rewardsInsidePerLiquidity = lower - upper;
+            } else if (tick < tickUpper) {
+                rewardsInsidePerLiquidity = rewardsGlobalPerLiquidity[poolId] - upper - lower;
+            } else {
+                rewardsInsidePerLiquidity = upper - lower;
+            }
+        }
+    }
+
+    function _updateTickRewardsPerLiquidityOutside(
+        PoolId poolId,
+        PoolKey memory poolKey,
+        int32 tick,
+        int128 liquidityDelta
+    ) private {
+        if (poolKey.config.isStableswap()) return;
+
+        (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
+        uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
+        if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
+            if (liquidityNetNext == 0) {
+                delete tickRewardsOutsidePerLiquidity[poolId][tick];
+            } else if (tick <= CORE.poolState(poolId).tick()) {
+                tickRewardsOutsidePerLiquidity[poolId][tick] = rewardsGlobalPerLiquidity[poolId];
+            }
+        }
+    }
+
+    function _storeTickBeforeSwap(PoolId poolId, int32 tick) private {
+        assembly ("memory-safe") {
+            tstore(poolId, tick)
+        }
+    }
+
+    function _loadTickBeforeSwap(PoolId poolId) private view returns (int32 tick) {
+        assembly ("memory-safe") {
+            tick := signextend(3, tload(poolId))
+        }
+    }
+
+    function _positionRewards(
+        uint256 positionRewardsSnapshotPerLiquidity_,
+        uint256 rewardsInsidePerLiquidity_,
+        uint128 liquidity
+    ) private pure returns (uint256 amount) {
         if (liquidity != 0) {
             unchecked {
-                amount =
-                    FixedPointMathLib.fullMulDivN(_rewardsPerLiquidityGlobal - rewardsPerLiquidityLast, liquidity, 128);
+                amount = FixedPointMathLib.fullMulDivN(
+                    rewardsInsidePerLiquidity_ - positionRewardsSnapshotPerLiquidity_, liquidity, 128
+                );
             }
         }
     }

@@ -8,9 +8,11 @@ import {SingleTokenRewards, singleTokenRewardsCallPoints} from "../../src/extens
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {ISingleTokenRewards} from "../../src/interfaces/extensions/ISingleTokenRewards.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {
     SINGLE_TOKEN_REWARDS_ADD_REWARDS,
-    SINGLE_TOKEN_REWARDS_CLAIM_TO_OWNER,
+    SINGLE_TOKEN_REWARDS_CLAIM_TO_RECIPIENT,
+    SINGLE_TOKEN_REWARDS_DONATE_REWARDS,
     SingleTokenRewardsLib
 } from "../../src/libraries/SingleTokenRewardsLib.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
@@ -18,14 +20,19 @@ import {PoolId} from "../../src/types/poolId.sol";
 import {createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
 import {SingleTokenRewardsPoolState} from "../../src/types/singleTokenRewardsPoolState.sol";
+import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {CallPoints} from "../../src/types/callPoints.sol";
 import {Locker} from "../../src/types/locker.sol";
+import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {UsesCore} from "../../src/base/UsesCore.sol";
 
 contract SingleTokenRewardsForwarder is BaseLocker {
     using SingleTokenRewardsLib for ICore;
+    using FlashAccountantLib for *;
+
+    uint256 private constant CALL_TYPE_UPDATE_POSITION = 100;
 
     ICore private immutable CORE_REF;
 
@@ -43,12 +50,27 @@ contract SingleTokenRewardsForwarder is BaseLocker {
         );
     }
 
-    function claimRewards(PoolKey memory poolKey, address owner, PositionId positionId)
+    function donateRewards(PoolKey memory poolKey, uint128 amount) external returns (uint128 donatedAmount) {
+        donatedAmount =
+            abi.decode(lock(abi.encode(SINGLE_TOKEN_REWARDS_DONATE_REWARDS, msg.sender, poolKey, amount)), (uint128));
+    }
+
+    function claimRewards(PoolKey memory poolKey, PositionId positionId, address recipient)
         external
         returns (uint256 amount)
     {
         amount = abi.decode(
-            lock(abi.encode(SINGLE_TOKEN_REWARDS_CLAIM_TO_OWNER, poolKey, owner, positionId)), (uint256)
+            lock(abi.encode(SINGLE_TOKEN_REWARDS_CLAIM_TO_RECIPIENT, poolKey, positionId, recipient)), (uint256)
+        );
+    }
+
+    function updatePosition(PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
+        external
+        returns (PoolBalanceUpdate balanceUpdate)
+    {
+        balanceUpdate = abi.decode(
+            lock(abi.encode(CALL_TYPE_UPDATE_POSITION, msg.sender, poolKey, positionId, liquidityDelta)),
+            (PoolBalanceUpdate)
         );
     }
 
@@ -58,11 +80,43 @@ contract SingleTokenRewardsForwarder is BaseLocker {
         if (callType == SINGLE_TOKEN_REWARDS_ADD_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
                 abi.decode(data, (uint256, address, PoolKey, uint64, uint64, uint224));
-            result = abi.encode(CORE_REF.addRewards(poolKey, payer, startTime, endTime, rewardRate));
+            uint224 amount = CORE_REF.addRewards(poolKey, startTime, endTime, rewardRate);
+            if (amount != 0) {
+                ACCOUNTANT.payFrom(payer, ISingleTokenRewards(poolKey.config.extension()).rewardToken(), amount);
+            }
+            result = abi.encode(amount);
+        } else if (callType == SINGLE_TOKEN_REWARDS_DONATE_REWARDS) {
+            (, address payer, PoolKey memory poolKey, uint128 amount) =
+                abi.decode(data, (uint256, address, PoolKey, uint128));
+            uint128 donatedAmount = CORE_REF.donateRewards(poolKey, amount);
+            if (donatedAmount != 0) {
+                ACCOUNTANT.payFrom(payer, ISingleTokenRewards(poolKey.config.extension()).rewardToken(), donatedAmount);
+            }
+            result = abi.encode(donatedAmount);
+        } else if (callType == SINGLE_TOKEN_REWARDS_CLAIM_TO_RECIPIENT) {
+            (, PoolKey memory poolKey, PositionId positionId, address recipient) =
+                abi.decode(data, (uint256, PoolKey, PositionId, address));
+            result = abi.encode(CORE_REF.claimRewards(poolKey, positionId, recipient));
         } else {
-            (, PoolKey memory poolKey, address owner, PositionId positionId) =
-                abi.decode(data, (uint256, PoolKey, address, PositionId));
-            result = abi.encode(CORE_REF.claimRewards(poolKey, owner, positionId));
+            (, address payer, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta) =
+                abi.decode(data, (uint256, address, PoolKey, PositionId, int128));
+            PoolBalanceUpdate balanceUpdate = CORE_REF.updatePosition(poolKey, positionId, liquidityDelta);
+            int128 delta0 = balanceUpdate.delta0();
+            int128 delta1 = balanceUpdate.delta1();
+
+            if (delta0 > 0) {
+                ACCOUNTANT.payFrom(payer, poolKey.token0, uint128(delta0));
+            } else if (delta0 < 0) {
+                ACCOUNTANT.withdraw(poolKey.token0, payer, uint128(-delta0));
+            }
+
+            if (delta1 > 0) {
+                ACCOUNTANT.payFrom(payer, poolKey.token1, uint128(delta1));
+            } else if (delta1 < 0) {
+                ACCOUNTANT.withdraw(poolKey.token1, payer, uint128(-delta1));
+            }
+
+            result = abi.encode(balanceUpdate);
         }
     }
 }
@@ -87,11 +141,27 @@ contract SingleTokenRewardsTest is FullTest {
         incentiveToken = new TestToken(address(this));
         rewards = _deploySingleTokenRewards();
         forwarder = new SingleTokenRewardsForwarder(core);
-        incentiveToken.approve(address(rewards), type(uint256).max);
+        incentiveToken.approve(address(core), type(uint256).max);
+        incentiveToken.approve(address(forwarder), type(uint256).max);
+        token0.approve(address(core), type(uint256).max);
+        token0.approve(address(forwarder), type(uint256).max);
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(core), type(uint256).max);
+        token1.approve(address(forwarder), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
     }
 
     function _positionId(uint256 id, int32 tickLower, int32 tickUpper) internal pure returns (PositionId) {
         return createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper});
+    }
+
+    function _createForwarderPosition(PoolKey memory poolKey, uint256 id, int32 tickLower, int32 tickUpper)
+        internal
+        returns (PositionId positionId, uint128 liquidity)
+    {
+        liquidity = 1e18;
+        positionId = _positionId(id, tickLower, tickUpper);
+        forwarder.updatePosition(poolKey, positionId, int128(liquidity));
     }
 
     function test_registersCallPoints() public view {
@@ -116,38 +186,36 @@ contract SingleTokenRewardsTest is FullTest {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
-        (uint256 id,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
-        PositionId positionId = _positionId(id, -100, 100);
+        (PositionId positionId,) = _createForwarderPosition(poolKey, 1, -100, 100);
 
         uint224 amount = forwarder.addRewards({poolKey: poolKey, startTime: 0, endTime: 256, rewardRate: 1 << 32});
         assertEq(amount, 255);
 
         vm.warp(101);
 
-        uint256 claimed = forwarder.claimRewards(poolKey, address(positions), positionId);
+        uint256 balanceBefore = incentiveToken.balanceOf(address(this));
+        uint256 claimed = forwarder.claimRewards(poolKey, positionId, address(this));
 
         assertApproxEqAbs(claimed, 100, 1);
-        assertEq(incentiveToken.balanceOf(address(positions)), claimed);
+        assertEq(incentiveToken.balanceOf(address(this)), balanceBefore + claimed);
     }
 
     function test_latePositionDoesNotReceivePriorRewards() public {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
-        (uint256 firstId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
-        PositionId firstPositionId = _positionId(firstId, -100, 100);
+        (PositionId firstPositionId,) = _createForwarderPosition(poolKey, 1, -100, 100);
 
         forwarder.addRewards({poolKey: poolKey, startTime: 0, endTime: 256, rewardRate: 1 << 32});
 
         vm.warp(101);
 
-        (uint256 secondId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
-        PositionId secondPositionId = _positionId(secondId, -100, 100);
+        (PositionId secondPositionId,) = _createForwarderPosition(poolKey, 2, -100, 100);
 
         vm.warp(201);
 
-        uint256 firstClaimed = forwarder.claimRewards(poolKey, address(positions), firstPositionId);
-        uint256 secondClaimed = forwarder.claimRewards(poolKey, address(positions), secondPositionId);
+        uint256 firstClaimed = forwarder.claimRewards(poolKey, firstPositionId, address(this));
+        uint256 secondClaimed = forwarder.claimRewards(poolKey, secondPositionId, address(this));
 
         assertApproxEqAbs(firstClaimed, 150, 1);
         assertApproxEqAbs(secondClaimed, 50, 1);
@@ -158,16 +226,15 @@ contract SingleTokenRewardsTest is FullTest {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 1e18, 1e18);
-        PositionId positionId = _positionId(id, -100, 100);
+        (PositionId positionId, uint128 liquidity) = _createForwarderPosition(poolKey, 1, -100, 100);
 
         forwarder.addRewards({poolKey: poolKey, startTime: 0, endTime: 256, rewardRate: 1 << 32});
 
         vm.warp(101);
-        positions.withdraw(id, poolKey, -100, 100, liquidity / 2);
+        forwarder.updatePosition(poolKey, positionId, -int128(liquidity / 2));
 
         vm.warp(151);
-        uint256 claimed = forwarder.claimRewards(poolKey, address(positions), positionId);
+        uint256 claimed = forwarder.claimRewards(poolKey, positionId, address(this));
 
         assertApproxEqAbs(claimed, 150, 2);
     }
@@ -176,15 +243,14 @@ contract SingleTokenRewardsTest is FullTest {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 1e18, 1e18);
-        PositionId positionId = _positionId(id, -100, 100);
+        (PositionId positionId, uint128 liquidity) = _createForwarderPosition(poolKey, 1, -100, 100);
 
         forwarder.addRewards({poolKey: poolKey, startTime: 0, endTime: 256, rewardRate: 1 << 32});
 
         vm.warp(101);
-        positions.withdraw(id, poolKey, -100, 100, liquidity);
+        forwarder.updatePosition(poolKey, positionId, -int128(liquidity));
 
-        uint256 claimed = forwarder.claimRewards(poolKey, address(positions), positionId);
+        uint256 claimed = forwarder.claimRewards(poolKey, positionId, address(this));
 
         assertEq(claimed, 0);
     }
@@ -205,12 +271,65 @@ contract SingleTokenRewardsTest is FullTest {
 
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
         PoolId poolId = poolKey.toPoolId();
-        createPosition(poolKey, -100, 100, 1e18, 1e18);
+        _createForwarderPosition(poolKey, 1, -100, 100);
 
         SingleTokenRewardsPoolState state = rewards.poolRewardState(poolId);
 
         assertEq(state.lastAccumulated(), 1);
         assertEq(state.rewardRate(), 0);
-        assertEq(rewards.rewardsPerLiquidityGlobal(poolId), 0);
+        assertEq(rewards.rewardsGlobalPerLiquidity(poolId), 0);
+    }
+
+    function test_donateRewards_immediatelyAccruesForExistingLiquidity() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
+        (PositionId positionId,) = _createForwarderPosition(poolKey, 1, -100, 100);
+
+        uint128 donated = forwarder.donateRewards(poolKey, 100);
+        assertEq(donated, 100);
+
+        uint256 claimed = forwarder.claimRewards(poolKey, positionId, address(this));
+
+        assertApproxEqAbs(claimed, 100, 1);
+    }
+
+    function test_donateRewards_onlyAccruesToInRangeLiquidityAfterSwap() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
+        (PositionId lowPositionId,) = _createForwarderPosition(poolKey, 1, -100, 100);
+        (PositionId highPositionId,) = _createForwarderPosition(poolKey, 2, 100, 300);
+
+        forwarder.donateRewards(poolKey, 100);
+
+        router.swapAllowPartialFill({
+            poolKey: poolKey,
+            isToken1: false,
+            amount: type(int128).min,
+            sqrtRatioLimit: tickToSqrtRatio(200),
+            skipAhead: 0,
+            recipient: address(this)
+        });
+
+        forwarder.donateRewards(poolKey, 100);
+
+        uint256 lowClaimed = forwarder.claimRewards(poolKey, lowPositionId, address(this));
+        uint256 highClaimed = forwarder.claimRewards(poolKey, highPositionId, address(this));
+
+        assertApproxEqAbs(lowClaimed, 100, 1);
+        assertApproxEqAbs(highClaimed, 100, 1);
+    }
+
+    function test_donateRewards_burnsWhenNoLiquidity() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
+        PoolId poolId = poolKey.toPoolId();
+
+        uint128 donated = forwarder.donateRewards(poolKey, 100);
+
+        assertEq(donated, 100);
+        assertEq(rewards.rewardsGlobalPerLiquidity(poolId), 0);
     }
 }

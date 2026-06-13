@@ -19,6 +19,11 @@ interface ISingleTokenRewards is IExtension, IForwardee {
     /// @param amount Amount of reward token funded.
     event PoolRewarded(PoolId poolId, uint64 startTime, uint64 endTime, uint224 rewardRate, uint224 amount);
 
+    /// @notice Emitted when rewards are donated immediately to pool liquidity.
+    /// @param poolId Identifier of the pool.
+    /// @param amount Amount of reward token donated.
+    event RewardsDonated(PoolId poolId, uint128 amount);
+
     /// @notice Emitted when rewards are claimed for a position.
     /// @param poolId Identifier of the pool.
     /// @param owner Core position owner.
@@ -33,8 +38,8 @@ interface ISingleTokenRewards is IExtension, IForwardee {
     error PoolNotInitialized();
     /// @notice Reverts when incentive rates exceed permitted bounds.
     error MaxRateDeltaPerTime();
-    /// @notice Reverts when a non-owner tries to claim rewards to a recipient other than the owner.
-    error PositionOwnerOnly();
+    /// @notice Reverts when an amount cannot fit in Core saved balances.
+    error RewardAmountOverflow();
 
     /// @notice Reward token distributed by this extension.
     function rewardToken() external view returns (address);

@@ -393,9 +393,9 @@ function _updateRewardSavedBalance(int256 delta) private {
         }
     }
 
-    function _addSaleRate(uint256 saleRate, int256 delta) private pure returns (uint256 next) {
+function _addSaleRate(uint256 rewardRate, int256 delta) private pure returns (uint256 next) {
         unchecked {
-            next = uint256(int256(saleRate) + delta);
+            next = uint256(int256(rewardRate) + delta);
         }
         if (next > type(uint224).max) revert MaxRateDeltaPerTime();
     }

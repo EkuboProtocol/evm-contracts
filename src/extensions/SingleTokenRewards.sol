@@ -320,8 +320,8 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         }
     }
 
-    function _updateRewardSavedBalance(int256 delta) private {
-        CORE.updateSavedBalances(address(0), rewardToken, bytes32(0), 0, delta);
+function _updateRewardSavedBalance(int256 delta) private {
+        CORE.updateSavedBalances(rewardToken, address(type(uint160).max), bytes32(0), delta, 0);
     }
 
     function _getRewardsInsidePerLiquidity(PoolId poolId, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)

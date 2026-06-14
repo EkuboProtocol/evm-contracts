@@ -358,8 +358,8 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
             if (liquidityNetNext == 0) {
                 delete tickRewardsOutsidePerLiquidity[poolId][tick];
-            } else if (tick <= CORE.poolState(poolId).tick()) {
-                tickRewardsOutsidePerLiquidity[poolId][tick] = rewardsGlobalPerLiquidity[poolId];
+            } else {
+                tickRewardsOutsidePerLiquidity[poolId][tick] = 1;
             }
         }
     }

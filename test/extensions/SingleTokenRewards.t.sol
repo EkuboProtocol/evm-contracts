@@ -222,6 +222,27 @@ contract SingleTokenRewardsTest is FullTest {
         assertApproxEqAbs(firstClaimed + secondClaimed, 200, 2);
     }
 
+    function test_updatePosition_initializesTickRewardsOutsideLikeCore() public {
+        vm.warp(1);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(rewards)});
+        PoolId poolId = poolKey.toPoolId();
+        _createForwarderPosition(poolKey, 1, -200, 200);
+
+        forwarder.addRewards({poolKey: poolKey, startTime: 0, endTime: 256, rewardRate: 1 << 32});
+
+        vm.warp(101);
+        (PositionId positionId, uint128 liquidity) = _createForwarderPosition(poolKey, 2, -100, 100);
+
+        assertEq(rewards.tickRewardsOutsidePerLiquidity(poolId, -100), 1);
+        assertEq(rewards.tickRewardsOutsidePerLiquidity(poolId, 100), 1);
+
+        forwarder.updatePosition(poolKey, positionId, -int128(liquidity));
+
+        assertEq(rewards.tickRewardsOutsidePerLiquidity(poolId, -100), 0);
+        assertEq(rewards.tickRewardsOutsidePerLiquidity(poolId, 100), 0);
+    }
+
     function test_beforeUpdatePositionSettlesSnapshotBeforeLiquidityChange() public {
         vm.warp(1);
 

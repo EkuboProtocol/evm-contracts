@@ -129,9 +129,16 @@ contract SingleTokenRewardsTest is FullTest {
     TestToken internal incentiveToken;
 
     function _deploySingleTokenRewards() internal returns (SingleTokenRewards deployed) {
+        deployed = _deploySingleTokenRewards(address(0), address(0));
+    }
+
+    function _deploySingleTokenRewards(address allowedLocker, address target)
+        internal
+        returns (SingleTokenRewards deployed)
+    {
         CallPoints memory cp = singleTokenRewardsCallPoints();
-        address target = address(uint160(cp.toUint8()) << 152);
-        deployCodeTo("SingleTokenRewards.sol", abi.encode(core, address(incentiveToken)), target);
+        if (target == address(0)) target = address(uint160(cp.toUint8()) << 152);
+        deployCodeTo("SingleTokenRewards.sol", abi.encode(core, address(incentiveToken), allowedLocker), target);
         deployed = SingleTokenRewards(target);
     }
 
@@ -167,6 +174,7 @@ contract SingleTokenRewardsTest is FullTest {
     function test_registersCallPoints() public view {
         assertTrue(core.isExtensionRegistered(address(rewards)));
         assertEq(rewards.rewardToken(), address(incentiveToken));
+        assertEq(rewards.allowedLocker(), address(0));
     }
 
     function test_hook_revertsWhenCalledDirectly() public {
@@ -352,5 +360,31 @@ contract SingleTokenRewardsTest is FullTest {
 
         assertEq(donated, 100);
         assertEq(rewards.rewardsGlobalPerLiquidity(poolId), 0);
+    }
+
+    function test_allowedLocker_revertsPositionUpdateForDifferentForwarderButAllowsRewards() public {
+        vm.warp(1);
+
+        SingleTokenRewardsForwarder otherForwarder = new SingleTokenRewardsForwarder(core);
+        incentiveToken.approve(address(otherForwarder), type(uint256).max);
+        token0.approve(address(otherForwarder), type(uint256).max);
+        token1.approve(address(otherForwarder), type(uint256).max);
+
+        CallPoints memory cp = singleTokenRewardsCallPoints();
+        SingleTokenRewards restrictedRewards =
+            _deploySingleTokenRewards(address(forwarder), address((uint160(cp.toUint8()) << 152) | 1));
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(restrictedRewards)});
+        _createForwarderPosition(poolKey, 1, -100, 100);
+
+        otherForwarder.addRewards({poolKey: poolKey, startTime: 0, endTime: 256, rewardRate: 1 << 32});
+        otherForwarder.donateRewards(poolKey, 100);
+
+        PositionId otherPositionId = _positionId(2, -100, 100);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ISingleTokenRewards.UnauthorizedLocker.selector, address(otherForwarder))
+        );
+        otherForwarder.updatePosition(poolKey, otherPositionId, int128(uint128(1e18)));
     }
 }

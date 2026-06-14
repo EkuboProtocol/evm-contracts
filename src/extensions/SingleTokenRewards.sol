@@ -50,6 +50,8 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
     /// @inheritdoc ISingleTokenRewards
     address public immutable rewardToken;
+    /// @inheritdoc ISingleTokenRewards
+    address public immutable allowedLocker;
 
     mapping(PoolId => SingleTokenRewardsPoolState) public poolRewardState;
     mapping(PoolId => uint256) public rewardsGlobalPerLiquidity;
@@ -59,8 +61,9 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
     mapping(PoolId => mapping(uint256 => uint256)) private initializedTimeBitmap;
     mapping(PoolId => mapping(uint256 => int256)) public rewardRateDeltaAtTime;
 
-    constructor(ICore core, address _rewardToken) BaseExtension(core) BaseForwardee(core) {
+    constructor(ICore core, address _rewardToken, address _allowedLocker) BaseExtension(core) BaseForwardee(core) {
         rewardToken = _rewardToken;
+        allowedLocker = _allowedLocker;
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -127,10 +130,12 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         override(BaseExtension, IExtension)
         onlyCore
     {
+        address owner = locker.addr();
+        if (allowedLocker != address(0) && owner != allowedLocker) revert UnauthorizedLocker(owner);
+
         maybeAccumulateRewards(poolKey);
 
         PoolId poolId = poolKey.toPoolId();
-        address owner = locker.addr();
         uint128 liquidity = CORE.poolPositions(poolId, owner, positionId).liquidity;
 
         if (liquidityDelta != 0) {
@@ -306,8 +311,7 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
             (, PoolKey memory poolKey, PositionId positionId, address recipient) =
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
 
-            address owner = original.addr();
-            result = abi.encode(_claimRewards(poolKey, owner, positionId, recipient));
+            result = abi.encode(_claimRewards(poolKey, original.addr(), positionId, recipient));
         } else if (callType == SINGLE_TOKEN_REWARDS_DONATE_REWARDS) {
             (, PoolKey memory poolKey, uint128 amount) = abi.decode(data, (uint256, PoolKey, uint128));
 

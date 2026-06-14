@@ -40,9 +40,14 @@ interface ISingleTokenRewards is IExtension, IForwardee {
     error MaxRateDeltaPerTime();
     /// @notice Reverts when an amount cannot fit in Core saved balances.
     error RewardAmountOverflow();
+    /// @notice Reverts when a position update comes from a locker other than allowedLocker.
+    error UnauthorizedLocker(address locker);
 
     /// @notice Reward token distributed by this extension.
     function rewardToken() external view returns (address);
+
+    /// @notice Optional locker allowed to update reward-eligible positions. Zero means unrestricted.
+    function allowedLocker() external view returns (address);
 
     /// @notice Accrues rewards for a pool to the current timestamp.
     /// @param poolKey The pool key to accrue.

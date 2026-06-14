@@ -142,15 +142,12 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
             uint256 amount =
                 _positionRewards(positionRewardsSnapshotPerLiquidity_, rewardsInsidePerLiquidity, liquidity);
 
-            if (liquidityNext == 0) {
-                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickLower(), liquidityDelta);
-                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickUpper(), liquidityDelta);
+            _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickLower(), liquidityDelta);
+            _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickUpper(), liquidityDelta);
 
+            if (liquidityNext == 0) {
                 positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = 0;
             } else {
-                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickLower(), liquidityDelta);
-                _updateTickRewardsPerLiquidityOutside(poolId, poolKey, positionId.tickUpper(), liquidityDelta);
-
                 uint256 rewardsInsideNextPerLiquidity =
                     _getRewardsInsidePerLiquidity(poolId, poolKey, positionId.tickLower(), positionId.tickUpper());
                 unchecked {
@@ -320,7 +317,7 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         }
     }
 
-function _updateRewardSavedBalance(int256 delta) private {
+    function _updateRewardSavedBalance(int256 delta) private {
         CORE.updateSavedBalances(rewardToken, address(type(uint160).max), bytes32(0), delta, 0);
     }
 
@@ -393,7 +390,7 @@ function _updateRewardSavedBalance(int256 delta) private {
         }
     }
 
-function _addSaleRate(uint256 rewardRate, int256 delta) private pure returns (uint256 next) {
+    function _addSaleRate(uint256 rewardRate, int256 delta) private pure returns (uint256 next) {
         unchecked {
             next = uint256(int256(rewardRate) + delta);
         }

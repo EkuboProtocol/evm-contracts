@@ -1,8 +1,17 @@
 # ve(3,3) Integrated Pool Extension
 
-`Ve33Rewards` is a single pool extension that combines three roles:
+`Ve33Rewards` is a pool extension layered on top of `VeToken`, a self-contained vote-escrow NFT contract.
 
-- vote-escrow locks and pool voting
+`VeToken` owns the lock lifecycle:
+
+- `stakeToken` custody
+- ve NFT mint/burn through `createLock` and `withdrawLock`
+- lock amount/end updates
+- linear voting-power decay over a maximum four-year lock
+
+`Ve33Rewards` adds the pool-specific ve(3,3) behavior:
+
+- pool voting
 - voter-directed swap-fee collection
 - single-token LP rewards
 
@@ -16,7 +25,7 @@ The extension enables these Core call points:
 - `beforeSwap`
 - `beforeUpdatePosition`
 
-Pool initialization validates that the pool is concentrated liquidity and that `poolKey.config.fee() == 0`. The extension stores the pool's default swap fee during initialization. That default is derived from the pool tick spacing with `defaultFeeForTickSpacing(poolKey.config.concentratedTickSpacing())`.
+Pool initialization validates that `poolKey.config.fee() == 0`. The extension stores the pool's default swap fee during initialization. Concentrated pools derive that default from tick spacing with `defaultFeeForTickSpacing(poolKey.config.concentratedTickSpacing())`; stableswap pools derive it from amplification with `defaultFeeForStableswapAmplification(poolKey.config.stableswapAmplification())`.
 
 Direct Core swaps are rejected in `beforeSwap`. Swaps must be made through `Core.forward` to the extension with `VE33_SWAP`.
 
@@ -57,9 +66,13 @@ Each pool tracks:
 
 When votes change, the active pool fee is recomputed as `feeWeightSum / weight`. If a pool has no active votes, it falls back to its default swap fee.
 
+## Lock Updates And Votes
+
+`Ve33Rewards` overrides `VeToken._beforeLockUpdate` to clear a ve NFT's pool votes before its amount, end time, or ownership status changes. This keeps vote weights, weighted fee selection, fee-growth snapshots, and vote-second accounting synchronized with the lock's current voting power.
+
 ## Forwarded Swap Accounting
 
-The forwarded swap handler first normalizes the default sqrt-ratio limit with `withDefaultSqrtRatioLimit`.
+The forwarded swap handler uses the supplied `SwapParameters` as-is. Routers and other callers are responsible for setting default sqrt-ratio limits before forwarding swaps.
 
 For exact-input swaps:
 
@@ -89,13 +102,13 @@ The extension does not call `CORE.accumulateAsFees`, so these swap fees do not e
 
 Voter fees use fee-growth accounting over each pool's active vote weight. Each ve position snapshots `feeGrowth0X128` and `feeGrowth1X128` for every voted pool.
 
-`claimPoolFees` can be called by an authorized ve NFT operator. It locks the extension, accrues the caller's fee growth, subtracts the claimed amount from the extension's saved balance, and withdraws token0/token1 to `ownerOf(veId)`.
+`claimPoolFees` can be called by an authorized ve NFT operator. It locks the extension, accrues the caller's fee growth, subtracts the claimed amount from the extension's saved balance, and withdraws token0/token1 to the current `VeToken.ownerOf(veId)`.
 
 Because voter fee growth is divided by active vote weight, claims can leave small rounding dust in the extension saved balance.
 
 ## LP Reward Token
 
-LPs only earn the immutable reward token, which is `stakeToken` in this integrated contract. Reward accounting uses reward-per-liquidity accumulators:
+LPs only earn the immutable reward token, which is the same `stakeToken` locked by `VeToken`. Reward accounting uses reward-per-liquidity accumulators:
 
 - `poolRewardState`
 - `rewardsGlobalPerLiquidity`

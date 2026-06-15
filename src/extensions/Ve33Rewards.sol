@@ -8,11 +8,11 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {BaseLocker} from "../base/BaseLocker.sol";
-import {BaseNonfungibleToken} from "../base/BaseNonfungibleToken.sol";
 import {PayableMulticallable} from "../base/PayableMulticallable.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
+import {VeToken} from "../VeToken.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
@@ -98,18 +98,10 @@ function ve33RewardsCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
-contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibleToken, PayableMulticallable {
+contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, PayableMulticallable {
     using CoreLib for *;
     using FlashAccountantLib for *;
-    uint256 public constant MAX_LOCK_DURATION = 4 * 365 days;
     uint256 public constant EMISSION_DURATION = 7 days;
-
-    address public immutable stakeToken;
-
-    struct Lock {
-        uint128 amount;
-        uint64 end;
-    }
 
     struct PoolVoteState {
         uint256 weight;
@@ -131,7 +123,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         uint64 swapFee;
     }
 
-    mapping(uint256 => Lock) public locks;
     mapping(uint256 => PoolId[]) public votedPools;
     mapping(uint256 => mapping(PoolId => VePoolPosition)) public vePoolPositions;
     mapping(PoolId => PoolVoteState) public poolVoteStates;
@@ -143,7 +134,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
     mapping(PoolId => mapping(uint256 => uint256)) private initializedTimeBitmap;
     mapping(PoolId => mapping(uint256 => int256)) public rewardRateDeltaAtTime;
 
-    uint256 public nextVeId = 1;
     uint256 public totalVoteWeight;
     uint256 public totalVoteSeconds;
     uint64 public totalVoteSecondsLastAccrued;
@@ -156,10 +146,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
     uint64[] public emissionEventTimes;
     mapping(uint64 => uint224) public emissionRateDecreaseAt;
 
-    event LockCreated(uint256 indexed veId, address indexed owner, uint128 amount, uint64 end);
-    event LockAmountIncreased(uint256 indexed veId, uint128 amount);
-    event LockExtended(uint256 indexed veId, uint64 end);
-    event LockWithdrawn(uint256 indexed veId, address indexed owner, uint128 amount);
     event Voted(uint256 indexed veId);
     event PoolFeesAccounted(PoolId indexed poolId, uint128 amount0, uint128 amount1);
     event PoolFeesClaimed(
@@ -176,7 +162,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
 
     error ZeroConfigFeeOnly();
     error SwapMustHappenThroughForward();
-    error InvalidLock();
     error InvalidVote();
     error EmissionAmountTooSmall();
     error InvalidTimestamps();
@@ -188,9 +173,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         BaseExtension(core)
         BaseForwardee(core)
         BaseLocker(core)
-        BaseNonfungibleToken(owner)
+        VeToken(owner, _stakeToken)
     {
-        stakeToken = _stakeToken;
         emissionsLastAccrued = uint64(block.timestamp);
         totalVoteSecondsLastAccrued = uint64(block.timestamp);
     }
@@ -235,61 +219,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         onlyCore
     {
         _beforeUpdatePosition(locker.addr(), poolKey, positionId, liquidityDelta);
-    }
-
-    function createLock(uint128 amount, uint64 end) external returns (uint256 veId) {
-        if (amount == 0 || end <= block.timestamp || end > block.timestamp + MAX_LOCK_DURATION) revert InvalidLock();
-
-        veId = nextVeId++;
-        locks[veId] = Lock({amount: amount, end: end});
-        _mint(msg.sender, veId);
-
-        SafeTransferLib.safeTransferFrom(stakeToken, msg.sender, address(this), amount);
-
-        emit LockCreated(veId, msg.sender, amount, end);
-    }
-
-    function increaseLockAmount(uint256 veId, uint128 amount) external authorizedForNft(veId) {
-        if (amount == 0 || locks[veId].end <= block.timestamp) revert InvalidLock();
-
-        _clearVotes(veId);
-        locks[veId].amount += amount;
-        SafeTransferLib.safeTransferFrom(stakeToken, msg.sender, address(this), amount);
-
-        emit LockAmountIncreased(veId, amount);
-    }
-
-    function extendLock(uint256 veId, uint64 end) external authorizedForNft(veId) {
-        Lock storage userLock = locks[veId];
-        if (userLock.amount == 0 || end <= userLock.end || end > block.timestamp + MAX_LOCK_DURATION) {
-            revert InvalidLock();
-        }
-
-        _clearVotes(veId);
-        userLock.end = end;
-
-        emit LockExtended(veId, end);
-    }
-
-    function withdrawLock(uint256 veId) external authorizedForNft(veId) {
-        Lock memory userLock = locks[veId];
-        if (userLock.amount == 0 || block.timestamp < userLock.end) revert InvalidLock();
-
-        _clearVotes(veId);
-        delete locks[veId];
-        _burn(veId);
-        SafeTransferLib.safeTransfer(stakeToken, msg.sender, userLock.amount);
-
-        emit LockWithdrawn(veId, msg.sender, userLock.amount);
-    }
-
-    function votingPower(uint256 veId) public view returns (uint256) {
-        Lock memory userLock = locks[veId];
-        if (block.timestamp >= userLock.end) return 0;
-
-        unchecked {
-            return (uint256(userLock.amount) * (userLock.end - block.timestamp)) / MAX_LOCK_DURATION;
-        }
     }
 
     function vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] calldata swapFees)
@@ -571,6 +500,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         }
 
         emit Voted(veId);
+    }
+
+    function _beforeLockUpdate(uint256 veId) internal override {
+        _clearVotes(veId);
     }
 
     function _accountPoolFees(PoolId poolId, uint128 amount0, uint128 amount1) private {

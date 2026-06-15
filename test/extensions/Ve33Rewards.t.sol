@@ -4,6 +4,7 @@ pragma solidity =0.8.33;
 import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
+import {VeToken} from "../../src/VeToken.sol";
 import {
     VE33_ADD_REWARDS,
     VE33_CLAIM_REWARDS,
@@ -403,11 +404,11 @@ contract Ve33RewardsTest is FullTest {
     function test_lockLifecycleAndInvalidLockPaths() public {
         uint256 maxLockDuration = ve.MAX_LOCK_DURATION();
 
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VeToken.InvalidLock.selector);
         ve.createLock(0, uint64(block.timestamp + 1));
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VeToken.InvalidLock.selector);
         ve.createLock(1, uint64(block.timestamp));
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VeToken.InvalidLock.selector);
         ve.createLock(1, uint64(block.timestamp + maxLockDuration + 1));
 
         uint256 veId = _createLock();
@@ -417,20 +418,20 @@ contract Ve33RewardsTest is FullTest {
         assertEq(end, uint64(block.timestamp + ve.MAX_LOCK_DURATION()));
         assertEq(ve.votingPower(veId), 1e18);
 
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VeToken.InvalidLock.selector);
         ve.increaseLockAmount(veId, 0);
         ve.increaseLockAmount(veId, 2e18);
         (amount,) = ve.locks(veId);
         assertEq(amount, 3e18);
 
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VeToken.InvalidLock.selector);
         ve.extendLock(veId, end);
         vm.warp(10);
         ve.extendLock(veId, uint64(block.timestamp + ve.MAX_LOCK_DURATION()));
         (, end) = ve.locks(veId);
         assertEq(end, uint64(block.timestamp + ve.MAX_LOCK_DURATION()));
 
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VeToken.InvalidLock.selector);
         ve.withdrawLock(veId);
         vm.warp(end);
         assertEq(ve.votingPower(veId), 0);

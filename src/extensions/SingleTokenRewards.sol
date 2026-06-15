@@ -13,6 +13,7 @@ import {
     SINGLE_TOKEN_REWARDS_CLAIM_TO_RECIPIENT,
     SINGLE_TOKEN_REWARDS_DONATE_REWARDS
 } from "../libraries/SingleTokenRewardsLib.sol";
+import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
 import {Bitmap} from "../types/bitmap.sol";
@@ -45,6 +46,7 @@ function singleTokenRewardsCallPoints() pure returns (CallPoints memory) {
 
 contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee {
     using CoreLib for *;
+    using FlashAccountantLib for *;
 
     /// @inheritdoc ISingleTokenRewards
     address public immutable rewardToken;
@@ -297,8 +299,6 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
         emit RewardsClaimed(poolId, owner, positionId, recipient, amount);
     }
 
-    error InvalidForwardCallType(uint256 callType);
-
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
@@ -317,7 +317,7 @@ contract SingleTokenRewards is ISingleTokenRewards, BaseExtension, BaseForwardee
 
             result = abi.encode(_donateRewards(poolKey, amount));
         } else {
-            revert InvalidForwardCallType(callType);
+            revert();
         }
     }
 

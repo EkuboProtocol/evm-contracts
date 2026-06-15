@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ICore} from "../interfaces/ICore.sol";
+import {FlashAccountantLib} from "./FlashAccountantLib.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionId} from "../types/positionId.sol";
 
@@ -12,6 +13,8 @@ uint256 constant SINGLE_TOKEN_REWARDS_DONATE_REWARDS = 2;
 /// @title Single Token Rewards Library
 /// @notice Helper methods for interacting with the SingleTokenRewards extension via Core.forward.
 library SingleTokenRewardsLib {
+    using FlashAccountantLib for *;
+
     /// @notice Adds rewards to a pool via Core.forward.
     /// @param core The core contract.
     /// @param poolKey The pool key using the SingleTokenRewards extension.

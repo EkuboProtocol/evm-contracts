@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+import {MAX_TICK} from "./constants.sol";
 import {tickToSqrtRatio} from "./ticks.sol";
 
 uint64 constant MAX_VE_FEE = uint64(1 << 63);
@@ -19,6 +20,15 @@ function defaultFeeForTickSpacing(uint32 tickSpacing) pure returns (uint64 fee) 
         uint256 feeX64 = ((priceX128 - (1 << 128)) << 64) / priceX128;
 
         fee = uint64(FixedPointMathLib.min(feeX64, MAX_VE_FEE));
+    }
+}
+
+/// @notice Converts a stableswap amplification to the default ve pool fee using its active range width.
+function defaultFeeForStableswapAmplification(uint8 amplification) pure returns (uint64 fee) {
+    unchecked {
+        uint256 tickSpacing = uint256(uint32(MAX_TICK)) >> amplification;
+        if (tickSpacing == 0) tickSpacing = 1;
+        fee = defaultFeeForTickSpacing(uint32(tickSpacing));
     }
 }
 

@@ -17,13 +17,18 @@ import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
-import {capFee, defaultFeeForTickSpacing as defaultVeFeeForTickSpacing} from "../math/tickSpacingFee.sol";
+import {
+    capFee,
+    defaultFeeForStableswapAmplification as defaultVeFeeForStableswapAmplification,
+    defaultFeeForTickSpacing as defaultVeFeeForTickSpacing
+} from "../math/tickSpacingFee.sol";
 import {bitmapWordAndIndexToTime, timeToBitmapWordAndIndex} from "../math/timeBitmap.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {Locker} from "../types/locker.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PoolId} from "../types/poolId.sol";
+import {PoolConfig} from "../types/poolConfig.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
@@ -169,7 +174,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
     event RewardsDonated(PoolId indexed poolId, uint128 amount);
     event PoolSwapFeeUpdated(PoolId indexed poolId, uint64 swapFee);
 
-    error ConcentratedLiquidityPoolsOnly();
     error ZeroConfigFeeOnly();
     error SwapMustHappenThroughForward();
     error InvalidLock();
@@ -201,12 +205,21 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         return defaultVeFeeForTickSpacing(tickSpacing);
     }
 
+    function defaultFeeForStableswapAmplification(uint8 amplification) public pure returns (uint64) {
+        return defaultVeFeeForStableswapAmplification(amplification);
+    }
+
+    function defaultFeeForPoolConfig(PoolConfig config) public pure returns (uint64) {
+        return config.isStableswap()
+            ? defaultVeFeeForStableswapAmplification(config.stableswapAmplification())
+            : defaultVeFeeForTickSpacing(config.concentratedTickSpacing());
+    }
+
     function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension) onlyCore {
-        if (poolKey.config.isStableswap()) revert ConcentratedLiquidityPoolsOnly();
         if (poolKey.config.fee() != 0) revert ZeroConfigFeeOnly();
 
         PoolId poolId = poolKey.toPoolId();
-        uint64 defaultSwapFee = defaultVeFeeForTickSpacing(poolKey.config.concentratedTickSpacing());
+        uint64 defaultSwapFee = defaultFeeForPoolConfig(poolKey.config);
         poolVoteStates[poolId].swapFee = defaultSwapFee;
         poolVoteStates[poolId].defaultSwapFee = defaultSwapFee;
         poolRewardState[poolId] = createVe33RewardPoolState(uint32(block.timestamp), 0);
@@ -369,7 +382,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
                 time = eventTime;
             }
 
-            uint128 liquidity = CORE.poolState(poolId).liquidity();
+            PoolState coreState = CORE.poolState(poolId);
+            uint128 liquidity = coreState.liquidity();
+            if (liquidity != 0 && poolKey.config.isStableswap()) {
+                (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+                int32 tick = coreState.tick();
+                if (tick < lower || tick >= upper) liquidity = 0;
+            }
             if (rewardsAccrued != 0 && liquidity != 0) {
                 rewardsGlobalPerLiquidity[poolId] += (rewardsAccrued << 128) / liquidity;
             }
@@ -421,8 +440,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
         unchecked {
-            params = params.withDefaultSqrtRatioLimit();
-
             PoolId poolId = poolKey.toPoolId();
             maybeAccumulateRewards(poolKey);
             int32 tickBefore = CORE.poolState(poolId).tick();
@@ -487,8 +504,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
             uint256 snapshot = positionRewardsSnapshotPerLiquidity[poolId][owner][positionId];
             uint256 amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
-            _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickLower(), liquidityDelta);
-            _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickUpper(), liquidityDelta);
+            if (poolKey.config.isStableswap()) {
+                _updateStableswapTickRewardsPerLiquidityOutside(poolKey, poolId, liquidityDelta);
+            } else {
+                _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickLower(), liquidityDelta);
+                _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickUpper(), liquidityDelta);
+            }
 
             if (liquidityNext == 0) {
                 positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = 0;
@@ -834,6 +855,39 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         if (tickBefore == tickAfter) return;
 
         uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
+
+        if (poolKey.config.isStableswap()) {
+            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+            if (tickAfter > tickBefore) {
+                if (tickBefore < lower && tickAfter >= lower) {
+                    unchecked {
+                        tickRewardsOutsidePerLiquidity[poolId][lower] =
+                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][lower];
+                    }
+                }
+                if (tickBefore < upper && tickAfter >= upper) {
+                    unchecked {
+                        tickRewardsOutsidePerLiquidity[poolId][upper] =
+                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][upper];
+                    }
+                }
+            } else {
+                if (tickBefore >= upper && tickAfter < upper) {
+                    unchecked {
+                        tickRewardsOutsidePerLiquidity[poolId][upper] =
+                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][upper];
+                    }
+                }
+                if (tickBefore >= lower && tickAfter < lower) {
+                    unchecked {
+                        tickRewardsOutsidePerLiquidity[poolId][lower] =
+                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][lower];
+                    }
+                }
+            }
+            return;
+        }
+
         uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
 
         if (tickAfter > tickBefore) {
@@ -895,6 +949,27 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
             } else {
                 tickRewardsOutsidePerLiquidity[poolId][tick] =
                     CORE.poolState(poolId).tick() >= tick ? rewardsGlobalPerLiquidity[poolId] : 0;
+            }
+        }
+    }
+
+    function _updateStableswapTickRewardsPerLiquidityOutside(
+        PoolKey memory poolKey,
+        PoolId poolId,
+        int128 liquidityDelta
+    ) private {
+        uint128 liquidity = CORE.poolState(poolId).liquidity();
+        uint128 liquidityNext = addLiquidityDelta(liquidity, liquidityDelta);
+        if ((liquidity == 0) != (liquidityNext == 0)) {
+            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+            if (liquidityNext == 0) {
+                delete tickRewardsOutsidePerLiquidity[poolId][lower];
+                delete tickRewardsOutsidePerLiquidity[poolId][upper];
+            } else {
+                int32 tick = CORE.poolState(poolId).tick();
+                uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
+                tickRewardsOutsidePerLiquidity[poolId][lower] = tick >= lower ? rewardsGlobalPerLiquidity_ : 0;
+                tickRewardsOutsidePerLiquidity[poolId][upper] = tick >= upper ? rewardsGlobalPerLiquidity_ : 0;
             }
         }
     }

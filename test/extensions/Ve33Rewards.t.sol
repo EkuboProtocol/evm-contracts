@@ -10,6 +10,7 @@ import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {computeFee} from "../../src/math/fee.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
+import {PoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PositionId, createPositionId} from "../../src/types/positionId.sol";
@@ -50,8 +51,8 @@ contract Ve33RewardsForwarder is BaseLocker {
                     msg.sender,
                     poolKey,
                     createSwapParameters({
-                        _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-                    }),
+                            _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                        }).withDefaultSqrtRatioLimit(),
                     recipient
                 )
             ),
@@ -156,5 +157,18 @@ contract Ve33RewardsTest is FullTest {
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         assertEq(saved0, expectedFee - claimed0);
         assertEq(saved1, 0);
+    }
+
+    function test_stableswapPoolUsesAmplificationDefaultFee() public {
+        PoolConfig config = createStableswapPoolConfig(0, 20, 0, address(ve));
+        PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
+        PoolId poolId = poolKey.toPoolId();
+
+        uint64 expectedFee = ve.defaultFeeForStableswapAmplification(20);
+        (,,,,,, uint64 swapFee, uint64 defaultSwapFee) = ve.poolVoteStates(poolId);
+
+        assertEq(ve.defaultFeeForPoolConfig(config), expectedFee);
+        assertEq(swapFee, expectedFee);
+        assertEq(defaultSwapFee, expectedFee);
     }
 }

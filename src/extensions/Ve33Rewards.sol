@@ -27,7 +27,6 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
-import {SingleTokenRewardsPoolState, createSingleTokenRewardsPoolState} from "../types/singleTokenRewardsPoolState.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 
 uint256 constant VE33_SWAP = 0;
@@ -39,6 +38,46 @@ uint256 constant VE33_LOCK_CLAIM_POOL_FEES = 0;
 uint256 constant VE33_LOCK_TRIGGER_POOL_EMISSIONS = 1;
 
 uint256 constant VE33_MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint224).max / MAX_NUM_VALID_TIMES;
+
+type Ve33RewardPoolState is bytes32;
+
+using {
+    ve33LastAccumulated,
+    ve33RealLastAccumulated,
+    ve33RewardRate,
+    ve33ParseRewardPoolState
+} for Ve33RewardPoolState global;
+
+function ve33LastAccumulated(Ve33RewardPoolState state) pure returns (uint32 time) {
+    assembly ("memory-safe") {
+        time := and(state, 0xffffffff)
+    }
+}
+
+function ve33RealLastAccumulated(Ve33RewardPoolState state) view returns (uint256 time) {
+    assembly ("memory-safe") {
+        time := sub(timestamp(), and(sub(and(timestamp(), 0xffffffff), and(state, 0xffffffff)), 0xffffffff))
+    }
+}
+
+function ve33RewardRate(Ve33RewardPoolState state) pure returns (uint224 rate) {
+    assembly ("memory-safe") {
+        rate := shr(32, state)
+    }
+}
+
+function ve33ParseRewardPoolState(Ve33RewardPoolState state) pure returns (uint32 time, uint224 rate) {
+    assembly ("memory-safe") {
+        time := and(state, 0xffffffff)
+        rate := shr(32, state)
+    }
+}
+
+function createVe33RewardPoolState(uint32 _lastAccumulated, uint224 _rewardRate) pure returns (Ve33RewardPoolState s) {
+    assembly ("memory-safe") {
+        s := or(and(_lastAccumulated, 0xffffffff), shl(32, _rewardRate))
+    }
+}
 
 function ve33RewardsCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -92,7 +131,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
     mapping(uint256 => mapping(PoolId => VePoolPosition)) public vePoolPositions;
     mapping(PoolId => PoolVoteState) public poolVoteStates;
 
-    mapping(PoolId => SingleTokenRewardsPoolState) public poolRewardState;
+    mapping(PoolId => Ve33RewardPoolState) public poolRewardState;
     mapping(PoolId => uint256) public rewardsGlobalPerLiquidity;
     mapping(PoolId => mapping(int32 => uint256)) public tickRewardsOutsidePerLiquidity;
     mapping(PoolId => mapping(address => mapping(PositionId => uint256))) public positionRewardsSnapshotPerLiquidity;
@@ -170,7 +209,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         uint64 defaultSwapFee = defaultVeFeeForTickSpacing(poolKey.config.concentratedTickSpacing());
         poolVoteStates[poolId].swapFee = defaultSwapFee;
         poolVoteStates[poolId].defaultSwapFee = defaultSwapFee;
-        poolRewardState[poolId] = createSingleTokenRewardsPoolState(uint32(block.timestamp), 0);
+        poolRewardState[poolId] = createVe33RewardPoolState(uint32(block.timestamp), 0);
     }
 
     function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override(BaseExtension) {
@@ -296,21 +335,21 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
     function maybeAccumulateRewards(PoolKey memory poolKey) public {
         unchecked {
             PoolId poolId = poolKey.toPoolId();
-            SingleTokenRewardsPoolState state = poolRewardState[poolId];
+            Ve33RewardPoolState state = poolRewardState[poolId];
 
-            if (state.lastAccumulated() == 0) {
+            if (state.ve33LastAccumulated() == 0) {
                 if (poolKey.config.extension() != address(this) || !CORE.poolState(poolId).isInitialized()) {
                     revert PoolNotInitialized();
                 }
-                state = createSingleTokenRewardsPoolState(uint32(block.timestamp), 0);
+                state = createVe33RewardPoolState(uint32(block.timestamp), 0);
                 poolRewardState[poolId] = state;
             }
 
-            if (uint32(block.timestamp) == state.lastAccumulated()) return;
+            if (uint32(block.timestamp) == state.ve33LastAccumulated()) return;
 
-            uint256 lastAccumulated = state.realLastAccumulated();
+            uint256 lastAccumulated = state.ve33RealLastAccumulated();
             uint256 time = lastAccumulated;
-            uint256 rewardRate = state.rewardRate();
+            uint256 rewardRate = state.ve33RewardRate();
             uint256 rewardsAccrued;
 
             while (time != block.timestamp) {
@@ -335,7 +374,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
                 rewardsGlobalPerLiquidity[poolId] += (rewardsAccrued << 128) / liquidity;
             }
 
-            poolRewardState[poolId] = createSingleTokenRewardsPoolState(uint32(block.timestamp), uint224(rewardRate));
+            poolRewardState[poolId] = createVe33RewardPoolState(uint32(block.timestamp), uint224(rewardRate));
         }
     }
 
@@ -624,9 +663,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, BaseNonfungibl
         if (startTime > block.timestamp) {
             _updateTime(poolId, startTime, rewardRateDelta);
         } else {
-            SingleTokenRewardsPoolState state = poolRewardState[poolId];
-            poolRewardState[poolId] = createSingleTokenRewardsPoolState(
-                state.lastAccumulated(), uint224(_addRewardRate(state.rewardRate(), rewardRateDelta))
+            Ve33RewardPoolState state = poolRewardState[poolId];
+            poolRewardState[poolId] = createVe33RewardPoolState(
+                state.ve33LastAccumulated(), uint224(_addRewardRate(state.ve33RewardRate(), rewardRateDelta))
             );
         }
 

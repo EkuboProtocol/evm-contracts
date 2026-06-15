@@ -95,7 +95,7 @@ Because voter fee growth is divided by active vote weight, claims can leave smal
 
 ## LP Reward Token
 
-LPs only earn the immutable reward token, which is `stakeToken` in this integrated contract. Reward accounting mirrors `SingleTokenRewards`:
+LPs only earn the immutable reward token, which is `stakeToken` in this integrated contract. Reward accounting uses reward-per-liquidity accumulators:
 
 - `poolRewardState`
 - `rewardsGlobalPerLiquidity`

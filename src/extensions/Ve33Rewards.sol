@@ -254,10 +254,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
     function fundEmissions(uint128 amount) external {
         if (amount == 0) revert EmissionAmountTooSmall();
 
-        _accrueEmissions();
-
-        uint224 rate = uint224((uint256(amount) << 32) / EMISSION_DURATION);
-        if (rate == 0) revert EmissionAmountTooSmall();
+        uint224 rate = uint224(((uint256(amount) + _accrueEmissions()) << 32) / EMISSION_DURATION);
 
         uint64 end = uint64(block.timestamp + EMISSION_DURATION);
         emissionReserve += amount;
@@ -294,9 +291,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
             uint256 rewardRate = state.ve33RewardRate();
             uint256 rewardsAccrued;
 
-            while (time != block.timestamp) {
-                (uint256 eventTime, bool hasEvent) =
-                    _searchForNextInitializedTime(poolId, lastAccumulated, time, block.timestamp);
+            for (uint256 eventTime; time != block.timestamp; time = eventTime) {
+                bool hasEvent;
+                (eventTime, hasEvent) = _searchForNextInitializedTime(poolId, lastAccumulated, time, block.timestamp);
 
                 rewardsAccrued += (rewardRate * (eventTime - time)) >> 32;
 
@@ -307,8 +304,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
                     delete rewardRateDeltaAtTime[poolId][eventTime];
                     _flipTime(poolId, eventTime);
                 }
-
-                time = eventTime;
             }
 
             PoolState coreState = CORE.poolState(poolId);
@@ -391,22 +386,20 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
 
             (balanceUpdate, stateAfter) = CORE.swap(0, poolKey, coreParams);
 
-            if (swapFee != 0) {
-                if (balanceUpdate.delta0() > 0) {
-                    uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
-                    int128 fee = params.isExactOut()
-                        ? SafeCastLib.toInt128(amountBeforeFee(inputAmount, swapFee) - inputAmount)
-                        : SafeCastLib.toInt128(computeFee(uint128(uint256(int256(params.amount()))), swapFee));
-                    fee0 = fee;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
-                } else if (balanceUpdate.delta1() > 0) {
-                    uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
-                    int128 fee = params.isExactOut()
-                        ? SafeCastLib.toInt128(amountBeforeFee(inputAmount, swapFee) - inputAmount)
-                        : SafeCastLib.toInt128(computeFee(uint128(uint256(int256(params.amount()))), swapFee));
-                    fee1 = fee;
-                    balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
-                }
+            if (balanceUpdate.delta0() > 0) {
+                uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
+                int128 fee = params.isExactOut()
+                    ? SafeCastLib.toInt128(amountBeforeFee(inputAmount, swapFee) - inputAmount)
+                    : SafeCastLib.toInt128(computeFee(uint128(uint256(int256(params.amount()))), swapFee));
+                fee0 = fee;
+                balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
+            } else if (balanceUpdate.delta1() > 0) {
+                uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
+                int128 fee = params.isExactOut()
+                    ? SafeCastLib.toInt128(amountBeforeFee(inputAmount, swapFee) - inputAmount)
+                    : SafeCastLib.toInt128(computeFee(uint128(uint256(int256(params.amount()))), swapFee));
+                fee1 = fee;
+                balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
             }
 
             if (fee0 != 0 || fee1 != 0) {
@@ -473,9 +466,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         if (totalWeight == 0) revert InvalidVote();
 
         _clearVotes(veId);
-        _accrueTotalVoteSeconds();
-
-        for (uint256 i = 0; i < poolKeys.length; i++) {
+        for (uint256 i = _accrueTotalVoteSeconds(); i < poolKeys.length; i++) {
             uint256 weight = (power * weights[i]) / totalWeight;
             if (weight == 0) continue;
 
@@ -507,8 +498,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
     }
 
     function _accountPoolFees(PoolId poolId, uint128 amount0, uint128 amount1) private {
-        if (amount0 == 0 && amount1 == 0) return;
-
         PoolVoteState storage poolState = poolVoteStates[poolId];
         uint256 weight = poolState.weight;
         if (weight != 0) {
@@ -554,11 +543,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
 
         PoolId poolId = poolKey.toPoolId();
         _accrueEmissions();
-        _accrueTotalVoteSeconds();
         _accruePoolVoteSeconds(poolId);
 
         PoolVoteState storage poolState = poolVoteStates[poolId];
-        uint256 poolSeconds = poolState.voteSeconds;
+        uint256 poolSeconds = poolState.voteSeconds + _accrueTotalVoteSeconds();
         if (poolSeconds == 0 || totalVoteSeconds == 0 || unallocatedEmissions == 0 || emissionReserve == 0) {
             emit PoolEmissionsTriggered(poolId, 0, uint64(block.timestamp));
             return 0;
@@ -578,10 +566,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         poolState.voteSeconds = 0;
 
         uint256 endTime = nextValidTime(block.timestamp, block.timestamp + EMISSION_DURATION - 1);
-        if (endTime == 0) revert EmissionAmountTooSmall();
         uint256 duration = endTime - block.timestamp;
         uint224 rewardRate = uint224((amount256 << 32) / duration);
-        if (rewardRate == 0) revert EmissionAmountTooSmall();
 
         amount = _addRewards(poolKey, 0, uint64(endTime), rewardRate);
         emissionReserve -= amount;
@@ -628,7 +614,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         emit PoolRewarded(poolId, startTime, endTime, rewardRate, amount);
     }
 
-    function _donateRewards(PoolKey memory poolKey, uint128 amount) private returns (uint128) {
+    function _donateRewards(PoolKey memory poolKey, uint128 amount) private returns (uint128 donated) {
+        donated = amount;
         maybeAccumulateRewards(poolKey);
 
         PoolId poolId = poolKey.toPoolId();
@@ -643,7 +630,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         }
 
         emit RewardsDonated(poolId, amount);
-        return amount;
     }
 
     function _claimRewards(PoolKey memory poolKey, address owner, PositionId positionId, address recipient)
@@ -677,9 +663,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         PoolId[] storage pools = votedPools[veId];
         if (pools.length == 0) return;
 
-        _accrueTotalVoteSeconds();
-
-        for (uint256 i = 0; i < pools.length; i++) {
+        for (uint256 i = _accrueTotalVoteSeconds(); i < pools.length; i++) {
             PoolId poolId = pools[i];
             _accruePoolVoteSeconds(poolId);
             _accrueVePoolFees(veId, poolId);
@@ -728,7 +712,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         }
     }
 
-    function _accrueTotalVoteSeconds() private {
+    function _accrueTotalVoteSeconds() private returns (uint256 zero) {
         uint64 lastAccrued = totalVoteSecondsLastAccrued;
         if (lastAccrued != block.timestamp) {
             unchecked {
@@ -738,7 +722,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         }
     }
 
-    function _accrueEmissions() private {
+    function _accrueEmissions() private returns (uint256 zero) {
         uint256 time = emissionsLastAccrued;
         uint224 rate = emissionRate;
 
@@ -823,18 +807,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
 
         uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
 
-        if (tickAfter > tickBefore) {
-            int32 tick = tickBefore;
-            while (true) {
-                bool initialized;
-                (tick, initialized) = CORE.nextInitializedTick(poolId, tick, tickSpacing, skipAhead);
-                if (!initialized || tick > tickAfter) break;
-                unchecked {
-                    tickRewardsOutsidePerLiquidity[poolId][tick] =
-                        rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][tick];
-                }
-            }
-        } else {
+        bool priceIncreasing = tickAfter > tickBefore;
+        if (!priceIncreasing) {
             int32 tick = tickBefore;
             while (true) {
                 bool initialized;
@@ -844,6 +818,18 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
                     tickRewardsOutsidePerLiquidity[poolId][tick] =
                         rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][tick];
                     tick--;
+                }
+            }
+        }
+        if (priceIncreasing) {
+            int32 tick = tickBefore;
+            while (true) {
+                bool initialized;
+                (tick, initialized) = CORE.nextInitializedTick(poolId, tick, tickSpacing, skipAhead);
+                if (!initialized || tick > tickAfter) break;
+                unchecked {
+                    tickRewardsOutsidePerLiquidity[poolId][tick] =
+                        rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][tick];
                 }
             }
         }
@@ -877,9 +863,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
         uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
         if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
-            if (liquidityNetNext == 0) {
-                delete tickRewardsOutsidePerLiquidity[poolId][tick];
-            } else {
+            delete tickRewardsOutsidePerLiquidity[poolId][tick];
+            if (liquidityNetNext != 0) {
                 tickRewardsOutsidePerLiquidity[poolId][tick] =
                     CORE.poolState(poolId).tick() >= tick ? rewardsGlobalPerLiquidity[poolId] : 0;
             }
@@ -895,10 +880,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         uint128 liquidityNext = addLiquidityDelta(liquidity, liquidityDelta);
         if ((liquidity == 0) != (liquidityNext == 0)) {
             (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
-            if (liquidityNext == 0) {
-                delete tickRewardsOutsidePerLiquidity[poolId][lower];
-                delete tickRewardsOutsidePerLiquidity[poolId][upper];
-            } else {
+            delete tickRewardsOutsidePerLiquidity[poolId][lower];
+            delete tickRewardsOutsidePerLiquidity[poolId][upper];
+            if (liquidityNext != 0) {
                 int32 tick = CORE.poolState(poolId).tick();
                 uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
                 tickRewardsOutsidePerLiquidity[poolId][lower] = tick >= lower ? rewardsGlobalPerLiquidity_ : 0;
@@ -966,9 +950,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
 
             isInitialized = nextIndex != 0;
 
-            assembly ("memory-safe") {
-                nextIndex := mod(sub(nextIndex, 1), 256)
-            }
+            nextIndex = (nextIndex - 1) % 256;
 
             nextTime = bitmapWordAndIndexToTime(word, nextIndex);
         }
@@ -983,11 +965,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
             nextTime = fromTime;
             while (!isInitialized && nextTime != untilTime) {
                 uint256 nextValid = nextValidTime(lastAccumulated, nextTime);
-                if (nextValid == 0) {
-                    nextTime = untilTime;
-                    isInitialized = false;
-                    break;
-                }
                 (nextTime, isInitialized) = _findNextInitializedTime(poolId, nextValid);
                 if (nextTime > untilTime) {
                     nextTime = untilTime;

@@ -1,12 +1,12 @@
 {
-  "Ve33Rewards#addRewards": "119876",
+  "Ve33Rewards#addRewards": "119873",
   "Ve33Rewards#claimPoolFees": "79332",
-  "Ve33Rewards#claimRewards": "63748",
+  "Ve33Rewards#claimRewards": "63745",
   "Ve33Rewards#createLock": "111911",
-  "Ve33Rewards#donateRewards": "97716",
-  "Ve33Rewards#forwardedSwap": "102138",
-  "Ve33Rewards#stableswapForwardedSwap": "96769",
-  "Ve33Rewards#triggerPoolEmissions": "216901",
-  "Ve33Rewards#updatePosition": "340386",
-  "Ve33Rewards#vote one pool": "202822"
+  "Ve33Rewards#donateRewards": "97713",
+  "Ve33Rewards#forwardedSwap": "101961",
+  "Ve33Rewards#stableswapForwardedSwap": "96538",
+  "Ve33Rewards#triggerPoolEmissions": "216934",
+  "Ve33Rewards#updatePosition": "340855",
+  "Ve33Rewards#vote one pool": "202824"
 }

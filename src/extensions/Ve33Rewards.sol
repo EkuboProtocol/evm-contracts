@@ -31,20 +31,33 @@ import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 
+// Forward call type for extension-mediated swaps.
 uint256 constant VE33_SWAP = 0;
+// Forward call type for claiming LP reward-token emissions.
 uint256 constant VE33_CLAIM_REWARDS = 1;
+// Forward call type for immediately donating reward tokens to in-range LP liquidity.
 uint256 constant VE33_DONATE_REWARDS = 2;
+// Forward call type for scheduling reward-token emissions.
 uint256 constant VE33_ADD_REWARDS = 3;
+// Forward call type for increasing a ve lock.
 uint256 constant VE33_STAKE_LOCK = 4;
+// Forward call type for decreasing an expired ve lock.
 uint256 constant VE33_UNSTAKE_LOCK = 5;
+// Forward call type for moving locked stake to a different `(salt, endTime)` key.
 uint256 constant VE33_MOVE_LOCK = 6;
 
+// Internal lock call type for claiming voter pool fees.
 uint256 constant VE33_LOCK_CLAIM_POOL_FEES = 0;
+// Internal lock call type for assigning global emissions to a pool.
 uint256 constant VE33_LOCK_TRIGGER_POOL_EMISSIONS = 1;
 
+// Maximum absolute scheduled reward-rate delta allowed at one valid time.
 uint256 constant VE33_MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint224).max / MAX_NUM_VALID_TIMES;
+// Maximum ve lock duration.
 uint256 constant VE33_MAX_LOCK_DURATION = 4 * 365 days;
 
+/// @notice Packed LP reward state for a pool.
+/// @dev Low 32 bits store `lastAccumulated`; high 224 bits store the Q32 reward rate.
 type Ve33RewardPoolState is bytes32;
 
 using {
@@ -54,24 +67,31 @@ using {
     ve33ParseRewardPoolState
 } for Ve33RewardPoolState global;
 
+/// @notice Returns the truncated timestamp when the pool reward state last accumulated.
 function ve33LastAccumulated(Ve33RewardPoolState state) pure returns (uint32 time) {
     assembly ("memory-safe") {
         time := and(state, 0xffffffff)
     }
 }
 
+/// @notice Returns the full timestamp corresponding to the packed 32-bit last-accumulated time.
+/// @dev Reconstructs the timestamp closest to `block.timestamp` to tolerate 32-bit wraparound.
 function ve33RealLastAccumulated(Ve33RewardPoolState state) view returns (uint256 time) {
     assembly ("memory-safe") {
         time := sub(timestamp(), and(sub(and(timestamp(), 0xffffffff), and(state, 0xffffffff)), 0xffffffff))
     }
 }
 
+/// @notice Returns the current Q32 reward rate in reward tokens per second.
 function ve33RewardRate(Ve33RewardPoolState state) pure returns (uint224 rate) {
     assembly ("memory-safe") {
         rate := shr(32, state)
     }
 }
 
+/// @notice Parses the packed pool reward state.
+/// @return time Truncated last-accumulated timestamp.
+/// @return rate Current Q32 reward rate in reward tokens per second.
 function ve33ParseRewardPoolState(Ve33RewardPoolState state) pure returns (uint32 time, uint224 rate) {
     assembly ("memory-safe") {
         time := and(state, 0xffffffff)
@@ -79,12 +99,16 @@ function ve33ParseRewardPoolState(Ve33RewardPoolState state) pure returns (uint3
     }
 }
 
+/// @notice Packs a reward pool state value.
+/// @param _lastAccumulated Truncated last-accumulated timestamp.
+/// @param _rewardRate Current Q32 reward rate in reward tokens per second.
 function createVe33RewardPoolState(uint32 _lastAccumulated, uint224 _rewardRate) pure returns (Ve33RewardPoolState s) {
     assembly ("memory-safe") {
         s := or(and(_lastAccumulated, 0xffffffff), shl(32, _rewardRate))
     }
 }
 
+/// @notice Returns the Core hooks enabled by `Ve33Rewards`.
 function ve33RewardsCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
@@ -98,21 +122,40 @@ function ve33RewardsCallPoints() pure returns (CallPoints memory) {
     });
 }
 
+/// @title Ve33Rewards
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
+/// @dev Pools using this extension must have zero Core pool fees. Swap fees are accounted by the extension and
+/// distributed to ve lockers, while LPs earn the immutable `stakeToken` as rewards.
 contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     using CoreLib for *;
     using FlashAccountantLib for *;
+    /// @notice Duration of each global and per-pool emission stream.
     uint256 public constant EMISSION_DURATION = 7 days;
+    /// @notice Maximum ve lock duration.
     uint256 public constant MAX_LOCK_DURATION = VE33_MAX_LOCK_DURATION;
 
+    /// @notice Token used for ve locking, global emissions, and LP rewards.
     address public immutable stakeToken;
 
+    /// @notice Canonical ve lock identifier.
+    /// @param owner Locker representation that owns the lock in this contract.
+    /// @param salt Caller-selected salt that distinguishes locks for one owner.
+    /// @param endTime Timestamp when the locked stake may be unstaked.
     struct LockKey {
         address owner;
         bytes32 salt;
         uint64 endTime;
     }
 
+    /// @notice Vote, fee, and emission allocation state for one pool.
+    /// @param weight Current active vote weight assigned to the pool.
+    /// @param voteSeconds Time-weighted active vote weight accrued since the pool was last triggered.
+    /// @param lastAccrued Last timestamp when `voteSeconds` was accrued.
+    /// @param feeGrowth0X128 Accumulated token0 fees per unit of vote weight.
+    /// @param feeGrowth1X128 Accumulated token1 fees per unit of vote weight.
+    /// @param feeWeightSum Sum of `weight * votedFee`, used to compute the weighted swap fee.
+    /// @param swapFee Current extension swap fee.
+    /// @param defaultSwapFee Swap fee used when the pool has no active votes.
     struct PoolVoteState {
         uint256 weight;
         uint256 voteSeconds;
@@ -124,6 +167,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         uint64 defaultSwapFee;
     }
 
+    /// @notice Per-lock accounting for one voted pool.
+    /// @param weight Active vote weight from the lock to the pool.
+    /// @param feeGrowth0X128 Snapshot of pool token0 fee growth.
+    /// @param feeGrowth1X128 Snapshot of pool token1 fee growth.
+    /// @param accrued0 Token0 fees accrued but not claimed.
+    /// @param accrued1 Token1 fees accrued but not claimed.
+    /// @param swapFee Fee selected by the lock for this pool.
     struct VePoolPosition {
         uint256 weight;
         uint256 feeGrowth0X128;
@@ -133,72 +183,121 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         uint64 swapFee;
     }
 
+    /// @notice Locked stake amounts by `(owner, salt, endTime)`.
     mapping(address => mapping(bytes32 => mapping(uint64 => uint128))) public lockAmounts;
+    /// @notice Pools currently voted on by each lock id.
     mapping(bytes32 => PoolId[]) public votedPools;
+    /// @notice Per-lock, per-pool vote and fee snapshots.
     mapping(bytes32 => mapping(PoolId => VePoolPosition)) public vePoolPositions;
+    /// @notice Aggregated voting and fee state for each pool.
     mapping(PoolId => PoolVoteState) public poolVoteStates;
 
+    /// @notice Packed reward-stream state for each pool.
     mapping(PoolId => Ve33RewardPoolState) public poolRewardState;
+    /// @notice Global reward-token growth per unit of in-range liquidity for each pool.
     mapping(PoolId => uint256) public rewardsGlobalPerLiquidity;
+    /// @notice Reward growth outside each initialized tick, used to compute in-range rewards.
     mapping(PoolId => mapping(int32 => uint256)) public tickRewardsOutsidePerLiquidity;
+    /// @notice Per-position reward growth snapshot.
     mapping(PoolId => mapping(address => mapping(PositionId => uint256))) public positionRewardsSnapshotPerLiquidity;
+    /// @notice Bitmap of initialized reward schedule times for each pool.
     mapping(PoolId => mapping(uint256 => uint256)) private initializedTimeBitmap;
+    /// @notice Scheduled reward-rate deltas at valid times for each pool.
     mapping(PoolId => mapping(uint256 => int256)) public rewardRateDeltaAtTime;
 
+    /// @notice Total active ve vote weight across all pools.
     uint256 public totalVoteWeight;
+    /// @notice Accrued time-weighted vote weight across all pools.
     uint256 public totalVoteSeconds;
+    /// @notice Last timestamp when `totalVoteSeconds` was accrued.
     uint64 public totalVoteSecondsLastAccrued;
 
+    /// @notice Funded emissions not yet paid into pool reward schedules.
     uint256 public emissionReserve;
+    /// @notice Accrued emissions not yet assigned to any pool.
     uint256 public unallocatedEmissions;
+    /// @notice Current global Q32 emission rate.
     uint224 public emissionRate;
+    /// @notice Last timestamp when global emissions were accrued.
     uint64 public emissionsLastAccrued;
+    /// @notice Next unprocessed index in `emissionEventTimes`.
     uint256 public nextEmissionEventIndex;
+    /// @notice Sorted emission end times.
     uint64[] public emissionEventTimes;
+    /// @notice Global emission-rate decreases at each end time.
     mapping(uint64 => uint224) public emissionRateDecreaseAt;
 
+    /// @notice Emitted when stake is added to a lock.
     event LockStaked(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    /// @notice Emitted when expired stake is removed from a lock.
     event LockUnstaked(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    /// @notice Emitted when stake is moved between lock keys.
     event LockMoved(
         address indexed owner, bytes32 indexed fromSalt, uint64 indexed fromEndTime, bytes32 toSalt, uint64 toEndTime
     );
+    /// @notice Emitted after a lock's votes are updated.
     event Voted(bytes32 indexed lockId);
+    /// @notice Emitted when a swap accounts fees to voters.
     event PoolFeesAccounted(PoolId indexed poolId, uint128 amount0, uint128 amount1);
+    /// @notice Emitted when accrued voter fees are claimed for a lock.
     event PoolFeesClaimed(
         bytes32 indexed lockId, PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1
     );
+    /// @notice Emitted when global emissions are funded.
     event EmissionsFunded(address indexed funder, uint128 amount, uint224 rate, uint64 end);
+    /// @notice Emitted when emissions are assigned to a pool.
     event PoolEmissionsTriggered(PoolId indexed poolId, uint224 amount, uint64 end);
+    /// @notice Emitted when a pool reward stream is scheduled.
     event PoolRewarded(PoolId indexed poolId, uint64 startTime, uint64 endTime, uint224 rewardRate, uint224 amount);
+    /// @notice Emitted when an LP position claims reward tokens.
     event RewardsClaimed(
         PoolId indexed poolId, address indexed owner, PositionId indexed positionId, address recipient, uint256 amount
     );
+    /// @notice Emitted when reward tokens are donated directly to current pool liquidity.
     event RewardsDonated(PoolId indexed poolId, uint128 amount);
+    /// @notice Emitted when a pool's active swap fee changes.
     event PoolSwapFeeUpdated(PoolId indexed poolId, uint64 swapFee);
 
+    /// @notice Thrown when a pool is initialized with a nonzero Core fee.
     error ZeroConfigFeeOnly();
+    /// @notice Thrown when a swap attempts to bypass the forward-only swap path.
     error SwapMustHappenThroughForward();
+    /// @notice Thrown when a vote payload or target pool is invalid.
     error InvalidVote();
+    /// @notice Thrown when a global emission funding amount is zero.
     error EmissionAmountTooSmall();
+    /// @notice Thrown when reward schedule timestamps are invalid.
     error InvalidTimestamps();
+    /// @notice Thrown when a reward amount cannot fit in the supported token accounting width.
     error RewardAmountOverflow();
+    /// @notice Thrown when a reward-rate delta exceeds the allowed bound.
     error MaxRateDeltaPerTime();
+    /// @notice Thrown when reward accounting is requested for a pool not initialized for this extension.
     error PoolNotInitialized();
+    /// @notice Thrown when a lock owner-only action is called by another address.
     error NotLockOwner();
+    /// @notice Thrown when a lock amount or timestamp is invalid.
     error InvalidLock();
 
+    /// @notice Initializes the extension with Core and the immutable reward/stake token.
+    /// @param core Ekubo Core contract.
+    /// @param _stakeToken Token used for ve locks and LP rewards.
     constructor(ICore core, address _stakeToken) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
         stakeToken = _stakeToken;
         emissionsLastAccrued = uint64(block.timestamp);
         totalVoteSecondsLastAccrued = uint64(block.timestamp);
     }
 
+    /// @notice Allows the extension to receive native-token voter fees.
     receive() external payable {}
 
+    /// @inheritdoc BaseExtension
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return ve33RewardsCallPoints();
     }
 
+    /// @notice Validates and initializes extension state for a new pool.
+    /// @dev Pools must use zero Core fee because the active fee is stored in `poolVoteStates`.
     function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension) onlyCore {
         if (poolKey.config.fee() != 0) revert ZeroConfigFeeOnly();
 
@@ -211,10 +310,14 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         poolRewardState[poolId] = createVe33RewardPoolState(uint32(block.timestamp), 0);
     }
 
+    /// @notice Rejects direct Core swaps.
+    /// @dev Swaps must be executed through `forward` with `VE33_SWAP` so extension fees can be accounted.
     function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override(BaseExtension) {
         revert SwapMustHappenThroughForward();
     }
 
+    /// @notice Snapshots LP reward accounting before a position's liquidity changes.
+    /// @dev Keeps range-aware reward accounting synchronized with Core position updates.
     function beforeUpdatePosition(Locker locker, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         external
         override(BaseExtension)
@@ -223,6 +326,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         _beforeUpdatePosition(locker.addr(), poolKey, positionId, liquidityDelta);
     }
 
+    /// @notice Returns the current voting power for a lock.
+    /// @dev Voting power decays linearly to zero at `lockKey.endTime`.
+    /// @param lockKey Canonical lock key.
+    /// @return power Current voting power.
     function votingPower(LockKey memory lockKey) public view returns (uint256) {
         if (block.timestamp >= lockKey.endTime) return 0;
 
@@ -232,6 +339,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Replaces the votes for a lock.
+    /// @dev `swapFees` are capped to the protocol maximum. Only `lockKey.owner` may vote directly.
+    /// @param lockKey Lock whose votes are being updated.
+    /// @param poolKeys Pools to vote on.
+    /// @param weights Relative weights assigned to each pool.
+    /// @param swapFees Explicit swap fee vote for each pool.
     function vote(
         LockKey calldata lockKey,
         PoolKey[] calldata poolKeys,
@@ -242,6 +355,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         _vote(lockKey, poolKeys, weights, swapFees);
     }
 
+    /// @notice Claims accrued voter fees for a lock and pool.
+    /// @dev Fees are withdrawn to `lockKey.owner`; wrappers can forward them to their local owner.
+    /// @param lockKey Lock claiming fees.
+    /// @param poolKey Pool whose voter fees are claimed.
+    /// @return amount0 Claimed token0 amount.
+    /// @return amount1 Claimed token1 amount.
     function claimPoolFees(LockKey memory lockKey, PoolKey memory poolKey)
         external
         returns (uint128 amount0, uint128 amount1)
@@ -250,6 +369,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         return abi.decode(lock(abi.encode(VE33_LOCK_CLAIM_POOL_FEES, lockKey, poolKey)), (uint128, uint128));
     }
 
+    /// @notice Funds global ve emissions for one emission duration.
+    /// @dev The caller transfers `stakeToken` to this contract. Triggered pool emissions later pay those tokens into Core.
+    /// @param amount Amount of `stakeToken` to add to the global emission stream.
     function fundEmissions(uint128 amount) external {
         if (amount == 0) revert EmissionAmountTooSmall();
 
@@ -266,10 +388,17 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit EmissionsFunded(msg.sender, amount, rate, end);
     }
 
+    /// @notice Assigns accrued global emissions to a voted pool.
+    /// @dev Permissionless. Pool share is based on time-weighted votes since the pool was last touched.
+    /// @param poolKey Pool receiving emissions.
+    /// @return amount Amount assigned to the pool reward schedule.
     function triggerPoolEmissions(PoolKey memory poolKey) external payable returns (uint224 amount) {
         amount = abi.decode(lock(abi.encode(VE33_LOCK_TRIGGER_POOL_EMISSIONS, poolKey)), (uint224));
     }
 
+    /// @notice Accumulates scheduled LP rewards into the pool reward-per-liquidity global value.
+    /// @dev If the pool has no active in-range liquidity, accrued rewards are not assigned to LPs.
+    /// @param poolKey Pool whose reward state is being accumulated.
     function maybeAccumulateRewards(PoolKey memory poolKey) public {
         unchecked {
             PoolId poolId = poolKey.toPoolId();
@@ -320,6 +449,11 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Handles extension forward calls from Core.
+    /// @dev The original locker becomes the LP owner or lock owner depending on the call type.
+    /// @param original Locker that initiated the Core forward call.
+    /// @param data ABI-encoded call type and payload.
+    /// @return result ABI-encoded result for the selected forward call.
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
@@ -353,6 +487,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Handles internal lock calls initiated by this extension.
+    /// @param data ABI-encoded internal lock call type and payload.
+    /// @return result ABI-encoded lock call result.
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
@@ -368,6 +505,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Executes a forward-only swap and accounts voter fees.
+    /// @dev For exact input, the Core swap amount is reduced by the extension fee; for exact output, input is grossed up.
+    /// @param poolKey Pool to swap against.
+    /// @param params Swap parameters supplied by the router/caller.
+    /// @return balanceUpdate Balance deltas including extension fees.
+    /// @return stateAfter Pool state after the Core swap.
     function _swap(PoolKey memory poolKey, SwapParameters params)
         private
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
@@ -420,6 +563,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Updates a position reward snapshot before liquidity changes.
+    /// @dev Preserves currently accrued rewards by adjusting the snapshot against next liquidity.
+    /// @param owner Position owner.
+    /// @param poolKey Pool containing the position.
+    /// @param positionId Position being updated.
+    /// @param liquidityDelta Liquidity change passed to Core.
     function _beforeUpdatePosition(address owner, PoolKey memory poolKey, PositionId positionId, int128 liquidityDelta)
         private
     {
@@ -455,16 +604,31 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Computes the canonical lock id.
+    /// @param owner Locker representation that owns the lock.
+    /// @param salt Caller-selected lock salt.
+    /// @param endTime Lock expiry timestamp.
+    /// @return lockId Hash used for vote and fee accounting.
     function _lockId(address owner, bytes32 salt, uint64 endTime) private pure returns (bytes32) {
         return keccak256(abi.encode(owner, salt, endTime));
     }
 
+    /// @notice Validates that a new or moved-to lock is active and nonzero.
+    /// @param endTime Proposed lock expiry timestamp.
+    /// @param amount Amount being staked or moved.
     function _validateNewLock(uint64 endTime, uint128 amount) private view {
         if (amount == 0 || endTime <= block.timestamp || endTime > block.timestamp + MAX_LOCK_DURATION) {
             revert InvalidLock();
         }
     }
 
+    /// @notice Adds stake to a lock and records the saved balance under this extension.
+    /// @dev Does not transfer tokens; the calling lock representation settles the payment in the same Core lock.
+    /// @param owner Locker representation that owns the lock.
+    /// @param salt Lock salt.
+    /// @param endTime Lock expiry timestamp.
+    /// @param amount Amount of stake to add.
+    /// @return staked Amount added to the lock.
     function _stakeLock(address owner, bytes32 salt, uint64 endTime, uint128 amount) private returns (uint128 staked) {
         _validateNewLock(endTime, amount);
 
@@ -477,6 +641,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit LockStaked(owner, salt, endTime, amount);
     }
 
+    /// @notice Removes stake from an expired lock and records the saved-balance decrease.
+    /// @dev Does not transfer tokens; the calling lock representation withdraws tokens from Core.
+    /// @param owner Locker representation that owns the lock.
+    /// @param salt Lock salt.
+    /// @param endTime Lock expiry timestamp.
+    /// @param amount Amount of stake to remove.
+    /// @return unstaked Amount removed from the lock.
     function _unstakeLock(address owner, bytes32 salt, uint64 endTime, uint128 amount)
         private
         returns (uint128 unstaked)
@@ -495,6 +666,15 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit LockUnstaked(owner, salt, endTime, amount);
     }
 
+    /// @notice Moves stake between two lock keys for the same owner.
+    /// @dev Used by wrappers to model extension by withdrawing one lock key and staking into another without transfers.
+    /// @param owner Locker representation that owns both lock keys.
+    /// @param fromSalt Source lock salt.
+    /// @param fromEndTime Source lock expiry timestamp.
+    /// @param toSalt Destination lock salt.
+    /// @param toEndTime Destination lock expiry timestamp.
+    /// @param amount Amount of stake to move.
+    /// @return moved Amount moved between lock keys.
     function _moveLock(
         address owner,
         bytes32 fromSalt,
@@ -521,6 +701,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit LockMoved(owner, fromSalt, fromEndTime, toSalt, toEndTime);
     }
 
+    /// @notice Applies a lock's votes to pool accounting.
+    /// @dev Clears old votes first. Duplicate pools, mismatched lengths, non-extension pools, and zero total weight revert.
+    /// @param lockKey Lock whose voting power is allocated.
+    /// @param poolKeys Pools receiving votes.
+    /// @param weights Relative weights for each pool.
+    /// @param swapFees Explicit swap fee votes for each pool.
     function _vote(
         LockKey calldata lockKey,
         PoolKey[] calldata poolKeys,
@@ -574,6 +760,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit Voted(lockId);
     }
 
+    /// @notice Adds swap fees to a pool's voter fee-growth accumulators.
+    /// @param poolId Pool receiving fees.
+    /// @param amount0 Token0 fee amount.
+    /// @param amount1 Token1 fee amount.
     function _accountPoolFees(PoolId poolId, uint128 amount0, uint128 amount1) private {
         PoolVoteState storage poolState = poolVoteStates[poolId];
         uint256 weight = poolState.weight;
@@ -587,6 +777,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit PoolFeesAccounted(poolId, amount0, amount1);
     }
 
+    /// @notice Claims accrued voter fees while this extension is inside a Core lock.
+    /// @dev Subtracts fees from the extension's saved balance and withdraws to `lockKey.owner`.
+    /// @param lockKey Lock claiming fees.
+    /// @param poolKey Pool whose fees are claimed.
+    /// @return amount0 Claimed token0 amount.
+    /// @return amount1 Claimed token1 amount.
     function _claimPoolFeesUnlocked(LockKey memory lockKey, PoolKey memory poolKey)
         private
         returns (uint128 amount0, uint128 amount1)
@@ -615,6 +811,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit PoolFeesClaimed(lockId, poolId, lockKey.owner, amount0, amount1);
     }
 
+    /// @notice Assigns the pool's share of unallocated global emissions to LP rewards.
+    /// @dev Share is based on the pool's accrued vote seconds over total accrued vote seconds.
+    /// @param poolKey Pool receiving emissions.
+    /// @return amount Emission amount scheduled for the pool.
     function _triggerPoolEmissions(PoolKey memory poolKey) private returns (uint224 amount) {
         if (poolKey.config.extension() != address(this)) revert PoolNotInitialized();
 
@@ -653,6 +853,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit PoolEmissionsTriggered(poolId, amount, uint64(endTime));
     }
 
+    /// @notice Schedules reward-token emissions for a pool.
+    /// @dev Updates the reward reserve saved balance and the pool reward-rate schedule.
+    /// @param poolKey Pool receiving rewards.
+    /// @param startTime Stream start time, or zero for immediate scheduling.
+    /// @param endTime Stream end time.
+    /// @param rewardRate Q32 reward rate in tokens per second.
+    /// @return amount Total token amount required for the schedule.
     function _addRewards(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate)
         private
         returns (uint224 amount)
@@ -691,6 +898,11 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit PoolRewarded(poolId, startTime, endTime, rewardRate, amount);
     }
 
+    /// @notice Donates rewards immediately to current pool liquidity.
+    /// @dev If active liquidity is zero, the donated amount is saved but not assigned to LP reward growth.
+    /// @param poolKey Pool receiving the donation.
+    /// @param amount Amount donated.
+    /// @return donated Amount accepted.
     function _donateRewards(PoolKey memory poolKey, uint128 amount) private returns (uint128 donated) {
         donated = amount;
         maybeAccumulateRewards(poolKey);
@@ -709,6 +921,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit RewardsDonated(poolId, amount);
     }
 
+    /// @notice Claims reward tokens earned by an LP position.
+    /// @dev Uses range-aware reward growth and then resets the position snapshot.
+    /// @param poolKey Pool containing the position.
+    /// @param owner Position owner.
+    /// @param positionId Position claiming rewards.
+    /// @param recipient Reward recipient.
+    /// @return amount Claimed reward amount.
     function _claimRewards(PoolKey memory poolKey, address owner, PositionId positionId, address recipient)
         private
         returns (uint256 amount)
@@ -736,6 +955,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit RewardsClaimed(poolId, owner, positionId, recipient, amount);
     }
 
+    /// @notice Clears all active votes for a lock.
+    /// @dev Accrues voter fees first so already-earned fees remain claimable.
+    /// @param lockId Lock id whose votes are cleared.
     function _clearVotes(bytes32 lockId) private {
         PoolId[] storage pools = votedPools[lockId];
         if (pools.length == 0) return;
@@ -760,6 +982,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         delete votedPools[lockId];
     }
 
+    /// @notice Accrues pool fees into a lock's per-pool voter position.
+    /// @param lockId Lock id receiving accrued fees.
+    /// @param poolId Pool whose fee growth is accrued.
     function _accrueVePoolFees(bytes32 lockId, PoolId poolId) private {
         PoolVoteState storage poolState = poolVoteStates[poolId];
         VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
@@ -776,6 +1001,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         vePool.feeGrowth1X128 = poolState.feeGrowth1X128;
     }
 
+    /// @notice Accrues time-weighted vote seconds for one pool.
+    /// @param poolId Pool whose vote seconds are accrued.
     function _accruePoolVoteSeconds(PoolId poolId) private {
         PoolVoteState storage poolState = poolVoteStates[poolId];
         uint64 lastAccrued = poolState.lastAccrued;
@@ -789,6 +1016,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Accrues global time-weighted vote seconds.
+    /// @return zero Always zero, used as a compact loop initializer.
     function _accrueTotalVoteSeconds() private returns (uint256 zero) {
         uint64 lastAccrued = totalVoteSecondsLastAccrued;
         if (lastAccrued != block.timestamp) {
@@ -799,6 +1028,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Accrues global emissions into `unallocatedEmissions`.
+    /// @return zero Always zero, used as a compact loop initializer.
     function _accrueEmissions() private returns (uint256 zero) {
         uint256 time = emissionsLastAccrued;
         uint224 rate = emissionRate;
@@ -831,6 +1062,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emissionsLastAccrued = uint64(block.timestamp);
     }
 
+    /// @notice Recomputes a pool's active swap fee from current voter weights.
+    /// @param poolId Pool whose swap fee is updated.
     function _updatePoolSwapFee(PoolId poolId) private {
         PoolVoteState storage poolState = poolVoteStates[poolId];
         uint64 swapFee =
@@ -839,6 +1072,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit PoolSwapFeeUpdated(poolId, swapFee);
     }
 
+    /// @notice Updates tick reward snapshots for ticks crossed by a forwarded swap.
+    /// @dev Mirrors Core fee-outside inversion so reward growth remains range-aware.
+    /// @param poolKey Pool that was swapped.
+    /// @param poolId Id of `poolKey`.
+    /// @param tickBefore Tick before the swap.
+    /// @param tickAfter Tick after the swap.
+    /// @param skipAhead Tick-bitmap skip-ahead hint supplied to the swap.
     function _updateCrossedTicks(
         PoolKey memory poolKey,
         PoolId poolId,
@@ -912,14 +1152,24 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Updates the saved balance for unassigned LP reward tokens.
+    /// @param delta Signed reward-reserve balance delta.
     function _updateRewardSavedBalance(int256 delta) private {
         CORE.updateSavedBalances(stakeToken, address(type(uint160).max), bytes32(0), delta, 0);
     }
 
+    /// @notice Updates the saved balance for locked stake.
+    /// @param lockId Lock id whose saved balance changes.
+    /// @param delta Signed locked-stake balance delta.
     function _updateStakeSavedBalance(bytes32 lockId, int256 delta) private {
         CORE.updateSavedBalances(stakeToken, address(type(uint160).max), lockId, delta, 0);
     }
 
+    /// @notice Computes reward growth inside a position's tick range.
+    /// @param poolId Pool containing the position.
+    /// @param tickLower Position lower tick.
+    /// @param tickUpper Position upper tick.
+    /// @return rewardsInsidePerLiquidity Reward growth inside the range.
     function _getRewardsInsidePerLiquidity(PoolId poolId, int32 tickLower, int32 tickUpper)
         private
         view
@@ -940,6 +1190,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Updates reward-outside state when a concentrated-position boundary becomes initialized or uninitialized.
+    /// @param poolId Pool containing the tick.
+    /// @param tick Position boundary tick.
+    /// @param liquidityDelta Position liquidity delta.
     function _updateTickRewardsPerLiquidityOutside(PoolId poolId, int32 tick, int128 liquidityDelta) private {
         (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
         uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
@@ -952,6 +1206,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Updates reward-outside state when stableswap active liquidity appears or disappears.
+    /// @param poolKey Stableswap pool key.
+    /// @param poolId Id of `poolKey`.
+    /// @param liquidityDelta Position liquidity delta.
     function _updateStableswapTickRewardsPerLiquidityOutside(
         PoolKey memory poolKey,
         PoolId poolId,
@@ -972,6 +1230,11 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Computes reward amount from a per-liquidity snapshot.
+    /// @param snapshot Previous reward growth snapshot.
+    /// @param rewardsInsidePerLiquidity_ Current reward growth inside the position range.
+    /// @param liquidity Position liquidity.
+    /// @return amount Accrued reward amount.
     function _positionRewards(uint256 snapshot, uint256 rewardsInsidePerLiquidity_, uint128 liquidity)
         private
         pure
@@ -984,6 +1247,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Adds a signed reward-rate delta to a current rate.
+    /// @param rewardRate Current reward rate.
+    /// @param delta Signed rate delta.
+    /// @return next Next reward rate.
     function _addRewardRate(uint256 rewardRate, int256 delta) private pure returns (uint256 next) {
         unchecked {
             next = uint256(int256(rewardRate) + delta);
@@ -991,6 +1258,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         if (next > type(uint224).max) revert MaxRateDeltaPerTime();
     }
 
+    /// @notice Adds a signed change to a scheduled reward-rate delta and checks the bound.
+    /// @param rateDelta Current scheduled delta.
+    /// @param change Signed change to apply.
+    /// @return next Next scheduled delta.
     function _addConstrainRateDelta(int256 rateDelta, int256 change) private pure returns (int256 next) {
         unchecked {
             next = rateDelta + change;
@@ -1001,6 +1272,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Updates a pool's scheduled reward-rate delta at a valid time.
+    /// @param poolId Pool whose schedule changes.
+    /// @param time Valid schedule time.
+    /// @param delta Signed reward-rate delta to add at `time`.
     function _updateTime(PoolId poolId, uint64 time, int256 delta) private {
         int256 rateDelta = rewardRateDeltaAtTime[poolId][time];
         int256 rateDeltaNext = _addConstrainRateDelta(rateDelta, delta);
@@ -1012,6 +1287,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Toggles whether a pool has a nonzero reward-rate delta at a valid time.
+    /// @param poolId Pool whose bitmap changes.
+    /// @param time Valid schedule time.
     function _flipTime(PoolId poolId, uint256 time) private {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
         unchecked {
@@ -1019,6 +1297,11 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Finds the next initialized reward schedule time at or after `fromTime`.
+    /// @param poolId Pool whose schedule is searched.
+    /// @param fromTime Valid time to begin searching from.
+    /// @return nextTime Next initialized time in the bitmap word.
+    /// @return isInitialized Whether an initialized time was found.
     function _findNextInitializedTime(PoolId poolId, uint256 fromTime)
         private
         view
@@ -1037,6 +1320,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
+    /// @notice Searches reward schedule times until an initialized time or upper bound is reached.
+    /// @param poolId Pool whose schedule is searched.
+    /// @param lastAccumulated Full last-accumulated timestamp used for valid-time alignment.
+    /// @param fromTime Search start.
+    /// @param untilTime Search upper bound.
+    /// @return nextTime Next initialized time or `untilTime`.
+    /// @return isInitialized Whether `nextTime` is an initialized schedule time.
     function _searchForNextInitializedTime(PoolId poolId, uint256 lastAccumulated, uint256 fromTime, uint256 untilTime)
         private
         view

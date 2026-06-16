@@ -1,3 +1,8 @@
 {
-  "VeToken#createLock": "153918"
+  "VeToken#createLock": "153918",
+  "VeToken#extendLock": "73512",
+  "VeToken#increaseLockAmount": "34255",
+  "VeToken#locks": "6884",
+  "VeToken#transferFrom": "31215",
+  "VeToken#withdrawLock": "39430"
 }

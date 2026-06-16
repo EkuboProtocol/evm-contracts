@@ -44,6 +44,48 @@ contract VeTokenTest is FullTest {
         vm.snapshotGasLastCall("VeToken#createLock");
     }
 
+    function test_gas_locks() public {
+        uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
+
+        coolAllContracts();
+        veToken.locks(veId);
+        vm.snapshotGasLastCall("VeToken#locks");
+    }
+
+    function test_gas_increaseLockAmount() public {
+        uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
+
+        coolAllContracts();
+        veToken.increaseLockAmount(veId, 1e18);
+        vm.snapshotGasLastCall("VeToken#increaseLockAmount");
+    }
+
+    function test_gas_extendLock() public {
+        uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + 1 weeks));
+
+        coolAllContracts();
+        veToken.extendLock(veId, uint64(block.timestamp + 2 weeks));
+        vm.snapshotGasLastCall("VeToken#extendLock");
+    }
+
+    function test_gas_withdrawLock() public {
+        uint64 end = uint64(block.timestamp + 1);
+        uint256 veId = veToken.createLock(1e18, end);
+        vm.warp(end);
+
+        coolAllContracts();
+        veToken.withdrawLock(veId);
+        vm.snapshotGasLastCall("VeToken#withdrawLock");
+    }
+
+    function test_gas_transferFrom() public {
+        uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
+
+        coolAllContracts();
+        veToken.transferFrom(address(this), address(1234), veId);
+        vm.snapshotGasLastCall("VeToken#transferFrom");
+    }
+
     function test_constructorAndMetadata() public view {
         assertEq(veToken.name(), "Vote Escrow TestToken");
         assertEq(veToken.symbol(), "veTT");

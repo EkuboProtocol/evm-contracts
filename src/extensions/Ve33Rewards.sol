@@ -150,37 +150,37 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     /// @notice Vote, fee, and emission allocation state for one pool.
     /// @param weight Current active vote weight assigned to the pool.
     /// @param voteSeconds Time-weighted active vote weight accrued since the pool was last triggered.
-    /// @param lastAccrued Last timestamp when `voteSeconds` was accrued.
     /// @param feeGrowth0X128 Accumulated token0 fees per unit of vote weight.
     /// @param feeGrowth1X128 Accumulated token1 fees per unit of vote weight.
     /// @param feeWeightSum Sum of `weight * votedFee`, used to compute the weighted swap fee.
+    /// @param lastAccrued Last timestamp when `voteSeconds` was accrued.
     /// @param swapFee Current extension swap fee.
     /// @param defaultSwapFee Swap fee used when the pool has no active votes.
     struct PoolVoteState {
         uint256 weight;
         uint256 voteSeconds;
-        uint64 lastAccrued;
         uint256 feeGrowth0X128;
         uint256 feeGrowth1X128;
         uint256 feeWeightSum;
+        uint64 lastAccrued;
         uint64 swapFee;
         uint64 defaultSwapFee;
     }
 
     /// @notice Per-lock accounting for one voted pool.
     /// @param weight Active vote weight from the lock to the pool.
+    /// @param swapFee Fee selected by the lock for this pool.
     /// @param feeGrowth0X128 Snapshot of pool token0 fee growth.
     /// @param feeGrowth1X128 Snapshot of pool token1 fee growth.
     /// @param accrued0 Token0 fees accrued but not claimed.
     /// @param accrued1 Token1 fees accrued but not claimed.
-    /// @param swapFee Fee selected by the lock for this pool.
     struct VePoolPosition {
-        uint256 weight;
+        uint128 weight;
+        uint64 swapFee;
         uint256 feeGrowth0X128;
         uint256 feeGrowth1X128;
         uint256 accrued0;
         uint256 accrued1;
-        uint64 swapFee;
     }
 
     /// @notice Locked stake amounts by `(owner, salt, endTime)`.
@@ -523,11 +523,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
             uint64 swapFee = poolVoteStates[poolId].swapFee;
             int128 fee0;
             int128 fee1;
+            uint128 exactInMaxFee;
             SwapParameters coreParams = params;
 
             if (swapFee != 0 && !params.isExactOut()) {
                 uint128 amount = uint128(uint256(int256(params.amount())));
-                uint128 fee = computeFee(amount, swapFee);
+                uint128 fee = exactInMaxFee = computeFee(amount, swapFee);
                 coreParams = createSwapParameters(
                     params.sqrtRatioLimit(),
                     SafeCastLib.toInt128(uint256(amount - fee)),
@@ -540,16 +541,18 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
 
             if (balanceUpdate.delta0() > 0) {
                 uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
-                int128 fee = params.isExactOut()
-                    ? SafeCastLib.toInt128(amountBeforeFee(inputAmount, swapFee) - inputAmount)
-                    : SafeCastLib.toInt128(computeFee(uint128(uint256(int256(params.amount()))), swapFee));
+                uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
+                int128 fee = SafeCastLib.toInt128(
+                    params.isExactOut() ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee)
+                );
                 fee0 = fee;
                 balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
             } else if (balanceUpdate.delta1() > 0) {
                 uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
-                int128 fee = params.isExactOut()
-                    ? SafeCastLib.toInt128(amountBeforeFee(inputAmount, swapFee) - inputAmount)
-                    : SafeCastLib.toInt128(computeFee(uint128(uint256(int256(params.amount()))), swapFee));
+                uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
+                int128 fee = SafeCastLib.toInt128(
+                    params.isExactOut() ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee)
+                );
                 fee1 = fee;
                 balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
             }
@@ -748,7 +751,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
             poolState.feeWeightSum += weight * swapFee;
             totalVoteWeight += weight;
 
-            vePool.weight = weight;
+            // Safe because a lock's allocated pool weight cannot exceed its uint128 locked amount.
+            vePool.weight = uint128(weight);
             vePool.swapFee = swapFee;
             vePool.feeGrowth0X128 = poolState.feeGrowth0X128;
             vePool.feeGrowth1X128 = poolState.feeGrowth1X128;

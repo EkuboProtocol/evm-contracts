@@ -16,7 +16,7 @@ import {
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
-import {computeFee} from "../../src/math/fee.sol";
+import {amountBeforeFee, computeFee} from "../../src/math/fee.sol";
 import {MAX_NUM_VALID_TIMES, nextValidTime} from "../../src/math/time.sol";
 import {defaultFeeForStableswapAmplification, defaultFeeForTickSpacing} from "../../src/math/tickSpacingFee.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
@@ -251,7 +251,7 @@ contract Ve33RewardsTest is FullTest {
         view
         returns (uint256 weight, uint256 feeWeightSum, uint64 swapFee, uint64 defaultSwapFee)
     {
-        (weight,,,,, feeWeightSum, swapFee, defaultSwapFee) = ve.poolVoteStates(poolId);
+        (weight,,,, feeWeightSum,, swapFee, defaultSwapFee) = ve.poolVoteStates(poolId);
     }
 
     function _fundAndVote(PoolKey memory poolKey, uint64 swapFee) internal returns (uint256 veId) {
@@ -522,6 +522,50 @@ contract Ve33RewardsTest is FullTest {
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         assertEq(saved0, expectedFee - claimed0);
         assertEq(saved1, 0);
+    }
+
+    function test_forwardedExactInputPartialToken0SwapAccountsExecutedInputFee() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        forwarder.updatePosition(poolKey, positionId, int128(uint128(1e18)));
+
+        uint64 swapFee = uint64(1 << 62);
+        _fundAndVote(poolKey, swapFee);
+
+        uint128 amount = 1e30;
+        SwapParameters params = createSwapParameters({
+            _sqrtRatioLimit: tickToSqrtRatio(-50), _amount: int128(amount), _isToken1: false, _skipAhead: 0
+        });
+
+        (PoolBalanceUpdate balanceUpdate,) = forwarder.swap(poolKey, params, address(this));
+        (uint128 saved0, uint128 saved1) =
+            core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
+        uint128 coreInput = uint128(uint256(int256(balanceUpdate.delta0()))) - saved0;
+
+        assertEq(saved0, amountBeforeFee(coreInput, swapFee) - coreInput);
+        assertLt(saved0, computeFee(amount, swapFee));
+        assertEq(saved1, 0);
+    }
+
+    function test_forwardedExactInputPartialToken1SwapAccountsExecutedInputFee() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        forwarder.updatePosition(poolKey, positionId, int128(uint128(1e18)));
+
+        uint64 swapFee = uint64(1 << 62);
+        _fundAndVote(poolKey, swapFee);
+
+        uint128 amount = 1e30;
+        SwapParameters params = createSwapParameters({
+            _sqrtRatioLimit: tickToSqrtRatio(50), _amount: int128(amount), _isToken1: true, _skipAhead: 0
+        });
+
+        (PoolBalanceUpdate balanceUpdate,) = forwarder.swap(poolKey, params, address(this));
+        (uint128 saved0, uint128 saved1) =
+            core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
+        uint128 coreInput = uint128(uint256(int256(balanceUpdate.delta1()))) - saved1;
+
+        assertEq(saved0, 0);
+        assertEq(saved1, amountBeforeFee(coreInput, swapFee) - coreInput);
+        assertLt(saved1, computeFee(amount, swapFee));
     }
 
     function test_forwardedSwapCoversToken1AndExactOutFeeBranches() public {

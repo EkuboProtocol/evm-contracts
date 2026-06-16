@@ -98,10 +98,13 @@ function ve33RewardsCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
-contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, PayableMulticallable {
+contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMulticallable {
     using CoreLib for *;
     using FlashAccountantLib for *;
     uint256 public constant EMISSION_DURATION = 7 days;
+
+    address public immutable stakeToken;
+    VeToken public immutable veToken;
 
     struct PoolVoteState {
         uint256 weight;
@@ -168,13 +171,16 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
     error RewardAmountOverflow();
     error MaxRateDeltaPerTime();
     error PoolNotInitialized();
+    error NotAuthorizedForVeToken();
+    error OnlyVeToken();
 
-    constructor(ICore core, address owner, address _stakeToken)
+    constructor(ICore core, address _stakeToken, VeToken _veToken)
         BaseExtension(core)
         BaseForwardee(core)
         BaseLocker(core)
-        VeToken(owner, _stakeToken)
     {
+        stakeToken = _stakeToken;
+        veToken = _veToken;
         emissionsLastAccrued = uint64(block.timestamp);
         totalVoteSecondsLastAccrued = uint64(block.timestamp);
     }
@@ -197,6 +203,11 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         return config.isStableswap()
             ? defaultVeFeeForStableswapAmplification(config.stableswapAmplification())
             : defaultVeFeeForTickSpacing(config.concentratedTickSpacing());
+    }
+
+    modifier authorizedForVeToken(uint256 veId) {
+        if (!veToken.isAuthorizedForNft(msg.sender, veId)) revert NotAuthorizedForVeToken();
+        _;
     }
 
     function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension) onlyCore {
@@ -223,7 +234,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
 
     function vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] calldata swapFees)
         external
-        authorizedForNft(veId)
+        authorizedForVeToken(veId)
     {
         _vote(veId, poolKeys, weights, swapFees);
     }
@@ -233,7 +244,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         PoolKey[] calldata poolKeys,
         uint256[] calldata weights,
         uint32[] calldata tickSpacings
-    ) external authorizedForNft(veId) {
+    ) external authorizedForVeToken(veId) {
         if (poolKeys.length != tickSpacings.length) revert InvalidVote();
 
         uint64[] memory swapFees = new uint64[](tickSpacings.length);
@@ -245,10 +256,15 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
 
     function claimPoolFees(uint256 veId, PoolKey memory poolKey)
         external
-        authorizedForNft(veId)
+        authorizedForVeToken(veId)
         returns (uint128 amount0, uint128 amount1)
     {
         return abi.decode(lock(abi.encode(VE33_LOCK_CLAIM_POOL_FEES, veId, poolKey)), (uint128, uint128));
+    }
+
+    function beforeLockUpdate(uint256 veId) external {
+        if (msg.sender != address(veToken)) revert OnlyVeToken();
+        _clearVotes(veId);
     }
 
     function fundEmissions(uint128 amount) external {
@@ -451,7 +467,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
     {
         if (poolKeys.length != weights.length || poolKeys.length != swapFees.length) revert InvalidVote();
 
-        uint256 power = votingPower(veId);
+        uint256 power = veToken.votingPower(veId);
         if (power == 0) revert InvalidVote();
 
         uint256 totalWeight;
@@ -493,10 +509,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         emit Voted(veId);
     }
 
-    function _beforeLockUpdate(uint256 veId) internal override {
-        _clearVotes(veId);
-    }
-
     function _accountPoolFees(PoolId poolId, uint128 amount0, uint128 amount1) private {
         PoolVoteState storage poolState = poolVoteStates[poolId];
         uint256 weight = poolState.weight;
@@ -524,7 +536,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
         if (amount0 != 0 || amount1 != 0) {
             vePool.accrued0 = 0;
             vePool.accrued1 = 0;
-            address recipient = ownerOf(veId);
+            address recipient = veToken.ownerOf(veId);
             CORE.updateSavedBalances(
                 poolKey.token0,
                 poolKey.token1,
@@ -535,7 +547,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, VeToken, Payab
             ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
         }
 
-        emit PoolFeesClaimed(veId, poolId, ownerOf(veId), amount0, amount1);
+        emit PoolFeesClaimed(veId, poolId, veToken.ownerOf(veId), amount0, amount1);
     }
 
     function _triggerPoolEmissions(PoolKey memory poolKey) private returns (uint224 amount) {

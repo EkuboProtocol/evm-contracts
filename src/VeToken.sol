@@ -2,14 +2,18 @@
 pragma solidity =0.8.33;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {ERC721} from "solady/tokens/ERC721.sol";
 
-import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
+interface IVeTokenObserver {
+    function beforeLockUpdate(uint256 veId) external;
+}
 
 /// @notice Vote-escrow NFT backed by linear-decaying stake-token locks.
-abstract contract VeToken is BaseNonfungibleToken {
+contract VeToken is ERC721 {
     uint256 public constant MAX_LOCK_DURATION = 4 * 365 days;
 
     address public immutable stakeToken;
+    address public immutable lockObserver;
 
     struct Lock {
         uint128 amount;
@@ -25,9 +29,32 @@ abstract contract VeToken is BaseNonfungibleToken {
     event LockWithdrawn(uint256 indexed veId, address indexed owner, uint128 amount);
 
     error InvalidLock();
+    error NotAuthorizedForToken(address caller, uint256 id);
 
-    constructor(address owner, address _stakeToken) BaseNonfungibleToken(owner) {
+    constructor(address _stakeToken, address _lockObserver) {
         stakeToken = _stakeToken;
+        lockObserver = _lockObserver;
+    }
+
+    function name() public pure override returns (string memory) {
+        return "Vote Escrow";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "ve";
+    }
+
+    function tokenURI(uint256) public pure virtual override returns (string memory) {
+        return "";
+    }
+
+    function isAuthorizedForNft(address account, uint256 id) public view returns (bool) {
+        return _isApprovedOrOwner(account, id);
+    }
+
+    modifier authorizedForNft(uint256 id) {
+        if (!isAuthorizedForNft(msg.sender, id)) revert NotAuthorizedForToken(msg.sender, id);
+        _;
     }
 
     function createLock(uint128 amount, uint64 end) external returns (uint256 veId) {
@@ -45,7 +72,7 @@ abstract contract VeToken is BaseNonfungibleToken {
     function increaseLockAmount(uint256 veId, uint128 amount) external authorizedForNft(veId) {
         if (amount == 0 || locks[veId].end <= block.timestamp) revert InvalidLock();
 
-        _beforeLockUpdate(veId);
+        _notifyBeforeLockUpdate(veId);
         locks[veId].amount += amount;
         SafeTransferLib.safeTransferFrom(stakeToken, msg.sender, address(this), amount);
 
@@ -58,7 +85,7 @@ abstract contract VeToken is BaseNonfungibleToken {
             revert InvalidLock();
         }
 
-        _beforeLockUpdate(veId);
+        _notifyBeforeLockUpdate(veId);
         userLock.end = end;
 
         emit LockExtended(veId, end);
@@ -68,7 +95,7 @@ abstract contract VeToken is BaseNonfungibleToken {
         Lock memory userLock = locks[veId];
         if (userLock.amount == 0 || block.timestamp < userLock.end) revert InvalidLock();
 
-        _beforeLockUpdate(veId);
+        _notifyBeforeLockUpdate(veId);
         delete locks[veId];
         _burn(veId);
         SafeTransferLib.safeTransfer(stakeToken, msg.sender, userLock.amount);
@@ -85,5 +112,8 @@ abstract contract VeToken is BaseNonfungibleToken {
         }
     }
 
-    function _beforeLockUpdate(uint256 veId) internal virtual {}
+    function _notifyBeforeLockUpdate(uint256 veId) private {
+        address observer = lockObserver;
+        if (observer != address(0)) IVeTokenObserver(observer).beforeLockUpdate(veId);
+    }
 }

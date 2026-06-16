@@ -1,10 +1,11 @@
 # ve(3,3) Integrated Pool Extension
 
-`Ve33Rewards` is a pool extension layered on top of `VeToken`, a self-contained vote-escrow NFT contract.
+`Ve33Rewards` is a pool extension paired with `VeToken`, a separate vote-escrow NFT contract.
 
 `VeToken` owns the lock lifecycle:
 
 - `stakeToken` custody
+- Solady ERC721 ownership, approvals, and transfers
 - ve NFT mint/burn through `createLock` and `withdrawLock`
 - lock amount/end updates
 - linear voting-power decay over a maximum four-year lock
@@ -14,6 +15,8 @@
 - pool voting
 - voter-directed swap-fee collection
 - single-token LP rewards
+
+The split keeps the extension bytecode focused on pool accounting. The NFT and stake-token lock operations live in `VeToken`, and the extension stores immutable references to both `stakeToken` and `veToken`.
 
 It is intended for pools where LPs do not earn Core swap fees. Pools using this extension must set the Core pool-config fee to `0`; the active swap fee is stored in extension state and is chosen by ve voters.
 
@@ -68,7 +71,9 @@ When votes change, the active pool fee is recomputed as `feeWeightSum / weight`.
 
 ## Lock Updates And Votes
 
-`Ve33Rewards` overrides `VeToken._beforeLockUpdate` to clear a ve NFT's pool votes before its amount, end time, or ownership status changes. This keeps vote weights, weighted fee selection, fee-growth snapshots, and vote-second accounting synchronized with the lock's current voting power.
+`VeToken` can be deployed with a `lockObserver`. For the integrated system this observer is the `Ve33Rewards` extension address. Before lock amount changes, lock extensions, or withdrawals, `VeToken` calls `Ve33Rewards.beforeLockUpdate(veId)`.
+
+Only the configured `veToken` may call `beforeLockUpdate`. The callback clears the ve NFT's pool votes before its voting power changes. This keeps vote weights, weighted fee selection, fee-growth snapshots, and vote-second accounting synchronized with the lock's current voting power.
 
 ## Forwarded Swap Accounting
 

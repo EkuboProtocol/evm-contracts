@@ -4,6 +4,11 @@ pragma solidity =0.8.33;
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
 
+interface IERC20Metadata {
+    function name() external view returns (string memory);
+    function symbol() external view returns (string memory);
+}
+
 /// @notice Packed vote-escrow lock state.
 /// @dev Bits 0..63 store the lock end timestamp. Bits 64..191 store the locked amount.
 type Lock is bytes32;
@@ -53,6 +58,9 @@ contract VeToken is ERC721 {
     /// @notice Observer notified before existing locks are updated, if nonzero.
     IVeTokenObserver public immutable lockObserver;
 
+    string private _name;
+    string private _symbol;
+
     /// @notice Packed lock state by ve NFT id.
     mapping(uint256 => Lock) public locks;
 
@@ -83,16 +91,18 @@ contract VeToken is ERC721 {
     constructor(address _stakeToken, IVeTokenObserver _lockObserver) {
         stakeToken = _stakeToken;
         lockObserver = _lockObserver;
+        _name = string.concat("Vote Escrow ", IERC20Metadata(_stakeToken).name());
+        _symbol = string.concat("ve", IERC20Metadata(_stakeToken).symbol());
     }
 
     /// @notice Returns the NFT collection name.
-    function name() public pure override returns (string memory) {
-        return "Vote Escrow";
+    function name() public view override returns (string memory) {
+        return _name;
     }
 
     /// @notice Returns the NFT collection symbol.
-    function symbol() public pure override returns (string memory) {
-        return "ve";
+    function symbol() public view override returns (string memory) {
+        return _symbol;
     }
 
     /// @notice Returns token metadata URI.

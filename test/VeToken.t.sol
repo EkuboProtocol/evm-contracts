@@ -40,8 +40,8 @@ contract VeTokenTest is Test {
     }
 
     function test_constructorAndMetadata() public view {
-        assertEq(veToken.name(), "Vote Escrow");
-        assertEq(veToken.symbol(), "ve");
+        assertEq(veToken.name(), "Vote Escrow TestToken");
+        assertEq(veToken.symbol(), "veTT");
         assertEq(veToken.tokenURI(1), "");
         assertEq(veToken.stakeToken(), address(stakeToken));
         assertEq(address(veToken.lockObserver()), address(observer));

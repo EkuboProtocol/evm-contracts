@@ -5,7 +5,7 @@
 `VeToken` owns the lock lifecycle:
 
 - `stakeToken` custody
-- Solady ERC721 ownership, approvals, and transfers
+- Solady ERC721 ownership, approvals, and transfers with name/symbol derived from the stake token
 - ve NFT mint/burn through `createLock` and `withdrawLock`
 - packed `Lock` custom-type storage for amount/end updates
 - linear voting-power decay over a maximum four-year lock

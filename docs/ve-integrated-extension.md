@@ -7,7 +7,7 @@
 - `stakeToken` custody
 - Solady ERC721 ownership, approvals, and transfers
 - ve NFT mint/burn through `createLock` and `withdrawLock`
-- lock amount/end updates
+- packed `Lock` custom-type storage for amount/end updates
 - linear voting-power decay over a maximum four-year lock
 
 `Ve33Rewards` adds the pool-specific ve(3,3) behavior:
@@ -71,7 +71,7 @@ When votes change, the active pool fee is recomputed as `feeWeightSum / weight`.
 
 ## Lock Updates And Votes
 
-`VeToken` can be deployed with a `lockObserver`. For the integrated system this observer is the `Ve33Rewards` extension address. Before lock amount changes, lock extensions, or withdrawals, `VeToken` calls `Ve33Rewards.beforeLockUpdate(veId)`.
+`VeToken` can be deployed with a `lockObserver`. For the integrated system this observer is the `Ve33Rewards` extension address. Before lock amount changes, lock extensions, or withdrawals, `VeToken` calls `Ve33Rewards.beforeLockUpdate(veId, currentLock)`, passing the packed pre-update lock state.
 
 Only the configured `veToken` may call `beforeLockUpdate`. The callback clears the ve NFT's pool votes before its voting power changes. This keeps vote weights, weighted fee selection, fee-growth snapshots, and vote-second accounting synchronized with the lock's current voting power.
 

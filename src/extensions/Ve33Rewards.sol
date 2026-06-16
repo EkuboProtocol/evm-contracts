@@ -12,7 +12,7 @@ import {PayableMulticallable} from "../base/PayableMulticallable.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
-import {VeToken} from "../VeToken.sol";
+import {Lock, VeToken} from "../VeToken.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
@@ -262,7 +262,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         return abi.decode(lock(abi.encode(VE33_LOCK_CLAIM_POOL_FEES, veId, poolKey)), (uint128, uint128));
     }
 
-    function beforeLockUpdate(uint256 veId) external {
+    function beforeLockUpdate(uint256 veId, Lock) external {
         if (msg.sender != address(veToken)) revert OnlyVeToken();
         _clearVotes(veId);
     }

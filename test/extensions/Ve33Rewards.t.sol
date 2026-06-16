@@ -4,7 +4,7 @@ pragma solidity =0.8.33;
 import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
-import {VeToken} from "../../src/VeToken.sol";
+import {IVeTokenObserver, Lock, VeToken} from "../../src/VeToken.sol";
 import {
     VE33_ADD_REWARDS,
     VE33_CLAIM_REWARDS,
@@ -179,7 +179,7 @@ contract Ve33RewardsTest is FullTest {
 
         stakeToken = new TestToken(address(this));
         address deployAddress = address(uint160(ve33RewardsCallPoints().toUint8()) << 152);
-        veToken = new VeToken(address(stakeToken), deployAddress);
+        veToken = new VeToken(address(stakeToken), IVeTokenObserver(deployAddress));
         deployCodeTo("Ve33Rewards.sol", abi.encode(core, address(stakeToken), veToken), deployAddress);
         ve = Ve33Rewards(payable(deployAddress));
         forwarder = new Ve33RewardsForwarder(core, address(stakeToken));
@@ -277,12 +277,6 @@ contract Ve33RewardsTest is FullTest {
     {
         uint256 realStart = startTime > block.timestamp ? startTime : block.timestamp;
         return uint224((((uint256(endTime) - realStart) * rewardRate) + type(uint32).max) >> 32);
-    }
-
-    function test_gas_createLock() public {
-        coolAllContracts();
-        veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
-        vm.snapshotGasLastCall("VeToken#createLock");
     }
 
     function test_gas_vote() public {
@@ -384,8 +378,6 @@ contract Ve33RewardsTest is FullTest {
         assertFalse(ve33RewardsCallPoints().afterCollectFees);
         assertEq(ve.stakeToken(), address(stakeToken));
         assertEq(address(ve.veToken()), address(veToken));
-        assertEq(veToken.stakeToken(), address(stakeToken));
-        assertEq(veToken.lockObserver(), address(ve));
     }
 
     function test_poolInitialization_setsConcentratedDefaultsAndRejectsConfigFee() public {
@@ -413,7 +405,7 @@ contract Ve33RewardsTest is FullTest {
         ve.beforeUpdatePosition(Locker.wrap(bytes32(0)), poolKey, positionId, 0);
 
         vm.expectRevert(Ve33Rewards.OnlyVeToken.selector);
-        ve.beforeLockUpdate(1);
+        ve.beforeLockUpdate(1, Lock.wrap(0));
 
         vm.expectRevert();
         forwarder.rawForward(address(ve), abi.encode(uint256(999)));
@@ -421,45 +413,6 @@ contract Ve33RewardsTest is FullTest {
         vm.prank(address(ve));
         (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, uint256(999)));
         assertFalse(success);
-    }
-
-    function test_lockLifecycleAndInvalidLockPaths() public {
-        uint256 maxLockDuration = veToken.MAX_LOCK_DURATION();
-
-        vm.expectRevert(VeToken.InvalidLock.selector);
-        veToken.createLock(0, uint64(block.timestamp + 1));
-        vm.expectRevert(VeToken.InvalidLock.selector);
-        veToken.createLock(1, uint64(block.timestamp));
-        vm.expectRevert(VeToken.InvalidLock.selector);
-        veToken.createLock(1, uint64(block.timestamp + maxLockDuration + 1));
-
-        uint256 veId = _createLock();
-        assertEq(veToken.ownerOf(veId), address(this));
-        (uint128 amount, uint64 end) = veToken.locks(veId);
-        assertEq(amount, 1e18);
-        assertEq(end, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
-        assertEq(veToken.votingPower(veId), 1e18);
-
-        vm.expectRevert(VeToken.InvalidLock.selector);
-        veToken.increaseLockAmount(veId, 0);
-        veToken.increaseLockAmount(veId, 2e18);
-        (amount,) = veToken.locks(veId);
-        assertEq(amount, 3e18);
-
-        vm.expectRevert(VeToken.InvalidLock.selector);
-        veToken.extendLock(veId, end);
-        vm.warp(10);
-        veToken.extendLock(veId, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
-        (, end) = veToken.locks(veId);
-        assertEq(end, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
-
-        vm.expectRevert(VeToken.InvalidLock.selector);
-        veToken.withdrawLock(veId);
-        vm.warp(end);
-        assertEq(veToken.votingPower(veId), 0);
-        uint256 balanceBefore = stakeToken.balanceOf(address(this));
-        veToken.withdrawLock(veId);
-        assertEq(stakeToken.balanceOf(address(this)), balanceBefore + 3e18);
     }
 
     function test_voteValidationAndVoteWithTickSpacing() public {

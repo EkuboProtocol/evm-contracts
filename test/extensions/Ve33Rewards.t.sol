@@ -4,7 +4,7 @@ pragma solidity =0.8.33;
 import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
-import {IVeTokenObserver, Lock, VeToken} from "../../src/VeToken.sol";
+import {VeToken} from "../../src/VeToken.sol";
 import {
     VE33_ADD_REWARDS,
     VE33_CLAIM_REWARDS,
@@ -179,9 +179,9 @@ contract Ve33RewardsTest is FullTest {
 
         stakeToken = new TestToken(address(this));
         address deployAddress = address(uint160(ve33RewardsCallPoints().toUint8()) << 152);
-        veToken = new VeToken(address(stakeToken), IVeTokenObserver(deployAddress));
-        deployCodeTo("Ve33Rewards.sol", abi.encode(core, address(stakeToken), veToken), deployAddress);
+        deployCodeTo("Ve33Rewards.sol", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33Rewards(payable(deployAddress));
+        veToken = new VeToken(core, ve);
         forwarder = new Ve33RewardsForwarder(core, address(stakeToken));
 
         stakeToken.approve(address(ve), type(uint256).max);
@@ -242,7 +242,7 @@ contract Ve33RewardsTest is FullTest {
     function _vote(uint256 veId, PoolKey memory poolKey, uint256 weight, uint64 swapFee) internal {
         (PoolKey[] memory poolKeys, uint256[] memory weights, uint64[] memory swapFees) =
             _singlePoolArrays(poolKey, weight, swapFee);
-        ve.vote(veId, poolKeys, weights, swapFees);
+        veToken.vote(veId, poolKeys, weights, swapFees);
     }
 
     function _poolVoteState(PoolId poolId)
@@ -313,8 +313,8 @@ contract Ve33RewardsTest is FullTest {
         forwarder.swap(poolKey, false, 100_000, address(this));
 
         coolAllContracts();
-        ve.claimPoolFees(veId, poolKey);
-        vm.snapshotGasLastCall("Ve33Rewards#claimPoolFees");
+        veToken.claimPoolFees(veId, poolKey);
+        vm.snapshotGasLastCall("VeToken#claimPoolFees");
     }
 
     function test_gas_donateRewards() public {
@@ -377,7 +377,6 @@ contract Ve33RewardsTest is FullTest {
         assertFalse(ve33RewardsCallPoints().beforeCollectFees);
         assertFalse(ve33RewardsCallPoints().afterCollectFees);
         assertEq(ve.stakeToken(), address(stakeToken));
-        assertEq(address(ve.veToken()), address(veToken));
     }
 
     function test_poolInitialization_setsConcentratedDefaultsAndRejectsConfigFee() public {
@@ -404,9 +403,6 @@ contract Ve33RewardsTest is FullTest {
         vm.expectRevert();
         ve.beforeUpdatePosition(Locker.wrap(bytes32(0)), poolKey, positionId, 0);
 
-        vm.expectRevert(Ve33Rewards.OnlyVeToken.selector);
-        ve.beforeLockUpdate(1, Lock.wrap(0), Lock.wrap(0));
-
         vm.expectRevert();
         forwarder.rawForward(address(ve), abi.encode(uint256(999)));
 
@@ -427,12 +423,12 @@ contract Ve33RewardsTest is FullTest {
         weights[1] = 1;
         swapFees[0] = 1;
         vm.expectRevert(Ve33Rewards.InvalidVote.selector);
-        ve.vote(veId, poolKeys, weights, swapFees);
+        veToken.vote(veId, poolKeys, weights, swapFees);
 
         weights = new uint256[](1);
         weights[0] = 0;
         vm.expectRevert(Ve33Rewards.InvalidVote.selector);
-        ve.vote(veId, poolKeys, weights, swapFees);
+        veToken.vote(veId, poolKeys, weights, swapFees);
 
         PoolKey[] memory duplicatePools = new PoolKey[](2);
         uint256[] memory duplicateWeights = new uint256[](2);
@@ -444,29 +440,29 @@ contract Ve33RewardsTest is FullTest {
         duplicateFees[0] = 1;
         duplicateFees[1] = 1;
         vm.expectRevert(Ve33Rewards.InvalidVote.selector);
-        ve.vote(veId, duplicatePools, duplicateWeights, duplicateFees);
+        veToken.vote(veId, duplicatePools, duplicateWeights, duplicateFees);
 
         PoolKey memory wrongExtensionPool = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(0)});
         poolKeys[0] = wrongExtensionPool;
         weights[0] = 1;
         vm.expectRevert(Ve33Rewards.InvalidVote.selector);
-        ve.vote(veId, poolKeys, weights, swapFees);
+        veToken.vote(veId, poolKeys, weights, swapFees);
 
         PoolConfig wrongFeeConfig = createConcentratedPoolConfig(1, 100, address(ve));
         PoolKey memory wrongFeePool =
             PoolKey({token0: address(token0), token1: address(token1), config: wrongFeeConfig});
         poolKeys[0] = wrongFeePool;
         vm.expectRevert(Ve33Rewards.InvalidVote.selector);
-        ve.vote(veId, poolKeys, weights, swapFees);
+        veToken.vote(veId, poolKeys, weights, swapFees);
 
         uint32[] memory tickSpacings = new uint32[](2);
         vm.expectRevert(Ve33Rewards.InvalidVote.selector);
-        ve.voteWithTickSpacing(veId, poolKeys, weights, tickSpacings);
+        veToken.voteWithTickSpacing(veId, poolKeys, weights, tickSpacings);
 
         poolKeys[0] = poolKey;
         tickSpacings = new uint32[](1);
         tickSpacings[0] = 200;
-        ve.voteWithTickSpacing(veId, poolKeys, weights, tickSpacings);
+        veToken.voteWithTickSpacing(veId, poolKeys, weights, tickSpacings);
         (uint256 weight, uint256 feeWeightSum, uint64 swapFee,) = _poolVoteState(poolKey.toPoolId());
         assertEq(weight, veToken.votingPower(veId));
         assertEq(swapFee, ve.defaultFeeForTickSpacing(200));
@@ -476,7 +472,7 @@ contract Ve33RewardsTest is FullTest {
         uint256 expiredVeId = veToken.createLock(1, uint64(block.timestamp + 1));
         vm.warp(block.timestamp + 1);
         vm.expectRevert(Ve33Rewards.InvalidVote.selector);
-        ve.vote(expiredVeId, poolKeys, weights, swapFees);
+        veToken.vote(expiredVeId, poolKeys, weights, swapFees);
 
         uint256 veIdWithDustVote = _createLock();
         PoolKey[] memory twoPoolKeys = new PoolKey[](2);
@@ -488,7 +484,7 @@ contract Ve33RewardsTest is FullTest {
         twoPoolKeys[1] = otherPool;
         dustWeights[0] = 1;
         dustWeights[1] = 2e18;
-        ve.vote(veIdWithDustVote, twoPoolKeys, dustWeights, zeroSwapFees);
+        veToken.vote(veIdWithDustVote, twoPoolKeys, dustWeights, zeroSwapFees);
         (uint256 dustPoolWeight,,,) = _poolVoteState(dustPool.toPoolId());
         (uint256 otherPoolWeight,,,) = _poolVoteState(otherPool.toPoolId());
         assertEq(dustPoolWeight, 0);
@@ -513,7 +509,10 @@ contract Ve33RewardsTest is FullTest {
         assertEq(saved1, 0);
 
         uint256 balanceBefore = token0.balanceOf(address(this));
-        (uint128 claimed0, uint128 claimed1) = ve.claimPoolFees(veId, poolKey);
+        Ve33Rewards.LockKey memory lockKey = veToken.lockKey(veId);
+        vm.expectRevert(Ve33Rewards.NotLockOwner.selector);
+        ve.claimPoolFees(lockKey, poolKey);
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
         assertApproxEqAbs(claimed0, expectedFee, 1);
         assertEq(claimed1, 0);
         assertEq(token0.balanceOf(address(this)), balanceBefore + claimed0);
@@ -561,7 +560,7 @@ contract Ve33RewardsTest is FullTest {
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         assertEq(saved0, 0);
         assertEq(saved1, 0);
-        (uint128 claimed0, uint128 claimed1) = ve.claimPoolFees(veId, poolKey);
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
         assertEq(claimed0, 0);
         assertEq(claimed1, 0);
 
@@ -680,7 +679,7 @@ contract Ve33RewardsTest is FullTest {
         ve.maybeAccumulateRewards(wrongPool);
 
         (PoolKey memory initializedPool,) = _createConcentratedPool(200, bytes24(uint192(2)));
-        vm.store(address(ve), _poolMappingSlot(initializedPool.toPoolId(), 3), bytes32(0));
+        vm.store(address(ve), _poolMappingSlot(initializedPool.toPoolId(), 4), bytes32(0));
         ve.maybeAccumulateRewards(initializedPool);
         vm.warp(block.timestamp + uint256(type(uint32).max) + 1);
         ve.maybeAccumulateRewards(initializedPool);
@@ -733,7 +732,7 @@ contract Ve33RewardsTest is FullTest {
         poolKeys[1] = otherPool;
         weights[0] = 1;
         weights[1] = 1e18 - 1;
-        ve.vote(veId, poolKeys, weights, swapFees);
+        veToken.vote(veId, poolKeys, weights, swapFees);
 
         ve.fundEmissions(2);
         vm.warp(block.timestamp + ve.EMISSION_DURATION());
@@ -748,8 +747,8 @@ contract Ve33RewardsTest is FullTest {
         ve.fundEmissions(1);
         vm.warp(block.timestamp + 1 days);
 
-        vm.store(address(ve), bytes32(uint256(12)), bytes32(uint256(1)));
-        vm.store(address(ve), bytes32(uint256(13)), bytes32(uint256(1_000)));
+        vm.store(address(ve), bytes32(uint256(13)), bytes32(uint256(1)));
+        vm.store(address(ve), bytes32(uint256(14)), bytes32(uint256(1_000)));
 
         assertEq(ve.triggerPoolEmissions(poolKey), 1);
         assertEq(ve.emissionReserve(), 0);
@@ -849,7 +848,7 @@ contract Ve33RewardsTest is FullTest {
         PoolId poolId = poolKey.toPoolId();
         forwarder.updatePosition(poolKey, positionId, int128(uint128(1e18)));
 
-        vm.store(address(ve), _poolMappingSlot(poolId, 4), bytes32(type(uint256).max));
+        vm.store(address(ve), _poolMappingSlot(poolId, 5), bytes32(type(uint256).max));
 
         vm.expectRevert(Ve33Rewards.RewardAmountOverflow.selector);
         forwarder.claimRewards(poolKey, positionId, address(this));
@@ -863,7 +862,7 @@ contract Ve33RewardsTest is FullTest {
         uint64 startTime = _nextValidRewardTime(block.timestamp + 1 days - 1);
         uint64 endTime = _nextValidRewardTime(uint256(startTime) + 1 days - 1);
         uint256 maxRateDelta = type(uint224).max / MAX_NUM_VALID_TIMES;
-        vm.store(address(ve), _poolTimeMappingSlot(poolId, 8, startTime), bytes32(maxRateDelta));
+        vm.store(address(ve), _poolTimeMappingSlot(poolId, 9, startTime), bytes32(maxRateDelta));
 
         vm.expectRevert(Ve33Rewards.MaxRateDeltaPerTime.selector);
         forwarder.addRewards(poolKey, startTime, endTime, uint224(1 << 32));
@@ -876,7 +875,7 @@ contract Ve33RewardsTest is FullTest {
 
         vm.store(
             address(ve),
-            _poolMappingSlot(poolId, 3),
+            _poolMappingSlot(poolId, 4),
             bytes32((uint256(type(uint224).max) << 32) | uint32(block.timestamp))
         );
 

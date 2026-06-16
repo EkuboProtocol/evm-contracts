@@ -3,7 +3,19 @@ pragma solidity =0.8.33;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {ERC721} from "solady/tokens/ERC721.sol";
+
+import {BaseLocker} from "./base/BaseLocker.sol";
+import {
+    Ve33Rewards,
+    VE33_DEPOSIT_LOCK,
+    VE33_MAX_LOCK_DURATION,
+    VE33_MOVE_LOCK,
+    VE33_WITHDRAW_LOCK
+} from "./extensions/Ve33Rewards.sol";
+import {ICore} from "./interfaces/ICore.sol";
+import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {PoolKey} from "./types/poolKey.sol";
 
 /// @notice Packed vote-escrow lock state.
 /// @dev Bits 0..63 store the lock end timestamp. Bits 64..191 store the locked amount.
@@ -35,168 +47,213 @@ function lockEnd(Lock lock) pure returns (uint64 end) {
     }
 }
 
-/// @notice Optional observer notified before an existing lock changes.
-interface IVeTokenObserver {
-    /// @notice Called before a lock's amount, end timestamp, or existence changes.
-    /// @param veId The ve NFT id whose lock is about to change.
-    /// @param currentLock The current lock state before mutation.
-    /// @param nextLock The lock state that will be written.
-    function beforeLockUpdate(uint256 veId, Lock currentLock, Lock nextLock) external;
-}
+/// @notice Compatibility wrapper over Ve33Rewards lock accounting.
+/// @dev This contract intentionally does not implement ERC721 transfer or approval logic.
+contract VeToken is BaseLocker {
+    using FlashAccountantLib for *;
 
-/// @notice Vote-escrow NFT backed by linear-decaying stake-token locks.
-contract VeToken is ERC721 {
-    /// @notice Maximum lock duration used for linear voting-power decay.
-    uint256 public constant MAX_LOCK_DURATION = 4 * 365 days;
+    uint256 private constant CALL_TYPE_DEPOSIT_LOCK = 0;
+    uint256 private constant CALL_TYPE_WITHDRAW_LOCK = 1;
+    uint256 private constant CALL_TYPE_MOVE_LOCK = 2;
 
-    /// @notice Token escrowed by locks and used to compute voting power.
+    ICore public immutable CORE;
+    Ve33Rewards public immutable ve33Rewards;
     address public immutable stakeToken;
-
-    /// @notice Observer notified before existing locks are updated, if nonzero.
-    IVeTokenObserver public immutable lockObserver;
 
     string private _name;
     string private _symbol;
 
-    /// @notice Packed lock state by ve NFT id.
-    mapping(uint256 => Lock) public locks;
+    mapping(uint256 => address) public lockOwners;
+    mapping(uint256 => bytes32) public lockSalts;
+    mapping(uint256 => uint64) public lockEndTimes;
 
-    /// @notice Next ve NFT id to mint.
     uint256 public nextVeId = 1;
 
-    /// @notice Emitted when a new lock NFT is minted.
     event LockCreated(uint256 indexed veId, address indexed owner, uint128 amount, uint64 end);
-
-    /// @notice Emitted when a lock's amount is increased.
     event LockAmountIncreased(uint256 indexed veId, uint128 amount);
-
-    /// @notice Emitted when a lock's end timestamp is extended.
     event LockExtended(uint256 indexed veId, uint64 end);
-
-    /// @notice Emitted when a lock is withdrawn and its NFT is burned.
     event LockWithdrawn(uint256 indexed veId, address indexed owner, uint128 amount);
 
-    /// @notice Thrown when a requested lock operation violates amount or timing constraints.
     error InvalidLock();
-
-    /// @notice Thrown when a caller is not owner or approved for a ve NFT.
     error NotAuthorizedForToken(address caller, uint256 id);
 
-    /// @notice Creates the vote-escrow NFT contract.
-    /// @param _stakeToken Token escrowed by locks.
-    /// @param _lockObserver Optional observer notified before existing locks change.
-    constructor(address _stakeToken, IVeTokenObserver _lockObserver) {
-        stakeToken = _stakeToken;
-        lockObserver = _lockObserver;
-        _name = string.concat("Vote Escrow ", IERC20(_stakeToken).name());
-        _symbol = string.concat("ve", IERC20(_stakeToken).symbol());
+    constructor(ICore core, Ve33Rewards _ve33Rewards) BaseLocker(core) {
+        CORE = core;
+        ve33Rewards = _ve33Rewards;
+        stakeToken = _ve33Rewards.stakeToken();
+        _name = string.concat("Vote Escrow ", IERC20(stakeToken).name());
+        _symbol = string.concat("ve", IERC20(stakeToken).symbol());
     }
 
-    /// @notice Returns the NFT collection name.
-    function name() public view override returns (string memory) {
+    receive() external payable {}
+
+    function name() public view returns (string memory) {
         return _name;
     }
 
-    /// @notice Returns the NFT collection symbol.
-    function symbol() public view override returns (string memory) {
+    function symbol() public view returns (string memory) {
         return _symbol;
     }
 
-    /// @notice Returns token metadata URI.
-    /// @dev Empty by default so derived contracts can generate metadata onchain.
-    function tokenURI(uint256) public pure virtual override returns (string memory) {
+    function tokenURI(uint256) public pure virtual returns (string memory) {
         return "";
     }
 
-    /// @notice Returns whether `account` owns or is approved for `id`.
-    function isAuthorizedForNft(address account, uint256 id) public view returns (bool) {
-        return _isApprovedOrOwner(account, id);
+    function MAX_LOCK_DURATION() external pure returns (uint256) {
+        return VE33_MAX_LOCK_DURATION;
     }
 
-    modifier authorizedForNft(uint256 id) {
+    function ownerOf(uint256 id) public view returns (address owner) {
+        owner = lockOwners[id];
+        if (owner == address(0)) revert InvalidLock();
+    }
+
+    function isAuthorizedForNft(address account, uint256 id) public view returns (bool) {
+        return lockOwners[id] == account;
+    }
+
+    modifier authorizedForLock(uint256 id) {
         if (!isAuthorizedForNft(msg.sender, id)) revert NotAuthorizedForToken(msg.sender, id);
         _;
     }
 
-    /// @notice Creates a new lock and mints its ve NFT to the caller.
-    /// @param amount Amount of stake token to escrow.
-    /// @param end Lock expiry timestamp. Must be in the future and no more than four years away.
-    /// @return veId Minted ve NFT id.
+    function locks(uint256 id) public view returns (Lock) {
+        uint64 endTime = lockEndTimes[id];
+        return createLockValue(ve33Rewards.lockAmounts(address(this), lockSalts[id], endTime), endTime);
+    }
+
     function createLock(uint128 amount, uint64 end) external returns (uint256 veId) {
-        if (amount == 0 || end <= block.timestamp || end > block.timestamp + MAX_LOCK_DURATION) revert InvalidLock();
-
         veId = nextVeId++;
-        locks[veId] = createLockValue(amount, end);
-        _mint(msg.sender, veId);
+        bytes32 salt = bytes32(veId);
+        lockOwners[veId] = msg.sender;
+        lockSalts[veId] = salt;
+        lockEndTimes[veId] = end;
 
-        SafeTransferLib.safeTransferFrom(stakeToken, msg.sender, address(this), amount);
+        lock(abi.encode(CALL_TYPE_DEPOSIT_LOCK, msg.sender, salt, end, amount));
 
         emit LockCreated(veId, msg.sender, amount, end);
     }
 
-    /// @notice Increases the amount escrowed in an active lock.
-    /// @param veId The ve NFT id to update.
-    /// @param amount Additional stake token amount to escrow.
-    function increaseLockAmount(uint256 veId, uint128 amount) external authorizedForNft(veId) {
-        Lock currentLock = locks[veId];
-        uint64 currentEnd = currentLock.lockEnd();
-        if (amount == 0 || currentEnd <= block.timestamp) revert InvalidLock();
-
-        Lock nextLock = createLockValue(currentLock.lockAmount() + amount, currentEnd);
-        _notifyBeforeLockUpdate(veId, currentLock, nextLock);
-        locks[veId] = nextLock;
-        SafeTransferLib.safeTransferFrom(stakeToken, msg.sender, address(this), amount);
+    function increaseLockAmount(uint256 veId, uint128 amount) external authorizedForLock(veId) {
+        lock(abi.encode(CALL_TYPE_DEPOSIT_LOCK, msg.sender, lockSalts[veId], lockEndTimes[veId], amount));
 
         emit LockAmountIncreased(veId, amount);
     }
 
-    /// @notice Extends an active lock.
-    /// @param veId The ve NFT id to update.
-    /// @param end New lock expiry timestamp.
-    function extendLock(uint256 veId, uint64 end) external authorizedForNft(veId) {
-        Lock currentLock = locks[veId];
-        uint128 amount = currentLock.lockAmount();
-        uint64 currentEnd = currentLock.lockEnd();
-        if (amount == 0 || end <= currentEnd || end > block.timestamp + MAX_LOCK_DURATION) {
-            revert InvalidLock();
-        }
+    function extendLock(uint256 veId, uint64 end) external authorizedForLock(veId) {
+        uint64 currentEnd = lockEndTimes[veId];
+        if (end <= currentEnd) revert InvalidLock();
 
-        Lock nextLock = createLockValue(amount, end);
-        _notifyBeforeLockUpdate(veId, currentLock, nextLock);
-        locks[veId] = nextLock;
+        bytes32 salt = lockSalts[veId];
+        uint128 amount = ve33Rewards.lockAmounts(address(this), salt, currentEnd);
+        lock(abi.encode(CALL_TYPE_MOVE_LOCK, salt, currentEnd, salt, end, amount));
+        lockEndTimes[veId] = end;
 
         emit LockExtended(veId, end);
     }
 
-    /// @notice Withdraws an expired lock, burns its ve NFT, and returns stake token.
-    /// @param veId The ve NFT id to withdraw.
-    function withdrawLock(uint256 veId) external authorizedForNft(veId) {
-        Lock currentLock = locks[veId];
-        uint128 amount = currentLock.lockAmount();
-        if (amount == 0 || block.timestamp < currentLock.lockEnd()) revert InvalidLock();
+    function withdrawLock(uint256 veId) external authorizedForLock(veId) {
+        bytes32 salt = lockSalts[veId];
+        uint64 endTime = lockEndTimes[veId];
+        uint128 amount = ve33Rewards.lockAmounts(address(this), salt, endTime);
+        lock(abi.encode(CALL_TYPE_WITHDRAW_LOCK, salt, endTime, amount, msg.sender));
 
-        Lock nextLock = Lock.wrap(0);
-        _notifyBeforeLockUpdate(veId, currentLock, nextLock);
-        locks[veId] = nextLock;
-        _burn(veId);
-        SafeTransferLib.safeTransfer(stakeToken, msg.sender, amount);
+        delete lockOwners[veId];
+        delete lockSalts[veId];
+        delete lockEndTimes[veId];
 
         emit LockWithdrawn(veId, msg.sender, amount);
     }
 
-    /// @notice Returns current linearly decayed voting power for a ve NFT.
-    /// @param veId The ve NFT id to query.
     function votingPower(uint256 veId) public view returns (uint256) {
-        Lock currentLock = locks[veId];
-        uint64 end = currentLock.lockEnd();
-        if (block.timestamp >= end) return 0;
+        return ve33Rewards.votingPower(
+            Ve33Rewards.LockKey({owner: address(this), salt: lockSalts[veId], endTime: lockEndTimes[veId]})
+        );
+    }
 
-        unchecked {
-            return (uint256(currentLock.lockAmount()) * (end - block.timestamp)) / MAX_LOCK_DURATION;
+    function lockKey(uint256 veId) public view returns (Ve33Rewards.LockKey memory) {
+        return Ve33Rewards.LockKey({owner: address(this), salt: lockSalts[veId], endTime: lockEndTimes[veId]});
+    }
+
+    function vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] calldata swapFees)
+        external
+        authorizedForLock(veId)
+    {
+        ve33Rewards.vote(lockKey(veId), poolKeys, weights, swapFees);
+    }
+
+    function voteWithTickSpacing(
+        uint256 veId,
+        PoolKey[] calldata poolKeys,
+        uint256[] calldata weights,
+        uint32[] calldata tickSpacings
+    ) external authorizedForLock(veId) {
+        ve33Rewards.voteWithTickSpacing(lockKey(veId), poolKeys, weights, tickSpacings);
+    }
+
+    function claimPoolFees(uint256 veId, PoolKey memory poolKey) external returns (uint128 amount0, uint128 amount1) {
+        address owner = ownerOf(veId);
+        (amount0, amount1) = ve33Rewards.claimPoolFees(lockKey(veId), poolKey);
+        _transferToken(poolKey.token0, owner, amount0);
+        _transferToken(poolKey.token1, owner, amount1);
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
+        uint256 callType = abi.decode(data, (uint256));
+
+        if (callType == CALL_TYPE_DEPOSIT_LOCK) {
+            (, address owner, bytes32 salt, uint64 endTime, uint128 amount) =
+                abi.decode(data, (uint256, address, bytes32, uint64, uint128));
+            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_DEPOSIT_LOCK, salt, endTime, amount));
+            uint128 deposited = abi.decode(result, (uint128));
+            if (deposited != 0) {
+                CORE.updateSavedBalances(
+                    stakeToken, address(type(uint160).max), _lockId(salt, endTime), int256(uint256(deposited)), 0
+                );
+                ACCOUNTANT.payFrom(owner, stakeToken, deposited);
+            }
+        } else if (callType == CALL_TYPE_WITHDRAW_LOCK) {
+            (, bytes32 salt, uint64 endTime, uint128 amount, address recipient) =
+                abi.decode(data, (uint256, bytes32, uint64, uint128, address));
+            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_WITHDRAW_LOCK, salt, endTime, amount));
+            uint128 withdrawn = abi.decode(result, (uint128));
+            if (withdrawn != 0) {
+                CORE.updateSavedBalances(
+                    stakeToken, address(type(uint160).max), _lockId(salt, endTime), -int256(uint256(withdrawn)), 0
+                );
+                ACCOUNTANT.withdraw(stakeToken, recipient, withdrawn);
+            }
+        } else if (callType == CALL_TYPE_MOVE_LOCK) {
+            (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
+                abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
+            result = ACCOUNTANT.forward(
+                address(ve33Rewards), abi.encode(VE33_MOVE_LOCK, fromSalt, fromEndTime, toSalt, toEndTime, amount)
+            );
+            uint128 moved = abi.decode(result, (uint128));
+            if (moved != 0) {
+                CORE.updateSavedBalances(
+                    stakeToken, address(type(uint160).max), _lockId(fromSalt, fromEndTime), -int256(uint256(moved)), 0
+                );
+                CORE.updateSavedBalances(
+                    stakeToken, address(type(uint160).max), _lockId(toSalt, toEndTime), int256(uint256(moved)), 0
+                );
+            }
+        } else {
+            revert();
         }
     }
 
-    function _notifyBeforeLockUpdate(uint256 veId, Lock currentLock, Lock nextLock) private {
-        if (address(lockObserver) != address(0)) lockObserver.beforeLockUpdate(veId, currentLock, nextLock);
+    function _lockId(bytes32 salt, uint64 endTime) private view returns (bytes32) {
+        return keccak256(abi.encode(address(this), salt, endTime));
+    }
+
+    function _transferToken(address token, address recipient, uint128 amount) private {
+        if (amount != 0) {
+            if (token == NATIVE_TOKEN_ADDRESS) {
+                SafeTransferLib.safeTransferETH(recipient, amount);
+            } else {
+                SafeTransferLib.safeTransfer(token, recipient, amount);
+            }
+        }
     }
 }

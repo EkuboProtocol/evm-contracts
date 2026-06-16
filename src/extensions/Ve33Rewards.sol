@@ -8,15 +8,12 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {BaseLocker} from "../base/BaseLocker.sol";
-import {PayableMulticallable} from "../base/PayableMulticallable.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
-import {Lock, VeToken} from "../VeToken.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {
     capFee,
     defaultFeeForStableswapAmplification as defaultVeFeeForStableswapAmplification,
@@ -38,11 +35,15 @@ uint256 constant VE33_SWAP = 0;
 uint256 constant VE33_CLAIM_REWARDS = 1;
 uint256 constant VE33_DONATE_REWARDS = 2;
 uint256 constant VE33_ADD_REWARDS = 3;
+uint256 constant VE33_DEPOSIT_LOCK = 4;
+uint256 constant VE33_WITHDRAW_LOCK = 5;
+uint256 constant VE33_MOVE_LOCK = 6;
 
 uint256 constant VE33_LOCK_CLAIM_POOL_FEES = 0;
 uint256 constant VE33_LOCK_TRIGGER_POOL_EMISSIONS = 1;
 
 uint256 constant VE33_MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint224).max / MAX_NUM_VALID_TIMES;
+uint256 constant VE33_MAX_LOCK_DURATION = 4 * 365 days;
 
 type Ve33RewardPoolState is bytes32;
 
@@ -98,13 +99,19 @@ function ve33RewardsCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
-contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMulticallable {
+contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     using CoreLib for *;
     using FlashAccountantLib for *;
     uint256 public constant EMISSION_DURATION = 7 days;
+    uint256 public constant MAX_LOCK_DURATION = VE33_MAX_LOCK_DURATION;
 
     address public immutable stakeToken;
-    VeToken public immutable veToken;
+
+    struct LockKey {
+        address owner;
+        bytes32 salt;
+        uint64 endTime;
+    }
 
     struct PoolVoteState {
         uint256 weight;
@@ -126,8 +133,9 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         uint64 swapFee;
     }
 
-    mapping(uint256 => PoolId[]) public votedPools;
-    mapping(uint256 => mapping(PoolId => VePoolPosition)) public vePoolPositions;
+    mapping(address => mapping(bytes32 => mapping(uint64 => uint128))) public lockAmounts;
+    mapping(bytes32 => PoolId[]) public votedPools;
+    mapping(bytes32 => mapping(PoolId => VePoolPosition)) public vePoolPositions;
     mapping(PoolId => PoolVoteState) public poolVoteStates;
 
     mapping(PoolId => Ve33RewardPoolState) public poolRewardState;
@@ -149,10 +157,15 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
     uint64[] public emissionEventTimes;
     mapping(uint64 => uint224) public emissionRateDecreaseAt;
 
-    event Voted(uint256 indexed veId);
+    event LockDeposited(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    event LockWithdrawn(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    event LockMoved(
+        address indexed owner, bytes32 indexed fromSalt, uint64 indexed fromEndTime, bytes32 toSalt, uint64 toEndTime
+    );
+    event Voted(bytes32 indexed lockId);
     event PoolFeesAccounted(PoolId indexed poolId, uint128 amount0, uint128 amount1);
     event PoolFeesClaimed(
-        uint256 indexed veId, PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1
+        bytes32 indexed lockId, PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1
     );
     event EmissionsFunded(address indexed funder, uint128 amount, uint224 rate, uint64 end);
     event PoolEmissionsTriggered(PoolId indexed poolId, uint224 amount, uint64 end);
@@ -171,16 +184,11 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
     error RewardAmountOverflow();
     error MaxRateDeltaPerTime();
     error PoolNotInitialized();
-    error NotAuthorizedForVeToken();
-    error OnlyVeToken();
+    error NotLockOwner();
+    error InvalidLock();
 
-    constructor(ICore core, address _stakeToken, VeToken _veToken)
-        BaseExtension(core)
-        BaseForwardee(core)
-        BaseLocker(core)
-    {
+    constructor(ICore core, address _stakeToken) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
         stakeToken = _stakeToken;
-        veToken = _veToken;
         emissionsLastAccrued = uint64(block.timestamp);
         totalVoteSecondsLastAccrued = uint64(block.timestamp);
     }
@@ -205,11 +213,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
             : defaultVeFeeForTickSpacing(config.concentratedTickSpacing());
     }
 
-    modifier authorizedForVeToken(uint256 veId) {
-        if (!veToken.isAuthorizedForNft(msg.sender, veId)) revert NotAuthorizedForVeToken();
-        _;
-    }
-
     function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension) onlyCore {
         if (poolKey.config.fee() != 0) revert ZeroConfigFeeOnly();
 
@@ -232,39 +235,47 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         _beforeUpdatePosition(locker.addr(), poolKey, positionId, liquidityDelta);
     }
 
-    function vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] calldata swapFees)
-        external
-        authorizedForVeToken(veId)
-    {
-        _vote(veId, poolKeys, weights, swapFees);
+    function votingPower(LockKey memory lockKey) public view returns (uint256) {
+        if (block.timestamp >= lockKey.endTime) return 0;
+
+        unchecked {
+            return (uint256(lockAmounts[lockKey.owner][lockKey.salt][lockKey.endTime])
+                    * (lockKey.endTime - block.timestamp)) / MAX_LOCK_DURATION;
+        }
+    }
+
+    function vote(
+        LockKey calldata lockKey,
+        PoolKey[] calldata poolKeys,
+        uint256[] calldata weights,
+        uint64[] calldata swapFees
+    ) external {
+        if (lockKey.owner != msg.sender) revert NotLockOwner();
+        _vote(lockKey, poolKeys, weights, swapFees);
     }
 
     function voteWithTickSpacing(
-        uint256 veId,
+        LockKey calldata lockKey,
         PoolKey[] calldata poolKeys,
         uint256[] calldata weights,
         uint32[] calldata tickSpacings
-    ) external authorizedForVeToken(veId) {
+    ) external {
+        if (lockKey.owner != msg.sender) revert NotLockOwner();
         if (poolKeys.length != tickSpacings.length) revert InvalidVote();
 
         uint64[] memory swapFees = new uint64[](tickSpacings.length);
         for (uint256 i = 0; i < tickSpacings.length; i++) {
             swapFees[i] = defaultVeFeeForTickSpacing(tickSpacings[i]);
         }
-        _vote(veId, poolKeys, weights, swapFees);
+        _vote(lockKey, poolKeys, weights, swapFees);
     }
 
-    function claimPoolFees(uint256 veId, PoolKey memory poolKey)
+    function claimPoolFees(LockKey memory lockKey, PoolKey memory poolKey)
         external
-        authorizedForVeToken(veId)
         returns (uint128 amount0, uint128 amount1)
     {
-        return abi.decode(lock(abi.encode(VE33_LOCK_CLAIM_POOL_FEES, veId, poolKey)), (uint128, uint128));
-    }
-
-    function beforeLockUpdate(uint256 veId, Lock, Lock) external {
-        if (msg.sender != address(veToken)) revert OnlyVeToken();
-        _clearVotes(veId);
+        if (lockKey.owner != msg.sender) revert NotLockOwner();
+        return abi.decode(lock(abi.encode(VE33_LOCK_CLAIM_POOL_FEES, lockKey, poolKey)), (uint128, uint128));
     }
 
     function fundEmissions(uint128 amount) external {
@@ -355,6 +366,16 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
             (, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
                 abi.decode(data, (uint256, PoolKey, uint64, uint64, uint224));
             result = abi.encode(_addRewards(poolKey, startTime, endTime, rewardRate));
+        } else if (callType == VE33_DEPOSIT_LOCK) {
+            (, bytes32 salt, uint64 endTime, uint128 amount) = abi.decode(data, (uint256, bytes32, uint64, uint128));
+            result = abi.encode(_depositLock(original.addr(), salt, endTime, amount));
+        } else if (callType == VE33_WITHDRAW_LOCK) {
+            (, bytes32 salt, uint64 endTime, uint128 amount) = abi.decode(data, (uint256, bytes32, uint64, uint128));
+            result = abi.encode(_withdrawLock(original.addr(), salt, endTime, amount));
+        } else if (callType == VE33_MOVE_LOCK) {
+            (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
+                abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
+            result = abi.encode(_moveLock(original.addr(), fromSalt, fromEndTime, toSalt, toEndTime, amount));
         } else {
             revert();
         }
@@ -364,8 +385,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == VE33_LOCK_CLAIM_POOL_FEES) {
-            (, uint256 veId, PoolKey memory poolKey) = abi.decode(data, (uint256, uint256, PoolKey));
-            (uint128 amount0, uint128 amount1) = _claimPoolFeesUnlocked(veId, poolKey);
+            (, LockKey memory lockKey, PoolKey memory poolKey) = abi.decode(data, (uint256, LockKey, PoolKey));
+            (uint128 amount0, uint128 amount1) = _claimPoolFeesUnlocked(lockKey, poolKey);
             result = abi.encode(amount0, amount1);
         } else if (callType == VE33_LOCK_TRIGGER_POOL_EMISSIONS) {
             (, PoolKey memory poolKey) = abi.decode(data, (uint256, PoolKey));
@@ -462,13 +483,84 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         }
     }
 
-    function _vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] memory swapFees)
-        private
-    {
-        if (poolKeys.length != weights.length || poolKeys.length != swapFees.length) revert InvalidVote();
+    function _lockId(address owner, bytes32 salt, uint64 endTime) private pure returns (bytes32) {
+        return keccak256(abi.encode(owner, salt, endTime));
+    }
 
-        uint256 power = veToken.votingPower(veId);
+    function _validateNewLock(uint64 endTime, uint128 amount) private view {
+        if (amount == 0 || endTime <= block.timestamp || endTime > block.timestamp + MAX_LOCK_DURATION) {
+            revert InvalidLock();
+        }
+    }
+
+    function _depositLock(address owner, bytes32 salt, uint64 endTime, uint128 amount)
+        private
+        returns (uint128 deposited)
+    {
+        _validateNewLock(endTime, amount);
+
+        deposited = amount;
+        bytes32 lockId = _lockId(owner, salt, endTime);
+        _clearVotes(lockId);
+        lockAmounts[owner][salt][endTime] += amount;
+
+        emit LockDeposited(owner, salt, endTime, amount);
+    }
+
+    function _withdrawLock(address owner, bytes32 salt, uint64 endTime, uint128 amount)
+        private
+        returns (uint128 withdrawn)
+    {
+        if (amount == 0 || block.timestamp < endTime) revert InvalidLock();
+
+        uint128 currentAmount = lockAmounts[owner][salt][endTime];
+        if (amount > currentAmount) revert InvalidLock();
+
+        withdrawn = amount;
+        bytes32 lockId = _lockId(owner, salt, endTime);
+        _clearVotes(lockId);
+        lockAmounts[owner][salt][endTime] = currentAmount - amount;
+
+        emit LockWithdrawn(owner, salt, endTime, amount);
+    }
+
+    function _moveLock(
+        address owner,
+        bytes32 fromSalt,
+        uint64 fromEndTime,
+        bytes32 toSalt,
+        uint64 toEndTime,
+        uint128 amount
+    ) private returns (uint128 moved) {
+        _validateNewLock(toEndTime, amount);
+
+        uint128 currentAmount = lockAmounts[owner][fromSalt][fromEndTime];
+        if (amount > currentAmount) revert InvalidLock();
+
+        moved = amount;
+        bytes32 fromLockId = _lockId(owner, fromSalt, fromEndTime);
+        bytes32 toLockId = _lockId(owner, toSalt, toEndTime);
+        _clearVotes(fromLockId);
+        _clearVotes(toLockId);
+        lockAmounts[owner][fromSalt][fromEndTime] = currentAmount - amount;
+        lockAmounts[owner][toSalt][toEndTime] += amount;
+
+        emit LockMoved(owner, fromSalt, fromEndTime, toSalt, toEndTime);
+    }
+
+    function _vote(
+        LockKey calldata lockKey,
+        PoolKey[] calldata poolKeys,
+        uint256[] calldata weights,
+        uint64[] memory swapFees
+    ) private {
+        if (poolKeys.length != weights.length || poolKeys.length != swapFees.length) {
+            revert InvalidVote();
+        }
+
+        uint256 power = votingPower(lockKey);
         if (power == 0) revert InvalidVote();
+        bytes32 lockId = _lockId(lockKey.owner, lockKey.salt, lockKey.endTime);
 
         uint256 totalWeight;
         for (uint256 i = 0; i < weights.length; i++) {
@@ -481,7 +573,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         }
         if (totalWeight == 0) revert InvalidVote();
 
-        _clearVotes(veId);
+        _clearVotes(lockId);
         for (uint256 i = _accrueTotalVoteSeconds(); i < poolKeys.length; i++) {
             uint256 weight = (power * weights[i]) / totalWeight;
             if (weight == 0) continue;
@@ -491,7 +583,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
             _accruePoolVoteSeconds(poolId);
 
             PoolVoteState storage poolState = poolVoteStates[poolId];
-            VePoolPosition storage vePool = vePoolPositions[veId][poolId];
+            VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
 
             poolState.weight += weight;
             poolState.feeWeightSum += weight * swapFee;
@@ -501,12 +593,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
             vePool.swapFee = swapFee;
             vePool.feeGrowth0X128 = poolState.feeGrowth0X128;
             vePool.feeGrowth1X128 = poolState.feeGrowth1X128;
-            votedPools[veId].push(poolId);
+            votedPools[lockId].push(poolId);
 
             _updatePoolSwapFee(poolId);
         }
 
-        emit Voted(veId);
+        emit Voted(lockId);
     }
 
     function _accountPoolFees(PoolId poolId, uint128 amount0, uint128 amount1) private {
@@ -522,21 +614,21 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         emit PoolFeesAccounted(poolId, amount0, amount1);
     }
 
-    function _claimPoolFeesUnlocked(uint256 veId, PoolKey memory poolKey)
+    function _claimPoolFeesUnlocked(LockKey memory lockKey, PoolKey memory poolKey)
         private
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = poolKey.toPoolId();
-        _accrueVePoolFees(veId, poolId);
+        bytes32 lockId = _lockId(lockKey.owner, lockKey.salt, lockKey.endTime);
+        _accrueVePoolFees(lockId, poolId);
 
-        VePoolPosition storage vePool = vePoolPositions[veId][poolId];
+        VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
         amount0 = uint128(vePool.accrued0);
         amount1 = uint128(vePool.accrued1);
 
         if (amount0 != 0 || amount1 != 0) {
             vePool.accrued0 = 0;
             vePool.accrued1 = 0;
-            address recipient = veToken.ownerOf(veId);
             CORE.updateSavedBalances(
                 poolKey.token0,
                 poolKey.token1,
@@ -544,10 +636,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
                 -int256(uint256(amount0)),
                 -int256(uint256(amount1))
             );
-            ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
+            ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, lockKey.owner, amount0, amount1);
         }
 
-        emit PoolFeesClaimed(veId, poolId, veToken.ownerOf(veId), amount0, amount1);
+        emit PoolFeesClaimed(lockId, poolId, lockKey.owner, amount0, amount1);
     }
 
     function _triggerPoolEmissions(PoolKey memory poolKey) private returns (uint224 amount) {
@@ -671,16 +763,16 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         emit RewardsClaimed(poolId, owner, positionId, recipient, amount);
     }
 
-    function _clearVotes(uint256 veId) private {
-        PoolId[] storage pools = votedPools[veId];
+    function _clearVotes(bytes32 lockId) private {
+        PoolId[] storage pools = votedPools[lockId];
         if (pools.length == 0) return;
 
         for (uint256 i = _accrueTotalVoteSeconds(); i < pools.length; i++) {
             PoolId poolId = pools[i];
             _accruePoolVoteSeconds(poolId);
-            _accrueVePoolFees(veId, poolId);
+            _accrueVePoolFees(lockId, poolId);
 
-            VePoolPosition storage vePool = vePoolPositions[veId][poolId];
+            VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
             uint256 weight = vePool.weight;
             if (weight != 0) {
                 PoolVoteState storage poolState = poolVoteStates[poolId];
@@ -692,12 +784,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
             }
         }
 
-        delete votedPools[veId];
+        delete votedPools[lockId];
     }
 
-    function _accrueVePoolFees(uint256 veId, PoolId poolId) private {
+    function _accrueVePoolFees(bytes32 lockId, PoolId poolId) private {
         PoolVoteState storage poolState = poolVoteStates[poolId];
-        VePoolPosition storage vePool = vePoolPositions[veId][poolId];
+        VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
 
         uint256 weight = vePool.weight;
         if (weight != 0) {

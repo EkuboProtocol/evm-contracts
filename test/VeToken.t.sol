@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
+import {ERC721} from "solady/tokens/ERC721.sol";
+import {Base64} from "solady/utils/Base64.sol";
+import {LibString} from "solady/utils/LibString.sol";
+
 import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
 import {Lock, VeToken, lockAmount, lockEnd} from "../src/VeToken.sol";
@@ -43,9 +47,22 @@ contract VeTokenTest is FullTest {
     function test_constructorAndMetadata() public view {
         assertEq(veToken.name(), "Vote Escrow TestToken");
         assertEq(veToken.symbol(), "veTT");
-        assertEq(veToken.tokenURI(1), "");
         assertEq(veToken.stakeToken(), address(stakeToken));
         assertEq(address(veToken.ve33()), address(ve33));
+        assertTrue(veToken.supportsInterface(0x80ac58cd));
+        assertTrue(veToken.supportsInterface(0x5b5e139f));
+    }
+
+    function test_tokenURI_returnsErc721JsonMetadata() public {
+        uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
+        string memory uri = veToken.tokenURI(veId);
+        string memory prefix = "data:application/json;base64,";
+        assertTrue(LibString.startsWith(uri, prefix));
+
+        string memory json = string(Base64.decode(LibString.slice(uri, bytes(prefix).length)));
+        assertTrue(LibString.contains(json, "\"name\":\"veTT #1\""));
+        assertTrue(LibString.contains(json, "\"description\":\"Vote-escrowed TestToken lock."));
+        assertTrue(LibString.contains(json, "\"image\":\"data:image/svg+xml;base64,"));
     }
 
     function test_lockLifecycleAndInvalidLockPaths() public {
@@ -61,6 +78,7 @@ contract VeTokenTest is FullTest {
         uint64 end = uint64(block.timestamp + maxLockDuration);
         uint256 veId = veToken.createLock(1e18, end);
         assertEq(veToken.ownerOf(veId), address(this));
+        assertEq(veToken.balanceOf(address(this)), 1);
         bytes32 salt = bytes32(veId);
         bytes32 lockId = keccak256(abi.encode(address(veToken), salt, end));
         (uint128 saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), lockId);
@@ -106,11 +124,37 @@ contract VeTokenTest is FullTest {
         assertEq(stakeToken.balanceOf(address(this)), balanceBefore + 3e18);
         (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedLockId);
         assertEq(saved, 0);
-        vm.expectRevert(VeToken.InvalidLock.selector);
+        assertEq(veToken.balanceOf(address(this)), 0);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
         veToken.ownerOf(veId);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        veToken.tokenURI(veId);
     }
 
-    function test_onlyOwnerCanUpdateLock() public {
+    function test_erc721TransferMovesLockControl() public {
+        uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
+        address operator = address(1234);
+
+        veToken.transferFrom(address(this), operator, veId);
+        assertEq(veToken.ownerOf(veId), operator);
+        assertEq(veToken.balanceOf(address(this)), 0);
+        assertEq(veToken.balanceOf(operator), 1);
+        assertEq(veToken.locks(veId).lockAmount(), 1e18);
+        assertEq(ve33.lockAmounts(address(veToken), bytes32(veId), veToken.locks(veId).lockEnd()), 1e18);
+
+        vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, address(this), veId));
+        veToken.increaseLockAmount(veId, 1);
+
+        stakeToken.transfer(operator, 1e18);
+        vm.startPrank(operator);
+        stakeToken.approve(address(veToken), type(uint256).max);
+        veToken.increaseLockAmount(veId, 1e18);
+        vm.stopPrank();
+
+        assertEq(veToken.locks(veId).lockAmount(), 2e18);
+    }
+
+    function test_erc721ApprovedAccountCanUpdateLock() public {
         uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
         address operator = address(1234);
         stakeToken.transfer(operator, 1e18);
@@ -121,6 +165,34 @@ contract VeTokenTest is FullTest {
         veToken.increaseLockAmount(veId, 1e18);
         vm.stopPrank();
 
-        assertEq(veToken.locks(veId).lockAmount(), 1e18);
+        veToken.approve(operator, veId);
+        assertEq(veToken.getApproved(veId), operator);
+        vm.prank(operator);
+        veToken.increaseLockAmount(veId, 1e18);
+        assertEq(veToken.locks(veId).lockAmount(), 2e18);
+
+        veToken.setApprovalForAll(operator, true);
+        assertTrue(veToken.isApprovedForAll(address(this), operator));
+        stakeToken.transfer(operator, 1e18);
+        vm.prank(operator);
+        veToken.increaseLockAmount(veId, 1e18);
+        assertEq(veToken.locks(veId).lockAmount(), 3e18);
+    }
+
+    function test_approvedWithdrawSendsStakeToCurrentOwner() public {
+        uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
+        address operator = address(1234);
+        veToken.approve(operator, veId);
+        vm.warp(veToken.locks(veId).lockEnd());
+
+        uint256 ownerBalanceBefore = stakeToken.balanceOf(address(this));
+        uint256 operatorBalanceBefore = stakeToken.balanceOf(operator);
+        vm.prank(operator);
+        veToken.withdrawLock(veId);
+
+        assertEq(stakeToken.balanceOf(address(this)), ownerBalanceBefore + 1e18);
+        assertEq(stakeToken.balanceOf(operator), operatorBalanceBefore);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        veToken.ownerOf(veId);
     }
 }

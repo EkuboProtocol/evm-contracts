@@ -2,7 +2,7 @@
 
 `VE33` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow lock accounting.
 
-`VeToken` is an optional wrapper around `VE33` lock accounting. It gives users the familiar `createLock`, `increaseLockAmount`, `extendLock`, and `withdrawLock` surface, but the important lock state remains in `VE33`. This keeps the core ve logic independent from any particular NFT or transfer representation.
+`VeToken` is an optional ERC721 wrapper around `VE33` lock accounting. It gives users the familiar `createLock`, `increaseLockAmount`, `extendLock`, and `withdrawLock` surface, but the important lock state remains in `VE33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based lock control.
 
 ## Architecture
 
@@ -19,17 +19,18 @@
 
 `VeToken` owns:
 
-- user-facing lock ids
-- local lock ownership checks
+- transferable ERC721 lock ownership and approvals
+- user-facing lock ids, used directly as the `VE33` lock salt
+- the lock end timestamp in Solady ERC721 token `extraData`
 - stake-token payment on staking and withdrawal on unstaking
 - wrapper vote and pool-fee claim calls
-- optional external representation of locks
+- on-chain ERC721 JSON metadata derived from the staked token and current lock state
 
 `VE33Periphery` owns token settlement for generic VE33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering.
 
 The `owner` in `VE33.LockKey` is the locker that forwarded the stake operation. For `VeToken` locks this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `VE33`.
 
-Because the canonical lock state is independent of the wrapper, the same design can support other representations of locked stake, including a fungible ERC20 representation. This branch includes the `VeToken` wrapper and `VE33Periphery` settlement helper.
+Because the canonical lock state is independent of the wrapper, the same design can support other representations of locked stake, including a fungible ERC20 representation. This branch includes the transferable `VeToken` ERC721 wrapper and `VE33Periphery` settlement helper.
 
 ## Pool Requirements
 
@@ -53,6 +54,8 @@ Locks are stored in:
 lockAmounts[owner][salt][endTime]
 ```
 
+For `VeToken`, `salt = bytes32(veId)`. The current lock amount is fetched from `VE33.lockAmounts(address(veToken), bytes32(veId), endTime)` whenever the wrapper needs it, so the NFT does not store the amount. The lock end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
+
 The lock id used for vote accounting is:
 
 ```text
@@ -71,7 +74,7 @@ Forward lock call types:
 CORE.updateSavedBalances(stakeToken, address(type(uint160).max), lockId, delta, 0)
 ```
 
-It does not transfer stake tokens for these lock operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the local lock owner after unstaking. Extending is implemented as `VE33_MOVE_LOCK`, which moves saved balance from the old lock id to the new lock id without moving tokens.
+It does not transfer stake tokens for these lock operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented lock, but unlocked stake and claimed pool fees settle to the current NFT owner. Extending is implemented as `VE33_MOVE_LOCK`, which moves saved balance from the old lock id to the new lock id without moving tokens.
 
 ## Voting
 

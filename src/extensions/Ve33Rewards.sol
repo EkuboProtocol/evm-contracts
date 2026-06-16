@@ -262,7 +262,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker, PayableMultica
         return abi.decode(lock(abi.encode(VE33_LOCK_CLAIM_POOL_FEES, veId, poolKey)), (uint128, uint128));
     }
 
-    function beforeLockUpdate(uint256 veId, Lock) external {
+    function beforeLockUpdate(uint256 veId, Lock, Lock) external {
         if (msg.sender != address(veToken)) revert OnlyVeToken();
         _clearVotes(veId);
     }

@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
-
-interface IERC20Metadata {
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-}
 
 /// @notice Packed vote-escrow lock state.
 /// @dev Bits 0..63 store the lock end timestamp. Bits 64..191 store the locked amount.
@@ -44,7 +40,8 @@ interface IVeTokenObserver {
     /// @notice Called before a lock's amount, end timestamp, or existence changes.
     /// @param veId The ve NFT id whose lock is about to change.
     /// @param currentLock The current lock state before mutation.
-    function beforeLockUpdate(uint256 veId, Lock currentLock) external;
+    /// @param nextLock The lock state that will be written.
+    function beforeLockUpdate(uint256 veId, Lock currentLock, Lock nextLock) external;
 }
 
 /// @notice Vote-escrow NFT backed by linear-decaying stake-token locks.
@@ -91,8 +88,8 @@ contract VeToken is ERC721 {
     constructor(address _stakeToken, IVeTokenObserver _lockObserver) {
         stakeToken = _stakeToken;
         lockObserver = _lockObserver;
-        _name = string.concat("Vote Escrow ", IERC20Metadata(_stakeToken).name());
-        _symbol = string.concat("ve", IERC20Metadata(_stakeToken).symbol());
+        _name = string.concat("Vote Escrow ", IERC20(_stakeToken).name());
+        _symbol = string.concat("ve", IERC20(_stakeToken).symbol());
     }
 
     /// @notice Returns the NFT collection name.
@@ -145,8 +142,9 @@ contract VeToken is ERC721 {
         uint64 currentEnd = currentLock.lockEnd();
         if (amount == 0 || currentEnd <= block.timestamp) revert InvalidLock();
 
-        _notifyBeforeLockUpdate(veId, currentLock);
-        locks[veId] = createLockValue(currentLock.lockAmount() + amount, currentEnd);
+        Lock nextLock = createLockValue(currentLock.lockAmount() + amount, currentEnd);
+        _notifyBeforeLockUpdate(veId, currentLock, nextLock);
+        locks[veId] = nextLock;
         SafeTransferLib.safeTransferFrom(stakeToken, msg.sender, address(this), amount);
 
         emit LockAmountIncreased(veId, amount);
@@ -163,8 +161,9 @@ contract VeToken is ERC721 {
             revert InvalidLock();
         }
 
-        _notifyBeforeLockUpdate(veId, currentLock);
-        locks[veId] = createLockValue(amount, end);
+        Lock nextLock = createLockValue(amount, end);
+        _notifyBeforeLockUpdate(veId, currentLock, nextLock);
+        locks[veId] = nextLock;
 
         emit LockExtended(veId, end);
     }
@@ -176,8 +175,9 @@ contract VeToken is ERC721 {
         uint128 amount = currentLock.lockAmount();
         if (amount == 0 || block.timestamp < currentLock.lockEnd()) revert InvalidLock();
 
-        _notifyBeforeLockUpdate(veId, currentLock);
-        locks[veId] = Lock.wrap(0);
+        Lock nextLock = Lock.wrap(0);
+        _notifyBeforeLockUpdate(veId, currentLock, nextLock);
+        locks[veId] = nextLock;
         _burn(veId);
         SafeTransferLib.safeTransfer(stakeToken, msg.sender, amount);
 
@@ -196,7 +196,7 @@ contract VeToken is ERC721 {
         }
     }
 
-    function _notifyBeforeLockUpdate(uint256 veId, Lock currentLock) private {
-        if (address(lockObserver) != address(0)) lockObserver.beforeLockUpdate(veId, currentLock);
+    function _notifyBeforeLockUpdate(uint256 veId, Lock currentLock, Lock nextLock) private {
+        if (address(lockObserver) != address(0)) lockObserver.beforeLockUpdate(veId, currentLock, nextLock);
     }
 }

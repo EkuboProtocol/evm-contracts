@@ -405,7 +405,7 @@ contract Ve33RewardsTest is FullTest {
         ve.beforeUpdatePosition(Locker.wrap(bytes32(0)), poolKey, positionId, 0);
 
         vm.expectRevert(Ve33Rewards.OnlyVeToken.selector);
-        ve.beforeLockUpdate(1, Lock.wrap(0));
+        ve.beforeLockUpdate(1, Lock.wrap(0), Lock.wrap(0));
 
         vm.expectRevert();
         forwarder.rawForward(address(ve), abi.encode(uint256(999)));

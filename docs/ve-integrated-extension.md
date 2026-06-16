@@ -71,7 +71,7 @@ When votes change, the active pool fee is recomputed as `feeWeightSum / weight`.
 
 ## Lock Updates And Votes
 
-`VeToken` can be deployed with a `lockObserver`. For the integrated system this observer is the `Ve33Rewards` extension address. Before lock amount changes, lock extensions, or withdrawals, `VeToken` calls `Ve33Rewards.beforeLockUpdate(veId, currentLock)`, passing the packed pre-update lock state.
+`VeToken` can be deployed with a `lockObserver`. For the integrated system this observer is the `Ve33Rewards` extension address. Before lock amount changes, lock extensions, or withdrawals, `VeToken` calls `Ve33Rewards.beforeLockUpdate(veId, currentLock, nextLock)`, passing the packed pre-update and post-update lock states.
 
 Only the configured `veToken` may call `beforeLockUpdate`. The callback clears the ve NFT's pool votes before its voting power changes. This keeps vote weights, weighted fee selection, fee-growth snapshots, and vote-second accounting synchronized with the lock's current voting power.
 

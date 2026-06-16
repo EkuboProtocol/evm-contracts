@@ -11,12 +11,14 @@ using {lockAmount, lockEnd} for Lock;
 contract TestVeTokenObserver is IVeTokenObserver {
     uint256 public calls;
     uint256 public lastVeId;
-    Lock public lastLock;
+    Lock public lastCurrentLock;
+    Lock public lastNextLock;
 
-    function beforeLockUpdate(uint256 veId, Lock currentLock) external {
+    function beforeLockUpdate(uint256 veId, Lock currentLock, Lock nextLock) external {
         calls++;
         lastVeId = veId;
-        lastLock = currentLock;
+        lastCurrentLock = currentLock;
+        lastNextLock = nextLock;
     }
 }
 
@@ -73,8 +75,11 @@ contract VeTokenTest is Test {
 
         assertEq(observer.calls(), 1);
         assertEq(observer.lastVeId(), veId);
-        Lock observedLock = observer.lastLock();
+        Lock observedLock = observer.lastCurrentLock();
         assertEq(observedLock.lockAmount(), 1e18);
+        assertEq(observedLock.lockEnd(), end);
+        observedLock = observer.lastNextLock();
+        assertEq(observedLock.lockAmount(), 3e18);
         assertEq(observedLock.lockEnd(), end);
 
         userLock = veToken.locks(veId);
@@ -88,9 +93,12 @@ contract VeTokenTest is Test {
         veToken.extendLock(veId, extendedEnd);
 
         assertEq(observer.calls(), 2);
-        observedLock = observer.lastLock();
+        observedLock = observer.lastCurrentLock();
         assertEq(observedLock.lockAmount(), 3e18);
         assertEq(observedLock.lockEnd(), end);
+        observedLock = observer.lastNextLock();
+        assertEq(observedLock.lockAmount(), 3e18);
+        assertEq(observedLock.lockEnd(), extendedEnd);
 
         userLock = veToken.locks(veId);
         assertEq(userLock.lockAmount(), 3e18);
@@ -104,9 +112,12 @@ contract VeTokenTest is Test {
         veToken.withdrawLock(veId);
 
         assertEq(observer.calls(), 3);
-        observedLock = observer.lastLock();
+        observedLock = observer.lastCurrentLock();
         assertEq(observedLock.lockAmount(), 3e18);
         assertEq(observedLock.lockEnd(), extendedEnd);
+        observedLock = observer.lastNextLock();
+        assertEq(observedLock.lockAmount(), 0);
+        assertEq(observedLock.lockEnd(), 0);
         assertEq(stakeToken.balanceOf(address(this)), balanceBefore + 3e18);
     }
 

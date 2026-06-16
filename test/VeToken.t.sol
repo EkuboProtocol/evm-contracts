@@ -4,7 +4,7 @@ pragma solidity =0.8.33;
 import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
 import {Lock, VeToken, lockAmount, lockEnd} from "../src/VeToken.sol";
-import {Ve33Rewards, ve33RewardsCallPoints} from "../src/extensions/Ve33Rewards.sol";
+import {VE33, ve33CallPoints} from "../src/extensions/VE33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 
 using {lockAmount, lockEnd} for Lock;
@@ -13,16 +13,16 @@ contract VeTokenTest is FullTest {
     using CoreLib for *;
 
     TestToken internal stakeToken;
-    Ve33Rewards internal ve33;
+    VE33 internal ve33;
     VeToken internal veToken;
 
     function setUp() public override {
         super.setUp();
 
         stakeToken = new TestToken(address(this));
-        address deployAddress = address(uint160(ve33RewardsCallPoints().toUint8()) << 152);
-        deployCodeTo("Ve33Rewards.sol", abi.encode(core, address(stakeToken)), deployAddress);
-        ve33 = Ve33Rewards(payable(deployAddress));
+        address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
+        deployCodeTo("VE33.sol", abi.encode(core, address(stakeToken)), deployAddress);
+        ve33 = VE33(payable(deployAddress));
         veToken = new VeToken(core, ve33);
         stakeToken.approve(address(veToken), type(uint256).max);
     }
@@ -45,17 +45,17 @@ contract VeTokenTest is FullTest {
         assertEq(veToken.symbol(), "veTT");
         assertEq(veToken.tokenURI(1), "");
         assertEq(veToken.stakeToken(), address(stakeToken));
-        assertEq(address(veToken.ve33Rewards()), address(ve33));
+        assertEq(address(veToken.ve33()), address(ve33));
     }
 
     function test_lockLifecycleAndInvalidLockPaths() public {
         uint256 maxLockDuration = veToken.MAX_LOCK_DURATION();
 
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VE33.InvalidLock.selector);
         veToken.createLock(0, uint64(block.timestamp + 1));
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VE33.InvalidLock.selector);
         veToken.createLock(1, uint64(block.timestamp));
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VE33.InvalidLock.selector);
         veToken.createLock(1, uint64(block.timestamp + maxLockDuration + 1));
 
         uint64 end = uint64(block.timestamp + maxLockDuration);
@@ -73,7 +73,7 @@ contract VeTokenTest is FullTest {
         assertEq(userLock.lockEnd(), end);
         assertEq(veToken.votingPower(veId), 1e18);
 
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VE33.InvalidLock.selector);
         veToken.increaseLockAmount(veId, 0);
         veToken.increaseLockAmount(veId, 2e18);
 
@@ -96,7 +96,7 @@ contract VeTokenTest is FullTest {
         (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedLockId);
         assertEq(saved, 3e18);
 
-        vm.expectRevert(Ve33Rewards.InvalidLock.selector);
+        vm.expectRevert(VE33.InvalidLock.selector);
         veToken.withdrawLock(veId);
         vm.warp(extendedEnd);
         assertEq(veToken.votingPower(veId), 0);

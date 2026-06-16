@@ -1,12 +1,12 @@
 # ve(3,3) Integrated Pool Extension
 
-`Ve33Rewards` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow lock accounting.
+`VE33` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow lock accounting.
 
-`VeToken` is an optional wrapper around `Ve33Rewards` lock accounting. It gives users the familiar `createLock`, `increaseLockAmount`, `extendLock`, and `withdrawLock` surface, but the important lock state remains in `Ve33Rewards`. This keeps the core ve logic independent from any particular NFT or transfer representation.
+`VeToken` is an optional wrapper around `VE33` lock accounting. It gives users the familiar `createLock`, `increaseLockAmount`, `extendLock`, and `withdrawLock` surface, but the important lock state remains in `VE33`. This keeps the core ve logic independent from any particular NFT or transfer representation.
 
 ## Architecture
 
-`Ve33Rewards` owns:
+`VE33` owns:
 
 - pool initialization checks
 - forward-only swap execution
@@ -25,9 +25,11 @@
 - wrapper vote and pool-fee claim calls
 - optional external representation of locks
 
-The `owner` in `Ve33Rewards.LockKey` is the locker that forwarded the stake operation. For `VeToken` locks this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `Ve33Rewards`.
+`VE33Periphery` owns token settlement for generic VE33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering.
 
-Because the canonical lock state is independent of the wrapper, the same design can support other representations of locked stake, including a fungible ERC20 representation. This branch includes the `VeToken` wrapper only.
+The `owner` in `VE33.LockKey` is the locker that forwarded the stake operation. For `VeToken` locks this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `VE33`.
+
+Because the canonical lock state is independent of the wrapper, the same design can support other representations of locked stake, including a fungible ERC20 representation. This branch includes the `VeToken` wrapper and `VE33Periphery` settlement helper.
 
 ## Pool Requirements
 
@@ -63,7 +65,7 @@ Forward lock call types:
 - `VE33_UNSTAKE_LOCK`: decreases an expired lock and returns the unlocked amount
 - `VE33_MOVE_LOCK`: moves amount from one `(salt, endTime)` to another
 
-`Ve33Rewards` updates Core saved balances for locked stake under `address(ve33Rewards)` and the lock id:
+`VE33` updates Core saved balances for locked stake under `address(ve33)` and the lock id:
 
 ```text
 CORE.updateSavedBalances(stakeToken, address(type(uint160).max), lockId, delta, 0)
@@ -73,7 +75,7 @@ It does not transfer stake tokens for these lock operations. The calling represe
 
 ## Voting
 
-`Ve33Rewards.vote` accepts explicit `uint64` swap fees. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
+`VE33.vote` accepts explicit `uint64` swap fees. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
 
 ```text
 1 - 1 / 1.000001^(2 * tickSpacing)
@@ -103,9 +105,9 @@ The extension does not call `CORE.accumulateAsFees`, so LPs do not earn Core swa
 
 Voter fees use fee-growth accounting over each pool's active vote weight. Each lock snapshots `feeGrowth0X128` and `feeGrowth1X128` for every voted pool.
 
-`Ve33Rewards.claimPoolFees(lockKey, poolKey)` subtracts the claimed amount from the extension's saved balance and withdraws token0/token1 to `lockKey.owner`.
+`VE33_CLAIM_POOL_FEES` is a forwarded action. It subtracts the claimed amount from the extension's saved balance and returns the loaded token amounts to the forwarding locker.
 
-For wrapper-owned locks, `lockKey.owner` is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` calls the extension, receives the claimed fees, and transfers them to the local lock owner.
+For wrapper-owned locks, `lockKey.owner` is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` enters a Core lock, forwards the claim to `VE33`, and withdraws token0/token1 directly to the local lock owner.
 
 ## LP Reward Token
 
@@ -125,7 +127,9 @@ Reward accounting is range-aware. The extension tracks `tickRewardsOutsidePerLiq
 
 ## Emissions
 
-`fundEmissions` transfers `stakeToken` into the extension and increases the global one-week emission stream. `triggerPoolEmissions` is permissionless and can be called for any pool using the extension.
+`VE33_FUND_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and increases the global one-week emission stream. A periphery such as `VE33Periphery` pays the stake token into Core in the same lock.
+
+`VE33_TRIGGER_POOL_EMISSIONS` is permissionless and can be forwarded for any pool using the extension. Triggering moves saved stake token from the emission reserve bucket into the LP reward reserve bucket and schedules the pool's reward stream; no external token transfer is needed.
 
 When triggered, the extension accrues global emissions, accrues total and per-pool vote seconds, and assigns the pool a proportional share of `unallocatedEmissions` based on time-weighted vote seconds since the pool was last touched. The assigned amount is scheduled as LP reward-token emissions ending at the next valid time within one week.
 
@@ -133,8 +137,9 @@ When triggered, the extension accrues global emissions, accrues total and per-po
 
 The extension relies on Core saved balances for deferred accounting:
 
-- swap fees are saved under `address(ve33Rewards)` and the pool id
-- LP rewards are saved under `address(ve33Rewards)` and the reward reserve salt
-- ve lock stake is saved under `address(ve33Rewards)` and the lock id
+- swap fees are saved under `address(ve33)` and the pool id
+- LP rewards are saved under `address(ve33)` and reward reserve salt `bytes32(0)`
+- funded-but-unassigned emissions are saved under `address(ve33)` and emission reserve salt `bytes32(uint256(1))`
+- ve lock stake is saved under `address(ve33)` and the lock id
 
-`Ve33Rewards` accounts for staking, unstaking, and moving lock balances, but does not transfer stake tokens for these operations. Callers that integrate directly with `VE33_STAKE_LOCK`, `VE33_UNSTAKE_LOCK`, or `VE33_MOVE_LOCK` must settle any payment or withdrawal in the same Core lock. `VeToken` is the reference implementation of that pattern.
+`VE33` accounts for staking, unstaking, moving lock balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for lock-owned fee claims, and `VE33Periphery` is the reference implementation for generic VE33 token settlement.

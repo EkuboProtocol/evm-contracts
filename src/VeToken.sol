@@ -2,19 +2,18 @@
 pragma solidity =0.8.33;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {
-    Ve33Rewards,
+    VE33,
+    VE33_CLAIM_POOL_FEES,
     VE33_MAX_LOCK_DURATION,
     VE33_MOVE_LOCK,
     VE33_STAKE_LOCK,
     VE33_UNSTAKE_LOCK
-} from "./extensions/Ve33Rewards.sol";
+} from "./extensions/VE33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
-import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {defaultFeeForTickSpacing} from "./math/tickSpacingFee.sol";
 import {PoolKey} from "./types/poolKey.sol";
 
@@ -48,7 +47,7 @@ function lockEnd(Lock lock) pure returns (uint64 end) {
     }
 }
 
-/// @notice Compatibility wrapper over Ve33Rewards lock accounting.
+/// @notice Compatibility wrapper over VE33 lock accounting.
 /// @dev This contract intentionally does not implement ERC721 transfer or approval logic.
 contract VeToken is BaseLocker {
     using FlashAccountantLib for *;
@@ -56,8 +55,9 @@ contract VeToken is BaseLocker {
     uint256 private constant CALL_TYPE_STAKE_LOCK = 0;
     uint256 private constant CALL_TYPE_UNSTAKE_LOCK = 1;
     uint256 private constant CALL_TYPE_MOVE_LOCK = 2;
+    uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 3;
 
-    Ve33Rewards public immutable ve33Rewards;
+    VE33 public immutable ve33;
     address public immutable stakeToken;
 
     string private _name;
@@ -77,9 +77,9 @@ contract VeToken is BaseLocker {
     error InvalidLock();
     error NotAuthorizedForToken(address caller, uint256 id);
 
-    constructor(ICore core, Ve33Rewards _ve33Rewards) BaseLocker(core) {
-        ve33Rewards = _ve33Rewards;
-        stakeToken = _ve33Rewards.stakeToken();
+    constructor(ICore core, VE33 _ve33) BaseLocker(core) {
+        ve33 = _ve33;
+        stakeToken = _ve33.stakeToken();
         _name = string.concat("Vote Escrow ", IERC20(stakeToken).name());
         _symbol = string.concat("ve", IERC20(stakeToken).symbol());
     }
@@ -118,7 +118,7 @@ contract VeToken is BaseLocker {
 
     function locks(uint256 id) public view returns (Lock) {
         uint64 endTime = lockEndTimes[id];
-        return createLockValue(ve33Rewards.lockAmounts(address(this), lockSalts[id], endTime), endTime);
+        return createLockValue(ve33.lockAmounts(address(this), lockSalts[id], endTime), endTime);
     }
 
     function createLock(uint128 amount, uint64 end) external returns (uint256 veId) {
@@ -144,7 +144,7 @@ contract VeToken is BaseLocker {
         if (end <= currentEnd) revert InvalidLock();
 
         bytes32 salt = lockSalts[veId];
-        uint128 amount = ve33Rewards.lockAmounts(address(this), salt, currentEnd);
+        uint128 amount = ve33.lockAmounts(address(this), salt, currentEnd);
         lock(abi.encode(CALL_TYPE_MOVE_LOCK, salt, currentEnd, salt, end, amount));
         lockEndTimes[veId] = end;
 
@@ -154,7 +154,7 @@ contract VeToken is BaseLocker {
     function withdrawLock(uint256 veId) external authorizedForLock(veId) {
         bytes32 salt = lockSalts[veId];
         uint64 endTime = lockEndTimes[veId];
-        uint128 amount = ve33Rewards.lockAmounts(address(this), salt, endTime);
+        uint128 amount = ve33.lockAmounts(address(this), salt, endTime);
         lock(abi.encode(CALL_TYPE_UNSTAKE_LOCK, salt, endTime, amount, msg.sender));
 
         delete lockOwners[veId];
@@ -165,20 +165,19 @@ contract VeToken is BaseLocker {
     }
 
     function votingPower(uint256 veId) public view returns (uint256) {
-        return ve33Rewards.votingPower(
-            Ve33Rewards.LockKey({owner: address(this), salt: lockSalts[veId], endTime: lockEndTimes[veId]})
-        );
+        return
+            ve33.votingPower(VE33.LockKey({owner: address(this), salt: lockSalts[veId], endTime: lockEndTimes[veId]}));
     }
 
-    function lockKey(uint256 veId) public view returns (Ve33Rewards.LockKey memory) {
-        return Ve33Rewards.LockKey({owner: address(this), salt: lockSalts[veId], endTime: lockEndTimes[veId]});
+    function lockKey(uint256 veId) public view returns (VE33.LockKey memory) {
+        return VE33.LockKey({owner: address(this), salt: lockSalts[veId], endTime: lockEndTimes[veId]});
     }
 
     function vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] calldata swapFees)
         external
         authorizedForLock(veId)
     {
-        ve33Rewards.vote(lockKey(veId), poolKeys, weights, swapFees);
+        ve33.vote(lockKey(veId), poolKeys, weights, swapFees);
     }
 
     function voteWithTickSpacing(
@@ -191,14 +190,13 @@ contract VeToken is BaseLocker {
         for (uint256 i = 0; i < tickSpacings.length; i++) {
             swapFees[i] = defaultFeeForTickSpacing(tickSpacings[i]);
         }
-        ve33Rewards.vote(lockKey(veId), poolKeys, weights, swapFees);
+        ve33.vote(lockKey(veId), poolKeys, weights, swapFees);
     }
 
     function claimPoolFees(uint256 veId, PoolKey memory poolKey) external returns (uint128 amount0, uint128 amount1) {
         address owner = ownerOf(veId);
-        (amount0, amount1) = ve33Rewards.claimPoolFees(lockKey(veId), poolKey);
-        _transferToken(poolKey.token0, owner, amount0);
-        _transferToken(poolKey.token1, owner, amount1);
+        (amount0, amount1) =
+            abi.decode(lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, owner, poolKey)), (uint128, uint128));
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
@@ -207,33 +205,29 @@ contract VeToken is BaseLocker {
         if (callType == CALL_TYPE_STAKE_LOCK) {
             (, address owner, bytes32 salt, uint64 endTime, uint128 amount) =
                 abi.decode(data, (uint256, address, bytes32, uint64, uint128));
-            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_STAKE_LOCK, salt, endTime, amount));
+            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_STAKE_LOCK, salt, endTime, amount));
             uint128 staked = abi.decode(result, (uint128));
             if (staked != 0) ACCOUNTANT.payFrom(owner, stakeToken, staked);
         } else if (callType == CALL_TYPE_UNSTAKE_LOCK) {
             (, bytes32 salt, uint64 endTime, uint128 amount, address recipient) =
                 abi.decode(data, (uint256, bytes32, uint64, uint128, address));
-            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_UNSTAKE_LOCK, salt, endTime, amount));
+            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_UNSTAKE_LOCK, salt, endTime, amount));
             uint128 unstaked = abi.decode(result, (uint128));
             if (unstaked != 0) ACCOUNTANT.withdraw(stakeToken, recipient, unstaked);
         } else if (callType == CALL_TYPE_MOVE_LOCK) {
             (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
                 abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
             result = ACCOUNTANT.forward(
-                address(ve33Rewards), abi.encode(VE33_MOVE_LOCK, fromSalt, fromEndTime, toSalt, toEndTime, amount)
+                address(ve33), abi.encode(VE33_MOVE_LOCK, fromSalt, fromEndTime, toSalt, toEndTime, amount)
             );
+        } else if (callType == CALL_TYPE_CLAIM_POOL_FEES) {
+            (, uint256 veId, address recipient, PoolKey memory poolKey) =
+                abi.decode(data, (uint256, uint256, address, PoolKey));
+            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_CLAIM_POOL_FEES, lockKey(veId), poolKey));
+            (uint128 amount0, uint128 amount1) = abi.decode(result, (uint128, uint128));
+            ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
         } else {
             revert();
-        }
-    }
-
-    function _transferToken(address token, address recipient, uint128 amount) private {
-        if (amount != 0) {
-            if (token == NATIVE_TOKEN_ADDRESS) {
-                SafeTransferLib.safeTransferETH(recipient, amount);
-            } else {
-                SafeTransferLib.safeTransfer(token, recipient, amount);
-            }
         }
     }
 }

@@ -3,13 +3,10 @@ pragma solidity =0.8.33;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
-import {BaseLocker} from "../base/BaseLocker.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
-import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
@@ -45,11 +42,12 @@ uint256 constant VE33_STAKE_LOCK = 4;
 uint256 constant VE33_UNSTAKE_LOCK = 5;
 // Forward call type for moving locked stake to a different `(salt, endTime)` key.
 uint256 constant VE33_MOVE_LOCK = 6;
-
-// Internal lock call type for claiming voter pool fees.
-uint256 constant VE33_LOCK_CLAIM_POOL_FEES = 0;
-// Internal lock call type for assigning global emissions to a pool.
-uint256 constant VE33_LOCK_TRIGGER_POOL_EMISSIONS = 1;
+// Forward call type for claiming voter pool fees.
+uint256 constant VE33_CLAIM_POOL_FEES = 7;
+// Forward call type for funding global emissions.
+uint256 constant VE33_FUND_EMISSIONS = 8;
+// Forward call type for assigning global emissions to a pool.
+uint256 constant VE33_TRIGGER_POOL_EMISSIONS = 9;
 
 // Maximum absolute scheduled reward-rate delta allowed at one valid time.
 uint256 constant VE33_MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint224).max / MAX_NUM_VALID_TIMES;
@@ -108,8 +106,8 @@ function createVe33RewardPoolState(uint32 _lastAccumulated, uint224 _rewardRate)
     }
 }
 
-/// @notice Returns the Core hooks enabled by `Ve33Rewards`.
-function ve33RewardsCallPoints() pure returns (CallPoints memory) {
+/// @notice Returns the Core hooks enabled by `VE33`.
+function ve33CallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
         afterInitializePool: false,
@@ -122,13 +120,12 @@ function ve33RewardsCallPoints() pure returns (CallPoints memory) {
     });
 }
 
-/// @title Ve33Rewards
+/// @title VE33
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
 /// @dev Pools using this extension must have zero Core pool fees. Swap fees are accounted by the extension and
 /// distributed to ve lockers, while LPs earn the immutable `stakeToken` as rewards.
-contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
+contract VE33 is BaseExtension, BaseForwardee {
     using CoreLib for *;
-    using FlashAccountantLib for *;
     /// @notice Duration of each global and per-pool emission stream.
     uint256 public constant EMISSION_DURATION = 7 days;
     /// @notice Maximum ve lock duration.
@@ -282,7 +279,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     /// @notice Initializes the extension with Core and the immutable reward/stake token.
     /// @param core Ekubo Core contract.
     /// @param _stakeToken Token used for ve locks and LP rewards.
-    constructor(ICore core, address _stakeToken) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
+    constructor(ICore core, address _stakeToken) BaseExtension(core) BaseForwardee(core) {
         stakeToken = _stakeToken;
         emissionsLastAccrued = uint64(block.timestamp);
         totalVoteSecondsLastAccrued = uint64(block.timestamp);
@@ -293,7 +290,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
 
     /// @inheritdoc BaseExtension
     function getCallPoints() internal pure override returns (CallPoints memory) {
-        return ve33RewardsCallPoints();
+        return ve33CallPoints();
     }
 
     /// @notice Validates and initializes extension state for a new pool.
@@ -353,47 +350,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     ) external {
         if (lockKey.owner != msg.sender) revert NotLockOwner();
         _vote(lockKey, poolKeys, weights, swapFees);
-    }
-
-    /// @notice Claims accrued voter fees for a lock and pool.
-    /// @dev Fees are withdrawn to `lockKey.owner`; wrappers can forward them to their local owner.
-    /// @param lockKey Lock claiming fees.
-    /// @param poolKey Pool whose voter fees are claimed.
-    /// @return amount0 Claimed token0 amount.
-    /// @return amount1 Claimed token1 amount.
-    function claimPoolFees(LockKey memory lockKey, PoolKey memory poolKey)
-        external
-        returns (uint128 amount0, uint128 amount1)
-    {
-        if (lockKey.owner != msg.sender) revert NotLockOwner();
-        return abi.decode(lock(abi.encode(VE33_LOCK_CLAIM_POOL_FEES, lockKey, poolKey)), (uint128, uint128));
-    }
-
-    /// @notice Funds global ve emissions for one emission duration.
-    /// @dev The caller transfers `stakeToken` to this contract. Triggered pool emissions later pay those tokens into Core.
-    /// @param amount Amount of `stakeToken` to add to the global emission stream.
-    function fundEmissions(uint128 amount) external {
-        if (amount == 0) revert EmissionAmountTooSmall();
-
-        uint224 rate = uint224(((uint256(amount) + _accrueEmissions()) << 32) / EMISSION_DURATION);
-
-        uint64 end = uint64(block.timestamp + EMISSION_DURATION);
-        emissionReserve += amount;
-        emissionRate += rate;
-        emissionRateDecreaseAt[end] += rate;
-        emissionEventTimes.push(end);
-
-        SafeTransferLib.safeTransferFrom(stakeToken, msg.sender, address(this), amount);
-
-        emit EmissionsFunded(msg.sender, amount, rate, end);
-    }
-
-    /// @notice Assigns accrued global emissions to a voted pool.
-    /// @dev Permissionless. Pool share is based on time-weighted votes since the pool was last touched.
-    /// @param poolKey Pool receiving emissions.
-    /// @return amount Amount assigned to the pool reward schedule.
-    function triggerPoolEmissions(PoolKey memory poolKey) external payable returns (uint224 amount) {
-        amount = abi.decode(lock(abi.encode(VE33_LOCK_TRIGGER_POOL_EMISSIONS, poolKey)), (uint224));
     }
 
     /// @notice Accumulates scheduled LP rewards into the pool reward-per-liquidity global value.
@@ -482,22 +438,16 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
             (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
                 abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
             result = abi.encode(_moveLock(original.addr(), fromSalt, fromEndTime, toSalt, toEndTime, amount));
-        } else {
-            revert();
-        }
-    }
-
-    /// @notice Handles internal lock calls initiated by this extension.
-    /// @param data ABI-encoded internal lock call type and payload.
-    /// @return result ABI-encoded lock call result.
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        uint256 callType = abi.decode(data, (uint256));
-
-        if (callType == VE33_LOCK_CLAIM_POOL_FEES) {
+        } else if (callType == VE33_CLAIM_POOL_FEES) {
             (, LockKey memory lockKey, PoolKey memory poolKey) = abi.decode(data, (uint256, LockKey, PoolKey));
-            (uint128 amount0, uint128 amount1) = _claimPoolFeesUnlocked(lockKey, poolKey);
+            if (lockKey.owner != original.addr()) revert NotLockOwner();
+            (uint128 amount0, uint128 amount1) = _claimPoolFees(lockKey, poolKey, original.addr());
             result = abi.encode(amount0, amount1);
-        } else if (callType == VE33_LOCK_TRIGGER_POOL_EMISSIONS) {
+        } else if (callType == VE33_FUND_EMISSIONS) {
+            (, uint128 amount) = abi.decode(data, (uint256, uint128));
+            (uint224 rate, uint64 end) = _fundEmissions(original.addr(), amount);
+            result = abi.encode(rate, end);
+        } else if (callType == VE33_TRIGGER_POOL_EMISSIONS) {
             (, PoolKey memory poolKey) = abi.decode(data, (uint256, PoolKey));
             result = abi.encode(_triggerPoolEmissions(poolKey));
         } else {
@@ -781,13 +731,14 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         emit PoolFeesAccounted(poolId, amount0, amount1);
     }
 
-    /// @notice Claims accrued voter fees while this extension is inside a Core lock.
-    /// @dev Subtracts fees from the extension's saved balance and withdraws to `lockKey.owner`.
+    /// @notice Claims accrued voter fees while this extension is handling a forwarded call.
+    /// @dev Subtracts fees from the extension's saved balance. The forwarding locker withdraws the tokens.
     /// @param lockKey Lock claiming fees.
     /// @param poolKey Pool whose fees are claimed.
+    /// @param recipient Account recorded in the claim event.
     /// @return amount0 Claimed token0 amount.
     /// @return amount1 Claimed token1 amount.
-    function _claimPoolFeesUnlocked(LockKey memory lockKey, PoolKey memory poolKey)
+    function _claimPoolFees(LockKey memory lockKey, PoolKey memory poolKey, address recipient)
         private
         returns (uint128 amount0, uint128 amount1)
     {
@@ -809,10 +760,30 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
                 -int256(uint256(amount0)),
                 -int256(uint256(amount1))
             );
-            ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, lockKey.owner, amount0, amount1);
         }
 
-        emit PoolFeesClaimed(lockId, poolId, lockKey.owner, amount0, amount1);
+        emit PoolFeesClaimed(lockId, poolId, recipient, amount0, amount1);
+    }
+
+    /// @notice Funds global ve emissions for one emission duration.
+    /// @dev Saves the funded amount in Core; the forwarding locker must pay `stakeToken` into Core.
+    /// @param funder Account recorded in the funding event.
+    /// @param amount Amount of `stakeToken` to add to the global emission stream.
+    /// @return rate Added Q32 global emission rate.
+    /// @return end Emission stream end timestamp.
+    function _fundEmissions(address funder, uint128 amount) private returns (uint224 rate, uint64 end) {
+        if (amount == 0) revert EmissionAmountTooSmall();
+
+        rate = uint224(((uint256(amount) + _accrueEmissions()) << 32) / EMISSION_DURATION);
+
+        end = uint64(block.timestamp + EMISSION_DURATION);
+        emissionReserve += amount;
+        emissionRate += rate;
+        emissionRateDecreaseAt[end] += rate;
+        emissionEventTimes.push(end);
+        _updateEmissionReserveSavedBalance(int256(uint256(amount)));
+
+        emit EmissionsFunded(funder, amount, rate, end);
     }
 
     /// @notice Assigns the pool's share of unallocated global emissions to LP rewards.
@@ -852,7 +823,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
 
         amount = _addRewards(poolKey, 0, uint64(endTime), rewardRate);
         emissionReserve -= amount;
-        if (amount != 0) ACCOUNTANT.pay(stakeToken, amount);
+        if (amount != 0) _updateEmissionReserveSavedBalance(-int256(uint256(amount)));
 
         emit PoolEmissionsTriggered(poolId, amount, uint64(endTime));
     }
@@ -930,7 +901,7 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     /// @param poolKey Pool containing the position.
     /// @param owner Position owner.
     /// @param positionId Position claiming rewards.
-    /// @param recipient Reward recipient.
+    /// @param recipient Account recorded in the claim event.
     /// @return amount Claimed reward amount.
     function _claimRewards(PoolKey memory poolKey, address owner, PositionId positionId, address recipient)
         private
@@ -953,7 +924,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         if (amount != 0) {
             uint128 amountUint128 = uint128(amount);
             _updateRewardSavedBalance(-int256(uint256(amountUint128)));
-            ACCOUNTANT.withdraw(stakeToken, recipient, amountUint128);
         }
 
         emit RewardsClaimed(poolId, owner, positionId, recipient, amount);
@@ -1160,6 +1130,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     /// @param delta Signed reward-reserve balance delta.
     function _updateRewardSavedBalance(int256 delta) private {
         CORE.updateSavedBalances(stakeToken, address(type(uint160).max), bytes32(0), delta, 0);
+    }
+
+    /// @notice Updates the saved balance for funded but unassigned emission tokens.
+    /// @param delta Signed emission-reserve balance delta.
+    function _updateEmissionReserveSavedBalance(int256 delta) private {
+        CORE.updateSavedBalances(stakeToken, address(type(uint160).max), bytes32(uint256(1)), delta, 0);
     }
 
     /// @notice Updates the saved balance for locked stake.

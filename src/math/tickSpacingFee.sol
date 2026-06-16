@@ -33,5 +33,5 @@ function defaultFeeForStableswapAmplification(uint8 amplification) pure returns 
 }
 
 function capFee(uint64 fee) pure returns (uint64) {
-    return fee > MAX_VE_FEE ? MAX_VE_FEE : fee;
+    return uint64(FixedPointMathLib.min(fee, MAX_VE_FEE));
 }

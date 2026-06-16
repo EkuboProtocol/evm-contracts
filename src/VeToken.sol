@@ -7,14 +7,15 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {
     Ve33Rewards,
-    VE33_DEPOSIT_LOCK,
     VE33_MAX_LOCK_DURATION,
     VE33_MOVE_LOCK,
-    VE33_WITHDRAW_LOCK
+    VE33_STAKE_LOCK,
+    VE33_UNSTAKE_LOCK
 } from "./extensions/Ve33Rewards.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {defaultFeeForTickSpacing} from "./math/tickSpacingFee.sol";
 import {PoolKey} from "./types/poolKey.sol";
 
 /// @notice Packed vote-escrow lock state.
@@ -52,11 +53,10 @@ function lockEnd(Lock lock) pure returns (uint64 end) {
 contract VeToken is BaseLocker {
     using FlashAccountantLib for *;
 
-    uint256 private constant CALL_TYPE_DEPOSIT_LOCK = 0;
-    uint256 private constant CALL_TYPE_WITHDRAW_LOCK = 1;
+    uint256 private constant CALL_TYPE_STAKE_LOCK = 0;
+    uint256 private constant CALL_TYPE_UNSTAKE_LOCK = 1;
     uint256 private constant CALL_TYPE_MOVE_LOCK = 2;
 
-    ICore public immutable CORE;
     Ve33Rewards public immutable ve33Rewards;
     address public immutable stakeToken;
 
@@ -72,13 +72,12 @@ contract VeToken is BaseLocker {
     event LockCreated(uint256 indexed veId, address indexed owner, uint128 amount, uint64 end);
     event LockAmountIncreased(uint256 indexed veId, uint128 amount);
     event LockExtended(uint256 indexed veId, uint64 end);
-    event LockWithdrawn(uint256 indexed veId, address indexed owner, uint128 amount);
+    event LockUnstaked(uint256 indexed veId, address indexed owner, uint128 amount);
 
     error InvalidLock();
     error NotAuthorizedForToken(address caller, uint256 id);
 
     constructor(ICore core, Ve33Rewards _ve33Rewards) BaseLocker(core) {
-        CORE = core;
         ve33Rewards = _ve33Rewards;
         stakeToken = _ve33Rewards.stakeToken();
         _name = string.concat("Vote Escrow ", IERC20(stakeToken).name());
@@ -129,13 +128,13 @@ contract VeToken is BaseLocker {
         lockSalts[veId] = salt;
         lockEndTimes[veId] = end;
 
-        lock(abi.encode(CALL_TYPE_DEPOSIT_LOCK, msg.sender, salt, end, amount));
+        lock(abi.encode(CALL_TYPE_STAKE_LOCK, msg.sender, salt, end, amount));
 
         emit LockCreated(veId, msg.sender, amount, end);
     }
 
     function increaseLockAmount(uint256 veId, uint128 amount) external authorizedForLock(veId) {
-        lock(abi.encode(CALL_TYPE_DEPOSIT_LOCK, msg.sender, lockSalts[veId], lockEndTimes[veId], amount));
+        lock(abi.encode(CALL_TYPE_STAKE_LOCK, msg.sender, lockSalts[veId], lockEndTimes[veId], amount));
 
         emit LockAmountIncreased(veId, amount);
     }
@@ -156,13 +155,13 @@ contract VeToken is BaseLocker {
         bytes32 salt = lockSalts[veId];
         uint64 endTime = lockEndTimes[veId];
         uint128 amount = ve33Rewards.lockAmounts(address(this), salt, endTime);
-        lock(abi.encode(CALL_TYPE_WITHDRAW_LOCK, salt, endTime, amount, msg.sender));
+        lock(abi.encode(CALL_TYPE_UNSTAKE_LOCK, salt, endTime, amount, msg.sender));
 
         delete lockOwners[veId];
         delete lockSalts[veId];
         delete lockEndTimes[veId];
 
-        emit LockWithdrawn(veId, msg.sender, amount);
+        emit LockUnstaked(veId, msg.sender, amount);
     }
 
     function votingPower(uint256 veId) public view returns (uint256) {
@@ -188,7 +187,11 @@ contract VeToken is BaseLocker {
         uint256[] calldata weights,
         uint32[] calldata tickSpacings
     ) external authorizedForLock(veId) {
-        ve33Rewards.voteWithTickSpacing(lockKey(veId), poolKeys, weights, tickSpacings);
+        uint64[] memory swapFees = new uint64[](tickSpacings.length);
+        for (uint256 i = 0; i < tickSpacings.length; i++) {
+            swapFees[i] = defaultFeeForTickSpacing(tickSpacings[i]);
+        }
+        ve33Rewards.vote(lockKey(veId), poolKeys, weights, swapFees);
     }
 
     function claimPoolFees(uint256 veId, PoolKey memory poolKey) external returns (uint128 amount0, uint128 amount1) {
@@ -201,50 +204,27 @@ contract VeToken is BaseLocker {
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
-        if (callType == CALL_TYPE_DEPOSIT_LOCK) {
+        if (callType == CALL_TYPE_STAKE_LOCK) {
             (, address owner, bytes32 salt, uint64 endTime, uint128 amount) =
                 abi.decode(data, (uint256, address, bytes32, uint64, uint128));
-            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_DEPOSIT_LOCK, salt, endTime, amount));
-            uint128 deposited = abi.decode(result, (uint128));
-            if (deposited != 0) {
-                CORE.updateSavedBalances(
-                    stakeToken, address(type(uint160).max), _lockId(salt, endTime), int256(uint256(deposited)), 0
-                );
-                ACCOUNTANT.payFrom(owner, stakeToken, deposited);
-            }
-        } else if (callType == CALL_TYPE_WITHDRAW_LOCK) {
+            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_STAKE_LOCK, salt, endTime, amount));
+            uint128 staked = abi.decode(result, (uint128));
+            if (staked != 0) ACCOUNTANT.payFrom(owner, stakeToken, staked);
+        } else if (callType == CALL_TYPE_UNSTAKE_LOCK) {
             (, bytes32 salt, uint64 endTime, uint128 amount, address recipient) =
                 abi.decode(data, (uint256, bytes32, uint64, uint128, address));
-            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_WITHDRAW_LOCK, salt, endTime, amount));
-            uint128 withdrawn = abi.decode(result, (uint128));
-            if (withdrawn != 0) {
-                CORE.updateSavedBalances(
-                    stakeToken, address(type(uint160).max), _lockId(salt, endTime), -int256(uint256(withdrawn)), 0
-                );
-                ACCOUNTANT.withdraw(stakeToken, recipient, withdrawn);
-            }
+            result = ACCOUNTANT.forward(address(ve33Rewards), abi.encode(VE33_UNSTAKE_LOCK, salt, endTime, amount));
+            uint128 unstaked = abi.decode(result, (uint128));
+            if (unstaked != 0) ACCOUNTANT.withdraw(stakeToken, recipient, unstaked);
         } else if (callType == CALL_TYPE_MOVE_LOCK) {
             (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
                 abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
             result = ACCOUNTANT.forward(
                 address(ve33Rewards), abi.encode(VE33_MOVE_LOCK, fromSalt, fromEndTime, toSalt, toEndTime, amount)
             );
-            uint128 moved = abi.decode(result, (uint128));
-            if (moved != 0) {
-                CORE.updateSavedBalances(
-                    stakeToken, address(type(uint160).max), _lockId(fromSalt, fromEndTime), -int256(uint256(moved)), 0
-                );
-                CORE.updateSavedBalances(
-                    stakeToken, address(type(uint160).max), _lockId(toSalt, toEndTime), int256(uint256(moved)), 0
-                );
-            }
         } else {
             revert();
         }
-    }
-
-    function _lockId(bytes32 salt, uint64 endTime) private view returns (bytes32) {
-        return keccak256(abi.encode(address(this), salt, endTime));
     }
 
     function _transferToken(address token, address recipient, uint128 amount) private {

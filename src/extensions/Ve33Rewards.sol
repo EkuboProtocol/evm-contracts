@@ -35,8 +35,8 @@ uint256 constant VE33_SWAP = 0;
 uint256 constant VE33_CLAIM_REWARDS = 1;
 uint256 constant VE33_DONATE_REWARDS = 2;
 uint256 constant VE33_ADD_REWARDS = 3;
-uint256 constant VE33_DEPOSIT_LOCK = 4;
-uint256 constant VE33_WITHDRAW_LOCK = 5;
+uint256 constant VE33_STAKE_LOCK = 4;
+uint256 constant VE33_UNSTAKE_LOCK = 5;
 uint256 constant VE33_MOVE_LOCK = 6;
 
 uint256 constant VE33_LOCK_CLAIM_POOL_FEES = 0;
@@ -157,8 +157,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
     uint64[] public emissionEventTimes;
     mapping(uint64 => uint224) public emissionRateDecreaseAt;
 
-    event LockDeposited(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
-    event LockWithdrawn(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    event LockStaked(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    event LockUnstaked(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
     event LockMoved(
         address indexed owner, bytes32 indexed fromSalt, uint64 indexed fromEndTime, bytes32 toSalt, uint64 toEndTime
     );
@@ -199,25 +199,13 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         return ve33RewardsCallPoints();
     }
 
-    function defaultFeeForTickSpacing(uint32 tickSpacing) public pure returns (uint64) {
-        return defaultVeFeeForTickSpacing(tickSpacing);
-    }
-
-    function defaultFeeForStableswapAmplification(uint8 amplification) public pure returns (uint64) {
-        return defaultVeFeeForStableswapAmplification(amplification);
-    }
-
-    function defaultFeeForPoolConfig(PoolConfig config) public pure returns (uint64) {
-        return config.isStableswap()
-            ? defaultVeFeeForStableswapAmplification(config.stableswapAmplification())
-            : defaultVeFeeForTickSpacing(config.concentratedTickSpacing());
-    }
-
     function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension) onlyCore {
         if (poolKey.config.fee() != 0) revert ZeroConfigFeeOnly();
 
         PoolId poolId = poolKey.toPoolId();
-        uint64 defaultSwapFee = defaultFeeForPoolConfig(poolKey.config);
+        uint64 defaultSwapFee = poolKey.config.isStableswap()
+            ? defaultVeFeeForStableswapAmplification(poolKey.config.stableswapAmplification())
+            : defaultVeFeeForTickSpacing(poolKey.config.concentratedTickSpacing());
         poolVoteStates[poolId].swapFee = defaultSwapFee;
         poolVoteStates[poolId].defaultSwapFee = defaultSwapFee;
         poolRewardState[poolId] = createVe33RewardPoolState(uint32(block.timestamp), 0);
@@ -251,22 +239,6 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         uint64[] calldata swapFees
     ) external {
         if (lockKey.owner != msg.sender) revert NotLockOwner();
-        _vote(lockKey, poolKeys, weights, swapFees);
-    }
-
-    function voteWithTickSpacing(
-        LockKey calldata lockKey,
-        PoolKey[] calldata poolKeys,
-        uint256[] calldata weights,
-        uint32[] calldata tickSpacings
-    ) external {
-        if (lockKey.owner != msg.sender) revert NotLockOwner();
-        if (poolKeys.length != tickSpacings.length) revert InvalidVote();
-
-        uint64[] memory swapFees = new uint64[](tickSpacings.length);
-        for (uint256 i = 0; i < tickSpacings.length; i++) {
-            swapFees[i] = defaultVeFeeForTickSpacing(tickSpacings[i]);
-        }
         _vote(lockKey, poolKeys, weights, swapFees);
     }
 
@@ -366,12 +338,12 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
             (, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
                 abi.decode(data, (uint256, PoolKey, uint64, uint64, uint224));
             result = abi.encode(_addRewards(poolKey, startTime, endTime, rewardRate));
-        } else if (callType == VE33_DEPOSIT_LOCK) {
+        } else if (callType == VE33_STAKE_LOCK) {
             (, bytes32 salt, uint64 endTime, uint128 amount) = abi.decode(data, (uint256, bytes32, uint64, uint128));
-            result = abi.encode(_depositLock(original.addr(), salt, endTime, amount));
-        } else if (callType == VE33_WITHDRAW_LOCK) {
+            result = abi.encode(_stakeLock(original.addr(), salt, endTime, amount));
+        } else if (callType == VE33_UNSTAKE_LOCK) {
             (, bytes32 salt, uint64 endTime, uint128 amount) = abi.decode(data, (uint256, bytes32, uint64, uint128));
-            result = abi.encode(_withdrawLock(original.addr(), salt, endTime, amount));
+            result = abi.encode(_unstakeLock(original.addr(), salt, endTime, amount));
         } else if (callType == VE33_MOVE_LOCK) {
             (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
                 abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
@@ -493,35 +465,34 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         }
     }
 
-    function _depositLock(address owner, bytes32 salt, uint64 endTime, uint128 amount)
-        private
-        returns (uint128 deposited)
-    {
+    function _stakeLock(address owner, bytes32 salt, uint64 endTime, uint128 amount) private returns (uint128 staked) {
         _validateNewLock(endTime, amount);
 
-        deposited = amount;
+        staked = amount;
         bytes32 lockId = _lockId(owner, salt, endTime);
         _clearVotes(lockId);
         lockAmounts[owner][salt][endTime] += amount;
+        _updateStakeSavedBalance(lockId, int256(uint256(amount)));
 
-        emit LockDeposited(owner, salt, endTime, amount);
+        emit LockStaked(owner, salt, endTime, amount);
     }
 
-    function _withdrawLock(address owner, bytes32 salt, uint64 endTime, uint128 amount)
+    function _unstakeLock(address owner, bytes32 salt, uint64 endTime, uint128 amount)
         private
-        returns (uint128 withdrawn)
+        returns (uint128 unstaked)
     {
         if (amount == 0 || block.timestamp < endTime) revert InvalidLock();
 
         uint128 currentAmount = lockAmounts[owner][salt][endTime];
         if (amount > currentAmount) revert InvalidLock();
 
-        withdrawn = amount;
+        unstaked = amount;
         bytes32 lockId = _lockId(owner, salt, endTime);
         _clearVotes(lockId);
         lockAmounts[owner][salt][endTime] = currentAmount - amount;
+        _updateStakeSavedBalance(lockId, -int256(uint256(amount)));
 
-        emit LockWithdrawn(owner, salt, endTime, amount);
+        emit LockUnstaked(owner, salt, endTime, amount);
     }
 
     function _moveLock(
@@ -544,6 +515,8 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
         _clearVotes(toLockId);
         lockAmounts[owner][fromSalt][fromEndTime] = currentAmount - amount;
         lockAmounts[owner][toSalt][toEndTime] += amount;
+        _updateStakeSavedBalance(fromLockId, -int256(uint256(amount)));
+        _updateStakeSavedBalance(toLockId, int256(uint256(amount)));
 
         emit LockMoved(owner, fromSalt, fromEndTime, toSalt, toEndTime);
     }
@@ -941,6 +914,10 @@ contract Ve33Rewards is BaseExtension, BaseForwardee, BaseLocker {
 
     function _updateRewardSavedBalance(int256 delta) private {
         CORE.updateSavedBalances(stakeToken, address(type(uint160).max), bytes32(0), delta, 0);
+    }
+
+    function _updateStakeSavedBalance(bytes32 lockId, int256 delta) private {
+        CORE.updateSavedBalances(stakeToken, address(type(uint160).max), lockId, delta, 0);
     }
 
     function _getRewardsInsidePerLiquidity(PoolId poolId, int32 tickLower, int32 tickUpper)

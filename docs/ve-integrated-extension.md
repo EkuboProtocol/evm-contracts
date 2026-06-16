@@ -14,17 +14,20 @@
 - voter fee-growth accounting
 - LP reward-token accounting
 - ve lock amounts keyed by `(owner, salt, endTime)`
+- Core saved balances for locked stake, keyed by the same lock id
 - vote clearing when a lock amount or end time changes
 
 `VeToken` owns:
 
 - user-facing lock ids
 - local lock ownership checks
-- stake-token payment and withdrawal settlement
+- stake-token payment on staking and withdrawal on unstaking
 - wrapper vote and pool-fee claim calls
 - optional external representation of locks
 
 The `owner` in `Ve33Rewards.LockKey` is the locker that forwarded the stake operation. For `VeToken` locks this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `Ve33Rewards`.
+
+Because the canonical lock state is independent of the wrapper, the same design can support other representations of locked stake, including a fungible ERC20 representation. This branch includes the `VeToken` wrapper only.
 
 ## Pool Requirements
 
@@ -56,17 +59,21 @@ keccak256(abi.encode(owner, salt, endTime))
 
 Forward lock call types:
 
-- `VE33_DEPOSIT_LOCK`: increases `lockAmounts[originalLocker][salt][endTime]`
-- `VE33_WITHDRAW_LOCK`: decreases an expired lock and returns the unlocked amount
+- `VE33_STAKE_LOCK`: increases `lockAmounts[originalLocker][salt][endTime]`
+- `VE33_UNSTAKE_LOCK`: decreases an expired lock and returns the unlocked amount
 - `VE33_MOVE_LOCK`: moves amount from one `(salt, endTime)` to another
 
-`Ve33Rewards` does not transfer stake tokens for these lock operations. It also does not update Core saved balances for the stake token, because forwarded calls execute with the extension as the temporary locker. The calling locker must settle the returned amount in its own lock context.
+`Ve33Rewards` updates Core saved balances for locked stake under `address(ve33Rewards)` and the lock id:
 
-`VeToken` does this by updating saved balances under `address(veToken)` with salt `keccak256(abi.encode(address(veToken), salt, endTime))`, then paying to Core on deposit or withdrawing to the user on unlock. Extending is implemented as `VE33_MOVE_LOCK`: the wrapper loads saved balance from the old lock key and saves it under the new lock key without moving tokens.
+```text
+CORE.updateSavedBalances(stakeToken, address(type(uint160).max), lockId, delta, 0)
+```
+
+It does not transfer stake tokens for these lock operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the local lock owner after unstaking. Extending is implemented as `VE33_MOVE_LOCK`, which moves saved balance from the old lock id to the new lock id without moving tokens.
 
 ## Voting
 
-Votes can provide explicit `uint64` swap fees through `vote`, or tick spacings through `voteWithTickSpacing`. Tick-spacing votes are converted by `defaultFeeForTickSpacing`, which prices a `2 * tickSpacing` move and returns:
+`Ve33Rewards.vote` accepts explicit `uint64` swap fees. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
 
 ```text
 1 - 1 / 1.000001^(2 * tickSpacing)
@@ -128,6 +135,6 @@ The extension relies on Core saved balances for deferred accounting:
 
 - swap fees are saved under `address(ve33Rewards)` and the pool id
 - LP rewards are saved under `address(ve33Rewards)` and the reward reserve salt
-- ve lock stake is saved by the calling locker, not by `Ve33Rewards`
+- ve lock stake is saved under `address(ve33Rewards)` and the lock id
 
-Callers that integrate directly with `VE33_DEPOSIT_LOCK`, `VE33_WITHDRAW_LOCK`, or `VE33_MOVE_LOCK` must update their own saved balances and settle any payment or withdrawal in the same Core lock. `VeToken` is the reference implementation of that pattern.
+`Ve33Rewards` accounts for staking, unstaking, and moving lock balances, but does not transfer stake tokens for these operations. Callers that integrate directly with `VE33_STAKE_LOCK`, `VE33_UNSTAKE_LOCK`, or `VE33_MOVE_LOCK` must settle any payment or withdrawal in the same Core lock. `VeToken` is the reference implementation of that pattern.

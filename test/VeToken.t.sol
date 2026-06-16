@@ -63,7 +63,7 @@ contract VeTokenTest is FullTest {
         assertEq(veToken.ownerOf(veId), address(this));
         bytes32 salt = bytes32(veId);
         bytes32 lockId = keccak256(abi.encode(address(veToken), salt, end));
-        (uint128 saved,) = core.savedBalances(address(veToken), address(stakeToken), address(type(uint160).max), lockId);
+        (uint128 saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), lockId);
         assertEq(saved, 1e18);
         assertEq(ve33.lockAmounts(address(veToken), salt, end), 1e18);
         assertEq(ve33.lockAmounts(address(this), salt, end), 0);
@@ -91,9 +91,9 @@ contract VeTokenTest is FullTest {
         assertEq(userLock.lockAmount(), 3e18);
         assertEq(userLock.lockEnd(), extendedEnd);
         bytes32 extendedLockId = keccak256(abi.encode(address(veToken), salt, extendedEnd));
-        (saved,) = core.savedBalances(address(veToken), address(stakeToken), address(type(uint160).max), lockId);
+        (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), lockId);
         assertEq(saved, 0);
-        (saved,) = core.savedBalances(address(veToken), address(stakeToken), address(type(uint160).max), extendedLockId);
+        (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedLockId);
         assertEq(saved, 3e18);
 
         vm.expectRevert(Ve33Rewards.InvalidLock.selector);
@@ -104,7 +104,7 @@ contract VeTokenTest is FullTest {
         veToken.withdrawLock(veId);
 
         assertEq(stakeToken.balanceOf(address(this)), balanceBefore + 3e18);
-        (saved,) = core.savedBalances(address(veToken), address(stakeToken), address(type(uint160).max), extendedLockId);
+        (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedLockId);
         assertEq(saved, 0);
         vm.expectRevert(VeToken.InvalidLock.selector);
         veToken.ownerOf(veId);

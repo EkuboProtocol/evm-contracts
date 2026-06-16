@@ -18,6 +18,7 @@ import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {computeFee} from "../../src/math/fee.sol";
 import {MAX_NUM_VALID_TIMES, nextValidTime} from "../../src/math/time.sol";
+import {defaultFeeForStableswapAmplification, defaultFeeForTickSpacing} from "../../src/math/tickSpacingFee.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
@@ -385,7 +386,7 @@ contract Ve33RewardsTest is FullTest {
 
         (PoolKey memory poolKey,) = _createConcentratedPool();
         PoolId poolId = poolKey.toPoolId();
-        uint64 expectedFee = ve.defaultFeeForTickSpacing(100);
+        uint64 expectedFee = defaultFeeForTickSpacing(100);
         (,,,,,, uint64 swapFee, uint64 defaultSwapFee) = ve.poolVoteStates(poolId);
         assertEq(swapFee, expectedFee);
         assertEq(defaultSwapFee, expectedFee);
@@ -465,7 +466,7 @@ contract Ve33RewardsTest is FullTest {
         veToken.voteWithTickSpacing(veId, poolKeys, weights, tickSpacings);
         (uint256 weight, uint256 feeWeightSum, uint64 swapFee,) = _poolVoteState(poolKey.toPoolId());
         assertEq(weight, veToken.votingPower(veId));
-        assertEq(swapFee, ve.defaultFeeForTickSpacing(200));
+        assertEq(swapFee, defaultFeeForTickSpacing(200));
         assertEq(feeWeightSum, weight * swapFee);
 
         vm.warp(block.timestamp + veToken.MAX_LOCK_DURATION());
@@ -893,10 +894,10 @@ contract Ve33RewardsTest is FullTest {
         PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
         PoolId poolId = poolKey.toPoolId();
 
-        uint64 expectedFee = ve.defaultFeeForStableswapAmplification(20);
+        uint64 expectedFee = defaultFeeForStableswapAmplification(20);
         (,, uint64 swapFee, uint64 defaultSwapFee) = _poolVoteState(poolId);
 
-        assertEq(ve.defaultFeeForPoolConfig(config), expectedFee);
+        assertEq(defaultFeeForStableswapAmplification(config.stableswapAmplification()), expectedFee);
         assertEq(swapFee, expectedFee);
         assertEq(defaultSwapFee, expectedFee);
     }

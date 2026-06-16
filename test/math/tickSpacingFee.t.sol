@@ -2,10 +2,8 @@
 pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 import {MAX_TICK} from "../../src/math/constants.sol";
-import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {
     MAX_VE_FEE,
     capFee,
@@ -16,31 +14,12 @@ import {
 contract TickSpacingFeeTest is Test {
     uint32 constant CAP_TICK_SPACING = 346574;
 
-    function referenceDefaultFeeForTickSpacing(uint32 tickSpacing) internal pure returns (uint64 fee) {
-        unchecked {
-            uint256 tick = uint256(tickSpacing) * 2;
-            if (tick >= 693147) return MAX_VE_FEE;
-
-            uint256 sqrtRatioFixed = tickToSqrtRatio(int32(uint32(tick))).toFixed();
-            uint256 priceX128 = FixedPointMathLib.fullMulDivN(sqrtRatioFixed, sqrtRatioFixed, 128);
-            uint256 feeX64 = ((priceX128 - (1 << 128)) << 64) / priceX128;
-
-            fee = uint64(FixedPointMathLib.min(feeX64, MAX_VE_FEE));
-        }
-    }
-
     function test_defaultFeeForTickSpacing_examples() public pure {
         assertEq(defaultFeeForTickSpacing(0), 0);
         assertEq(defaultFeeForTickSpacing(1), 36893432807257);
-        assertEq(defaultFeeForTickSpacing(100), referenceDefaultFeeForTickSpacing(100));
-        assertEq(
-            defaultFeeForTickSpacing(CAP_TICK_SPACING - 1), referenceDefaultFeeForTickSpacing(CAP_TICK_SPACING - 1)
-        );
+        assertEq(defaultFeeForTickSpacing(100), 3688978060150579);
+        assertEq(defaultFeeForTickSpacing(CAP_TICK_SPACING - 1), 9223357951530847450);
         assertEq(defaultFeeForTickSpacing(CAP_TICK_SPACING), MAX_VE_FEE);
-    }
-
-    function test_defaultFeeForTickSpacing_matchesReference(uint32 tickSpacing) public pure {
-        assertEq(defaultFeeForTickSpacing(tickSpacing), referenceDefaultFeeForTickSpacing(tickSpacing));
     }
 
     function test_defaultFeeForTickSpacing_isMonotonicBeforeCap(uint32 lower, uint32 upper) public pure {
@@ -48,6 +27,12 @@ contract TickSpacingFeeTest is Test {
         upper = uint32(bound(upper, lower, CAP_TICK_SPACING - 1));
 
         assertLe(defaultFeeForTickSpacing(lower), defaultFeeForTickSpacing(upper));
+    }
+
+    function test_defaultFeeForTickSpacing_strictlyIncreasesBeforeCap(uint32 tickSpacing) public pure {
+        tickSpacing = uint32(bound(tickSpacing, 0, CAP_TICK_SPACING - 2));
+
+        assertLt(defaultFeeForTickSpacing(tickSpacing), defaultFeeForTickSpacing(tickSpacing + 1));
     }
 
     function test_defaultFeeForTickSpacing_caps(uint32 tickSpacing) public pure {
@@ -58,6 +43,12 @@ contract TickSpacingFeeTest is Test {
 
     function test_defaultFeeForTickSpacing_neverExceedsCap(uint32 tickSpacing) public pure {
         assertLe(defaultFeeForTickSpacing(tickSpacing), MAX_VE_FEE);
+    }
+
+    function test_defaultFeeForTickSpacing_onlyZeroAtZero(uint32 tickSpacing) public pure {
+        tickSpacing = uint32(bound(tickSpacing, 1, type(uint32).max));
+
+        assertGt(defaultFeeForTickSpacing(tickSpacing), 0);
     }
 
     function test_defaultFeeForStableswapAmplification_examples() public pure {

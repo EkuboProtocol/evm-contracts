@@ -20,36 +20,6 @@ import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {defaultFeeForTickSpacing} from "./math/tickSpacingFee.sol";
 import {PoolKey} from "./types/poolKey.sol";
 
-/// @notice Packed vote-escrow lock state.
-/// @dev Bits 0..63 store the lock end timestamp. Bits 64..191 store the locked amount.
-type Lock is bytes32;
-
-using {lockAmount, lockEnd} for Lock global;
-
-/// @notice Creates a packed lock value.
-/// @param amount Amount of stake token locked.
-/// @param end Timestamp when the lock can be withdrawn.
-/// @return lock Packed lock value.
-function createLockValue(uint128 amount, uint64 end) pure returns (Lock lock) {
-    assembly ("memory-safe") {
-        lock := or(shl(64, amount), end)
-    }
-}
-
-/// @notice Returns the amount stored in a packed lock.
-function lockAmount(Lock lock) pure returns (uint128 amount) {
-    assembly ("memory-safe") {
-        amount := shr(64, lock)
-    }
-}
-
-/// @notice Returns the end timestamp stored in a packed lock.
-function lockEnd(Lock lock) pure returns (uint64 end) {
-    assembly ("memory-safe") {
-        end := and(lock, 0xffffffffffffffff)
-    }
-}
-
 /// @notice ERC721 representation over VE33 lock accounting.
 /// @dev The canonical lock is owned by this wrapper in VE33. ERC721 ownership controls the wrapper.
 contract VeToken is ERC721, BaseLocker {
@@ -134,23 +104,24 @@ contract VeToken is ERC721, BaseLocker {
     /// @dev Returns a base64 JSON data URI with `name`, `description`, and `image` fields.
     ///      The image is an embedded SVG generated from the current VE33 lock amount, lock end, and stake token.
     function tokenURI(uint256 id) public view override returns (string memory) {
-        Lock lock_ = locks(id);
+        (uint128 amount, uint64 endTime) = locks(id);
         string memory idString = LibString.toString(id);
         string memory tokenName = string.concat(_symbol, " #", idString);
         string memory description = string.concat(
             "Vote-escrowed ",
             _stakeTokenName,
             " lock. Amount: ",
-            LibString.toString(lock_.lockAmount()),
+            LibString.toString(amount),
             " ",
             _stakeTokenSymbol,
             ". Unlock time: ",
-            LibString.toString(lock_.lockEnd()),
+            LibString.toString(endTime),
             ". Stake token: ",
             LibString.toHexStringChecksummed(stakeToken),
             "."
         );
-        string memory image = string.concat("data:image/svg+xml;base64,", Base64.encode(bytes(_tokenSvg(id, lock_))));
+        string memory image =
+            string.concat("data:image/svg+xml;base64,", Base64.encode(bytes(_tokenSvg(id, amount, endTime))));
 
         return string.concat(
             "data:application/json;base64,",
@@ -195,10 +166,11 @@ contract VeToken is ERC721, BaseLocker {
     /// @notice Returns the current represented lock state.
     /// @dev The lock end is stored in ERC721 extraData. The amount is fetched from `VE33.lockAmounts`.
     /// @param id The ERC721 token id, also used as the VE33 lock salt.
-    /// @return The packed lock amount and end timestamp.
-    function locks(uint256 id) public view returns (Lock) {
-        uint64 endTime = _lockEndTime(id);
-        return createLockValue(ve33.lockAmounts(address(this), bytes32(id), endTime), endTime);
+    /// @return amount The current locked stake token amount.
+    /// @return endTime The lock end timestamp.
+    function locks(uint256 id) public view returns (uint128 amount, uint64 endTime) {
+        endTime = _lockEndTime(id);
+        amount = ve33.lockAmounts(address(this), bytes32(id), endTime);
     }
 
     /// @notice Creates a VE33 lock and mints an ERC721 token that controls it.
@@ -363,9 +335,10 @@ contract VeToken is ERC721, BaseLocker {
 
     /// @notice Builds the SVG image embedded in ERC721 metadata.
     /// @param id The ERC721 token id.
-    /// @param lock_ The current lock state.
+    /// @param amount The current locked stake token amount.
+    /// @param endTime The lock end timestamp.
     /// @return The raw SVG string.
-    function _tokenSvg(uint256 id, Lock lock_) private view returns (string memory) {
+    function _tokenSvg(uint256 id, uint128 amount, uint64 endTime) private view returns (string memory) {
         string memory tokenAddress = LibString.toHexStringChecksummed(stakeToken);
         return string.concat(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 480 480\">",
@@ -382,11 +355,11 @@ contract VeToken is ERC721, BaseLocker {
             "</text>",
             "<text x=\"56\" y=\"226\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Amount</text>",
             "<text x=\"56\" y=\"254\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
-            LibString.toString(lock_.lockAmount()),
+            LibString.toString(amount),
             "</text>",
             "<text x=\"56\" y=\"304\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Unlock time</text>",
             "<text x=\"56\" y=\"332\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
-            LibString.toString(lock_.lockEnd()),
+            LibString.toString(endTime),
             "</text>",
             "<text x=\"56\" y=\"390\" fill=\"#101114\" font-family=\"monospace\" font-size=\"14\">",
             LibString.escapeHTML(tokenAddress),

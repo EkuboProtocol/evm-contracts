@@ -7,11 +7,9 @@ import {LibString} from "solady/utils/LibString.sol";
 
 import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
-import {Lock, VeToken, lockAmount, lockEnd} from "../src/VeToken.sol";
+import {VeToken} from "../src/VeToken.sol";
 import {VE33, ve33CallPoints} from "../src/extensions/VE33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-
-using {lockAmount, lockEnd} for Lock;
 
 contract VeTokenTest is FullTest {
     using CoreLib for *;
@@ -36,6 +34,14 @@ contract VeTokenTest is FullTest {
         vm.cool(address(ve33));
         vm.cool(address(veToken));
         vm.cool(address(stakeToken));
+    }
+
+    function _lockAmount(uint256 veId) internal view returns (uint128 amount) {
+        (amount,) = veToken.locks(veId);
+    }
+
+    function _lockEnd(uint256 veId) internal view returns (uint64 endTime) {
+        (, endTime) = veToken.locks(veId);
     }
 
     function test_gas_createLock() public {
@@ -128,18 +134,18 @@ contract VeTokenTest is FullTest {
         assertEq(ve33.lockAmounts(address(veToken), salt, end), 1e18);
         assertEq(ve33.lockAmounts(address(this), salt, end), 0);
 
-        Lock userLock = veToken.locks(veId);
-        assertEq(userLock.lockAmount(), 1e18);
-        assertEq(userLock.lockEnd(), end);
+        (uint128 amount, uint64 lockEndTime) = veToken.locks(veId);
+        assertEq(amount, 1e18);
+        assertEq(lockEndTime, end);
         assertEq(veToken.votingPower(veId), 1e18);
 
         vm.expectRevert(VE33.InvalidLock.selector);
         veToken.increaseLockAmount(veId, 0);
         veToken.increaseLockAmount(veId, 2e18);
 
-        userLock = veToken.locks(veId);
-        assertEq(userLock.lockAmount(), 3e18);
-        assertEq(userLock.lockEnd(), end);
+        (amount, lockEndTime) = veToken.locks(veId);
+        assertEq(amount, 3e18);
+        assertEq(lockEndTime, end);
 
         vm.expectRevert(VeToken.InvalidLock.selector);
         veToken.extendLock(veId, end);
@@ -147,9 +153,9 @@ contract VeTokenTest is FullTest {
         uint64 extendedEnd = uint64(block.timestamp + maxLockDuration);
         veToken.extendLock(veId, extendedEnd);
 
-        userLock = veToken.locks(veId);
-        assertEq(userLock.lockAmount(), 3e18);
-        assertEq(userLock.lockEnd(), extendedEnd);
+        (amount, lockEndTime) = veToken.locks(veId);
+        assertEq(amount, 3e18);
+        assertEq(lockEndTime, extendedEnd);
         bytes32 extendedLockId = keccak256(abi.encode(address(veToken), salt, extendedEnd));
         (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), lockId);
         assertEq(saved, 0);
@@ -181,8 +187,8 @@ contract VeTokenTest is FullTest {
         assertEq(veToken.ownerOf(veId), operator);
         assertEq(veToken.balanceOf(address(this)), 0);
         assertEq(veToken.balanceOf(operator), 1);
-        assertEq(veToken.locks(veId).lockAmount(), 1e18);
-        assertEq(ve33.lockAmounts(address(veToken), bytes32(veId), veToken.locks(veId).lockEnd()), 1e18);
+        assertEq(_lockAmount(veId), 1e18);
+        assertEq(ve33.lockAmounts(address(veToken), bytes32(veId), _lockEnd(veId)), 1e18);
 
         vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, address(this), veId));
         veToken.increaseLockAmount(veId, 1);
@@ -193,7 +199,7 @@ contract VeTokenTest is FullTest {
         veToken.increaseLockAmount(veId, 1e18);
         vm.stopPrank();
 
-        assertEq(veToken.locks(veId).lockAmount(), 2e18);
+        assertEq(_lockAmount(veId), 2e18);
     }
 
     function test_erc721ApprovedAccountCanUpdateLock() public {
@@ -211,21 +217,21 @@ contract VeTokenTest is FullTest {
         assertEq(veToken.getApproved(veId), operator);
         vm.prank(operator);
         veToken.increaseLockAmount(veId, 1e18);
-        assertEq(veToken.locks(veId).lockAmount(), 2e18);
+        assertEq(_lockAmount(veId), 2e18);
 
         veToken.setApprovalForAll(operator, true);
         assertTrue(veToken.isApprovedForAll(address(this), operator));
         stakeToken.transfer(operator, 1e18);
         vm.prank(operator);
         veToken.increaseLockAmount(veId, 1e18);
-        assertEq(veToken.locks(veId).lockAmount(), 3e18);
+        assertEq(_lockAmount(veId), 3e18);
     }
 
     function test_approvedWithdrawSendsStakeToCurrentOwner() public {
         uint256 veId = veToken.createLock(1e18, uint64(block.timestamp + veToken.MAX_LOCK_DURATION()));
         address operator = address(1234);
         veToken.approve(operator, veId);
-        vm.warp(veToken.locks(veId).lockEnd());
+        vm.warp(_lockEnd(veId));
 
         uint256 ownerBalanceBefore = stakeToken.balanceOf(address(this));
         uint256 operatorBalanceBefore = stakeToken.balanceOf(operator);

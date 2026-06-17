@@ -1,8 +1,8 @@
 {
-  "VeToken#createLock": "153952",
-  "VeToken#extendLock": "73512",
-  "VeToken#increaseLockAmount": "34255",
-  "VeToken#locks": "6911",
-  "VeToken#transferFrom": "31215",
-  "VeToken#withdrawLock": "39430"
+  "VeToken#createStake": "151946",
+  "VeToken#extendStake": "71059",
+  "VeToken#increaseStakeAmount": "33070",
+  "VeToken#stakes": "5987",
+  "VeToken#transferFrom": "31237",
+  "VeToken#withdrawStake": "36740"
 }

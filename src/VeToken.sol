@@ -10,30 +10,32 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {
     VE33,
     VE33_CLAIM_POOL_FEES,
-    VE33_MAX_LOCK_DURATION,
-    VE33_MOVE_LOCK,
-    VE33_STAKE_LOCK,
-    VE33_UNSTAKE_LOCK
+    VE33_MAX_STAKE_DURATION,
+    VE33_MOVE_STAKE,
+    VE33_STAKE,
+    VE33_UNSTAKE
 } from "./extensions/VE33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
+import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {defaultFeeForTickSpacing} from "./math/tickSpacingFee.sol";
 import {PoolKey} from "./types/poolKey.sol";
 
-/// @notice ERC721 representation over VE33 lock accounting.
-/// @dev The canonical lock is owned by this wrapper in VE33. ERC721 ownership controls the wrapper.
+/// @notice ERC721 representation over VE33 stake accounting.
+/// @dev The canonical stake is owned by this wrapper in VE33. ERC721 ownership controls the wrapper.
 contract VeToken is ERC721, BaseLocker {
     using FlashAccountantLib for *;
+    using Ve33Lib for VE33;
 
-    uint256 private constant CALL_TYPE_STAKE_LOCK = 0;
-    uint256 private constant CALL_TYPE_UNSTAKE_LOCK = 1;
-    uint256 private constant CALL_TYPE_MOVE_LOCK = 2;
+    uint256 private constant CALL_TYPE_STAKE = 0;
+    uint256 private constant CALL_TYPE_UNSTAKE = 1;
+    uint256 private constant CALL_TYPE_MOVE_STAKE = 2;
     uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 3;
 
-    /// @notice The VE33 extension that owns the canonical lock, vote, and fee accounting.
+    /// @notice The VE33 extension that owns the canonical stake, vote, and fee accounting.
     VE33 public immutable ve33;
 
-    /// @notice The token locked for voting power.
+    /// @notice The token staked for voting power.
     address public immutable stakeToken;
 
     string private _name;
@@ -42,41 +44,18 @@ contract VeToken is ERC721, BaseLocker {
     string private _stakeTokenSymbol;
 
     /// @notice The next ERC721 token id to mint.
-    /// @dev Token ids start at 1 and are used directly as VE33 lock salts.
+    /// @dev Token ids start at 1 and are used directly as VE33 stake salts.
     uint256 public nextVeId = 1;
 
-    /// @notice Emitted when a new VE33 lock is created and represented by an ERC721 token.
-    /// @param veId The ERC721 token id and VE33 lock salt.
-    /// @param owner The initial ERC721 owner.
-    /// @param amount The amount of stake token requested for the initial lock.
-    /// @param end The lock end timestamp.
-    event LockCreated(uint256 indexed veId, address indexed owner, uint128 amount, uint64 end);
+    /// @notice Thrown when a stake update is invalid for this wrapper.
+    error InvalidStake();
 
-    /// @notice Emitted when stake is added to an existing represented lock.
-    /// @param veId The ERC721 token id and VE33 lock salt.
-    /// @param amount The additional amount of stake token requested.
-    event LockAmountIncreased(uint256 indexed veId, uint128 amount);
-
-    /// @notice Emitted when a represented lock is moved to a later end timestamp.
-    /// @param veId The ERC721 token id and VE33 lock salt.
-    /// @param end The new lock end timestamp.
-    event LockExtended(uint256 indexed veId, uint64 end);
-
-    /// @notice Emitted when an expired represented lock is unstaked and the ERC721 token is burned.
-    /// @param veId The ERC721 token id and VE33 lock salt.
-    /// @param owner The ERC721 owner receiving the unlocked stake token.
-    /// @param amount The amount of stake token withdrawn.
-    event LockUnstaked(uint256 indexed veId, address indexed owner, uint128 amount);
-
-    /// @notice Thrown when a lock update is invalid for this wrapper.
-    error InvalidLock();
-
-    /// @notice Thrown when a caller is not the ERC721 owner or approved account for a represented lock.
+    /// @notice Thrown when a caller is not the ERC721 owner or approved account for a represented stake.
     /// @param caller The unauthorized caller.
     /// @param id The ERC721 token id.
     error NotAuthorizedForToken(address caller, uint256 id);
 
-    /// @notice Creates the ERC721 lock wrapper.
+    /// @notice Creates the ERC721 stake wrapper.
     /// @param core The Ekubo Core contract used for lock and token settlement.
     /// @param _ve33 The VE33 extension containing canonical vote-escrow accounting.
     constructor(ICore core, VE33 _ve33) BaseLocker(core) {
@@ -102,15 +81,15 @@ contract VeToken is ERC721, BaseLocker {
 
     /// @inheritdoc ERC721
     /// @dev Returns a base64 JSON data URI with `name`, `description`, and `image` fields.
-    ///      The image is an embedded SVG generated from the current VE33 lock amount, lock end, and stake token.
+    ///      The image is an embedded SVG generated from the current VE33 stake amount, stake end, and stake token.
     function tokenURI(uint256 id) public view override returns (string memory) {
-        (uint128 amount, uint64 endTime) = locks(id);
+        (uint128 amount, uint64 endTime) = stakes(id);
         string memory idString = LibString.toString(id);
         string memory tokenName = string.concat(_symbol, " #", idString);
         string memory description = string.concat(
             "Vote-escrowed ",
             _stakeTokenName,
-            " lock. Amount: ",
+            " stake. Amount: ",
             LibString.toString(amount),
             " ",
             _stakeTokenSymbol,
@@ -141,13 +120,13 @@ contract VeToken is ERC721, BaseLocker {
         );
     }
 
-    /// @notice Returns the maximum lock duration accepted by VE33.
-    /// @return The maximum lock duration in seconds.
-    function MAX_LOCK_DURATION() external pure returns (uint256) {
-        return VE33_MAX_LOCK_DURATION;
+    /// @notice Returns the maximum stake duration accepted by VE33.
+    /// @return The maximum stake duration in seconds.
+    function MAX_STAKE_DURATION() external pure returns (uint256) {
+        return VE33_MAX_STAKE_DURATION;
     }
 
-    /// @notice Returns whether `account` may manage the represented lock.
+    /// @notice Returns whether `account` may manage the represented stake.
     /// @dev Uses Solady ERC721 ownership and approval checks. Reverts if `id` does not exist.
     /// @param account The account to check.
     /// @param id The ERC721 token id.
@@ -156,110 +135,102 @@ contract VeToken is ERC721, BaseLocker {
         return _isApprovedOrOwner(account, id);
     }
 
-    /// @notice Requires the caller to own or be approved for a represented lock.
+    /// @notice Requires the caller to own or be approved for a represented stake.
     /// @param id The ERC721 token id.
-    modifier authorizedForLock(uint256 id) {
+    modifier authorizedForStake(uint256 id) {
         if (!isAuthorizedForNft(msg.sender, id)) revert NotAuthorizedForToken(msg.sender, id);
         _;
     }
 
-    /// @notice Returns the current represented lock state.
-    /// @dev The lock end is stored in ERC721 extraData. The amount is fetched from `VE33.lockAmounts`.
-    /// @param id The ERC721 token id, also used as the VE33 lock salt.
-    /// @return amount The current locked stake token amount.
-    /// @return endTime The lock end timestamp.
-    function locks(uint256 id) public view returns (uint128 amount, uint64 endTime) {
-        endTime = _lockEndTime(id);
-        amount = ve33.lockAmounts(address(this), bytes32(id), endTime);
+    /// @notice Returns the current represented stake state.
+    /// @dev The stake end is stored in ERC721 extraData. The amount is fetched from VE33 exposed storage.
+    /// @param id The ERC721 token id, also used as the VE33 stake salt.
+    /// @return amount The current staked token amount.
+    /// @return endTime The stake end timestamp.
+    function stakes(uint256 id) public view returns (uint128 amount, uint64 endTime) {
+        endTime = _stakeEndTime(id);
+        amount = ve33.stakeAmount(address(this), bytes32(id), endTime);
     }
 
-    /// @notice Creates a VE33 lock and mints an ERC721 token that controls it.
-    /// @dev The minted token id is used as the VE33 lock salt. Stake token settlement happens in the Core lock.
-    /// @param amount The amount of stake token to lock.
-    /// @param end The lock end timestamp.
+    /// @notice Creates a VE33 stake and mints an ERC721 token that controls it.
+    /// @dev The minted token id is used as the VE33 stake salt. Stake token settlement happens in the Core lock.
+    /// @param amount The amount of stake token to stake.
+    /// @param end The stake end timestamp.
     /// @return veId The minted ERC721 token id.
-    function createLock(uint128 amount, uint64 end) external returns (uint256 veId) {
+    function createStake(uint128 amount, uint64 end) external returns (uint256 veId) {
         veId = nextVeId++;
         _mintAndSetExtraDataUnchecked(msg.sender, veId, end);
 
-        lock(abi.encode(CALL_TYPE_STAKE_LOCK, msg.sender, bytes32(veId), end, amount));
-
-        emit LockCreated(veId, msg.sender, amount, end);
+        lock(abi.encode(CALL_TYPE_STAKE, msg.sender, bytes32(veId), end, amount));
     }
 
-    /// @notice Adds stake token to an existing represented lock.
+    /// @notice Adds stake token to an existing represented stake.
     /// @dev The caller must own or be approved for `veId`. Stake token settlement happens in the Core lock.
-    /// @param veId The ERC721 token id and VE33 lock salt.
+    /// @param veId The ERC721 token id and VE33 stake salt.
     /// @param amount The amount of stake token to add.
-    function increaseLockAmount(uint256 veId, uint128 amount) external authorizedForLock(veId) {
-        lock(abi.encode(CALL_TYPE_STAKE_LOCK, msg.sender, bytes32(veId), _lockEndTime(veId), amount));
-
-        emit LockAmountIncreased(veId, amount);
+    function increaseStakeAmount(uint256 veId, uint128 amount) external authorizedForStake(veId) {
+        lock(abi.encode(CALL_TYPE_STAKE, msg.sender, bytes32(veId), _stakeEndTime(veId), amount));
     }
 
-    /// @notice Moves an existing represented lock to a later end timestamp.
+    /// @notice Moves an existing represented stake to a later end timestamp.
     /// @dev The caller must own or be approved for `veId`. Extending clears votes in VE33.
-    /// @param veId The ERC721 token id and VE33 lock salt.
-    /// @param end The new lock end timestamp.
-    function extendLock(uint256 veId, uint64 end) external authorizedForLock(veId) {
-        uint64 currentEnd = _lockEndTime(veId);
-        if (end <= currentEnd) revert InvalidLock();
+    /// @param veId The ERC721 token id and VE33 stake salt.
+    /// @param end The new stake end timestamp.
+    function extendStake(uint256 veId, uint64 end) external authorizedForStake(veId) {
+        uint64 currentEnd = _stakeEndTime(veId);
+        if (end <= currentEnd) revert InvalidStake();
 
         bytes32 salt = bytes32(veId);
-        uint128 amount = ve33.lockAmounts(address(this), salt, currentEnd);
-        lock(abi.encode(CALL_TYPE_MOVE_LOCK, salt, currentEnd, salt, end, amount));
+        uint128 amount = ve33.stakeAmount(address(this), salt, currentEnd);
+        lock(abi.encode(CALL_TYPE_MOVE_STAKE, salt, currentEnd, salt, end, amount));
         _setExtraData(veId, end);
-
-        emit LockExtended(veId, end);
     }
 
-    /// @notice Unstakes an expired represented lock and burns its ERC721 token.
-    /// @dev The caller must own or be approved for `veId`; unlocked stake is withdrawn to the current ERC721 owner.
-    /// @param veId The ERC721 token id and VE33 lock salt.
-    function withdrawLock(uint256 veId) external authorizedForLock(veId) {
+    /// @notice Unstakes an expired represented stake and burns its ERC721 token.
+    /// @dev The caller must own or be approved for `veId`; unstaked tokens are withdrawn to the current ERC721 owner.
+    /// @param veId The ERC721 token id and VE33 stake salt.
+    function withdrawStake(uint256 veId) external authorizedForStake(veId) {
         address owner = ownerOf(veId);
         bytes32 salt = bytes32(veId);
-        uint64 endTime = _lockEndTime(veId);
-        uint128 amount = ve33.lockAmounts(address(this), salt, endTime);
-        lock(abi.encode(CALL_TYPE_UNSTAKE_LOCK, salt, endTime, amount, owner));
+        uint64 endTime = _stakeEndTime(veId);
+        uint128 amount = ve33.stakeAmount(address(this), salt, endTime);
+        lock(abi.encode(CALL_TYPE_UNSTAKE, salt, endTime, amount, owner));
 
         _burn(veId);
         _setExtraData(veId, 0);
-
-        emit LockUnstaked(veId, owner, amount);
     }
 
-    /// @notice Returns the current voting power of a represented lock.
-    /// @param veId The ERC721 token id and VE33 lock salt.
-    /// @return The lock voting power at the current timestamp.
+    /// @notice Returns the current voting power of a represented stake.
+    /// @param veId The ERC721 token id and VE33 stake salt.
+    /// @return The stake voting power at the current timestamp.
     function votingPower(uint256 veId) public view returns (uint256) {
-        return ve33.votingPower(lockKey(veId));
+        return ve33.votingPower(stakeKey(veId));
     }
 
-    /// @notice Returns the VE33 lock key represented by an ERC721 token.
-    /// @dev The VE33 lock owner is always this contract, and the salt is `bytes32(veId)`.
+    /// @notice Returns the VE33 stake key represented by an ERC721 token.
+    /// @dev The VE33 stake owner is always this contract, and the salt is `bytes32(veId)`.
     /// @param veId The ERC721 token id.
-    /// @return The canonical VE33 lock key.
-    function lockKey(uint256 veId) public view returns (VE33.LockKey memory) {
-        return VE33.LockKey({owner: address(this), salt: bytes32(veId), endTime: _lockEndTime(veId)});
+    /// @return The canonical VE33 stake key.
+    function stakeKey(uint256 veId) public view returns (VE33.StakeKey memory) {
+        return VE33.StakeKey({owner: address(this), salt: bytes32(veId), endTime: _stakeEndTime(veId)});
     }
 
-    /// @notice Votes a represented lock on pools with explicit swap fees.
+    /// @notice Votes a represented stake on pools with explicit swap fees.
     /// @dev The caller must own or be approved for `veId`.
-    /// @param veId The ERC721 token id and VE33 lock salt.
+    /// @param veId The ERC721 token id and VE33 stake salt.
     /// @param poolKeys The pools to vote on.
     /// @param weights The vote weights for each pool.
     /// @param swapFees The selected swap fee for each pool.
     function vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] calldata swapFees)
         external
-        authorizedForLock(veId)
+        authorizedForStake(veId)
     {
-        ve33.vote(lockKey(veId), poolKeys, weights, swapFees);
+        ve33.vote(stakeKey(veId), poolKeys, weights, swapFees);
     }
 
-    /// @notice Votes a represented lock on pools using default fees derived from tick spacing.
+    /// @notice Votes a represented stake on pools using default fees derived from tick spacing.
     /// @dev The caller must own or be approved for `veId`.
-    /// @param veId The ERC721 token id and VE33 lock salt.
+    /// @param veId The ERC721 token id and VE33 stake salt.
     /// @param poolKeys The pools to vote on.
     /// @param weights The vote weights for each pool.
     /// @param tickSpacings The tick spacings used to derive default swap fees.
@@ -268,17 +239,17 @@ contract VeToken is ERC721, BaseLocker {
         PoolKey[] calldata poolKeys,
         uint256[] calldata weights,
         uint32[] calldata tickSpacings
-    ) external authorizedForLock(veId) {
+    ) external authorizedForStake(veId) {
         uint64[] memory swapFees = new uint64[](tickSpacings.length);
         for (uint256 i = 0; i < tickSpacings.length; i++) {
             swapFees[i] = defaultFeeForTickSpacing(tickSpacings[i]);
         }
-        ve33.vote(lockKey(veId), poolKeys, weights, swapFees);
+        ve33.vote(stakeKey(veId), poolKeys, weights, swapFees);
     }
 
-    /// @notice Claims pool fees earned by a represented lock to its current ERC721 owner.
+    /// @notice Claims pool fees earned by a represented stake to its current ERC721 owner.
     /// @dev Permissionless; the recipient is always `ownerOf(veId)`.
-    /// @param veId The ERC721 token id and VE33 lock salt.
+    /// @param veId The ERC721 token id and VE33 stake salt.
     /// @param poolKey The pool whose voter fees should be claimed.
     /// @return amount0 The amount of token0 withdrawn to the owner.
     /// @return amount1 The amount of token1 withdrawn to the owner.
@@ -296,28 +267,28 @@ contract VeToken is ERC721, BaseLocker {
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
-        if (callType == CALL_TYPE_STAKE_LOCK) {
+        if (callType == CALL_TYPE_STAKE) {
             (, address owner, bytes32 salt, uint64 endTime, uint128 amount) =
                 abi.decode(data, (uint256, address, bytes32, uint64, uint128));
-            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_STAKE_LOCK, salt, endTime, amount));
+            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_STAKE, salt, endTime, amount));
             uint128 staked = abi.decode(result, (uint128));
             if (staked != 0) ACCOUNTANT.payFrom(owner, stakeToken, staked);
-        } else if (callType == CALL_TYPE_UNSTAKE_LOCK) {
+        } else if (callType == CALL_TYPE_UNSTAKE) {
             (, bytes32 salt, uint64 endTime, uint128 amount, address recipient) =
                 abi.decode(data, (uint256, bytes32, uint64, uint128, address));
-            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_UNSTAKE_LOCK, salt, endTime, amount));
+            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_UNSTAKE, salt, endTime, amount));
             uint128 unstaked = abi.decode(result, (uint128));
             if (unstaked != 0) ACCOUNTANT.withdraw(stakeToken, recipient, unstaked);
-        } else if (callType == CALL_TYPE_MOVE_LOCK) {
+        } else if (callType == CALL_TYPE_MOVE_STAKE) {
             (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
                 abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
             result = ACCOUNTANT.forward(
-                address(ve33), abi.encode(VE33_MOVE_LOCK, fromSalt, fromEndTime, toSalt, toEndTime, amount)
+                address(ve33), abi.encode(VE33_MOVE_STAKE, fromSalt, fromEndTime, toSalt, toEndTime, amount)
             );
         } else if (callType == CALL_TYPE_CLAIM_POOL_FEES) {
             (, uint256 veId, address recipient, PoolKey memory poolKey) =
                 abi.decode(data, (uint256, uint256, address, PoolKey));
-            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_CLAIM_POOL_FEES, lockKey(veId), poolKey));
+            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_CLAIM_POOL_FEES, stakeKey(veId), poolKey));
             (uint128 amount0, uint128 amount1) = abi.decode(result, (uint128, uint128));
             ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
         } else {
@@ -325,18 +296,18 @@ contract VeToken is ERC721, BaseLocker {
         }
     }
 
-    /// @notice Returns the lock end timestamp stored in ERC721 extraData.
+    /// @notice Returns the stake end timestamp stored in ERC721 extraData.
     /// @param veId The ERC721 token id.
-    /// @return The lock end timestamp.
-    function _lockEndTime(uint256 veId) private view returns (uint64) {
+    /// @return The stake end timestamp.
+    function _stakeEndTime(uint256 veId) private view returns (uint64) {
         if (!_exists(veId)) revert TokenDoesNotExist();
         return uint64(_getExtraData(veId));
     }
 
     /// @notice Builds the SVG image embedded in ERC721 metadata.
     /// @param id The ERC721 token id.
-    /// @param amount The current locked stake token amount.
-    /// @param endTime The lock end timestamp.
+    /// @param amount The current staked token amount.
+    /// @param endTime The stake end timestamp.
     /// @return The raw SVG string.
     function _tokenSvg(uint256 id, uint128 amount, uint64 endTime) private view returns (string memory) {
         string memory tokenAddress = LibString.toHexStringChecksummed(stakeToken);

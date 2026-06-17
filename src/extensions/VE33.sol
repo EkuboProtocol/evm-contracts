@@ -6,6 +6,7 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
+import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
@@ -22,7 +23,6 @@ import {CallPoints} from "../types/callPoints.sol";
 import {Locker} from "../types/locker.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PoolId} from "../types/poolId.sol";
-import {PoolConfig} from "../types/poolConfig.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
@@ -36,12 +36,12 @@ uint256 constant VE33_CLAIM_REWARDS = 1;
 uint256 constant VE33_DONATE_REWARDS = 2;
 // Forward call type for scheduling reward-token emissions.
 uint256 constant VE33_ADD_REWARDS = 3;
-// Forward call type for increasing a ve lock.
-uint256 constant VE33_STAKE_LOCK = 4;
-// Forward call type for decreasing an expired ve lock.
-uint256 constant VE33_UNSTAKE_LOCK = 5;
-// Forward call type for moving locked stake to a different `(salt, endTime)` key.
-uint256 constant VE33_MOVE_LOCK = 6;
+// Forward call type for increasing a ve stake.
+uint256 constant VE33_STAKE = 4;
+// Forward call type for decreasing an expired ve stake.
+uint256 constant VE33_UNSTAKE = 5;
+// Forward call type for moving stake to a different `(salt, endTime)` key.
+uint256 constant VE33_MOVE_STAKE = 6;
 // Forward call type for claiming voter pool fees.
 uint256 constant VE33_CLAIM_POOL_FEES = 7;
 // Forward call type for funding global emissions.
@@ -51,8 +51,8 @@ uint256 constant VE33_TRIGGER_POOL_EMISSIONS = 9;
 
 // Maximum absolute scheduled reward-rate delta allowed at one valid time.
 uint256 constant VE33_MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint224).max / MAX_NUM_VALID_TIMES;
-// Maximum ve lock duration.
-uint256 constant VE33_MAX_LOCK_DURATION = 4 * 365 days;
+// Maximum ve stake duration.
+uint256 constant VE33_MAX_STAKE_DURATION = 4 * 365 days;
 
 /// @notice Packed LP reward state for a pool.
 /// @dev Low 32 bits store `lastAccumulated`; high 224 bits store the Q32 reward rate.
@@ -123,22 +123,22 @@ function ve33CallPoints() pure returns (CallPoints memory) {
 /// @title VE33
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
 /// @dev Pools using this extension must have zero Core pool fees. Swap fees are accounted by the extension and
-/// distributed to ve lockers, while LPs earn the immutable `stakeToken` as rewards.
-contract VE33 is BaseExtension, BaseForwardee {
+/// distributed to ve stakers, while LPs earn the immutable `stakeToken` as rewards.
+contract VE33 is BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
     /// @notice Duration of each global and per-pool emission stream.
     uint256 public constant EMISSION_DURATION = 7 days;
-    /// @notice Maximum ve lock duration.
-    uint256 public constant MAX_LOCK_DURATION = VE33_MAX_LOCK_DURATION;
+    /// @notice Maximum ve stake duration.
+    uint256 public constant MAX_STAKE_DURATION = VE33_MAX_STAKE_DURATION;
 
-    /// @notice Token used for ve locking, global emissions, and LP rewards.
+    /// @notice Token used for ve staking, global emissions, and LP rewards.
     address public immutable stakeToken;
 
-    /// @notice Canonical ve lock identifier.
-    /// @param owner Locker representation that owns the lock in this contract.
-    /// @param salt Caller-selected salt that distinguishes locks for one owner.
-    /// @param endTime Timestamp when the locked stake may be unstaked.
-    struct LockKey {
+    /// @notice Canonical ve stake identifier.
+    /// @param owner Locker representation that owns the stake in this contract.
+    /// @param salt Caller-selected salt that distinguishes stakes for one owner.
+    /// @param endTime Timestamp when the stake may be unstaked.
+    struct StakeKey {
         address owner;
         bytes32 salt;
         uint64 endTime;
@@ -164,9 +164,9 @@ contract VE33 is BaseExtension, BaseForwardee {
         uint64 defaultSwapFee;
     }
 
-    /// @notice Per-lock accounting for one voted pool.
-    /// @param weight Active vote weight from the lock to the pool.
-    /// @param swapFee Fee selected by the lock for this pool.
+    /// @notice Per-stake accounting for one voted pool.
+    /// @param weight Active vote weight from the stake to the pool.
+    /// @param swapFee Fee selected by the stake for this pool.
     /// @param feeGrowth0X128 Snapshot of pool token0 fee growth.
     /// @param feeGrowth1X128 Snapshot of pool token1 fee growth.
     /// @param accrued0 Token0 fees accrued but not claimed.
@@ -180,65 +180,65 @@ contract VE33 is BaseExtension, BaseForwardee {
         uint256 accrued1;
     }
 
-    /// @notice Locked stake amounts by `(owner, salt, endTime)`.
-    mapping(address => mapping(bytes32 => mapping(uint64 => uint128))) public lockAmounts;
-    /// @notice Pools currently voted on by each lock id.
-    mapping(bytes32 => PoolId[]) public votedPools;
-    /// @notice Per-lock, per-pool vote and fee snapshots.
-    mapping(bytes32 => mapping(PoolId => VePoolPosition)) public vePoolPositions;
+    /// @notice Stake amounts by `(owner, salt, endTime)`.
+    mapping(address => mapping(bytes32 => mapping(uint64 => uint128))) internal stakeAmounts;
+    /// @notice Pools currently voted on by each stake id.
+    mapping(bytes32 => PoolId[]) internal votedPools;
+    /// @notice Per-stake, per-pool vote and fee snapshots.
+    mapping(bytes32 => mapping(PoolId => VePoolPosition)) internal vePoolPositions;
     /// @notice Aggregated voting and fee state for each pool.
-    mapping(PoolId => PoolVoteState) public poolVoteStates;
+    mapping(PoolId => PoolVoteState) internal poolVoteStates;
 
     /// @notice Packed reward-stream state for each pool.
-    mapping(PoolId => Ve33RewardPoolState) public poolRewardState;
+    mapping(PoolId => Ve33RewardPoolState) internal poolRewardState;
     /// @notice Global reward-token growth per unit of in-range liquidity for each pool.
-    mapping(PoolId => uint256) public rewardsGlobalPerLiquidity;
+    mapping(PoolId => uint256) internal rewardsGlobalPerLiquidity;
     /// @notice Reward growth outside each initialized tick, used to compute in-range rewards.
-    mapping(PoolId => mapping(int32 => uint256)) public tickRewardsOutsidePerLiquidity;
+    mapping(PoolId => mapping(int32 => uint256)) internal tickRewardsOutsidePerLiquidity;
     /// @notice Per-position reward growth snapshot.
-    mapping(PoolId => mapping(address => mapping(PositionId => uint256))) public positionRewardsSnapshotPerLiquidity;
+    mapping(PoolId => mapping(address => mapping(PositionId => uint256))) internal positionRewardsSnapshotPerLiquidity;
     /// @notice Bitmap of initialized reward schedule times for each pool.
     mapping(PoolId => mapping(uint256 => uint256)) private initializedTimeBitmap;
     /// @notice Scheduled reward-rate deltas at valid times for each pool.
-    mapping(PoolId => mapping(uint256 => int256)) public rewardRateDeltaAtTime;
+    mapping(PoolId => mapping(uint256 => int256)) internal rewardRateDeltaAtTime;
 
     /// @notice Total active ve vote weight across all pools.
-    uint256 public totalVoteWeight;
+    uint256 internal totalVoteWeight;
     /// @notice Accrued time-weighted vote weight across all pools.
-    uint256 public totalVoteSeconds;
+    uint256 internal totalVoteSeconds;
     /// @notice Last timestamp when `totalVoteSeconds` was accrued.
-    uint64 public totalVoteSecondsLastAccrued;
+    uint64 internal totalVoteSecondsLastAccrued;
 
     /// @notice Funded emissions not yet paid into pool reward schedules.
-    uint256 public emissionReserve;
+    uint256 internal emissionReserve;
     /// @notice Accrued emissions not yet assigned to any pool.
-    uint256 public unallocatedEmissions;
+    uint256 internal unallocatedEmissions;
     /// @notice Current global Q32 emission rate.
-    uint224 public emissionRate;
+    uint224 internal emissionRate;
     /// @notice Last timestamp when global emissions were accrued.
-    uint64 public emissionsLastAccrued;
+    uint64 internal emissionsLastAccrued;
     /// @notice Next unprocessed index in `emissionEventTimes`.
-    uint256 public nextEmissionEventIndex;
+    uint256 internal nextEmissionEventIndex;
     /// @notice Sorted emission end times.
-    uint64[] public emissionEventTimes;
+    uint64[] internal emissionEventTimes;
     /// @notice Global emission-rate decreases at each end time.
-    mapping(uint64 => uint224) public emissionRateDecreaseAt;
+    mapping(uint64 => uint224) internal emissionRateDecreaseAt;
 
-    /// @notice Emitted when stake is added to a lock.
-    event LockStaked(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
-    /// @notice Emitted when expired stake is removed from a lock.
-    event LockUnstaked(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
-    /// @notice Emitted when stake is moved between lock keys.
-    event LockMoved(
+    /// @notice Emitted when stake is added.
+    event StakeIncreased(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    /// @notice Emitted when expired stake is removed.
+    event StakeDecreased(address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint128 amount);
+    /// @notice Emitted when stake is moved between stake keys.
+    event StakeMoved(
         address indexed owner, bytes32 indexed fromSalt, uint64 indexed fromEndTime, bytes32 toSalt, uint64 toEndTime
     );
-    /// @notice Emitted after a lock's votes are updated.
-    event Voted(bytes32 indexed lockId);
+    /// @notice Emitted after a stake's votes are updated.
+    event Voted(bytes32 indexed stakeId);
     /// @notice Emitted when a swap accounts fees to voters.
     event PoolFeesAccounted(PoolId indexed poolId, uint128 amount0, uint128 amount1);
-    /// @notice Emitted when accrued voter fees are claimed for a lock.
+    /// @notice Emitted when accrued voter fees are claimed for a stake.
     event PoolFeesClaimed(
-        bytes32 indexed lockId, PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1
+        bytes32 indexed stakeId, PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1
     );
     /// @notice Emitted when global emissions are funded.
     event EmissionsFunded(address indexed funder, uint128 amount, uint224 rate, uint64 end);
@@ -271,14 +271,14 @@ contract VE33 is BaseExtension, BaseForwardee {
     error MaxRateDeltaPerTime();
     /// @notice Thrown when reward accounting is requested for a pool not initialized for this extension.
     error PoolNotInitialized();
-    /// @notice Thrown when a lock owner-only action is called by another address.
-    error NotLockOwner();
-    /// @notice Thrown when a lock amount or timestamp is invalid.
-    error InvalidLock();
+    /// @notice Thrown when a stake owner-only action is called by another address.
+    error NotStakeOwner();
+    /// @notice Thrown when a stake amount or timestamp is invalid.
+    error InvalidStake();
 
     /// @notice Initializes the extension with Core and the immutable reward/stake token.
     /// @param core Ekubo Core contract.
-    /// @param _stakeToken Token used for ve locks and LP rewards.
+    /// @param _stakeToken Token used for ve stakes and LP rewards.
     constructor(ICore core, address _stakeToken) BaseExtension(core) BaseForwardee(core) {
         stakeToken = _stakeToken;
         emissionsLastAccrued = uint64(block.timestamp);
@@ -323,33 +323,34 @@ contract VE33 is BaseExtension, BaseForwardee {
         _beforeUpdatePosition(locker.addr(), poolKey, positionId, liquidityDelta);
     }
 
-    /// @notice Returns the current voting power for a lock.
-    /// @dev Voting power decays linearly to zero at `lockKey.endTime`.
-    /// @param lockKey Canonical lock key.
+    /// @notice Computes the current voting power for a lock.
+    /// @dev Voting power decays linearly to zero at `stakeKey.endTime`.
+    /// @param stakeKey Canonical stake key.
     /// @return power Current voting power.
-    function votingPower(LockKey memory lockKey) public view returns (uint256) {
-        if (block.timestamp >= lockKey.endTime) return 0;
+    function _votingPower(StakeKey calldata stakeKey) private view returns (uint256 power) {
+        if (block.timestamp >= stakeKey.endTime) return 0;
 
         unchecked {
-            return (uint256(lockAmounts[lockKey.owner][lockKey.salt][lockKey.endTime])
-                    * (lockKey.endTime - block.timestamp)) / MAX_LOCK_DURATION;
+            power =
+                (uint256(stakeAmounts[stakeKey.owner][stakeKey.salt][stakeKey.endTime])
+                        * (stakeKey.endTime - block.timestamp)) / MAX_STAKE_DURATION;
         }
     }
 
     /// @notice Replaces the votes for a lock.
-    /// @dev `swapFees` are capped to the protocol maximum. Only `lockKey.owner` may vote directly.
-    /// @param lockKey Lock whose votes are being updated.
+    /// @dev `swapFees` are capped to the protocol maximum. Only `stakeKey.owner` may vote directly.
+    /// @param stakeKey Stake whose votes are being updated.
     /// @param poolKeys Pools to vote on.
     /// @param weights Relative weights assigned to each pool.
     /// @param swapFees Explicit swap fee vote for each pool.
     function vote(
-        LockKey calldata lockKey,
+        StakeKey calldata stakeKey,
         PoolKey[] calldata poolKeys,
         uint256[] calldata weights,
         uint64[] calldata swapFees
     ) external {
-        if (lockKey.owner != msg.sender) revert NotLockOwner();
-        _vote(lockKey, poolKeys, weights, swapFees);
+        if (stakeKey.owner != msg.sender) revert NotStakeOwner();
+        _vote(stakeKey, poolKeys, weights, swapFees);
     }
 
     /// @notice Accumulates scheduled LP rewards into the pool reward-per-liquidity global value.
@@ -406,7 +407,7 @@ contract VE33 is BaseExtension, BaseForwardee {
     }
 
     /// @notice Handles extension forward calls from Core.
-    /// @dev The original locker becomes the LP owner or lock owner depending on the call type.
+    /// @dev The original locker becomes the LP owner or stake owner depending on the call type.
     /// @param original Locker that initiated the Core forward call.
     /// @param data ABI-encoded call type and payload.
     /// @return result ABI-encoded result for the selected forward call.
@@ -428,20 +429,20 @@ contract VE33 is BaseExtension, BaseForwardee {
             (, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
                 abi.decode(data, (uint256, PoolKey, uint64, uint64, uint224));
             result = abi.encode(_addRewards(poolKey, startTime, endTime, rewardRate));
-        } else if (callType == VE33_STAKE_LOCK) {
+        } else if (callType == VE33_STAKE) {
             (, bytes32 salt, uint64 endTime, uint128 amount) = abi.decode(data, (uint256, bytes32, uint64, uint128));
-            result = abi.encode(_stakeLock(original.addr(), salt, endTime, amount));
-        } else if (callType == VE33_UNSTAKE_LOCK) {
+            result = abi.encode(_stake(original.addr(), salt, endTime, amount));
+        } else if (callType == VE33_UNSTAKE) {
             (, bytes32 salt, uint64 endTime, uint128 amount) = abi.decode(data, (uint256, bytes32, uint64, uint128));
-            result = abi.encode(_unstakeLock(original.addr(), salt, endTime, amount));
-        } else if (callType == VE33_MOVE_LOCK) {
+            result = abi.encode(_unstake(original.addr(), salt, endTime, amount));
+        } else if (callType == VE33_MOVE_STAKE) {
             (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
                 abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
-            result = abi.encode(_moveLock(original.addr(), fromSalt, fromEndTime, toSalt, toEndTime, amount));
+            result = abi.encode(_moveStake(original.addr(), fromSalt, fromEndTime, toSalt, toEndTime, amount));
         } else if (callType == VE33_CLAIM_POOL_FEES) {
-            (, LockKey memory lockKey, PoolKey memory poolKey) = abi.decode(data, (uint256, LockKey, PoolKey));
-            if (lockKey.owner != original.addr()) revert NotLockOwner();
-            (uint128 amount0, uint128 amount1) = _claimPoolFees(lockKey, poolKey, original.addr());
+            (, StakeKey memory stakeKey, PoolKey memory poolKey) = abi.decode(data, (uint256, StakeKey, PoolKey));
+            if (stakeKey.owner != original.addr()) revert NotStakeOwner();
+            (uint128 amount0, uint128 amount1) = _claimPoolFees(stakeKey, poolKey, original.addr());
             result = abi.encode(amount0, amount1);
         } else if (callType == VE33_FUND_EMISSIONS) {
             (, uint128 amount) = abi.decode(data, (uint256, uint128));
@@ -557,78 +558,75 @@ contract VE33 is BaseExtension, BaseForwardee {
         }
     }
 
-    /// @notice Computes the canonical lock id.
-    /// @param owner Locker representation that owns the lock.
-    /// @param salt Caller-selected lock salt.
-    /// @param endTime Lock expiry timestamp.
-    /// @return lockId Hash used for vote and fee accounting.
-    function _lockId(address owner, bytes32 salt, uint64 endTime) private pure returns (bytes32) {
+    /// @notice Computes the canonical stake id.
+    /// @param owner Locker representation that owns the stake.
+    /// @param salt Caller-selected stake salt.
+    /// @param endTime Stake expiry timestamp.
+    /// @return stakeId Hash used for vote and fee accounting.
+    function _stakeId(address owner, bytes32 salt, uint64 endTime) private pure returns (bytes32) {
         return keccak256(abi.encode(owner, salt, endTime));
     }
 
-    /// @notice Validates that a new or moved-to lock is active and nonzero.
-    /// @param endTime Proposed lock expiry timestamp.
+    /// @notice Validates that a new or moved-to stake is active and nonzero.
+    /// @param endTime Proposed stake expiry timestamp.
     /// @param amount Amount being staked or moved.
-    function _validateNewLock(uint64 endTime, uint128 amount) private view {
-        if (amount == 0 || endTime <= block.timestamp || endTime > block.timestamp + MAX_LOCK_DURATION) {
-            revert InvalidLock();
+    function _validateNewStake(uint64 endTime, uint128 amount) private view {
+        if (amount == 0 || endTime <= block.timestamp || endTime > block.timestamp + MAX_STAKE_DURATION) {
+            revert InvalidStake();
         }
     }
 
-    /// @notice Adds stake to a lock and records the saved balance under this extension.
-    /// @dev Does not transfer tokens; the calling lock representation settles the payment in the same Core lock.
-    /// @param owner Locker representation that owns the lock.
-    /// @param salt Lock salt.
-    /// @param endTime Lock expiry timestamp.
+    /// @notice Adds stake and records the saved balance under this extension.
+    /// @dev Does not transfer tokens; the calling stake representation settles the payment in the same Core lock.
+    /// @param owner Locker representation that owns the stake.
+    /// @param salt Stake salt.
+    /// @param endTime Stake expiry timestamp.
     /// @param amount Amount of stake to add.
-    /// @return staked Amount added to the lock.
-    function _stakeLock(address owner, bytes32 salt, uint64 endTime, uint128 amount) private returns (uint128 staked) {
-        _validateNewLock(endTime, amount);
+    /// @return staked Amount added to the stake.
+    function _stake(address owner, bytes32 salt, uint64 endTime, uint128 amount) private returns (uint128 staked) {
+        _validateNewStake(endTime, amount);
 
         staked = amount;
-        bytes32 lockId = _lockId(owner, salt, endTime);
-        _clearVotes(lockId);
-        lockAmounts[owner][salt][endTime] += amount;
-        _updateStakeSavedBalance(lockId, int256(uint256(amount)));
+        bytes32 stakeId = _stakeId(owner, salt, endTime);
+        _clearVotes(stakeId);
+        stakeAmounts[owner][salt][endTime] += amount;
+        _updateStakeSavedBalance(stakeId, int256(uint256(amount)));
 
-        emit LockStaked(owner, salt, endTime, amount);
+        emit StakeIncreased(owner, salt, endTime, amount);
     }
 
-    /// @notice Removes stake from an expired lock and records the saved-balance decrease.
-    /// @dev Does not transfer tokens; the calling lock representation withdraws tokens from Core.
-    /// @param owner Locker representation that owns the lock.
-    /// @param salt Lock salt.
-    /// @param endTime Lock expiry timestamp.
+    /// @notice Removes stake from an expired stake and records the saved-balance decrease.
+    /// @dev Does not transfer tokens; the calling stake representation withdraws tokens from Core.
+    /// @param owner Locker representation that owns the stake.
+    /// @param salt Stake salt.
+    /// @param endTime Stake expiry timestamp.
     /// @param amount Amount of stake to remove.
-    /// @return unstaked Amount removed from the lock.
-    function _unstakeLock(address owner, bytes32 salt, uint64 endTime, uint128 amount)
-        private
-        returns (uint128 unstaked)
-    {
-        if (amount == 0 || block.timestamp < endTime) revert InvalidLock();
+    /// @return unstaked Amount removed from the stake.
+    function _unstake(address owner, bytes32 salt, uint64 endTime, uint128 amount) private returns (uint128 unstaked) {
+        if (amount == 0 || block.timestamp < endTime) revert InvalidStake();
 
-        uint128 currentAmount = lockAmounts[owner][salt][endTime];
-        if (amount > currentAmount) revert InvalidLock();
+        uint128 currentAmount = stakeAmounts[owner][salt][endTime];
+        if (amount > currentAmount) revert InvalidStake();
 
         unstaked = amount;
-        bytes32 lockId = _lockId(owner, salt, endTime);
-        _clearVotes(lockId);
-        lockAmounts[owner][salt][endTime] = currentAmount - amount;
-        _updateStakeSavedBalance(lockId, -int256(uint256(amount)));
+        bytes32 stakeId = _stakeId(owner, salt, endTime);
+        _clearVotes(stakeId);
+        stakeAmounts[owner][salt][endTime] = currentAmount - amount;
+        _updateStakeSavedBalance(stakeId, -int256(uint256(amount)));
 
-        emit LockUnstaked(owner, salt, endTime, amount);
+        emit StakeDecreased(owner, salt, endTime, amount);
     }
 
-    /// @notice Moves stake between two lock keys for the same owner.
-    /// @dev Used by wrappers to model extension by withdrawing one lock key and staking into another without transfers.
-    /// @param owner Locker representation that owns both lock keys.
-    /// @param fromSalt Source lock salt.
-    /// @param fromEndTime Source lock expiry timestamp.
-    /// @param toSalt Destination lock salt.
-    /// @param toEndTime Destination lock expiry timestamp.
+    /// @notice Moves stake between two stake keys for the same owner.
+    /// @dev Used by wrappers to model extension by withdrawing one stake key and staking into another without transfers.
+    /// @param owner Locker representation that owns both stake keys.
+    /// @param fromSalt Source stake salt.
+    /// @param fromEndTime Source stake expiry timestamp.
+    /// @param toSalt Destination stake salt.
+    /// @param toEndTime Destination stake expiry timestamp.
     /// @param amount Amount of stake to move.
-    /// @return moved Amount moved between lock keys.
-    function _moveLock(
+    /// @return moved Amount moved between stake keys.
+    function _moveStake(
         address owner,
         bytes32 fromSalt,
         uint64 fromEndTime,
@@ -636,32 +634,32 @@ contract VE33 is BaseExtension, BaseForwardee {
         uint64 toEndTime,
         uint128 amount
     ) private returns (uint128 moved) {
-        _validateNewLock(toEndTime, amount);
+        _validateNewStake(toEndTime, amount);
 
-        uint128 currentAmount = lockAmounts[owner][fromSalt][fromEndTime];
-        if (amount > currentAmount) revert InvalidLock();
+        uint128 currentAmount = stakeAmounts[owner][fromSalt][fromEndTime];
+        if (amount > currentAmount) revert InvalidStake();
 
         moved = amount;
-        bytes32 fromLockId = _lockId(owner, fromSalt, fromEndTime);
-        bytes32 toLockId = _lockId(owner, toSalt, toEndTime);
-        _clearVotes(fromLockId);
-        _clearVotes(toLockId);
-        lockAmounts[owner][fromSalt][fromEndTime] = currentAmount - amount;
-        lockAmounts[owner][toSalt][toEndTime] += amount;
-        _updateStakeSavedBalance(fromLockId, -int256(uint256(amount)));
-        _updateStakeSavedBalance(toLockId, int256(uint256(amount)));
+        bytes32 fromStakeId = _stakeId(owner, fromSalt, fromEndTime);
+        bytes32 toStakeId = _stakeId(owner, toSalt, toEndTime);
+        _clearVotes(fromStakeId);
+        _clearVotes(toStakeId);
+        stakeAmounts[owner][fromSalt][fromEndTime] = currentAmount - amount;
+        stakeAmounts[owner][toSalt][toEndTime] += amount;
+        _updateStakeSavedBalance(fromStakeId, -int256(uint256(amount)));
+        _updateStakeSavedBalance(toStakeId, int256(uint256(amount)));
 
-        emit LockMoved(owner, fromSalt, fromEndTime, toSalt, toEndTime);
+        emit StakeMoved(owner, fromSalt, fromEndTime, toSalt, toEndTime);
     }
 
-    /// @notice Applies a lock's votes to pool accounting.
+    /// @notice Applies a stake's votes to pool accounting.
     /// @dev Clears old votes first. Duplicate pools, mismatched lengths, non-extension pools, and zero total weight revert.
-    /// @param lockKey Lock whose voting power is allocated.
+    /// @param stakeKey Stake whose voting power is allocated.
     /// @param poolKeys Pools receiving votes.
     /// @param weights Relative weights for each pool.
     /// @param swapFees Explicit swap fee votes for each pool.
     function _vote(
-        LockKey calldata lockKey,
+        StakeKey calldata stakeKey,
         PoolKey[] calldata poolKeys,
         uint256[] calldata weights,
         uint64[] memory swapFees
@@ -670,9 +668,9 @@ contract VE33 is BaseExtension, BaseForwardee {
             revert InvalidVote();
         }
 
-        uint256 power = votingPower(lockKey);
+        uint256 power = _votingPower(stakeKey);
         if (power == 0) revert InvalidVote();
-        bytes32 lockId = _lockId(lockKey.owner, lockKey.salt, lockKey.endTime);
+        bytes32 stakeId = _stakeId(stakeKey.owner, stakeKey.salt, stakeKey.endTime);
 
         uint256 totalWeight;
         for (uint256 i = 0; i < weights.length; i++) {
@@ -685,7 +683,7 @@ contract VE33 is BaseExtension, BaseForwardee {
         }
         if (totalWeight == 0) revert InvalidVote();
 
-        _clearVotes(lockId);
+        _clearVotes(stakeId);
         for (uint256 i = _accrueTotalVoteSeconds(); i < poolKeys.length; i++) {
             uint256 weight = (power * weights[i]) / totalWeight;
             if (weight == 0) continue;
@@ -695,23 +693,23 @@ contract VE33 is BaseExtension, BaseForwardee {
             _accruePoolVoteSeconds(poolId);
 
             PoolVoteState storage poolState = poolVoteStates[poolId];
-            VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
+            VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
 
             poolState.weight += weight;
             poolState.feeWeightSum += weight * swapFee;
             totalVoteWeight += weight;
 
-            // Safe because a lock's allocated pool weight cannot exceed its uint128 locked amount.
+            // Safe because a stake's allocated pool weight cannot exceed its uint128 staked amount.
             vePool.weight = uint128(weight);
             vePool.swapFee = swapFee;
             vePool.feeGrowth0X128 = poolState.feeGrowth0X128;
             vePool.feeGrowth1X128 = poolState.feeGrowth1X128;
-            votedPools[lockId].push(poolId);
+            votedPools[stakeId].push(poolId);
 
             _updatePoolSwapFee(poolId);
         }
 
-        emit Voted(lockId);
+        emit Voted(stakeId);
     }
 
     /// @notice Adds swap fees to a pool's voter fee-growth accumulators.
@@ -733,20 +731,20 @@ contract VE33 is BaseExtension, BaseForwardee {
 
     /// @notice Claims accrued voter fees while this extension is handling a forwarded call.
     /// @dev Subtracts fees from the extension's saved balance. The forwarding locker withdraws the tokens.
-    /// @param lockKey Lock claiming fees.
+    /// @param stakeKey Stake claiming fees.
     /// @param poolKey Pool whose fees are claimed.
     /// @param recipient Account recorded in the claim event.
     /// @return amount0 Claimed token0 amount.
     /// @return amount1 Claimed token1 amount.
-    function _claimPoolFees(LockKey memory lockKey, PoolKey memory poolKey, address recipient)
+    function _claimPoolFees(StakeKey memory stakeKey, PoolKey memory poolKey, address recipient)
         private
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = poolKey.toPoolId();
-        bytes32 lockId = _lockId(lockKey.owner, lockKey.salt, lockKey.endTime);
-        _accrueVePoolFees(lockId, poolId);
+        bytes32 stakeId = _stakeId(stakeKey.owner, stakeKey.salt, stakeKey.endTime);
+        _accrueVePoolFees(stakeId, poolId);
 
-        VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
+        VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
         amount0 = uint128(vePool.accrued0);
         amount1 = uint128(vePool.accrued1);
 
@@ -762,7 +760,7 @@ contract VE33 is BaseExtension, BaseForwardee {
             );
         }
 
-        emit PoolFeesClaimed(lockId, poolId, recipient, amount0, amount1);
+        emit PoolFeesClaimed(stakeId, poolId, recipient, amount0, amount1);
     }
 
     /// @notice Funds global ve emissions for one emission duration.
@@ -929,19 +927,19 @@ contract VE33 is BaseExtension, BaseForwardee {
         emit RewardsClaimed(poolId, owner, positionId, recipient, amount);
     }
 
-    /// @notice Clears all active votes for a lock.
+    /// @notice Clears all active votes for a stake.
     /// @dev Accrues voter fees first so already-earned fees remain claimable.
-    /// @param lockId Lock id whose votes are cleared.
-    function _clearVotes(bytes32 lockId) private {
-        PoolId[] storage pools = votedPools[lockId];
+    /// @param stakeId Stake id whose votes are cleared.
+    function _clearVotes(bytes32 stakeId) private {
+        PoolId[] storage pools = votedPools[stakeId];
         if (pools.length == 0) return;
 
         for (uint256 i = _accrueTotalVoteSeconds(); i < pools.length; i++) {
             PoolId poolId = pools[i];
             _accruePoolVoteSeconds(poolId);
-            _accrueVePoolFees(lockId, poolId);
+            _accrueVePoolFees(stakeId, poolId);
 
-            VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
+            VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
             uint256 weight = vePool.weight;
             if (weight != 0) {
                 PoolVoteState storage poolState = poolVoteStates[poolId];
@@ -953,15 +951,15 @@ contract VE33 is BaseExtension, BaseForwardee {
             }
         }
 
-        delete votedPools[lockId];
+        delete votedPools[stakeId];
     }
 
-    /// @notice Accrues pool fees into a lock's per-pool voter position.
-    /// @param lockId Lock id receiving accrued fees.
+    /// @notice Accrues pool fees into a stake's per-pool voter position.
+    /// @param stakeId Stake id receiving accrued fees.
     /// @param poolId Pool whose fee growth is accrued.
-    function _accrueVePoolFees(bytes32 lockId, PoolId poolId) private {
+    function _accrueVePoolFees(bytes32 stakeId, PoolId poolId) private {
         PoolVoteState storage poolState = poolVoteStates[poolId];
-        VePoolPosition storage vePool = vePoolPositions[lockId][poolId];
+        VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
 
         uint256 weight = vePool.weight;
         if (weight != 0) {
@@ -1138,11 +1136,11 @@ contract VE33 is BaseExtension, BaseForwardee {
         CORE.updateSavedBalances(stakeToken, address(type(uint160).max), bytes32(uint256(1)), delta, 0);
     }
 
-    /// @notice Updates the saved balance for locked stake.
-    /// @param lockId Lock id whose saved balance changes.
-    /// @param delta Signed locked-stake balance delta.
-    function _updateStakeSavedBalance(bytes32 lockId, int256 delta) private {
-        CORE.updateSavedBalances(stakeToken, address(type(uint160).max), lockId, delta, 0);
+    /// @notice Updates the saved balance for staked tokens.
+    /// @param stakeId Stake id whose saved balance changes.
+    /// @param delta Signed staked-token balance delta.
+    function _updateStakeSavedBalance(bytes32 stakeId, int256 delta) private {
+        CORE.updateSavedBalances(stakeToken, address(type(uint160).max), stakeId, delta, 0);
     }
 
     /// @notice Computes reward growth inside a position's tick range.

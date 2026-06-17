@@ -1,8 +1,8 @@
 # ve(3,3) Integrated Pool Extension
 
-`VE33` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow lock accounting.
+`VE33` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow stake accounting.
 
-`VeToken` is an optional ERC721 wrapper around `VE33` lock accounting. It gives users the familiar `createLock`, `increaseLockAmount`, `extendLock`, and `withdrawLock` surface, but the important lock state remains in `VE33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based lock control.
+`VeToken` is an optional ERC721 wrapper around `VE33` stake accounting. It gives users the familiar `createStake`, `increaseStakeAmount`, `extendStake`, and `withdrawStake` surface, but the important stake state remains in `VE33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based stake control.
 
 ## Architecture
 
@@ -13,24 +13,24 @@
 - dynamic voter swap fees
 - voter fee-growth accounting
 - LP reward-token accounting
-- ve lock amounts keyed by `(owner, salt, endTime)`
-- Core saved balances for locked stake, keyed by the same lock id
-- vote clearing when a lock amount or end time changes
+- ve stake amounts keyed by `(owner, salt, endTime)`
+- Core saved balances for staked tokens, keyed by the same stake id
+- vote clearing when a stake amount or end time changes
 
 `VeToken` owns:
 
-- transferable ERC721 lock ownership and approvals
-- user-facing lock ids, used directly as the `VE33` lock salt
-- the lock end timestamp in Solady ERC721 token `extraData`
+- transferable ERC721 stake ownership and approvals
+- user-facing stake ids, used directly as the `VE33` stake salt
+- the stake end timestamp in Solady ERC721 token `extraData`
 - stake-token payment on staking and withdrawal on unstaking
 - wrapper vote and pool-fee claim calls
-- on-chain ERC721 JSON metadata derived from the staked token and current lock state
+- on-chain ERC721 JSON metadata derived from the staked token and current stake state
 
 `VE33Periphery` owns token settlement for generic VE33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering.
 
-The `owner` in `VE33.LockKey` is the locker that forwarded the stake operation. For `VeToken` locks this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `VE33`.
+The `owner` in `VE33.StakeKey` is the locker that forwarded the stake operation. For `VeToken` stakes this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `VE33`.
 
-Because the canonical lock state is independent of the wrapper, the same design can support other representations of locked stake, including a fungible ERC20 representation. This branch includes the transferable `VeToken` ERC721 wrapper and `VE33Periphery` settlement helper.
+Because the canonical stake state is independent of the wrapper, the same design can support other representations of staked tokens, including a fungible ERC20 representation. This branch includes the transferable `VeToken` ERC721 wrapper and `VE33Periphery` settlement helper.
 
 ## Pool Requirements
 
@@ -46,35 +46,35 @@ Pool initialization validates `poolKey.config.fee() == 0` and stores the pool's 
 
 Direct Core swaps are rejected in `beforeSwap`. Swaps must be made through `Core.forward` to the extension with `VE33_SWAP`.
 
-## Lock Accounting
+## Stake Accounting
 
-Locks are stored in:
+Stakes are stored in:
 
 ```text
-lockAmounts[owner][salt][endTime]
+stakeAmounts[owner][salt][endTime]
 ```
 
-For `VeToken`, `salt = bytes32(veId)`. The current lock amount is fetched from `VE33.lockAmounts(address(veToken), bytes32(veId), endTime)` whenever the wrapper needs it, so the NFT does not store the amount. The lock end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
+For `VeToken`, `salt = bytes32(veId)`. The current stake amount is fetched from `Ve33Lib.stakeAmount(ve33, address(veToken), bytes32(veId), endTime)` whenever the wrapper needs it, so the NFT does not store the amount. The stake end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
 
-The lock id used for vote accounting is:
+The stake id used for vote accounting is:
 
 ```text
 keccak256(abi.encode(owner, salt, endTime))
 ```
 
-Forward lock call types:
+Forward stake call types:
 
-- `VE33_STAKE_LOCK`: increases `lockAmounts[originalLocker][salt][endTime]`
-- `VE33_UNSTAKE_LOCK`: decreases an expired lock and returns the unlocked amount
-- `VE33_MOVE_LOCK`: moves amount from one `(salt, endTime)` to another
+- `VE33_STAKE`: increases `stakeAmounts[originalLocker][salt][endTime]`
+- `VE33_UNSTAKE`: decreases an expired stake and returns the unstaked amount
+- `VE33_MOVE_STAKE`: moves amount from one `(salt, endTime)` to another
 
-`VE33` updates Core saved balances for locked stake under `address(ve33)` and the lock id:
+`VE33` updates Core saved balances for staked tokens under `address(ve33)` and the stake id:
 
 ```text
-CORE.updateSavedBalances(stakeToken, address(type(uint160).max), lockId, delta, 0)
+CORE.updateSavedBalances(stakeToken, address(type(uint160).max), stakeId, delta, 0)
 ```
 
-It does not transfer stake tokens for these lock operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented lock, but unlocked stake and claimed pool fees settle to the current NFT owner. Extending is implemented as `VE33_MOVE_LOCK`, which moves saved balance from the old lock id to the new lock id without moving tokens.
+It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, but unstaked tokens and claimed pool fees settle to the current NFT owner. Extending is implemented as `VE33_MOVE_STAKE`, which moves saved balance from the old stake id to the new stake id without moving tokens.
 
 ## Voting
 
@@ -86,7 +86,7 @@ It does not transfer stake tokens for these lock operations. The calling represe
 
 Each pool tracks active vote weight, vote seconds, voter fee growth, the weighted fee sum, the active swap fee, and the default swap fee. When votes change, the pool fee is recomputed as `feeWeightSum / weight`; with no active votes, the pool uses its default fee.
 
-Changing a lock clears that lock's votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and vote-second accounting synchronized with voting power.
+Changing a stake clears that stake's votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and vote-second accounting synchronized with voting power.
 
 ## Forwarded Swap Accounting
 
@@ -106,15 +106,15 @@ The extension does not call `CORE.accumulateAsFees`, so LPs do not earn Core swa
 
 ## Voter Fee Claims
 
-Voter fees use fee-growth accounting over each pool's active vote weight. Each lock snapshots `feeGrowth0X128` and `feeGrowth1X128` for every voted pool.
+Voter fees use fee-growth accounting over each pool's active vote weight. Each stake snapshots `feeGrowth0X128` and `feeGrowth1X128` for every voted pool.
 
 `VE33_CLAIM_POOL_FEES` is a forwarded action. It subtracts the claimed amount from the extension's saved balance and returns the loaded token amounts to the forwarding locker.
 
-For wrapper-owned locks, `lockKey.owner` is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` enters a Core lock, forwards the claim to `VE33`, and withdraws token0/token1 directly to the local lock owner.
+For wrapper-owned stakes, `stakeKey.owner` is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` enters a Core lock, forwards the claim to `VE33`, and withdraws token0/token1 directly to the local stake owner.
 
 ## LP Reward Token
 
-LPs earn only the immutable reward token, which is the same token used for ve locks. Reward accounting uses reward-per-liquidity accumulators:
+LPs earn only the immutable reward token, which is the same token used for ve stakes. Reward accounting uses reward-per-liquidity accumulators:
 
 - `poolRewardState`
 - `rewardsGlobalPerLiquidity`
@@ -143,6 +143,6 @@ The extension relies on Core saved balances for deferred accounting:
 - swap fees are saved under `address(ve33)` and the pool id
 - LP rewards are saved under `address(ve33)` and reward reserve salt `bytes32(0)`
 - funded-but-unassigned emissions are saved under `address(ve33)` and emission reserve salt `bytes32(uint256(1))`
-- ve lock stake is saved under `address(ve33)` and the lock id
+- ve stake is saved under `address(ve33)` and the stake id
 
-`VE33` accounts for staking, unstaking, moving lock balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for lock-owned fee claims, and `VE33Periphery` is the reference implementation for generic VE33 token settlement.
+`VE33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims, and `VE33Periphery` is the reference implementation for generic VE33 token settlement.

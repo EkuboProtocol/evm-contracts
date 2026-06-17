@@ -16,6 +16,7 @@
 - ve stake amounts keyed by `(owner, salt, endTime)`
 - Core saved balances for staked tokens, keyed by the same stake id
 - vote clearing when a stake amount or end time changes
+- storage exposure through `ExposedStorage`, with typed read helpers in `Ve33Lib`
 
 `VeToken` owns:
 
@@ -26,7 +27,7 @@
 - wrapper vote and pool-fee claim calls
 - on-chain ERC721 JSON metadata derived from the staked token and current stake state
 
-`Ve33Periphery` owns token settlement for generic Ve33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering.
+`Ve33Periphery` owns token settlement for generic Ve33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering. `Ve33` itself accounts balances only with Core saved balances and does not transfer ERC20s.
 
 The `owner` in `Ve33.StakeKey` is the locker that forwarded the stake operation. For `VeToken` stakes this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `Ve33`.
 
@@ -42,7 +43,7 @@ The extension enables these Core call points:
 - `beforeSwap`
 - `beforeUpdatePosition`
 
-Pool initialization validates `poolKey.config.fee() == 0` and stores the pool's default swap fee. Concentrated pools derive the default from tick spacing. Stableswap pools derive it from amplification. The default fee is capped at 50%.
+Pool initialization validates `poolKey.config.fee() == 0` and stores the pool's default swap fee. Concentrated pools derive the default from tick spacing. Stableswap pools derive it from amplification by converting amplification to an active-range width and then using the same tick-spacing fee formula. The default fee is capped at 50%.
 
 Direct Core swaps are rejected in `beforeSwap`. Swaps must be made through `Core.forward` to the extension with `VE33_SWAP`.
 
@@ -78,21 +79,31 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 ## Voting
 
-`Ve33.vote` accepts explicit `uint64` swap fees. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
+`Ve33.vote` accepts explicit `uint64` swap fees. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
 
 ```text
 1 - 1 / 1.000001^(2 * tickSpacing)
 ```
 
-Each pool tracks active vote weight, vote seconds, voter fee growth, the weighted fee sum, the active swap fee, and the default swap fee. When votes change, the pool fee is recomputed as `feeWeightSum / weight`; with no active votes, the pool uses its default fee.
+Each pool tracks active vote weight, vote seconds, voter fee growth, the weighted fee sum, the active swap fee, and the default swap fee. When votes change, each selected fee is capped, the pool fee is recomputed as `feeWeightSum / weight`, and integer division rounds down. With no active votes, the pool uses its default fee.
+
+Voting power is computed only when `vote` is called:
+
+```text
+stakeAmount * (endTime - block.timestamp) / VE33_MAX_STAKE_DURATION
+```
+
+That current power is split across the supplied relative weights and written into `PoolVoteState.weight` and each stake's `VePoolPosition.weight`. Stored pool weights do not continuously decay on their own and are not automatically cleared at `endTime`; they change when the stake votes again or when a stake operation clears votes. Emission allocation uses these stored active weights over elapsed time.
 
 Changing a stake clears that stake's votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and vote-second accounting synchronized with voting power.
+
+`vote` is not a forwarded action because it does not require token settlement. It must be called by `stakeKey.owner`; for the ERC721 wrapper that means `VeToken` authorizes the user or approved operator, then calls `Ve33.vote` as the stake owner.
 
 ## Forwarded Swap Accounting
 
 The forwarded swap handler uses the supplied `SwapParameters` as-is. Routers and callers are responsible for setting default sqrt-ratio limits before forwarding.
 
-For exact-input swaps, the extension computes the voter fee from the input amount, calls Core with `amount - fee`, adds the fee back to the returned input delta, saves the fee under the extension and pool id, and increases voter fee growth.
+For exact-input swaps, the extension computes the maximum voter fee from `params.amount()`, calls Core with `amount - fee`, then computes the actual charged fee from the executed input delta returned by Core. If the swap executes partially, for example because it hits `sqrtRatioLimit`, the charged fee is capped to the maximum fee removed before the Core swap. The fee is added back to the returned input delta, saved under the extension and pool id, and accounted to voter fee growth.
 
 For exact-output swaps, the extension calls Core with the zero-config-fee exact-output parameters, grosses up the Core-computed input with `amountBeforeFee`, saves the extra input as voter fees, and increases voter fee growth.
 
@@ -102,39 +113,59 @@ Swap fees are stored with:
 CORE.updateSavedBalances(token0, token1, PoolId.unwrap(poolId), fee0, fee1)
 ```
 
-The extension does not call `CORE.accumulateAsFees`, so LPs do not earn Core swap fees.
+The extension does not call `CORE.accumulateAsFees`, so LPs do not earn Core swap fees. Only fees accounted while a pool has nonzero active vote weight increase voter fee growth. If the default fee is active with no voter weight, swap fees are still saved under the pool id but are not assigned to any current or future voter position.
 
 ## Voter Fee Claims
 
-Voter fees use fee-growth accounting over each pool's active vote weight. Each stake snapshots `feeGrowth0X128` and `feeGrowth1X128` for every voted pool.
+Voter fees use fee-growth accounting over each pool's active vote weight. Each stake snapshots `feeGrowth0X128` and `feeGrowth1X128` for every voted pool. On vote changes and vote clearing, `Ve33` first accrues the stake's pending fees from the pool growth delta into `VePoolPosition.accrued0` and `VePoolPosition.accrued1`.
 
-`VE33_CLAIM_POOL_FEES` is a forwarded action. It subtracts the claimed amount from the extension's saved balance and returns the loaded token amounts to the forwarding locker.
+`VE33_CLAIM_POOL_FEES` is a forwarded action. It subtracts the claimed amount from the extension's saved balance and returns the claimed token amounts to the forwarding locker.
 
 For wrapper-owned stakes, `stakeKey.owner` is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` enters a Core lock, forwards the claim to `Ve33`, and withdraws token0/token1 directly to the local stake owner.
 
 ## LP Reward Token
 
-LPs earn only the immutable reward token, which is the same token used for ve stakes. Reward accounting uses reward-per-liquidity accumulators:
+LPs earn only the immutable reward token, which is the same token used for ve stakes. LP rewards are independent of Core swap fees. Reward accounting uses reward-per-liquidity accumulators:
 
-- `poolRewardState`
+- `poolRewardState`, which packs last-accumulated time and the current Q32 reward rate
 - `rewardsGlobalPerLiquidity`
 - `tickRewardsOutsidePerLiquidity`
 - `positionRewardsSnapshotPerLiquidity`
 - scheduled `rewardRateDeltaAtTime`
 
-`maybeAccumulateRewards` advances `rewardsGlobalPerLiquidity` using current Core pool liquidity. If liquidity is zero, accrued rewards are not assigned to LPs.
+`maybeAccumulateRewards` advances `rewardsGlobalPerLiquidity` using current Core pool liquidity. For stableswap pools, active liquidity is treated as zero when the current tick is outside the stableswap active-liquidity range. If liquidity is zero, accrued scheduled rewards are not assigned to LPs because `rewardsGlobalPerLiquidity` is not increased.
+
+`VE33_ADD_REWARDS` schedules a Q32 reward rate between valid reward times. If `startTime` is in the past or zero, the new rate is applied immediately; otherwise a future rate delta is stored in `rewardRateDeltaAtTime`. The required token amount is rounded up from `rewardRate * duration` and saved in the reward reserve. `VE33_DONATE_REWARDS` immediately increases `rewardsGlobalPerLiquidity` for current active liquidity. If active liquidity is zero, the donated amount is still credited to the reward reserve saved balance, but no position reward growth is created, so the donation is not claimable by LP positions.
 
 `beforeUpdatePosition` snapshots position rewards before liquidity changes. It uses the same snapshot adjustment trick as Core: rewards earned before the update are preserved by moving `positionRewardsSnapshotPerLiquidity` based on the next liquidity value. If the position fully exits, the snapshot is cleared and unclaimed rewards are discarded.
 
-Reward accounting is range-aware. The extension tracks `tickRewardsOutsidePerLiquidity` for initialized ticks and uses it to compute reward growth inside a position's tick range. Forwarded swaps explicitly update crossed tick reward snapshots so out-of-range positions do not earn rewards.
+Reward accounting is range-aware. The extension tracks `tickRewardsOutsidePerLiquidity` for initialized ticks and uses it to compute reward growth inside a position's tick range:
+
+```text
+below range:  lowerOutside - upperOutside
+in range:     rewardsGlobalPerLiquidity - lowerOutside - upperOutside
+above range:  upperOutside - lowerOutside
+```
+
+Forwarded swaps explicitly invert reward-outside snapshots for crossed concentrated ticks. For stableswap pools, the active-liquidity lower and upper ticks are updated when swaps cross the stableswap active range. This prevents out-of-range positions from earning rewards while they are out of range.
+
+`VE33_CLAIM_REWARDS` accumulates the pool, computes the position's reward amount from the difference between current in-range reward growth and `positionRewardsSnapshotPerLiquidity`, updates the snapshot to current in-range growth, subtracts the claimed amount from the reward reserve saved balance, and returns the amount to the forwarding locker for withdrawal by the periphery.
 
 ## Emissions
 
-`VE33_FUND_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and increases the global one-week emission stream. A periphery such as `Ve33Periphery` pays the stake token into Core in the same lock.
+`VE33_FUND_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and increases the global one-week emission stream. A periphery such as `Ve33Periphery` pays the stake token into Core in the same lock. Funding first accrues any existing global emissions into `unallocatedEmissions`, then adds a new Q32 global emission rate that ends at `block.timestamp + 7 days`.
 
 `VE33_TRIGGER_POOL_EMISSIONS` is permissionless and can be forwarded for any pool using the extension. Triggering moves saved stake token from the emission reserve bucket into the LP reward reserve bucket and schedules the pool's reward stream; no external token transfer is needed.
 
-When triggered, the extension accrues global emissions, accrues total and per-pool vote seconds, and assigns the pool a proportional share of `unallocatedEmissions` based on time-weighted vote seconds since the pool was last touched. The assigned amount is scheduled as LP reward-token emissions ending at the next valid time within one week.
+When triggered, the extension accrues global emissions, accrues total vote seconds, accrues the selected pool's vote seconds, and assigns the pool a proportional share of `unallocatedEmissions`:
+
+```text
+poolShare = unallocatedEmissions * poolVoteSeconds / totalVoteSeconds
+```
+
+`poolVoteSeconds` is the pool's stored active vote weight integrated over time since that pool's vote seconds were last accrued. `totalVoteSeconds` is the corresponding global active vote weight integrated over time. After a successful trigger, the selected pool's `voteSeconds` are reset to zero and the same amount of seconds is subtracted from `totalVoteSeconds`, so each pool can be triggered independently without double-counting the same voting interval. The assigned amount is scheduled as LP reward-token emissions from now until the next valid reward time within one week.
+
+Emissions are not triggered automatically on swaps, reward claims, or position updates. A caller must forward `VE33_TRIGGER_POOL_EMISSIONS` for the specific pool.
 
 ## Settlement Model
 
@@ -145,4 +176,4 @@ The extension relies on Core saved balances for deferred accounting:
 - funded-but-unassigned emissions are saved under `address(ve33)` and emission reserve salt `bytes32(uint256(1))`
 - ve stake is saved under `address(ve33)` and the stake id
 
-`Ve33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims, and `Ve33Periphery` is the reference implementation for generic Ve33 token settlement.
+`Ve33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, and `Ve33Periphery` is the reference implementation for generic Ve33 token settlement.

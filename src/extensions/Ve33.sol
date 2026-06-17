@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 import {BaseExtension} from "../base/BaseExtension.sol";
@@ -532,24 +533,26 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         uint128 liquidity = CORE.poolPositions(poolId, owner, positionId).liquidity;
 
         if (liquidityDelta != 0) {
+            PoolState coreState = CORE.poolState(poolId);
+            int32 tick = coreState.tick();
             uint128 liquidityNext = addLiquidityDelta(liquidity, liquidityDelta);
             uint256 rewardsInsidePerLiquidity =
-                _getRewardsInsidePerLiquidity(poolId, positionId.tickLower(), positionId.tickUpper());
+                _getRewardsInsidePerLiquidity(poolId, tick, positionId.tickLower(), positionId.tickUpper());
             uint256 snapshot = positionRewardsSnapshotPerLiquidity[poolId][owner][positionId];
             uint256 amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
             if (poolKey.config.isStableswap()) {
-                _updateStableswapTickRewardsPerLiquidityOutside(poolKey, poolId, liquidityDelta);
+                _updateStableswapTickRewardsPerLiquidityOutside(poolKey, poolId, coreState, liquidityDelta);
             } else {
-                _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickLower(), liquidityDelta);
-                _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickUpper(), liquidityDelta);
+                _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickLower(), liquidityDelta);
+                _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickUpper(), liquidityDelta);
             }
 
             if (liquidityNext == 0) {
                 positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = 0;
             } else {
                 uint256 rewardsInsideNextPerLiquidity =
-                    _getRewardsInsidePerLiquidity(poolId, positionId.tickLower(), positionId.tickUpper());
+                    _getRewardsInsidePerLiquidity(poolId, tick, positionId.tickLower(), positionId.tickUpper());
                 unchecked {
                     positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] =
                         rewardsInsideNextPerLiquidity - ((amount << 128) / liquidityNext);
@@ -564,7 +567,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param endTime Stake expiry timestamp.
     /// @return stakeId Hash used for vote and fee accounting.
     function _stakeId(address owner, bytes32 salt, uint64 endTime) private pure returns (bytes32) {
-        return keccak256(abi.encode(owner, salt, endTime));
+        return EfficientHashLib.hash(uint256(uint160(owner)), uint256(salt), endTime);
     }
 
     /// @notice Validates that a new or moved-to stake is active and nonzero.
@@ -672,41 +675,51 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         if (power == 0) revert InvalidVote();
         bytes32 stakeId = _stakeId(stakeKey.owner, stakeKey.salt, stakeKey.endTime);
 
+        uint256 length = weights.length;
         uint256 totalWeight;
-        for (uint256 i = 0; i < weights.length; i++) {
+        for (uint256 i; i < length;) {
             totalWeight += weights[i];
             PoolId poolId = poolKeys[i].toPoolId();
             if (poolKeys[i].config.extension() != address(this) || poolKeys[i].config.fee() != 0) revert InvalidVote();
-            for (uint256 j = 0; j < i; j++) {
+            for (uint256 j; j < i;) {
                 if (PoolId.unwrap(poolId) == PoolId.unwrap(poolKeys[j].toPoolId())) revert InvalidVote();
+                unchecked {
+                    ++j;
+                }
+            }
+            unchecked {
+                ++i;
             }
         }
         if (totalWeight == 0) revert InvalidVote();
 
         _clearVotes(stakeId);
-        for (uint256 i = _accrueTotalVoteSeconds(); i < poolKeys.length; i++) {
+        for (uint256 i = _accrueTotalVoteSeconds(); i < length;) {
             uint256 weight = (power * weights[i]) / totalWeight;
-            if (weight == 0) continue;
+            if (weight != 0) {
+                PoolId poolId = poolKeys[i].toPoolId();
+                uint64 swapFee = capFee(swapFees[i]);
+                _accruePoolVoteSeconds(poolId);
 
-            PoolId poolId = poolKeys[i].toPoolId();
-            uint64 swapFee = capFee(swapFees[i]);
-            _accruePoolVoteSeconds(poolId);
+                PoolVoteState storage poolState = poolVoteStates[poolId];
+                VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
 
-            PoolVoteState storage poolState = poolVoteStates[poolId];
-            VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
+                poolState.weight += weight;
+                poolState.feeWeightSum += weight * swapFee;
+                totalVoteWeight += weight;
 
-            poolState.weight += weight;
-            poolState.feeWeightSum += weight * swapFee;
-            totalVoteWeight += weight;
+                // Safe because a stake's allocated pool weight cannot exceed its uint128 staked amount.
+                vePool.weight = uint128(weight);
+                vePool.swapFee = swapFee;
+                vePool.feeGrowth0X128 = poolState.feeGrowth0X128;
+                vePool.feeGrowth1X128 = poolState.feeGrowth1X128;
+                votedPools[stakeId].push(poolId);
 
-            // Safe because a stake's allocated pool weight cannot exceed its uint128 staked amount.
-            vePool.weight = uint128(weight);
-            vePool.swapFee = swapFee;
-            vePool.feeGrowth0X128 = poolState.feeGrowth0X128;
-            vePool.feeGrowth1X128 = poolState.feeGrowth1X128;
-            votedPools[stakeId].push(poolId);
-
-            _updatePoolSwapFee(poolId);
+                _updatePoolSwapFee(poolId);
+            }
+            unchecked {
+                ++i;
+            }
         }
 
         emit Voted(stakeId);
@@ -911,8 +924,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         uint128 liquidity = CORE.poolPositions(poolId, owner, positionId).liquidity;
         uint256 snapshot = positionRewardsSnapshotPerLiquidity[poolId][owner][positionId];
 
-        uint256 rewardsInsidePerLiquidity =
-            _getRewardsInsidePerLiquidity(poolId, positionId.tickLower(), positionId.tickUpper());
+        uint256 rewardsInsidePerLiquidity = _getRewardsInsidePerLiquidity(
+            poolId, CORE.poolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
+        );
         amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
         positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = liquidity == 0 ? 0 : rewardsInsidePerLiquidity;
@@ -932,9 +946,10 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param stakeId Stake id whose votes are cleared.
     function _clearVotes(bytes32 stakeId) private {
         PoolId[] storage pools = votedPools[stakeId];
-        if (pools.length == 0) return;
+        uint256 length = pools.length;
+        if (length == 0) return;
 
-        for (uint256 i = _accrueTotalVoteSeconds(); i < pools.length; i++) {
+        for (uint256 i = _accrueTotalVoteSeconds(); i < length;) {
             PoolId poolId = pools[i];
             _accruePoolVoteSeconds(poolId);
             _accrueVePoolFees(stakeId, poolId);
@@ -948,6 +963,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
                 totalVoteWeight -= weight;
                 vePool.weight = 0;
                 _updatePoolSwapFee(poolId);
+            }
+            unchecked {
+                ++i;
             }
         }
 
@@ -1005,9 +1023,11 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     function _accrueEmissions() private returns (uint256 zero) {
         uint256 time = emissionsLastAccrued;
         uint224 rate = emissionRate;
+        uint256 index = nextEmissionEventIndex;
+        uint256 length = emissionEventTimes.length;
 
-        while (nextEmissionEventIndex < emissionEventTimes.length) {
-            uint64 eventTime = emissionEventTimes[nextEmissionEventIndex];
+        while (index < length) {
+            uint64 eventTime = emissionEventTimes[index];
             if (eventTime > block.timestamp) break;
 
             unchecked {
@@ -1017,11 +1037,10 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             delete emissionRateDecreaseAt[eventTime];
             time = eventTime;
             do {
-                nextEmissionEventIndex++;
-            } while (
-                nextEmissionEventIndex < emissionEventTimes.length
-                    && emissionEventTimes[nextEmissionEventIndex] == eventTime
-            );
+                unchecked {
+                    ++index;
+                }
+            } while (index < length && emissionEventTimes[index] == eventTime);
         }
 
         if (time != block.timestamp) {
@@ -1032,6 +1051,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
         emissionRate = rate;
         emissionsLastAccrued = uint64(block.timestamp);
+        if (index != nextEmissionEventIndex) nextEmissionEventIndex = index;
     }
 
     /// @notice Recomputes a pool's active swap fee from current voter weights.
@@ -1153,7 +1173,21 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         view
         returns (uint256 rewardsInsidePerLiquidity)
     {
-        int32 tick = CORE.poolState(poolId).tick();
+        rewardsInsidePerLiquidity =
+            _getRewardsInsidePerLiquidity(poolId, CORE.poolState(poolId).tick(), tickLower, tickUpper);
+    }
+
+    /// @notice Computes reward growth inside a position's tick range using a known current tick.
+    /// @param poolId Pool containing the position.
+    /// @param tick Current pool tick.
+    /// @param tickLower Position lower tick.
+    /// @param tickUpper Position upper tick.
+    /// @return rewardsInsidePerLiquidity Reward growth inside the range.
+    function _getRewardsInsidePerLiquidity(PoolId poolId, int32 tick, int32 tickLower, int32 tickUpper)
+        private
+        view
+        returns (uint256 rewardsInsidePerLiquidity)
+    {
         uint256 lower = tickRewardsOutsidePerLiquidity[poolId][tickLower];
         uint256 upper = tickRewardsOutsidePerLiquidity[poolId][tickUpper];
 
@@ -1170,16 +1204,19 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
     /// @notice Updates reward-outside state when a concentrated-position boundary becomes initialized or uninitialized.
     /// @param poolId Pool containing the tick.
+    /// @param tickCurrent Current pool tick.
     /// @param tick Position boundary tick.
     /// @param liquidityDelta Position liquidity delta.
-    function _updateTickRewardsPerLiquidityOutside(PoolId poolId, int32 tick, int128 liquidityDelta) private {
+    function _updateTickRewardsPerLiquidityOutside(PoolId poolId, int32 tickCurrent, int32 tick, int128 liquidityDelta)
+        private
+    {
         (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
         uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
         if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
             delete tickRewardsOutsidePerLiquidity[poolId][tick];
             if (liquidityNetNext != 0) {
                 tickRewardsOutsidePerLiquidity[poolId][tick] =
-                    CORE.poolState(poolId).tick() >= tick ? rewardsGlobalPerLiquidity[poolId] : 0;
+                    tickCurrent >= tick ? rewardsGlobalPerLiquidity[poolId] : 0;
             }
         }
     }
@@ -1191,16 +1228,17 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     function _updateStableswapTickRewardsPerLiquidityOutside(
         PoolKey memory poolKey,
         PoolId poolId,
+        PoolState coreState,
         int128 liquidityDelta
     ) private {
-        uint128 liquidity = CORE.poolState(poolId).liquidity();
+        uint128 liquidity = coreState.liquidity();
         uint128 liquidityNext = addLiquidityDelta(liquidity, liquidityDelta);
         if ((liquidity == 0) != (liquidityNext == 0)) {
             (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
             delete tickRewardsOutsidePerLiquidity[poolId][lower];
             delete tickRewardsOutsidePerLiquidity[poolId][upper];
             if (liquidityNext != 0) {
-                int32 tick = CORE.poolState(poolId).tick();
+                int32 tick = coreState.tick();
                 uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
                 tickRewardsOutsidePerLiquidity[poolId][lower] = tick >= lower ? rewardsGlobalPerLiquidity_ : 0;
                 tickRewardsOutsidePerLiquidity[poolId][upper] = tick >= upper ? rewardsGlobalPerLiquidity_ : 0;

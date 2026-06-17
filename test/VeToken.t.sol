@@ -106,6 +106,7 @@ contract VeTokenTest is FullTest {
     function test_tokenURI_returnsErc721JsonMetadata() public {
         uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
         string memory uri = veToken.tokenURI(veId);
+        vm.snapshotValue("VeToken#tokenURI", uint256(keccak256(bytes(uri))));
         string memory prefix = "data:application/json;base64,";
         assertTrue(LibString.startsWith(uri, prefix));
 

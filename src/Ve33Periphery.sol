@@ -13,7 +13,7 @@ import {
 } from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
-import {PoolBalanceUpdate, delta0, delta1} from "./types/poolBalanceUpdate.sol";
+import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PoolState} from "./types/poolState.sol";
 import {PositionId} from "./types/positionId.sol";
@@ -150,16 +150,18 @@ contract Ve33Periphery is BaseLocker {
         int128 delta0_ = balanceUpdate.delta0();
         int128 delta1_ = balanceUpdate.delta1();
 
-        if (delta0_ > 0) {
-            ACCOUNTANT.payFrom(payer, poolKey.token0, uint128(delta0_));
-        } else if (delta0_ < 0) {
-            ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-delta0_));
-        }
+        unchecked {
+            if (delta0_ > 0) {
+                ACCOUNTANT.payFrom(payer, poolKey.token0, uint128(delta0_));
+            } else if (delta0_ < 0) {
+                ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-delta0_));
+            }
 
-        if (delta1_ > 0) {
-            ACCOUNTANT.payFrom(payer, poolKey.token1, uint128(delta1_));
-        } else if (delta1_ < 0) {
-            ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-delta1_));
+            if (delta1_ > 0) {
+                ACCOUNTANT.payFrom(payer, poolKey.token1, uint128(delta1_));
+            } else if (delta1_ < 0) {
+                ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-delta1_));
+            }
         }
     }
 }

@@ -1,8 +1,9 @@
 {
-  "VeToken#createStake": "151946",
-  "VeToken#extendStake": "71059",
-  "VeToken#increaseStakeAmount": "33048",
+  "VeToken#createStake": "151769",
+  "VeToken#extendStake": "70790",
+  "VeToken#increaseStakeAmount": "32893",
   "VeToken#stakes": "5987",
+  "VeToken#tokenURI": "24644307453392661819795076685662920393183531936217919025690677872793782722773",
   "VeToken#transferFrom": "31237",
-  "VeToken#withdrawStake": "36740"
+  "VeToken#withdrawStake": "36588"
 }

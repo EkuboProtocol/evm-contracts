@@ -158,7 +158,10 @@ contract VeToken is ERC721, BaseLocker {
     /// @param end The stake end timestamp.
     /// @return veId The minted ERC721 token id.
     function createStake(uint128 amount, uint64 end) external returns (uint256 veId) {
-        veId = nextVeId++;
+        veId = nextVeId;
+        unchecked {
+            nextVeId = veId + 1;
+        }
         _mintAndSetExtraDataUnchecked(msg.sender, veId, end);
 
         lock(abi.encode(CALL_TYPE_STAKE, msg.sender, bytes32(veId), end, amount));
@@ -237,11 +240,15 @@ contract VeToken is ERC721, BaseLocker {
         external
         authorizedForStake(veId)
     {
-        uint64[] memory swapFees = new uint64[](poolKeys.length);
-        for (uint256 i = 0; i < poolKeys.length; i++) {
+        uint256 length = poolKeys.length;
+        uint64[] memory swapFees = new uint64[](length);
+        for (uint256 i; i < length;) {
             swapFees[i] = poolKeys[i].config.isStableswap()
                 ? defaultFeeForStableswapAmplification(poolKeys[i].config.stableswapAmplification())
                 : defaultFeeForTickSpacing(poolKeys[i].config.concentratedTickSpacing());
+            unchecked {
+                ++i;
+            }
         }
         ve33.vote(stakeKey(veId), poolKeys, weights, swapFees);
     }

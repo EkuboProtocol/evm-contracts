@@ -3,14 +3,14 @@ pragma solidity =0.8.33;
 
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {
-    VE33,
+    Ve33,
     VE33_ADD_REWARDS,
     VE33_CLAIM_REWARDS,
     VE33_DONATE_REWARDS,
     VE33_FUND_EMISSIONS,
     VE33_SWAP,
     VE33_TRIGGER_POOL_EMISSIONS
-} from "./extensions/VE33.sol";
+} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolBalanceUpdate, delta0, delta1} from "./types/poolBalanceUpdate.sol";
@@ -19,9 +19,9 @@ import {PoolState} from "./types/poolState.sol";
 import {PositionId} from "./types/positionId.sol";
 import {SwapParameters} from "./types/swapParameters.sol";
 
-/// @notice Token-settling periphery for VE33 forwarded actions.
-/// @dev VE33 accounts saved balances during `forward`; this contract pays or withdraws the corresponding tokens.
-contract VE33Periphery is BaseLocker {
+/// @notice Token-settling periphery for Ve33 forwarded actions.
+/// @dev Ve33 accounts saved balances during `forward`; this contract pays or withdraws the corresponding tokens.
+contract Ve33Periphery is BaseLocker {
     using FlashAccountantLib for *;
 
     uint256 private constant CALL_TYPE_UPDATE_POSITION = 0;
@@ -34,10 +34,10 @@ contract VE33Periphery is BaseLocker {
 
     ICore private immutable CORE_REF;
 
-    VE33 public immutable ve33;
+    Ve33 public immutable ve33;
     address public immutable stakeToken;
 
-    constructor(ICore core, VE33 _ve33) BaseLocker(core) {
+    constructor(ICore core, Ve33 _ve33) BaseLocker(core) {
         CORE_REF = core;
         ve33 = _ve33;
         stakeToken = _ve33.stakeToken();

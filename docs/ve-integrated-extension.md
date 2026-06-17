@@ -1,12 +1,12 @@
 # ve(3,3) Integrated Pool Extension
 
-`VE33` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow stake accounting.
+`Ve33` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow stake accounting.
 
-`VeToken` is an optional ERC721 wrapper around `VE33` stake accounting. It gives users the familiar `createStake`, `increaseStakeAmount`, `extendStake`, and `withdrawStake` surface, but the important stake state remains in `VE33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based stake control.
+`VeToken` is an optional ERC721 wrapper around `Ve33` stake accounting. It gives users the familiar `createStake`, `increaseStakeAmount`, `extendStake`, and `withdrawStake` surface, but the important stake state remains in `Ve33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based stake control.
 
 ## Architecture
 
-`VE33` owns:
+`Ve33` owns:
 
 - pool initialization checks
 - forward-only swap execution
@@ -20,17 +20,17 @@
 `VeToken` owns:
 
 - transferable ERC721 stake ownership and approvals
-- user-facing stake ids, used directly as the `VE33` stake salt
+- user-facing stake ids, used directly as the `Ve33` stake salt
 - the stake end timestamp in Solady ERC721 token `extraData`
 - stake-token payment on staking and withdrawal on unstaking
 - wrapper vote and pool-fee claim calls
 - on-chain ERC721 JSON metadata derived from the staked token and current stake state
 
-`VE33Periphery` owns token settlement for generic VE33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering.
+`Ve33Periphery` owns token settlement for generic Ve33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering.
 
-The `owner` in `VE33.StakeKey` is the locker that forwarded the stake operation. For `VeToken` stakes this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `VE33`.
+The `owner` in `Ve33.StakeKey` is the locker that forwarded the stake operation. For `VeToken` stakes this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `Ve33`.
 
-Because the canonical stake state is independent of the wrapper, the same design can support other representations of staked tokens, including a fungible ERC20 representation. This branch includes the transferable `VeToken` ERC721 wrapper and `VE33Periphery` settlement helper.
+Because the canonical stake state is independent of the wrapper, the same design can support other representations of staked tokens, including a fungible ERC20 representation. This branch includes the transferable `VeToken` ERC721 wrapper and `Ve33Periphery` settlement helper.
 
 ## Pool Requirements
 
@@ -68,7 +68,7 @@ Forward stake call types:
 - `VE33_UNSTAKE`: decreases an expired stake and returns the unstaked amount
 - `VE33_MOVE_STAKE`: moves amount from one `(salt, endTime)` to another
 
-`VE33` updates Core saved balances for staked tokens under `address(ve33)` and the stake id:
+`Ve33` updates Core saved balances for staked tokens under `address(ve33)` and the stake id:
 
 ```text
 CORE.updateSavedBalances(stakeToken, address(type(uint160).max), stakeId, delta, 0)
@@ -78,7 +78,7 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 ## Voting
 
-`VE33.vote` accepts explicit `uint64` swap fees. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
+`Ve33.vote` accepts explicit `uint64` swap fees. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
 
 ```text
 1 - 1 / 1.000001^(2 * tickSpacing)
@@ -110,7 +110,7 @@ Voter fees use fee-growth accounting over each pool's active vote weight. Each s
 
 `VE33_CLAIM_POOL_FEES` is a forwarded action. It subtracts the claimed amount from the extension's saved balance and returns the loaded token amounts to the forwarding locker.
 
-For wrapper-owned stakes, `stakeKey.owner` is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` enters a Core lock, forwards the claim to `VE33`, and withdraws token0/token1 directly to the local stake owner.
+For wrapper-owned stakes, `stakeKey.owner` is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` enters a Core lock, forwards the claim to `Ve33`, and withdraws token0/token1 directly to the local stake owner.
 
 ## LP Reward Token
 
@@ -130,7 +130,7 @@ Reward accounting is range-aware. The extension tracks `tickRewardsOutsidePerLiq
 
 ## Emissions
 
-`VE33_FUND_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and increases the global one-week emission stream. A periphery such as `VE33Periphery` pays the stake token into Core in the same lock.
+`VE33_FUND_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and increases the global one-week emission stream. A periphery such as `Ve33Periphery` pays the stake token into Core in the same lock.
 
 `VE33_TRIGGER_POOL_EMISSIONS` is permissionless and can be forwarded for any pool using the extension. Triggering moves saved stake token from the emission reserve bucket into the LP reward reserve bucket and schedules the pool's reward stream; no external token transfer is needed.
 
@@ -145,4 +145,4 @@ The extension relies on Core saved balances for deferred accounting:
 - funded-but-unassigned emissions are saved under `address(ve33)` and emission reserve salt `bytes32(uint256(1))`
 - ve stake is saved under `address(ve33)` and the stake id
 
-`VE33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims, and `VE33Periphery` is the reference implementation for generic VE33 token settlement.
+`Ve33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims, and `Ve33Periphery` is the reference implementation for generic Ve33 token settlement.

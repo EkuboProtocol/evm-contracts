@@ -8,16 +8,16 @@ import {LibString} from "solady/utils/LibString.sol";
 import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
 import {VeToken} from "../src/VeToken.sol";
-import {VE33, ve33CallPoints} from "../src/extensions/VE33.sol";
+import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
 
 contract VeTokenTest is FullTest {
     using CoreLib for *;
-    using Ve33Lib for VE33;
+    using Ve33Lib for Ve33;
 
     TestToken internal stakeToken;
-    VE33 internal ve33;
+    Ve33 internal ve33;
     VeToken internal veToken;
 
     function setUp() public override {
@@ -25,8 +25,8 @@ contract VeTokenTest is FullTest {
 
         stakeToken = new TestToken(address(this));
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
-        deployCodeTo("VE33.sol", abi.encode(core, address(stakeToken)), deployAddress);
-        ve33 = VE33(payable(deployAddress));
+        deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
+        ve33 = Ve33(payable(deployAddress));
         veToken = new VeToken(core, ve33);
         stakeToken.approve(address(veToken), type(uint256).max);
     }
@@ -118,11 +118,11 @@ contract VeTokenTest is FullTest {
     function test_stakeLifecycleAndInvalidStakePaths() public {
         uint256 maxStakeDuration = veToken.MAX_STAKE_DURATION();
 
-        vm.expectRevert(VE33.InvalidStake.selector);
+        vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.createStake(0, uint64(block.timestamp + 1));
-        vm.expectRevert(VE33.InvalidStake.selector);
+        vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.createStake(1, uint64(block.timestamp));
-        vm.expectRevert(VE33.InvalidStake.selector);
+        vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.createStake(1, uint64(block.timestamp + maxStakeDuration + 1));
 
         uint64 end = uint64(block.timestamp + maxStakeDuration);
@@ -141,7 +141,7 @@ contract VeTokenTest is FullTest {
         assertEq(stakeEndTime, end);
         assertEq(veToken.votingPower(veId), 1e18);
 
-        vm.expectRevert(VE33.InvalidStake.selector);
+        vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.increaseStakeAmount(veId, 0);
         veToken.increaseStakeAmount(veId, 2e18);
 
@@ -164,7 +164,7 @@ contract VeTokenTest is FullTest {
         (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedStakeId);
         assertEq(saved, 3e18);
 
-        vm.expectRevert(VE33.InvalidStake.selector);
+        vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.withdrawStake(veId);
         vm.warp(extendedEnd);
         assertEq(veToken.votingPower(veId), 0);

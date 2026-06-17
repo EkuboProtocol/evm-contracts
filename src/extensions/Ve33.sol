@@ -106,7 +106,7 @@ function createVe33RewardPoolState(uint32 _lastAccumulated, uint224 _rewardRate)
     }
 }
 
-/// @notice Returns the Core hooks enabled by `VE33`.
+/// @notice Returns the Core hooks enabled by `Ve33`.
 function ve33CallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
@@ -120,11 +120,11 @@ function ve33CallPoints() pure returns (CallPoints memory) {
     });
 }
 
-/// @title VE33
+/// @title Ve33
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
 /// @dev Pools using this extension must have zero Core pool fees. Swap fees are accounted by the extension and
 /// distributed to ve stakers, while LPs earn the immutable `stakeToken` as rewards.
-contract VE33 is BaseExtension, BaseForwardee, ExposedStorage {
+contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
     /// @notice Duration of each global and per-pool emission stream.
     uint256 public constant EMISSION_DURATION = 7 days;

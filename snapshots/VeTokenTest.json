@@ -1,7 +1,7 @@
 {
   "VeToken#createStake": "151946",
   "VeToken#extendStake": "71059",
-  "VeToken#increaseStakeAmount": "33070",
+  "VeToken#increaseStakeAmount": "33048",
   "VeToken#stakes": "5987",
   "VeToken#transferFrom": "31237",
   "VeToken#withdrawStake": "36740"

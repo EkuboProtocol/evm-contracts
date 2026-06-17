@@ -451,7 +451,7 @@ contract Ve33Test is FullTest {
         assertFalse(success);
     }
 
-    function test_voteValidationAndVoteWithTickSpacing() public {
+    function test_voteValidationAndVoteWithDefaultFees() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         uint256 veId = _createStake();
 
@@ -495,17 +495,23 @@ contract Ve33Test is FullTest {
         vm.expectRevert(Ve33.InvalidVote.selector);
         veToken.vote(veId, poolKeys, weights, swapFees);
 
-        uint32[] memory tickSpacings = new uint32[](2);
         vm.expectRevert(Ve33.InvalidVote.selector);
-        veToken.voteWithTickSpacing(veId, poolKeys, weights, tickSpacings);
+        veToken.voteWithDefaultFees(veId, poolKeys, weights);
 
         poolKeys[0] = poolKey;
-        tickSpacings = new uint32[](1);
-        tickSpacings[0] = 200;
-        veToken.voteWithTickSpacing(veId, poolKeys, weights, tickSpacings);
+        veToken.voteWithDefaultFees(veId, poolKeys, weights);
         (uint256 weight, uint256 feeWeightSum, uint64 swapFee,) = _poolVoteState(poolKey.toPoolId());
         assertEq(weight, veToken.votingPower(veId));
-        assertEq(swapFee, defaultFeeForTickSpacing(200));
+        assertEq(swapFee, defaultFeeForTickSpacing(100));
+        assertEq(feeWeightSum, weight * swapFee);
+
+        PoolConfig stableswapConfig = createStableswapPoolConfig(0, 20, 0, address(ve));
+        PoolKey memory stableswapPoolKey = createPool(address(token0), address(token1), 0, stableswapConfig);
+        poolKeys[0] = stableswapPoolKey;
+        veToken.voteWithDefaultFees(veId, poolKeys, weights);
+        (weight, feeWeightSum, swapFee,) = _poolVoteState(stableswapPoolKey.toPoolId());
+        assertEq(weight, veToken.votingPower(veId));
+        assertEq(swapFee, defaultFeeForStableswapAmplification(20));
         assertEq(feeWeightSum, weight * swapFee);
 
         vm.warp(block.timestamp + veToken.MAX_STAKE_DURATION());

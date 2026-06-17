@@ -79,7 +79,7 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 ## Voting
 
-`Ve33.vote` accepts explicit `uint64` swap fees. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. Tick-spacing votes can be converted with `defaultFeeForTickSpacing`, and the optional `VeToken` wrapper exposes `voteWithTickSpacing` for that convenience path. The conversion prices a `2 * tickSpacing` move and returns:
+`Ve33.vote` accepts explicit `uint64` swap fees. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. The optional `VeToken` wrapper exposes `voteWithDefaultFees` for users who want to vote with each pool's default fee derived from the pool key. Concentrated-pool defaults price a `2 * tickSpacing` move and return:
 
 ```text
 1 - 1 / 1.000001^(2 * tickSpacing)

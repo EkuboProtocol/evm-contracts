@@ -18,7 +18,7 @@ import {
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
-import {defaultFeeForTickSpacing} from "./math/tickSpacingFee.sol";
+import {defaultFeeForStableswapAmplification, defaultFeeForTickSpacing} from "./math/tickSpacingFee.sol";
 import {PoolKey} from "./types/poolKey.sol";
 
 /// @notice ERC721 representation over Ve33 stake accounting.
@@ -228,21 +228,20 @@ contract VeToken is ERC721, BaseLocker {
         ve33.vote(stakeKey(veId), poolKeys, weights, swapFees);
     }
 
-    /// @notice Votes a represented stake on pools using default fees derived from tick spacing.
+    /// @notice Votes a represented stake on pools using default fees derived from each pool config.
     /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param poolKeys The pools to vote on.
     /// @param weights The vote weights for each pool.
-    /// @param tickSpacings The tick spacings used to derive default swap fees.
-    function voteWithTickSpacing(
-        uint256 veId,
-        PoolKey[] calldata poolKeys,
-        uint256[] calldata weights,
-        uint32[] calldata tickSpacings
-    ) external authorizedForStake(veId) {
-        uint64[] memory swapFees = new uint64[](tickSpacings.length);
-        for (uint256 i = 0; i < tickSpacings.length; i++) {
-            swapFees[i] = defaultFeeForTickSpacing(tickSpacings[i]);
+    function voteWithDefaultFees(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights)
+        external
+        authorizedForStake(veId)
+    {
+        uint64[] memory swapFees = new uint64[](poolKeys.length);
+        for (uint256 i = 0; i < poolKeys.length; i++) {
+            swapFees[i] = poolKeys[i].config.isStableswap()
+                ? defaultFeeForStableswapAmplification(poolKeys[i].config.stableswapAmplification())
+                : defaultFeeForTickSpacing(poolKeys[i].config.concentratedTickSpacing());
         }
         ve33.vote(stakeKey(veId), poolKeys, weights, swapFees);
     }

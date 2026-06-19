@@ -8,5 +8,13 @@
   "Ve33#triggerPoolEmissions": "192420",
   "Ve33#updatePosition": "338840",
   "Ve33#vote one pool": "161796",
-  "VeToken#claimPoolFees": "82200"
+  "Ve33Periphery#addRewards": "119721",
+  "Ve33Periphery#claimRewards": "63739",
+  "Ve33Periphery#donateRewards": "97591",
+  "Ve33Periphery#fundEmissions": "191226",
+  "Ve33Periphery#swap": "101731",
+  "Ve33Periphery#triggerPoolEmissions": "192359",
+  "Ve33Periphery#updatePosition": "338771",
+  "VeToken#claimPoolFees": "82200",
+  "VeToken#voteWithDefaultFees": "163245"
 }

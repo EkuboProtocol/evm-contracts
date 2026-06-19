@@ -2,8 +2,11 @@
   "VeToken#createStake": "151769",
   "VeToken#extendStake": "70790",
   "VeToken#increaseStakeAmount": "32893",
+  "VeToken#stakeKey": "3367",
   "VeToken#stakes": "5987",
   "VeToken#tokenURI": "24644307453392661819795076685662920393183531936217919025690677872793782722773",
+  "VeToken#tokenURI gas": "412346",
   "VeToken#transferFrom": "31237",
+  "VeToken#votingPower": "6099",
   "VeToken#withdrawStake": "36588"
 }

@@ -60,6 +60,30 @@ contract VeTokenTest is FullTest {
         vm.snapshotGasLastCall("VeToken#stakes");
     }
 
+    function test_gas_stakeKey() public {
+        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+
+        coolAllContracts();
+        veToken.stakeKey(veId);
+        vm.snapshotGasLastCall("VeToken#stakeKey");
+    }
+
+    function test_gas_votingPower() public {
+        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+
+        coolAllContracts();
+        veToken.votingPower(veId);
+        vm.snapshotGasLastCall("VeToken#votingPower");
+    }
+
+    function test_gas_tokenURI() public {
+        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+
+        coolAllContracts();
+        veToken.tokenURI(veId);
+        vm.snapshotGasLastCall("VeToken#tokenURI gas");
+    }
+
     function test_gas_increaseStakeAmount() public {
         uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
 

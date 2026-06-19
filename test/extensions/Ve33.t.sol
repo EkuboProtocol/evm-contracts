@@ -326,6 +326,16 @@ contract Ve33Test is FullTest {
         vm.snapshotGasLastCall("Ve33#vote one pool");
     }
 
+    function test_gas_poke() public {
+        (PoolKey memory poolKey,) = _createConcentratedPool();
+        uint256 veId = _fundAndVote(poolKey, uint64(1 << 62));
+        vm.warp(block.timestamp + 1 weeks);
+
+        coolAllContracts();
+        ve.poke(veToken.stakeKey(veId));
+        vm.snapshotGasLastCall("Ve33#poke");
+    }
+
     function test_gas_updatePosition() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
 
@@ -694,6 +704,59 @@ contract Ve33Test is FullTest {
         assertEq(weightAfterWithdraw, 0);
         assertEq(feeWeightSumAfterWithdraw, 0);
         assertEq(swapFeeAfterWithdraw, defaultSwapFee);
+    }
+
+    function test_pokeRefreshesDecayedVotesAndPreservesAccruedFees() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        forwarder.updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        uint64 votedFee = uint64(1 << 62);
+        uint256 veId = _fundAndVote(poolKey, votedFee);
+        Ve33.StakeKey memory stakeKey = veToken.stakeKey(veId);
+        PoolId poolId = poolKey.toPoolId();
+
+        (uint256 initialWeight,,,) = _poolVoteState(poolId);
+        forwarder.swap(poolKey, false, 100_000, address(this));
+        uint128 expectedFee = computeFee(100_000, votedFee);
+
+        vm.warp(block.timestamp + 1 weeks);
+        uint256 currentPower = ve.votingPower(stakeKey);
+        vm.prank(address(1234));
+        (uint256 previousWeight, uint256 nextWeight) = ve.poke(stakeKey);
+
+        assertEq(previousWeight, initialWeight);
+        assertEq(nextWeight, currentPower);
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee,) = _poolVoteState(poolId);
+        assertEq(weight, currentPower);
+        assertEq(feeWeightSum, currentPower * votedFee);
+        assertEq(swapFee, votedFee);
+        assertEq(ve.totalVoteWeight(), currentPower);
+        assertEq(ve.poolVoteState(poolId).voteSeconds, initialWeight * 1 weeks);
+        assertEq(ve.totalVoteSeconds(), initialWeight * 1 weeks);
+
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
+        assertApproxEqAbs(claimed0, expectedFee, 1);
+        assertEq(claimed1, 0);
+    }
+
+    function test_pokeClearsExpiredVotes() public {
+        (PoolKey memory poolKey,) = _createConcentratedPool();
+        uint64 votedFee = uint64(1 << 62);
+        uint256 veId = _fundAndVote(poolKey, votedFee);
+        Ve33.StakeKey memory stakeKey = veToken.stakeKey(veId);
+        PoolId poolId = poolKey.toPoolId();
+        (uint256 initialWeight,,, uint64 defaultSwapFee) = _poolVoteState(poolId);
+
+        vm.warp(stakeKey.endTime);
+        (uint256 previousWeight, uint256 nextWeight) = ve.poke(stakeKey);
+
+        assertEq(previousWeight, initialWeight);
+        assertEq(nextWeight, 0);
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee,) = _poolVoteState(poolId);
+        assertEq(weight, 0);
+        assertEq(feeWeightSum, 0);
+        assertEq(swapFee, defaultSwapFee);
+        assertEq(ve.totalVoteWeight(), 0);
+        assertEq(ve.votedPoolsLength(keccak256(abi.encode(address(veToken), bytes32(veId), stakeKey.endTime))), 0);
     }
 
     function test_donateAndClaimRewards() public {

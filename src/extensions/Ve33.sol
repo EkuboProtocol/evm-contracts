@@ -241,6 +241,10 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     event PoolFeesClaimed(
         bytes32 indexed stakeId, PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1
     );
+    /// @notice Emitted when a stake's active votes are reduced to current decayed voting power.
+    event StakePoked(
+        address indexed owner, bytes32 indexed salt, uint64 indexed endTime, uint256 previousWeight, uint256 nextWeight
+    );
     /// @notice Emitted when global emissions are funded.
     event EmissionsFunded(address indexed funder, uint128 amount, uint224 rate, uint64 end);
     /// @notice Emitted when emissions are assigned to a pool.
@@ -352,6 +356,17 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     ) external {
         if (stakeKey.owner != msg.sender) revert NotStakeOwner();
         _vote(stakeKey, poolKeys, weights, swapFees);
+    }
+
+    /// @notice Permissionlessly refreshes a stake's active votes to its current decayed voting power.
+    /// @dev Accrues vote seconds and voter fees before reducing weights. Expired stakes are cleared.
+    /// @param stakeKey Stake whose active votes are refreshed.
+    /// @return previousWeight Total active vote weight before the poke.
+    /// @return nextWeight Total active vote weight after the poke.
+    function poke(StakeKey calldata stakeKey) external returns (uint256 previousWeight, uint256 nextWeight) {
+        bytes32 stakeId = _stakeId(stakeKey.owner, stakeKey.salt, stakeKey.endTime);
+        (previousWeight, nextWeight) = _pokeVotes(stakeId, _votingPower(stakeKey));
+        emit StakePoked(stakeKey.owner, stakeKey.salt, stakeKey.endTime, previousWeight, nextWeight);
     }
 
     /// @notice Accumulates scheduled LP rewards into the pool reward-per-liquidity global value.
@@ -970,6 +985,83 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         }
 
         delete votedPools[stakeId];
+    }
+
+    /// @notice Reduces a stake's active vote weights to a target total weight.
+    /// @dev Accrues historical vote seconds and voter fees before changing future weights.
+    /// @param stakeId Stake id whose votes are refreshed.
+    /// @param targetWeight Current decayed voting power for the stake.
+    /// @return previousWeight Total active vote weight before refresh.
+    /// @return nextWeight Total active vote weight after refresh.
+    function _pokeVotes(bytes32 stakeId, uint256 targetWeight)
+        private
+        returns (uint256 previousWeight, uint256 nextWeight)
+    {
+        PoolId[] storage pools = votedPools[stakeId];
+        uint256 length = pools.length;
+        if (length == 0) return (0, 0);
+
+        for (uint256 i = _accrueTotalVoteSeconds(); i < length;) {
+            PoolId poolId = pools[i];
+            _accruePoolVoteSeconds(poolId);
+            _accrueVePoolFees(stakeId, poolId);
+            previousWeight += vePoolPositions[stakeId][poolId].weight;
+            unchecked {
+                ++i;
+            }
+        }
+
+        if (targetWeight >= previousWeight) return (previousWeight, previousWeight);
+        nextWeight = targetWeight;
+
+        if (targetWeight == 0) {
+            for (uint256 i; i < length;) {
+                PoolId poolId = pools[i];
+                VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
+                uint256 oldWeight = vePool.weight;
+                if (oldWeight != 0) {
+                    PoolVoteState storage poolState = poolVoteStates[poolId];
+                    poolState.weight -= oldWeight;
+                    poolState.feeWeightSum -= oldWeight * vePool.swapFee;
+                    totalVoteWeight -= oldWeight;
+                    vePool.weight = 0;
+                    _updatePoolSwapFee(poolId);
+                }
+                unchecked {
+                    ++i;
+                }
+            }
+            delete votedPools[stakeId];
+        } else {
+            uint256 remainingPreviousWeight = previousWeight;
+            uint256 remainingNextWeight = targetWeight;
+
+            for (uint256 i; i < length;) {
+                PoolId poolId = pools[i];
+                VePoolPosition storage vePool = vePoolPositions[stakeId][poolId];
+                uint256 oldWeight = vePool.weight;
+                uint256 newWeight = oldWeight == remainingPreviousWeight
+                    ? remainingNextWeight
+                    : (oldWeight * targetWeight) / previousWeight;
+
+                if (oldWeight != newWeight) {
+                    PoolVoteState storage poolState = poolVoteStates[poolId];
+                    poolState.weight = poolState.weight - oldWeight + newWeight;
+                    poolState.feeWeightSum =
+                        poolState.feeWeightSum - oldWeight * vePool.swapFee + newWeight * vePool.swapFee;
+                    totalVoteWeight = totalVoteWeight - oldWeight + newWeight;
+                    // Safe because targetWeight is current voting power, which cannot exceed the uint128 stake amount.
+                    vePool.weight = uint128(newWeight);
+                    _updatePoolSwapFee(poolId);
+                }
+
+                unchecked {
+                    remainingPreviousWeight -= oldWeight;
+                    remainingNextWeight -= newWeight;
+                    ++i;
+                }
+            }
+        }
     }
 
     /// @notice Accrues pool fees into a stake's per-pool voter position.

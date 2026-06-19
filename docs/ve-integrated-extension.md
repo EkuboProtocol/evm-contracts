@@ -87,15 +87,17 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 Each pool tracks active vote weight, vote seconds, voter fee growth, the weighted fee sum, the active swap fee, and the default swap fee. When votes change, each selected fee is capped, the pool fee is recomputed as `feeWeightSum / weight`, and integer division rounds down. With no active votes, the pool uses its default fee.
 
-Voting power is computed only when `vote` is called:
+Voting power is sampled when `vote` or `poke` is called:
 
 ```text
 stakeAmount * (endTime - block.timestamp) / VE33_MAX_STAKE_DURATION
 ```
 
-That current power is split across the supplied relative weights and written into `PoolVoteState.weight` and each stake's `VePoolPosition.weight`. Stored pool weights do not continuously decay on their own and are not automatically cleared at `endTime`; they change when the stake votes again or when a stake operation clears votes. Emission allocation uses these stored active weights over elapsed time.
+That current power is split across the supplied relative weights and written into `PoolVoteState.weight` and each stake's `VePoolPosition.weight`. Stored pool weights do not continuously decay on their own. They change when the stake votes again, when a stake operation clears votes, or when anyone calls `poke` for the stake. Emission allocation uses these stored active weights over elapsed time.
 
 Changing a stake clears that stake's votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and vote-second accounting synchronized with voting power.
+
+`poke` is a permissionless stale-vote cleanup path. It accrues total vote seconds, pool vote seconds, and the stake's voter fees using the existing stored weights up to the poke timestamp, then reduces the stake's active pool weights to current decayed voting power. If the stake has expired, `poke` clears its votes and the affected pools fall back to their default fees when no other votes remain. Claiming pool fees does not poke automatically, so users who intend to extend or restake can avoid redundant weight-refresh gas.
 
 `vote` is not a forwarded action because it does not require token settlement. It must be called by `stakeKey.owner`; for the ERC721 wrapper that means `VeToken` authorizes the user or approved operator, then calls `Ve33.vote` as the stake owner.
 

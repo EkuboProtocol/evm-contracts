@@ -116,13 +116,13 @@ Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC
 Required environment variables:
 
 ```text
-CORE_ADDRESS=<deployed core>
 STAKE_TOKEN=<stake/reward token>
 ```
 
 Optional environment variables:
 
 ```text
+CORE_ADDRESS=<deployed core, defaults to 0x00000000000014aA86C5d3c41765bb24e11bd701>
 SALT=<create2 salt>
 VE33_ADDRESS=<expected Ve33 address>
 VE_TOKEN_ADDRESS=<expected VeToken address>

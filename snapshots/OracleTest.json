@@ -1,8 +1,8 @@
 {
   "oracle#getExtrapolatedSnapshots": "17958",
   "oracle.getExtrapolatedSnapshots(address(token1), 21, 3, 8)": "31214",
-  "swap token0 in no write": "70374",
-  "swap token0 in with write": "80202",
-  "swap token1 in no write": "76772",
-  "swap token1 in with write": "86580"
+  "swap token0 in no write": "70653",
+  "swap token0 in with write": "80481",
+  "swap token1 in no write": "77051",
+  "swap token1 in with write": "86859"
 }

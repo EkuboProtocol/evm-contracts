@@ -111,7 +111,7 @@ Funding emissions does not choose pools by itself. Vote weights and elapsed vote
 
 ## Deployment
 
-Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC721 wrapper, and periphery.
+Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC721 wrapper, periphery, and a router configured for Ve33 pools.
 
 Required environment variables:
 
@@ -127,6 +127,8 @@ SALT=<create2 salt>
 VE33_ADDRESS=<expected Ve33 address>
 VE_TOKEN_ADDRESS=<expected VeToken address>
 VE33_PERIPHERY_ADDRESS=<expected Ve33Periphery address>
+VE33_ROUTER_ADDRESS=<expected Ve33 router address>
+MEV_CAPTURE_ADDRESS=<MEV capture extension address, defaults to mainnet deployment>
 ```
 
 Run with Foundry's offline mode:

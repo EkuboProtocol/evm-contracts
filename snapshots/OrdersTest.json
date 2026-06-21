@@ -3,8 +3,8 @@
   "lockAndExecuteVirtualOrders switch sell direction": "38460",
   "mintAndIncreaseSellAmount(first order)": "253757",
   "mintAndIncreaseSellAmount(second order)": "136004",
-  "swap and executeVirtualOrders double sided": "144588",
-  "swap and executeVirtualOrders double sided crossed": "153309",
-  "swap and executeVirtualOrders no orders": "98355",
-  "swap and executeVirtualOrders single sided": "134876"
+  "swap and executeVirtualOrders double sided": "144867",
+  "swap and executeVirtualOrders double sided crossed": "153588",
+  "swap and executeVirtualOrders no orders": "98634",
+  "swap and executeVirtualOrders single sided": "135155"
 }

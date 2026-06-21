@@ -13,7 +13,7 @@ import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.
 import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
-import {MEVCaptureRouter} from "../../src/MEVCaptureRouter.sol";
+import {Router} from "../../src/Router.sol";
 import {MEVCapturePoolState} from "../../src/types/mevCapturePoolState.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 
@@ -25,7 +25,7 @@ abstract contract BaseMEVCaptureTest is FullTest {
         address deployAddress = address(uint160(mevCaptureCallPoints().toUint8()) << 152);
         deployCodeTo("MEVCapture.sol", abi.encode(core), deployAddress);
         mevCapture = MEVCapture(deployAddress);
-        router = new MEVCaptureRouter(core, address(mevCapture));
+        router = new Router(core, address(mevCapture), address(0));
     }
 
     function coolAllContracts() internal virtual override {

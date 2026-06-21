@@ -4,6 +4,7 @@ pragma solidity =0.8.33;
 import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
+import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
 import {VeToken} from "../../src/VeToken.sol";
 import {
@@ -12,7 +13,6 @@ import {
     VE33_CLAIM_REWARDS,
     VE33_DONATE_REWARDS,
     VE33_FUND_EMISSIONS,
-    VE33_SWAP,
     VE33_TRIGGER_POOL_EMISSIONS,
     Ve33,
     ve33CallPoints
@@ -39,7 +39,6 @@ contract Ve33Forwarder is BaseLocker {
     using FlashAccountantLib for *;
 
     uint256 private constant CALL_TYPE_UPDATE_POSITION = 0;
-    uint256 private constant CALL_TYPE_SWAP = 1;
     uint256 private constant CALL_TYPE_CLAIM_REWARDS = 2;
     uint256 private constant CALL_TYPE_DONATE_REWARDS = 3;
     uint256 private constant CALL_TYPE_ADD_REWARDS = 4;
@@ -64,25 +63,6 @@ contract Ve33Forwarder is BaseLocker {
         balanceUpdate = abi.decode(
             lock(abi.encode(CALL_TYPE_UPDATE_POSITION, msg.sender, poolKey, positionId, liquidityDelta)),
             (PoolBalanceUpdate)
-        );
-    }
-
-    function swap(PoolKey memory poolKey, bool isToken1, int128 amount, address recipient)
-        external
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        SwapParameters params = createSwapParameters({
-                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        return swap(poolKey, params, recipient);
-    }
-
-    function swap(PoolKey memory poolKey, SwapParameters params, address recipient)
-        public
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        (balanceUpdate, stateAfter) = abi.decode(
-            lock(abi.encode(CALL_TYPE_SWAP, msg.sender, poolKey, params, recipient)), (PoolBalanceUpdate, PoolState)
         );
     }
 
@@ -127,15 +107,6 @@ contract Ve33Forwarder is BaseLocker {
             PoolBalanceUpdate balanceUpdate = CORE_REF.updatePosition(poolKey, positionId, liquidityDelta);
             _settle(poolKey, payer, payer, balanceUpdate);
             result = abi.encode(balanceUpdate);
-        } else if (callType == CALL_TYPE_SWAP) {
-            (, address payer, PoolKey memory poolKey, bytes32 params, address recipient) =
-                abi.decode(data, (uint256, address, PoolKey, bytes32, address));
-            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = abi.decode(
-                CORE_REF.forward(poolKey.config.extension(), abi.encode(VE33_SWAP, poolKey, params)),
-                (PoolBalanceUpdate, PoolState)
-            );
-            _settle(poolKey, payer, recipient, balanceUpdate);
-            result = abi.encode(balanceUpdate, stateAfter);
         } else if (callType == CALL_TYPE_CLAIM_REWARDS) {
             (, PoolKey memory poolKey, PositionId positionId, address recipient) =
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
@@ -210,6 +181,7 @@ contract Ve33Test is FullTest {
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
         deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33(payable(deployAddress));
+        router = new Router(core, address(0), address(ve));
         veToken = new VeToken(core, ve);
         forwarder = new Ve33Forwarder(core, address(ve), address(stakeToken));
         periphery = new Ve33Periphery(core, ve);
@@ -222,6 +194,8 @@ contract Ve33Test is FullTest {
         token1.approve(address(forwarder), type(uint256).max);
         token0.approve(address(periphery), type(uint256).max);
         token1.approve(address(periphery), type(uint256).max);
+        token0.approve(address(router), type(uint256).max);
+        token1.approve(address(router), type(uint256).max);
     }
 
     function coolAllContracts() internal virtual override {
@@ -281,6 +255,26 @@ contract Ve33Test is FullTest {
         amount = periphery.claimRewards(
             poolKey, positionId.salt(), positionId.tickLower(), positionId.tickUpper(), recipient
         );
+    }
+
+    function _routerSwap(PoolKey memory poolKey, bool isToken1, int128 amount, address recipient)
+        internal
+        returns (PoolBalanceUpdate balanceUpdate)
+    {
+        balanceUpdate = _routerSwap(
+            poolKey,
+            createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: amount, _isToken1: isToken1, _skipAhead: 0
+            }),
+            recipient
+        );
+    }
+
+    function _routerSwap(PoolKey memory poolKey, SwapParameters params, address recipient)
+        internal
+        returns (PoolBalanceUpdate balanceUpdate)
+    {
+        balanceUpdate = router.swapAllowPartialFill(poolKey, params, recipient);
     }
 
     function _singlePoolArrays(PoolKey memory poolKey, uint256 weight, uint64 swapFee)
@@ -383,15 +377,15 @@ contract Ve33Test is FullTest {
         _fundAndVote(poolKey, uint64(1 << 62));
 
         coolAllContracts();
-        forwarder.swap(poolKey, false, 100_000, address(this));
-        vm.snapshotGasLastCall("Ve33#forwardedSwap");
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#ve33Swap");
     }
 
     function test_gas_claimPoolFees() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         forwarder.updatePosition(poolKey, positionId, int128(uint128(1e18)));
         uint256 veId = _fundAndVote(poolKey, uint64(1 << 62));
-        forwarder.swap(poolKey, false, 100_000, address(this));
+        _routerSwap(poolKey, false, 100_000, address(this));
 
         coolAllContracts();
         veToken.claimPoolFees(veId, poolKey);
@@ -443,8 +437,8 @@ contract Ve33Test is FullTest {
         _fundAndVote(poolKey, uint64(1 << 62));
 
         coolAllContracts();
-        forwarder.swap(poolKey, true, 100_000, address(this));
-        vm.snapshotGasLastCall("Ve33#stableswapForwardedSwap");
+        _routerSwap(poolKey, true, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#ve33Stableswap");
     }
 
     function test_gas_voteWithDefaultFees() public {
@@ -468,20 +462,20 @@ contract Ve33Test is FullTest {
         vm.snapshotGasLastCall("Ve33Periphery#updatePosition");
     }
 
-    function test_gas_peripherySwap() public {
+    function test_gas_routerSwapPeripheryPosition() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _peripheryUpdatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));
 
         coolAllContracts();
-        periphery.swap(
+        _routerSwap(
             poolKey,
             createSwapParameters({
-                    _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
-                }).withDefaultSqrtRatioLimit(),
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
+            }),
             address(this)
         );
-        vm.snapshotGasLastCall("Ve33Periphery#swap");
+        vm.snapshotGasLastCall("Router#ve33SwapPeripheryPosition");
     }
 
     function test_gas_peripheryDonateRewards() public {
@@ -671,7 +665,7 @@ contract Ve33Test is FullTest {
         uint64 swapFee = uint64(1 << 62);
         uint256 veId = _fundAndVote(poolKey, swapFee);
 
-        forwarder.swap(poolKey, false, 100_000, address(this));
+        _routerSwap(poolKey, false, 100_000, address(this));
 
         uint128 expectedFee = computeFee(100_000, swapFee);
         (uint128 saved0, uint128 saved1) =
@@ -706,7 +700,7 @@ contract Ve33Test is FullTest {
             _sqrtRatioLimit: tickToSqrtRatio(-50), _amount: int128(amount), _isToken1: false, _skipAhead: 0
         });
 
-        (PoolBalanceUpdate balanceUpdate,) = forwarder.swap(poolKey, params, address(this));
+        PoolBalanceUpdate balanceUpdate = _routerSwap(poolKey, params, address(this));
         (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         uint128 coreInput = uint128(uint256(int256(balanceUpdate.delta0()))) - saved0;
@@ -728,7 +722,7 @@ contract Ve33Test is FullTest {
             _sqrtRatioLimit: tickToSqrtRatio(50), _amount: int128(amount), _isToken1: true, _skipAhead: 0
         });
 
-        (PoolBalanceUpdate balanceUpdate,) = forwarder.swap(poolKey, params, address(this));
+        PoolBalanceUpdate balanceUpdate = _routerSwap(poolKey, params, address(this));
         (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         uint128 coreInput = uint128(uint256(int256(balanceUpdate.delta1()))) - saved1;
@@ -743,23 +737,23 @@ contract Ve33Test is FullTest {
         forwarder.updatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));
 
-        forwarder.swap(poolKey, true, 100_000, address(this));
+        _routerSwap(poolKey, true, 100_000, address(this));
         (, uint128 saved1AfterExactIn) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         assertGt(saved1AfterExactIn, 0);
 
         SwapParameters token1Out = createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: -int128(1_000), _isToken1: true, _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        forwarder.swap(poolKey, token1Out, address(this));
+            _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: -int128(1_000), _isToken1: true, _skipAhead: 0
+        });
+        _routerSwap(poolKey, token1Out, address(this));
         (uint128 saved0AfterExactOut,) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         assertGt(saved0AfterExactOut, 0);
 
         SwapParameters token0Out = createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: -int128(1_000), _isToken1: false, _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        forwarder.swap(poolKey, token0Out, address(this));
+            _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: -int128(1_000), _isToken1: false, _skipAhead: 0
+        });
+        _routerSwap(poolKey, token0Out, address(this));
         (, uint128 saved1AfterExactOut) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         assertGt(saved1AfterExactOut, saved1AfterExactIn);
@@ -770,7 +764,7 @@ contract Ve33Test is FullTest {
         forwarder.updatePosition(poolKey, positionId, int128(uint128(1e18)));
 
         uint256 veId = _fundAndVote(poolKey, 0);
-        forwarder.swap(poolKey, false, 100_000, address(this));
+        _routerSwap(poolKey, false, 100_000, address(this));
         (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId()));
         assertEq(saved0, 0);
@@ -781,7 +775,7 @@ contract Ve33Test is FullTest {
 
         (PoolKey memory unvotedPool, PositionId unvotedPosition) = _createConcentratedPool(200, bytes24(uint192(2)));
         forwarder.updatePosition(unvotedPool, unvotedPosition, int128(uint128(1e18)));
-        forwarder.swap(unvotedPool, false, 100_000, address(this));
+        _routerSwap(unvotedPool, false, 100_000, address(this));
         (saved0, saved1) = core.savedBalances(
             address(ve), unvotedPool.token0, unvotedPool.token1, PoolId.unwrap(unvotedPool.toPoolId())
         );
@@ -830,7 +824,7 @@ contract Ve33Test is FullTest {
         PoolId poolId = poolKey.toPoolId();
 
         (uint256 initialWeight,,,) = _poolVoteState(poolId);
-        forwarder.swap(poolKey, false, 100_000, address(this));
+        _routerSwap(poolKey, false, 100_000, address(this));
         uint128 expectedFee = computeFee(100_000, votedFee);
 
         vm.warp(block.timestamp + 1 weeks);
@@ -950,7 +944,7 @@ contract Ve33Test is FullTest {
         assertEq(feeWeightSum, weight0 * fee0 + weight1 * fee1);
         assertEq(uint256(swapFee), feeWeightSum / totalWeight);
 
-        forwarder.swap(poolKey, false, 100_000, address(this));
+        _routerSwap(poolKey, false, 100_000, address(this));
         (uint128 saved0,) = core.savedBalances(address(ve), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId));
         assertEq(saved0, computeFee(100_000, swapFee));
 
@@ -1047,7 +1041,8 @@ contract Ve33Test is FullTest {
         uint256 beforeGlobal = ve.rewardsGlobalPerLiquidity(stablePool.toPoolId());
 
         forwarder.addRewards(stablePool, 0, _nextValidRewardTime(block.timestamp + 1 days - 1), uint224(1 << 32));
-        (, PoolState stateAfter) = forwarder.swap(stablePool, true, int128(1e30), address(this));
+        _routerSwap(stablePool, true, int128(1e30), address(this));
+        PoolState stateAfter = core.poolState(stablePool.toPoolId());
         (, int32 upper) = stablePool.config.stableswapActiveLiquidityTickRange();
         assertGe(stateAfter.tick(), upper);
         vm.warp(block.timestamp + 1 hours);
@@ -1140,11 +1135,11 @@ contract Ve33Test is FullTest {
         _fundAndVote(poolKey, uint64(1 << 62));
 
         uint256 token1BalanceBefore = token1.balanceOf(address(1234));
-        periphery.swap(
+        _routerSwap(
             poolKey,
             createSwapParameters({
-                    _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
-                }).withDefaultSqrtRatioLimit(),
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
+            }),
             address(1234)
         );
         assertGt(token1.balanceOf(address(1234)), token1BalanceBefore);
@@ -1243,7 +1238,8 @@ contract Ve33Test is FullTest {
         SwapParameters upToUpper = createSwapParameters({
             _sqrtRatioLimit: tickToSqrtRatio(101), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
         });
-        (, PoolState stateAfterUpper) = forwarder.swap(poolKey, upToUpper, address(this));
+        _routerSwap(poolKey, upToUpper, address(this));
+        PoolState stateAfterUpper = core.poolState(poolId);
         assertGe(stateAfterUpper.tick(), 100);
         assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 100), global);
         assertGt(forwarder.claimRewards(poolKey, positionId, address(this)), 0);
@@ -1251,7 +1247,8 @@ contract Ve33Test is FullTest {
         SwapParameters downToLower = createSwapParameters({
             _sqrtRatioLimit: tickToSqrtRatio(-101), _amount: int128(1e30), _isToken1: false, _skipAhead: 0
         });
-        (, PoolState stateAfterLower) = forwarder.swap(poolKey, downToLower, address(this));
+        _routerSwap(poolKey, downToLower, address(this));
+        PoolState stateAfterLower = core.poolState(poolId);
         assertLt(stateAfterLower.tick(), -100);
         assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -100), global);
 
@@ -1270,21 +1267,24 @@ contract Ve33Test is FullTest {
         upToUpper = createSwapParameters({
             _sqrtRatioLimit: tickToSqrtRatio(upper + 1), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
         });
-        (, stateAfterUpper) = forwarder.swap(stablePool, upToUpper, address(this));
+        _routerSwap(stablePool, upToUpper, address(this));
+        stateAfterUpper = core.poolState(stablePoolId);
         assertGe(stateAfterUpper.tick(), upper);
         assertEq(ve.tickRewardsOutsidePerLiquidity(stablePoolId, upper), global);
 
         downToLower = createSwapParameters({
             _sqrtRatioLimit: tickToSqrtRatio(lower - 1), _amount: int128(1e30), _isToken1: false, _skipAhead: 0
         });
-        (, stateAfterLower) = forwarder.swap(stablePool, downToLower, address(this));
+        _routerSwap(stablePool, downToLower, address(this));
+        stateAfterLower = core.poolState(stablePoolId);
         assertLt(stateAfterLower.tick(), lower);
         assertEq(ve.tickRewardsOutsidePerLiquidity(stablePoolId, lower), global);
 
         SwapParameters upToLower = createSwapParameters({
             _sqrtRatioLimit: tickToSqrtRatio(lower + 1), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
         });
-        (, PoolState stateAfterLowerUp) = forwarder.swap(stablePool, upToLower, address(this));
+        _routerSwap(stablePool, upToLower, address(this));
+        PoolState stateAfterLowerUp = core.poolState(stablePoolId);
         assertGe(stateAfterLowerUp.tick(), lower);
         assertEq(ve.tickRewardsOutsidePerLiquidity(stablePoolId, lower), 0);
 

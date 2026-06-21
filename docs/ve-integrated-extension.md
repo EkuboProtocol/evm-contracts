@@ -4,6 +4,8 @@
 
 `VeToken` is an optional ERC721 wrapper around `Ve33` stake accounting. It gives users the familiar `createStake`, `increaseStakeAmount`, `extendStake`, and `withdrawStake` surface, but the important stake state remains in `Ve33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based stake control.
 
+For role-oriented user documentation, see [Ve33 User Guide](./ve33-user-guide.md).
+
 ## Architecture
 
 `Ve33` owns:
@@ -27,7 +29,9 @@
 - wrapper vote and pool-fee claim calls
 - on-chain ERC721 JSON metadata derived from the staked token and current stake state
 
-`Ve33Periphery` owns token settlement for generic Ve33 actions such as swaps, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering. `Ve33` itself accounts balances only with Core saved balances and does not transfer ERC20s.
+`Ve33Periphery` owns token settlement for generic Ve33 actions such as swaps, LP position updates, LP reward claims, reward donations, explicit reward schedules, global emission funding, and emission triggering. `Ve33` itself accounts balances only with Core saved balances and does not transfer ERC20s.
+
+For LP positions, `Ve33Periphery` derives the Core `PositionId` from `(msg.sender, salt, tickLower, tickUpper)` and owns the resulting Core position as the locker contract. This namespaces positions by user while keeping the periphery lightweight and avoids sharing raw periphery-owned `PositionId`s across callers.
 
 The `owner` in `Ve33.StakeKey` is the locker that forwarded the stake operation. For `VeToken` stakes this is `address(veToken)`, not the user. The user is tracked by `VeToken`, and `VeToken` authorizes wrapper operations before calling into `Ve33`.
 
@@ -79,7 +83,7 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 ## Voting
 
-`Ve33.vote` accepts explicit `uint64` swap fees. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. The optional `VeToken` wrapper exposes `voteWithDefaultFees` for users who want to vote with each pool's default fee derived from the pool key. Concentrated-pool defaults price a `2 * tickSpacing` move and return:
+`Ve33.vote` accepts explicit `uint64` swap fees. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. The optional `VeToken` wrapper exposes `voteWithDefaultFees` for users who want to vote with each pool's default fee derived from the pool key, and `poke(veId)` as a permissionless convenience for refreshing stale represented stakes. Concentrated-pool defaults price a `2 * tickSpacing` move and return:
 
 ```text
 1 - 1 / 1.000001^(2 * tickSpacing)
@@ -97,7 +101,7 @@ That current power is split across the supplied relative weights and written int
 
 Changing a stake clears that stake's votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and vote-second accounting synchronized with voting power.
 
-`poke` is a permissionless stale-vote cleanup path. It accrues total vote seconds, pool vote seconds, and the stake's voter fees using the existing stored weights up to the poke timestamp, then reduces the stake's active pool weights to current decayed voting power. If the stake has expired, `poke` clears its votes and the affected pools fall back to their default fees when no other votes remain. Claiming pool fees does not poke automatically, so users who intend to extend or restake can avoid redundant weight-refresh gas.
+`poke` is a permissionless stale-vote cleanup path. It accrues total vote seconds, pool vote seconds, and the stake's voter fees using the existing stored weights up to the poke timestamp, then reduces the stake's active pool weights to current decayed voting power. If the stake has expired, `poke` clears its votes and the affected pools fall back to their default fees when no other votes remain. `VeToken.poke(veId)` calls the same extension logic for ERC721-represented stakes. Claiming pool fees does not poke automatically, so users who intend to extend or restake can avoid redundant weight-refresh gas.
 
 `vote` is not a forwarded action because it does not require token settlement. It must be called by `stakeKey.owner`; for the ERC721 wrapper that means `VeToken` authorizes the user or approved operator, then calls `Ve33.vote` as the stake owner.
 
@@ -137,7 +141,7 @@ LPs earn only the immutable reward token, which is the same token used for ve st
 
 `maybeAccumulateRewards` advances `rewardsGlobalPerLiquidity` using current Core pool liquidity. For stableswap pools, active liquidity is treated as zero when the current tick is outside the stableswap active-liquidity range. If liquidity is zero, accrued scheduled rewards are not assigned to LPs because `rewardsGlobalPerLiquidity` is not increased.
 
-`VE33_ADD_REWARDS` schedules a Q32 reward rate between valid reward times. If `startTime` is in the past or zero, the new rate is applied immediately; otherwise a future rate delta is stored in `rewardRateDeltaAtTime`. The required token amount is rounded up from `rewardRate * duration` and saved in the reward reserve. `VE33_DONATE_REWARDS` immediately increases `rewardsGlobalPerLiquidity` for current active liquidity. If active liquidity is zero, the donated amount is still credited to the reward reserve saved balance, but no position reward growth is created, so the donation is not claimable by LP positions.
+`VE33_ADD_REWARDS` schedules a Q32 reward rate between valid reward times. If `startTime` is in the past or zero, the new rate is applied immediately; otherwise a future rate delta is stored in `rewardRateDeltaAtTime`. The required token amount is rounded up from `rewardRate * duration` and saved in the reward reserve. `VE33_DONATE_REWARDS` immediately increases `rewardsGlobalPerLiquidity` for current active liquidity. For stableswap pools, active liquidity is zero outside the stableswap active-liquidity range. If active liquidity is zero, the donated amount is still credited to the reward reserve saved balance, but no position reward growth is created, so the donation is not claimable by LP positions.
 
 `beforeUpdatePosition` snapshots position rewards before liquidity changes. It uses the same snapshot adjustment trick as Core: rewards earned before the update are preserved by moving `positionRewardsSnapshotPerLiquidity` based on the next liquidity value. If the position fully exits, the snapshot is cleared and unclaimed rewards are discarded.
 
@@ -179,3 +183,7 @@ The extension relies on Core saved balances for deferred accounting:
 - ve stake is saved under `address(ve33)` and the stake id
 
 `Ve33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, and `Ve33Periphery` is the reference implementation for generic Ve33 token settlement.
+
+## Deployment
+
+`script/DeployVe33.s.sol` deploys `Ve33`, `VeToken`, and `Ve33Periphery` with deterministic CREATE2 deployment. It requires `CORE_ADDRESS` and `STAKE_TOKEN`, and accepts optional expected-address environment variables for deployment verification. See the user guide for the operator-facing command.

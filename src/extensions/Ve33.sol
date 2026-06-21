@@ -407,13 +407,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
                 }
             }
 
-            PoolState coreState = CORE.poolState(poolId);
-            uint128 liquidity = coreState.liquidity();
-            if (liquidity != 0 && poolKey.config.isStableswap()) {
-                (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
-                int32 tick = coreState.tick();
-                if (tick < lower || tick >= upper) liquidity = 0;
-            }
+            uint128 liquidity = _activeRewardLiquidity(poolKey, CORE.poolState(poolId));
             if (rewardsAccrued != 0 && liquidity != 0) {
                 rewardsGlobalPerLiquidity[poolId] += (rewardsAccrued << 128) / liquidity;
             }
@@ -910,7 +904,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
         PoolId poolId = poolKey.toPoolId();
         if (amount != 0) {
-            uint128 liquidity = CORE.poolState(poolId).liquidity();
+            uint128 liquidity = _activeRewardLiquidity(poolKey, CORE.poolState(poolId));
             _updateRewardSavedBalance(int256(uint256(amount)));
             if (liquidity != 0) {
                 unchecked {
@@ -920,6 +914,24 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         }
 
         emit RewardsDonated(poolId, amount);
+    }
+
+    /// @notice Returns liquidity eligible for reward growth at the current pool price.
+    /// @dev Stableswap active liquidity is zero outside its configured active range.
+    /// @param poolKey Pool whose reward liquidity is being checked.
+    /// @param coreState Current Core pool state.
+    /// @return liquidity In-range liquidity eligible for LP rewards.
+    function _activeRewardLiquidity(PoolKey memory poolKey, PoolState coreState)
+        private
+        pure
+        returns (uint128 liquidity)
+    {
+        liquidity = coreState.liquidity();
+        if (liquidity != 0 && poolKey.config.isStableswap()) {
+            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
+            int32 tick = coreState.tick();
+            if (tick < lower || tick >= upper) liquidity = 0;
+        }
     }
 
     /// @notice Claims reward tokens earned by an LP position.

@@ -210,6 +210,15 @@ contract VeToken is ERC721, BaseLocker {
         return ve33.votingPower(stakeKey(veId));
     }
 
+    /// @notice Permissionlessly refreshes the represented stake's active votes to current voting power.
+    /// @dev Useful for keepers to reduce stale decayed votes or clear expired votes. Does not settle tokens.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    /// @return previousWeight Total active vote weight before the poke.
+    /// @return nextWeight Total active vote weight after the poke.
+    function poke(uint256 veId) external returns (uint256 previousWeight, uint256 nextWeight) {
+        return ve33.poke(stakeKey(veId));
+    }
+
     /// @notice Returns the Ve33 stake key represented by an ERC721 token.
     /// @dev The Ve33 stake owner is always this contract, and the salt is `bytes32(veId)`.
     /// @param veId The ERC721 token id.

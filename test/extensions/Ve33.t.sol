@@ -50,10 +50,9 @@ contract Ve33Forwarder is BaseLocker {
 
     uint256 private constant CALL_TYPE_DONATE_REWARDS = 0;
     uint256 private constant CALL_TYPE_ADD_REWARDS = 1;
-    uint256 private constant CALL_TYPE_RAW_FORWARD = 2;
-    uint256 private constant CALL_TYPE_FUND_EMISSIONS = 3;
-    uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 4;
-    uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 5;
+    uint256 private constant CALL_TYPE_FUND_EMISSIONS = 2;
+    uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 3;
+    uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 4;
 
     ICore private immutable CORE_REF;
     Ve33 private immutable VE33_REF;
@@ -84,10 +83,6 @@ contract Ve33Forwarder is BaseLocker {
 
     function triggerPoolEmissions(PoolKey memory poolKey) external returns (uint224 amount) {
         amount = abi.decode(lock(abi.encode(CALL_TYPE_TRIGGER_POOL_EMISSIONS, poolKey)), (uint224));
-    }
-
-    function rawForward(address extension, bytes memory forwardData) external returns (bytes memory result) {
-        result = lock(abi.encode(CALL_TYPE_RAW_FORWARD, extension, forwardData));
     }
 
     function claimPoolFees(Ve33.StakeKey memory stakeKey, PoolKey memory poolKey)
@@ -127,10 +122,6 @@ contract Ve33Forwarder is BaseLocker {
                 abi.decode(data, (uint256, Ve33.StakeKey, PoolKey));
             (uint128 amount0, uint128 amount1) = Ve33Lib.claimPoolFees(CORE_REF, VE33_REF, stakeKey, poolKey);
             result = abi.encode(amount0, amount1);
-        } else if (callType == CALL_TYPE_RAW_FORWARD) {
-            (, address extension, bytes memory forwardData) = abi.decode(data, (uint256, address, bytes));
-            if (extension == address(VE33_REF)) result = Ve33Lib.forward(CORE_REF, VE33_REF, forwardData);
-            else result = CORE_REF.forward(extension, forwardData);
         } else {
             revert();
         }
@@ -562,7 +553,7 @@ contract Ve33Test is FullTest {
         assertEq(defaultSwapFee, expectedFee);
     }
 
-    function test_directHooksAndMalformedForwardRevert() public {
+    function test_directHooksAndInvalidCoreLockRevert() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         SwapParameters params = createSwapParameters({
             _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(1), _isToken1: false, _skipAhead: 0
@@ -573,9 +564,6 @@ contract Ve33Test is FullTest {
 
         vm.expectRevert();
         ve.beforeUpdatePosition(Locker.wrap(bytes32(0)), poolKey, positionId, 0);
-
-        vm.expectRevert();
-        forwarder.rawForward(address(ve), abi.encode(uint256(999)));
 
         vm.prank(address(ve));
         (bool success,) = address(core).call(abi.encodeWithSelector(core.lock.selector, uint256(999)));

@@ -18,6 +18,7 @@ import {MAX_NUM_VALID_TIMES, nextValidTime} from "../../src/math/time.sol";
 import {defaultFeeForStableswapAmplification, defaultFeeForTickSpacing} from "../../src/math/tickSpacingFee.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
+import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
@@ -1224,6 +1225,20 @@ contract Ve33Test is FullTest {
 
         assertEq(core.poolPositions(poolId, address(vePositions), positionId).liquidity, ownerLiquidity);
         assertGt(core.poolPositions(poolId, address(vePositions), otherPositionId).liquidity, 0);
+    }
+
+    function test_vePositionsRejectsDepositsThatOverflowQueryableLiquidity() public {
+        PoolKey memory poolKey = createFullRangePool(0, 0, address(ve));
+        PositionId positionId = _mintPosition(MIN_TICK, MAX_TICK);
+        uint256 id = _positionNftId(positionId);
+
+        _updatePosition(poolKey, positionId, type(int128).max);
+
+        (uint128 liquidity,,) = vePositions.getPositionLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
+        assertEq(liquidity, uint128(type(int128).max));
+
+        vm.expectRevert(Ve33Positions.DepositOverflow.selector);
+        vePositions.deposit(id, poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 1);
     }
 
     function test_fundEmissionsAccruesMultipleEventsAtSameTime() public {

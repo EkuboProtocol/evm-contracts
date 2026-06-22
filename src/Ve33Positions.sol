@@ -270,8 +270,12 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
             if (liquidity < minLiquidity) revert DepositFailedDueToSlippage(liquidity, minLiquidity);
             if (liquidity > uint128(type(int128).max)) revert DepositOverflow();
 
-            PoolBalanceUpdate balanceUpdate =
-                CORE.updatePosition(poolKey, positionId(id, tickLower, tickUpper), int128(liquidity));
+            PoolId poolId = poolKey.toPoolId();
+            PositionId positionId_ = positionId(id, tickLower, tickUpper);
+            uint128 existingLiquidity = CORE.poolPositions(poolId, address(this), positionId_).liquidity;
+            if (existingLiquidity > uint128(type(int128).max) - liquidity) revert DepositOverflow();
+
+            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, int128(liquidity));
             uint128 amount0 = uint128(balanceUpdate.delta0());
             uint128 amount1 = uint128(balanceUpdate.delta1());
 

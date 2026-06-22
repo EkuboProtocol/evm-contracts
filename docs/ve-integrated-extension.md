@@ -29,7 +29,7 @@ For role-oriented user documentation, see [Ve33 User Guide](./ve33-user-guide.md
 - wrapper vote and pool-fee claim calls
 - on-chain ERC721 JSON metadata derived from the staked token and current stake state
 
-`Ve33Positions` is the ERC721 LP position manager. It owns Core positions for Ve33 LPs, settles liquidity token payments, and forwards LP reward claims to `Ve33`. `Ve33Periphery` owns token settlement for generic Ve33 actions such as swaps, reward donations, explicit reward schedules, global emission funding, and emission triggering. `Ve33` itself accounts balances only with Core saved balances and does not transfer ERC20s.
+`Ve33Positions` is the ERC721 LP position manager. It owns Core positions for Ve33 LPs, settles liquidity token payments, and forwards LP reward claims to `Ve33`. `Ve33Periphery` owns token settlement for generic Ve33 actions such as reward donations, explicit reward schedules, global emission funding, and emission triggering. Swaps are settled by the configured router. `Ve33` itself accounts balances only with Core saved balances and does not transfer ERC20s.
 
 For LP positions, `Ve33Positions` derives the Core `PositionId` from `(tokenId, tickLower, tickUpper)` and owns the resulting Core position as the locker contract. ERC721 ownership and approvals authorize deposits, withdrawals, and reward claims. This keeps LP position ownership explicit without inheriting the standard `BasePositions` swap-fee collection assumptions.
 
@@ -182,7 +182,7 @@ The extension relies on Core saved balances for deferred accounting:
 - funded-but-unassigned emissions are saved under `address(ve33)` and emission reserve salt `bytes32(uint256(1))`
 - ve stake is saved under `address(ve33)` and the stake id
 
-`Ve33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, `Ve33Positions` is the reference implementation for LP position and reward-claim settlement, and `Ve33Periphery` is the reference implementation for generic Ve33 token settlement.
+`Ve33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, `Ve33Positions` is the reference implementation for LP position and reward-claim settlement, and `Ve33Periphery` is the reference implementation for generic reward and emission token settlement.
 
 ## Deployment
 

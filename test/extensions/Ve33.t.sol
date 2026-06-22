@@ -1120,7 +1120,7 @@ contract Ve33Test is FullTest {
         assertEq(stakeToken.balanceOf(address(this)), balanceBefore + claimed);
     }
 
-    function test_peripherySettlesSwapRewardsAndEmissionPayments() public {
+    function test_peripherySettlesRewardsAndEmissionPaymentsAfterRouterSwap() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));

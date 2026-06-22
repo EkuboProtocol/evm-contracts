@@ -9,12 +9,12 @@ Ve33 pools are Ekubo Core pools with a custom extension. The Core pool fee is se
 - `Ve33`: the pool extension. It stores votes, pool fees, LP reward accounting, emissions, and canonical stake balances. It does not transfer ERC20 tokens directly.
 - `VeToken`: an optional ERC721 wrapper for Ve33 stakes. Each NFT controls one Ve33 stake and can be transferred or approved like a normal NFT.
 - `Ve33Positions`: the ERC721 manager for Ve33 LP positions. It owns Core positions, settles liquidity token payments, and claims LP rewards.
-- `Ve33Periphery`: the token-settling helper for swaps, reward donations, reward schedules, and emissions.
+- `Ve33Periphery`: the token-settling helper for reward donations, reward schedules, and emissions.
 - `Ve33Lib`: read helpers for Ve33 storage exposed through `ExposedStorage`.
 
 ## Pool Rules
 
-Ve33 pools must be initialized with `poolKey.config.fee() == 0`. Direct Core swaps revert. Swaps must go through a router or periphery that forwards `VE33_SWAP` to the extension.
+Ve33 pools must be initialized with `poolKey.config.fee() == 0`. Direct Core swaps revert. Swaps must go through a router that forwards `VE33_SWAP` to the extension.
 
 The active swap fee is stored in Ve33 pool state. If nobody has active votes on a pool, the pool uses its default fee. Concentrated pool defaults are derived from `2 * tickSpacing`; stableswap defaults are derived from amplification. Voters can choose explicit fees, capped at 50%.
 
@@ -83,7 +83,7 @@ LPs should remember:
 
 ## Swappers And Routers
 
-Swappers should use a router or periphery that forwards swaps to Ve33. `Ve33Periphery.swap(poolKey, params, recipient)` is the reference flow.
+Swappers should use a router configured for Ve33 pools. The router forwards swaps to Ve33 and settles the returned balance deltas.
 
 Routers must set the intended `sqrtRatioLimit` before forwarding. Ve33 does not apply default sqrt-ratio limits internally.
 

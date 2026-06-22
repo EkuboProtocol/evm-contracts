@@ -7,26 +7,21 @@ import {
     VE33_ADD_REWARDS,
     VE33_DONATE_REWARDS,
     VE33_FUND_EMISSIONS,
-    VE33_SWAP,
     VE33_TRIGGER_POOL_EMISSIONS
 } from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
-import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {PoolState} from "./types/poolState.sol";
-import {SwapParameters} from "./types/swapParameters.sol";
 
 /// @notice Token-settling periphery for Ve33 forwarded actions.
 /// @dev Ve33 accounts saved balances during `forward`; this contract pays or withdraws the corresponding tokens.
 contract Ve33Periphery is BaseLocker {
     using FlashAccountantLib for *;
 
-    uint256 private constant CALL_TYPE_SWAP = 0;
-    uint256 private constant CALL_TYPE_DONATE_REWARDS = 1;
-    uint256 private constant CALL_TYPE_ADD_REWARDS = 2;
-    uint256 private constant CALL_TYPE_FUND_EMISSIONS = 3;
-    uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 4;
+    uint256 private constant CALL_TYPE_DONATE_REWARDS = 0;
+    uint256 private constant CALL_TYPE_ADD_REWARDS = 1;
+    uint256 private constant CALL_TYPE_FUND_EMISSIONS = 2;
+    uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 3;
 
     ICore private immutable CORE_REF;
 
@@ -43,22 +38,6 @@ contract Ve33Periphery is BaseLocker {
     }
 
     receive() external payable {}
-
-    /// @notice Swaps through a Ve33 pool and settles token deltas with the caller and recipient.
-    /// @dev The caller or router must set the intended sqrt-ratio limit before calling.
-    /// @param poolKey Pool to swap against.
-    /// @param params Swap parameters forwarded to Ve33.
-    /// @param recipient Account receiving output tokens.
-    /// @return balanceUpdate Final token deltas including Ve33 voter fees.
-    /// @return stateAfter Core pool state after the swap.
-    function swap(PoolKey memory poolKey, SwapParameters params, address recipient)
-        external
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        (balanceUpdate, stateAfter) = abi.decode(
-            lock(abi.encode(CALL_TYPE_SWAP, msg.sender, poolKey, params, recipient)), (PoolBalanceUpdate, PoolState)
-        );
-    }
 
     /// @notice Donates stake tokens immediately to current eligible LP liquidity.
     /// @param poolKey Pool receiving the donation.
@@ -102,16 +81,7 @@ contract Ve33Periphery is BaseLocker {
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
-        if (callType == CALL_TYPE_SWAP) {
-            (, address payer, PoolKey memory poolKey, SwapParameters params, address recipient) =
-                abi.decode(data, (uint256, address, PoolKey, SwapParameters, address));
-            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = abi.decode(
-                CORE_REF.forward(poolKey.config.extension(), abi.encode(VE33_SWAP, poolKey, params)),
-                (PoolBalanceUpdate, PoolState)
-            );
-            _settle(poolKey, payer, recipient, balanceUpdate);
-            result = abi.encode(balanceUpdate, stateAfter);
-        } else if (callType == CALL_TYPE_DONATE_REWARDS) {
+        if (callType == CALL_TYPE_DONATE_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint128 amount) =
                 abi.decode(data, (uint256, address, PoolKey, uint128));
             result = CORE_REF.forward(poolKey.config.extension(), abi.encode(VE33_DONATE_REWARDS, poolKey, amount));
@@ -134,27 +104,6 @@ contract Ve33Periphery is BaseLocker {
             result = CORE_REF.forward(address(ve33), abi.encode(VE33_TRIGGER_POOL_EMISSIONS, poolKey));
         } else {
             revert();
-        }
-    }
-
-    function _settle(PoolKey memory poolKey, address payer, address recipient, PoolBalanceUpdate balanceUpdate)
-        private
-    {
-        int128 delta0_ = balanceUpdate.delta0();
-        int128 delta1_ = balanceUpdate.delta1();
-
-        unchecked {
-            if (delta0_ > 0) {
-                ACCOUNTANT.payFrom(payer, poolKey.token0, uint128(delta0_));
-            } else if (delta0_ < 0) {
-                ACCOUNTANT.withdraw(poolKey.token0, recipient, uint128(-delta0_));
-            }
-
-            if (delta1_ > 0) {
-                ACCOUNTANT.payFrom(payer, poolKey.token1, uint128(delta1_));
-            } else if (delta1_ < 0) {
-                ACCOUNTANT.withdraw(poolKey.token1, recipient, uint128(-delta1_));
-            }
         }
     }
 }

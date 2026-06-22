@@ -97,6 +97,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_gas_tokenURI() public {
+        vm.warp(1);
         uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
 
         coolAllContracts();
@@ -148,6 +149,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_tokenURI_returnsErc721JsonMetadata() public {
+        vm.warp(1);
         uint256 veId = veToken.createStake(15e17, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
         string memory uri = veToken.tokenURI(veId);
         string memory prefix = "data:application/json;base64,";

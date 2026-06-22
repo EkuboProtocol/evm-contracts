@@ -7,14 +7,7 @@ import {Base64} from "solady/utils/Base64.sol";
 import {LibString} from "solady/utils/LibString.sol";
 
 import {BaseLocker} from "./base/BaseLocker.sol";
-import {
-    Ve33,
-    VE33_CLAIM_POOL_FEES,
-    VE33_MAX_STAKE_DURATION,
-    VE33_MOVE_STAKE,
-    VE33_STAKE,
-    VE33_UNSTAKE
-} from "./extensions/Ve33.sol";
+import {Ve33, VE33_MAX_STAKE_DURATION} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
@@ -285,26 +278,29 @@ contract VeToken is ERC721, BaseLocker {
         if (callType == CALL_TYPE_STAKE) {
             (, address owner, bytes32 salt, uint64 endTime, uint128 amount) =
                 abi.decode(data, (uint256, address, bytes32, uint64, uint128));
-            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_STAKE, salt, endTime, amount));
-            uint128 staked = abi.decode(result, (uint128));
+            uint128 staked = Ve33Lib.stake(ICore(payable(address(ACCOUNTANT))), ve33, salt, endTime, amount);
+            result = abi.encode(staked);
             if (staked != 0) ACCOUNTANT.payFrom(owner, stakeToken, staked);
         } else if (callType == CALL_TYPE_UNSTAKE) {
             (, bytes32 salt, uint64 endTime, uint128 amount, address recipient) =
                 abi.decode(data, (uint256, bytes32, uint64, uint128, address));
-            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_UNSTAKE, salt, endTime, amount));
-            uint128 unstaked = abi.decode(result, (uint128));
+            uint128 unstaked = Ve33Lib.unstake(ICore(payable(address(ACCOUNTANT))), ve33, salt, endTime, amount);
+            result = abi.encode(unstaked);
             if (unstaked != 0) ACCOUNTANT.withdraw(stakeToken, recipient, unstaked);
         } else if (callType == CALL_TYPE_MOVE_STAKE) {
             (, bytes32 fromSalt, uint64 fromEndTime, bytes32 toSalt, uint64 toEndTime, uint128 amount) =
                 abi.decode(data, (uint256, bytes32, uint64, bytes32, uint64, uint128));
-            result = ACCOUNTANT.forward(
-                address(ve33), abi.encode(VE33_MOVE_STAKE, fromSalt, fromEndTime, toSalt, toEndTime, amount)
+            result = abi.encode(
+                Ve33Lib.moveStake(
+                    ICore(payable(address(ACCOUNTANT))), ve33, fromSalt, fromEndTime, toSalt, toEndTime, amount
+                )
             );
         } else if (callType == CALL_TYPE_CLAIM_POOL_FEES) {
             (, uint256 veId, address recipient, PoolKey memory poolKey) =
                 abi.decode(data, (uint256, uint256, address, PoolKey));
-            result = ACCOUNTANT.forward(address(ve33), abi.encode(VE33_CLAIM_POOL_FEES, stakeKey(veId), poolKey));
-            (uint128 amount0, uint128 amount1) = abi.decode(result, (uint128, uint128));
+            (uint128 amount0, uint128 amount1) =
+                Ve33Lib.claimPoolFees(ICore(payable(address(ACCOUNTANT))), ve33, stakeKey(veId), poolKey);
+            result = abi.encode(amount0, amount1);
             ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
         } else {
             revert();

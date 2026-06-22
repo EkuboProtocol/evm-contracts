@@ -5,11 +5,12 @@ import {BaseRouter} from "./base/BaseRouter.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
+import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PoolState} from "./types/poolState.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {SwapParameters} from "./types/swapParameters.sol";
-import {VE33_SWAP} from "./extensions/Ve33.sol";
+import {Ve33} from "./extensions/Ve33.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title Ekubo Protocol Router
@@ -50,9 +51,7 @@ contract Router is BaseRouter {
             );
             if (value != 0) SafeTransferLib.safeTransferETH(address(CORE), value);
         } else if (extension == VE33) {
-            (balanceUpdate, stateAfter) = abi.decode(
-                CORE.forward(VE33, abi.encode(VE33_SWAP, poolKey, normalizedParams)), (PoolBalanceUpdate, PoolState)
-            );
+            (balanceUpdate, stateAfter) = Ve33Lib.swap(CORE, Ve33(payable(VE33)), poolKey, normalizedParams);
             if (value != 0) SafeTransferLib.safeTransferETH(address(CORE), value);
         } else {
             (balanceUpdate, stateAfter) = CORE.swap(value, poolKey, normalizedParams);

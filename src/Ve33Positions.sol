@@ -5,10 +5,11 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {BaseNonfungibleToken} from "./base/BaseNonfungibleToken.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {UsesCore} from "./base/UsesCore.sol";
-import {Ve33, VE33_CLAIM_REWARDS} from "./extensions/Ve33.sol";
+import {Ve33} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
+import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {liquidityDeltaToAmountDelta, maxLiquidity} from "./math/liquidity.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
@@ -310,8 +311,9 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
 
             _validateVe33Pool(poolKey);
-            result = CORE.forward(address(ve33), abi.encode(VE33_CLAIM_REWARDS, poolKey, positionId_, recipient));
-            uint128 amount = uint128(abi.decode(result, (uint256)));
+            uint256 amount256 = Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_, recipient);
+            result = abi.encode(amount256);
+            uint128 amount = uint128(amount256);
             if (amount != 0) ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         } else {
             revert();

@@ -8,15 +8,7 @@ import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
-import {
-    VE33_ADD_REWARDS,
-    VE33_CLAIM_POOL_FEES,
-    VE33_DONATE_REWARDS,
-    VE33_FUND_EMISSIONS,
-    VE33_TRIGGER_POOL_EMISSIONS,
-    Ve33,
-    ve33CallPoints
-} from "../../src/extensions/Ve33.sol";
+import {Ve33, ve33CallPoints} from "../../src/extensions/Ve33.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
@@ -36,6 +28,23 @@ import {SwapParameters, createSwapParameters} from "../../src/types/swapParamete
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {Locker} from "../../src/types/locker.sol";
 
+contract MaliciousVe33Forwardee {
+    uint256 public calls;
+    uint256 private immutable returnAmount;
+
+    constructor(uint256 _returnAmount) {
+        returnAmount = _returnAmount;
+    }
+
+    function forwarded_2374103877(Locker) external {
+        ++calls;
+        bytes memory result = abi.encode(returnAmount);
+        assembly ("memory-safe") {
+            return(add(result, 32), mload(result))
+        }
+    }
+}
+
 contract Ve33Forwarder is BaseLocker {
     using FlashAccountantLib for *;
 
@@ -44,12 +53,13 @@ contract Ve33Forwarder is BaseLocker {
     uint256 private constant CALL_TYPE_RAW_FORWARD = 2;
     uint256 private constant CALL_TYPE_FUND_EMISSIONS = 3;
     uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 4;
+    uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 5;
 
     ICore private immutable CORE_REF;
-    address private immutable VE33_REF;
+    Ve33 private immutable VE33_REF;
     address private immutable STAKE_TOKEN;
 
-    constructor(ICore core, address ve33, address stakeToken) BaseLocker(core) {
+    constructor(ICore core, Ve33 ve33, address stakeToken) BaseLocker(core) {
         CORE_REF = core;
         VE33_REF = ve33;
         STAKE_TOKEN = stakeToken;
@@ -80,33 +90,47 @@ contract Ve33Forwarder is BaseLocker {
         result = lock(abi.encode(CALL_TYPE_RAW_FORWARD, extension, forwardData));
     }
 
+    function claimPoolFees(Ve33.StakeKey memory stakeKey, PoolKey memory poolKey)
+        external
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) =
+            abi.decode(lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, stakeKey, poolKey)), (uint128, uint128));
+    }
+
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == CALL_TYPE_DONATE_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint128 amount) =
                 abi.decode(data, (uint256, address, PoolKey, uint128));
-            result = CORE_REF.forward(poolKey.config.extension(), abi.encode(VE33_DONATE_REWARDS, poolKey, amount));
-            uint128 donated = abi.decode(result, (uint128));
+            uint128 donated = Ve33Lib.donateRewards(CORE_REF, VE33_REF, poolKey, amount);
+            result = abi.encode(donated);
             if (donated != 0) ACCOUNTANT.payFrom(payer, STAKE_TOKEN, donated);
         } else if (callType == CALL_TYPE_ADD_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
                 abi.decode(data, (uint256, address, PoolKey, uint64, uint64, uint224));
-            result = CORE_REF.forward(
-                poolKey.config.extension(), abi.encode(VE33_ADD_REWARDS, poolKey, startTime, endTime, rewardRate)
-            );
-            uint224 amount = abi.decode(result, (uint224));
+            uint224 amount = Ve33Lib.addRewards(CORE_REF, VE33_REF, poolKey, startTime, endTime, rewardRate);
+            result = abi.encode(amount);
             if (amount != 0) ACCOUNTANT.payFrom(payer, STAKE_TOKEN, amount);
         } else if (callType == CALL_TYPE_FUND_EMISSIONS) {
             (, address payer, uint128 amount) = abi.decode(data, (uint256, address, uint128));
-            result = CORE_REF.forward(VE33_REF, abi.encode(VE33_FUND_EMISSIONS, amount));
+            (uint224 rate, uint64 end) = Ve33Lib.fundEmissions(CORE_REF, VE33_REF, amount);
+            result = abi.encode(rate, end);
             if (amount != 0) ACCOUNTANT.payFrom(payer, STAKE_TOKEN, amount);
         } else if (callType == CALL_TYPE_TRIGGER_POOL_EMISSIONS) {
             (, PoolKey memory poolKey) = abi.decode(data, (uint256, PoolKey));
-            result = CORE_REF.forward(VE33_REF, abi.encode(VE33_TRIGGER_POOL_EMISSIONS, poolKey));
+            uint224 amount = Ve33Lib.triggerPoolEmissions(CORE_REF, VE33_REF, poolKey);
+            result = abi.encode(amount);
+        } else if (callType == CALL_TYPE_CLAIM_POOL_FEES) {
+            (, Ve33.StakeKey memory stakeKey, PoolKey memory poolKey) =
+                abi.decode(data, (uint256, Ve33.StakeKey, PoolKey));
+            (uint128 amount0, uint128 amount1) = Ve33Lib.claimPoolFees(CORE_REF, VE33_REF, stakeKey, poolKey);
+            result = abi.encode(amount0, amount1);
         } else if (callType == CALL_TYPE_RAW_FORWARD) {
             (, address extension, bytes memory forwardData) = abi.decode(data, (uint256, address, bytes));
-            result = CORE_REF.forward(extension, forwardData);
+            if (extension == address(VE33_REF)) result = Ve33Lib.forward(CORE_REF, VE33_REF, forwardData);
+            else result = CORE_REF.forward(extension, forwardData);
         } else {
             revert();
         }
@@ -136,7 +160,7 @@ contract Ve33Test is FullTest {
         router = new Router(core, address(0), address(ve));
         veToken = new VeToken(core, ve);
         vePositions = new Ve33Positions(core, ve, owner);
-        forwarder = new Ve33Forwarder(core, address(ve), address(stakeToken));
+        forwarder = new Ve33Forwarder(core, ve, address(stakeToken));
         periphery = new Ve33Periphery(core, ve);
 
         stakeToken.approve(address(ve), type(uint256).max);
@@ -664,7 +688,7 @@ contract Ve33Test is FullTest {
         uint256 balanceBefore = token0.balanceOf(address(this));
         Ve33.StakeKey memory stakeKey = veToken.stakeKey(veId);
         vm.expectRevert(Ve33.NotStakeOwner.selector);
-        forwarder.rawForward(address(ve), abi.encode(VE33_CLAIM_POOL_FEES, stakeKey, poolKey));
+        forwarder.claimPoolFees(stakeKey, poolKey);
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
         assertApproxEqAbs(claimed0, expectedFee, 1);
         assertEq(claimed1, 0);
@@ -1150,6 +1174,27 @@ contract Ve33Test is FullTest {
         assertEq(end, uint64(block.timestamp + ve.EMISSION_DURATION()));
         vm.warp(block.timestamp + 1 days);
         assertGt(periphery.triggerPoolEmissions(poolKey), 0);
+    }
+
+    function test_peripheryDoesNotForwardRewardActionsToPoolKeyExtension() public {
+        MaliciousVe33Forwardee malicious = new MaliciousVe33Forwardee(1e18);
+        PoolKey memory poolKey = PoolKey({
+            token0: address(token0),
+            token1: address(token1),
+            config: createConcentratedPoolConfig(0, 100, address(malicious))
+        });
+
+        uint256 balanceBefore = stakeToken.balanceOf(address(this));
+
+        vm.expectRevert(Ve33.PoolNotInitialized.selector);
+        periphery.donateRewards(poolKey, 1);
+        assertEq(malicious.calls(), 0);
+        assertEq(stakeToken.balanceOf(address(this)), balanceBefore);
+
+        vm.expectRevert(Ve33.PoolNotInitialized.selector);
+        periphery.addRewards(poolKey, 0, _nextValidRewardTime(block.timestamp + 1 days - 1), uint224(1 << 32));
+        assertEq(malicious.calls(), 0);
+        assertEq(stakeToken.balanceOf(address(this)), balanceBefore);
     }
 
     function test_vePositionsAuthorizesByNftAndKeepsIndependentPositions() public {

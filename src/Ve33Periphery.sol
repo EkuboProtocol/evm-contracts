@@ -2,15 +2,10 @@
 pragma solidity =0.8.33;
 
 import {BaseLocker} from "./base/BaseLocker.sol";
-import {
-    Ve33,
-    VE33_ADD_REWARDS,
-    VE33_DONATE_REWARDS,
-    VE33_FUND_EMISSIONS,
-    VE33_TRIGGER_POOL_EMISSIONS
-} from "./extensions/Ve33.sol";
+import {Ve33} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
+import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {PoolKey} from "./types/poolKey.sol";
 
 /// @notice Token-settling periphery for Ve33 forwarded actions.
@@ -84,24 +79,23 @@ contract Ve33Periphery is BaseLocker {
         if (callType == CALL_TYPE_DONATE_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint128 amount) =
                 abi.decode(data, (uint256, address, PoolKey, uint128));
-            result = CORE_REF.forward(poolKey.config.extension(), abi.encode(VE33_DONATE_REWARDS, poolKey, amount));
-            uint128 donated = abi.decode(result, (uint128));
+            uint128 donated = Ve33Lib.donateRewards(CORE_REF, ve33, poolKey, amount);
+            result = abi.encode(donated);
             if (donated != 0) ACCOUNTANT.payFrom(payer, stakeToken, donated);
         } else if (callType == CALL_TYPE_ADD_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
                 abi.decode(data, (uint256, address, PoolKey, uint64, uint64, uint224));
-            result = CORE_REF.forward(
-                poolKey.config.extension(), abi.encode(VE33_ADD_REWARDS, poolKey, startTime, endTime, rewardRate)
-            );
-            uint224 amount = abi.decode(result, (uint224));
+            uint224 amount = Ve33Lib.addRewards(CORE_REF, ve33, poolKey, startTime, endTime, rewardRate);
+            result = abi.encode(amount);
             if (amount != 0) ACCOUNTANT.payFrom(payer, stakeToken, amount);
         } else if (callType == CALL_TYPE_FUND_EMISSIONS) {
             (, address payer, uint128 amount) = abi.decode(data, (uint256, address, uint128));
-            result = CORE_REF.forward(address(ve33), abi.encode(VE33_FUND_EMISSIONS, amount));
+            (uint224 rate, uint64 end) = Ve33Lib.fundEmissions(CORE_REF, ve33, amount);
+            result = abi.encode(rate, end);
             if (amount != 0) ACCOUNTANT.payFrom(payer, stakeToken, amount);
         } else if (callType == CALL_TYPE_TRIGGER_POOL_EMISSIONS) {
             (, PoolKey memory poolKey) = abi.decode(data, (uint256, PoolKey));
-            result = CORE_REF.forward(address(ve33), abi.encode(VE33_TRIGGER_POOL_EMISSIONS, poolKey));
+            result = abi.encode(Ve33Lib.triggerPoolEmissions(CORE_REF, ve33, poolKey));
         } else {
             revert();
         }

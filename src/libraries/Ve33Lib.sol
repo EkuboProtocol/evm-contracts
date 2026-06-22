@@ -1,11 +1,31 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {Ve33, VE33_MAX_STAKE_DURATION, Ve33RewardPoolState} from "../extensions/Ve33.sol";
+import {
+    Ve33,
+    VE33_ADD_REWARDS,
+    VE33_CLAIM_POOL_FEES,
+    VE33_CLAIM_REWARDS,
+    VE33_DONATE_REWARDS,
+    VE33_FUND_EMISSIONS,
+    VE33_MAX_STAKE_DURATION,
+    VE33_MOVE_STAKE,
+    VE33_STAKE,
+    VE33_SWAP,
+    VE33_TRIGGER_POOL_EMISSIONS,
+    VE33_UNSTAKE,
+    Ve33RewardPoolState
+} from "../extensions/Ve33.sol";
+import {ICore} from "../interfaces/ICore.sol";
 import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
+import {FlashAccountantLib} from "./FlashAccountantLib.sol";
 import {PoolId} from "../types/poolId.sol";
+import {PoolKey} from "../types/poolKey.sol";
+import {PoolState} from "../types/poolState.sol";
+import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PositionId} from "../types/positionId.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 
 /// @title Ve33 Library
@@ -13,6 +33,7 @@ import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 /// @dev Slot constants match Ve33's declared storage layout. Ve33 inherits only storage-less bases.
 library Ve33Lib {
     using ExposedStorageLib for IExposedStorage;
+    using FlashAccountantLib for *;
 
     uint256 private constant STAKE_AMOUNTS_SLOT = 0;
     uint256 private constant VOTED_POOLS_SLOT = 1;
@@ -37,6 +58,104 @@ library Ve33Lib {
 
     /// @notice Duration of each global and per-pool emission stream.
     uint256 internal constant EMISSION_DURATION = 7 days;
+
+    /// @notice Forwards raw Ve33 action data through Core.
+    function forward(ICore core, Ve33 ve33, bytes memory data) internal returns (bytes memory result) {
+        result = core.forward(address(ve33), data);
+    }
+
+    /// @notice Executes a Ve33 forwarded swap through Core.
+    function swap(ICore core, Ve33 ve33, PoolKey memory poolKey, SwapParameters params)
+        internal
+        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
+    {
+        (balanceUpdate, stateAfter) = abi.decode(
+            forward(core, ve33, abi.encode(VE33_SWAP, poolKey, params)), (PoolBalanceUpdate, PoolState)
+        );
+    }
+
+    /// @notice Claims LP rewards for a Ve33 position through Core.
+    function claimRewards(ICore core, Ve33 ve33, PoolKey memory poolKey, PositionId positionId, address recipient)
+        internal
+        returns (uint256 amount)
+    {
+        amount =
+            abi.decode(forward(core, ve33, abi.encode(VE33_CLAIM_REWARDS, poolKey, positionId, recipient)), (uint256));
+    }
+
+    /// @notice Donates stake-token rewards to eligible Ve33 LP liquidity through Core.
+    function donateRewards(ICore core, Ve33 ve33, PoolKey memory poolKey, uint128 amount)
+        internal
+        returns (uint128 donated)
+    {
+        donated = abi.decode(forward(core, ve33, abi.encode(VE33_DONATE_REWARDS, poolKey, amount)), (uint128));
+    }
+
+    /// @notice Schedules stake-token LP rewards for a Ve33 pool through Core.
+    function addRewards(
+        ICore core,
+        Ve33 ve33,
+        PoolKey memory poolKey,
+        uint64 startTime,
+        uint64 endTime,
+        uint224 rewardRate
+    ) internal returns (uint224 amount) {
+        amount = abi.decode(
+            forward(core, ve33, abi.encode(VE33_ADD_REWARDS, poolKey, startTime, endTime, rewardRate)), (uint224)
+        );
+    }
+
+    /// @notice Stakes tokens into Ve33 through Core.
+    function stake(ICore core, Ve33 ve33, bytes32 salt, uint64 endTime, uint128 amount)
+        internal
+        returns (uint128 staked)
+    {
+        staked = abi.decode(forward(core, ve33, abi.encode(VE33_STAKE, salt, endTime, amount)), (uint128));
+    }
+
+    /// @notice Unstakes tokens from Ve33 through Core.
+    function unstake(ICore core, Ve33 ve33, bytes32 salt, uint64 endTime, uint128 amount)
+        internal
+        returns (uint128 unstaked)
+    {
+        unstaked = abi.decode(forward(core, ve33, abi.encode(VE33_UNSTAKE, salt, endTime, amount)), (uint128));
+    }
+
+    /// @notice Moves stake between two Ve33 stake keys through Core.
+    function moveStake(
+        ICore core,
+        Ve33 ve33,
+        bytes32 fromSalt,
+        uint64 fromEndTime,
+        bytes32 toSalt,
+        uint64 toEndTime,
+        uint128 amount
+    ) internal returns (uint128 moved) {
+        moved = abi.decode(
+            forward(core, ve33, abi.encode(VE33_MOVE_STAKE, fromSalt, fromEndTime, toSalt, toEndTime, amount)),
+            (uint128)
+        );
+    }
+
+    /// @notice Claims pool fees for a Ve33 stake through Core.
+    function claimPoolFees(ICore core, Ve33 ve33, Ve33.StakeKey memory stakeKey, PoolKey memory poolKey)
+        internal
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = abi.decode(
+            forward(core, ve33, abi.encode(VE33_CLAIM_POOL_FEES, stakeKey, poolKey)), (uint128, uint128)
+        );
+    }
+
+    /// @notice Funds global Ve33 emissions through Core.
+    function fundEmissions(ICore core, Ve33 ve33, uint128 amount) internal returns (uint224 rate, uint64 end) {
+        (rate, end) = abi.decode(forward(core, ve33, abi.encode(VE33_FUND_EMISSIONS, amount)), (uint224, uint64));
+    }
+
+    /// @notice Assigns a voted pool's share of global emissions to LP rewards through Core.
+    function triggerPoolEmissions(ICore core, Ve33 ve33, PoolKey memory poolKey) internal returns (uint224 amount) {
+        amount = abi.decode(forward(core, ve33, abi.encode(VE33_TRIGGER_POOL_EMISSIONS, poolKey)), (uint224));
+    }
 
     /// @notice Returns stake for `(owner, salt, endTime)`.
     function stakeAmount(Ve33 ve33, address owner, bytes32 salt, uint64 endTime) internal view returns (uint128) {

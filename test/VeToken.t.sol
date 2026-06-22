@@ -148,7 +148,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_tokenURI_returnsErc721JsonMetadata() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(15e17, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
         string memory uri = veToken.tokenURI(veId);
         string memory prefix = "data:application/json;base64,";
         assertTrue(LibString.startsWith(uri, prefix));
@@ -161,9 +161,12 @@ contract VeTokenTest is FullTest {
         _assertSnapshotEq(bytes(json), "snapshots/VeTokenTokenURI.json");
         _assertSnapshotEq(bytes(svg), "snapshots/VeTokenTokenURI.svg");
         assertTrue(LibString.contains(json, "\"name\":\"veTT #1\""));
-        assertTrue(LibString.contains(json, "\"description\":\"Vote-escrowed TestToken stake."));
+        assertTrue(LibString.contains(json, "Amount: 1.5 TT."));
+        assertTrue(LibString.contains(json, "Unlock date: Dec 31, 1973."));
         assertTrue(LibString.contains(json, "\"image\":\"data:image/svg+xml;base64,"));
         assertTrue(LibString.startsWith(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        assertTrue(LibString.contains(svg, ">1.5</text>"));
+        assertTrue(LibString.contains(svg, ">Dec 31, 1973</text>"));
         assertTrue(LibString.contains(svg, "viewBox=\"0 0 480 480\""));
         assertTrue(LibString.endsWith(svg, "</svg>"));
     }

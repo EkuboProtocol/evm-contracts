@@ -8,7 +8,8 @@ Ve33 pools are Ekubo Core pools with a custom extension. The Core pool fee is se
 
 - `Ve33`: the pool extension. It stores votes, pool fees, LP reward accounting, emissions, and canonical stake balances. It does not transfer ERC20 tokens directly.
 - `VeToken`: an optional ERC721 wrapper for Ve33 stakes. Each NFT controls one Ve33 stake and can be transferred or approved like a normal NFT.
-- `Ve33Periphery`: the token-settling helper for swaps, LP position updates, LP reward claims, reward donations, reward schedules, and emissions.
+- `Ve33Positions`: the ERC721 manager for Ve33 LP positions. It owns Core positions, settles liquidity token payments, and claims LP rewards.
+- `Ve33Periphery`: the token-settling helper for swaps, reward donations, reward schedules, and emissions.
 - `Ve33Lib`: read helpers for Ve33 storage exposed through `ExposedStorage`.
 
 ## Pool Rules
@@ -59,16 +60,16 @@ Voter fees are distributed only to active voters on the pool at the time fees ar
 
 ## Liquidity Providers
 
-LPs provide liquidity through `Ve33Periphery.updatePosition`. The production periphery derives a Core `PositionId` from:
+LPs provide liquidity through `Ve33Positions`. Each ERC721 token can own one position per pool and tick range. The Core `PositionId` is derived from:
 
 ```text
-owner = msg.sender
-salt = user-selected bytes24 salt
+owner = address(Ve33Positions)
+salt = bytes24(uint192(tokenId))
 tickLower
 tickUpper
 ```
 
-This means two LPs can use the same salt and tick range without sharing a Core position. Withdrawals and LP reward claims are scoped to the caller's namespaced position.
+The ERC721 owner or approved operator can deposit, withdraw principal, and claim LP rewards. Separate NFTs can hold independent positions in the same pool and tick range.
 
 LPs should remember:
 
@@ -76,7 +77,7 @@ LPs should remember:
 - LPs earn the stake token from donations, scheduled pool rewards, and triggered emissions.
 - Rewards are range-aware. Out-of-range concentrated positions do not earn while out of range.
 - Stableswap positions only earn while the pool price is inside the stableswap active-liquidity range.
-- `claimRewards(poolKey, salt, tickLower, tickUpper, recipient)` claims the caller's accrued reward tokens.
+- `claimRewards(tokenId, poolKey, tickLower, tickUpper, recipient)` claims accrued reward tokens.
 - Before liquidity changes, Ve33 snapshots earned rewards. If a position fully exits, any unclaimed reward dust left in the snapshot is discarded.
 - If rewards are donated or accrue while eligible liquidity is zero, those rewards are not assigned to LP positions.
 
@@ -111,7 +112,7 @@ Funding emissions does not choose pools by itself. Vote weights and elapsed vote
 
 ## Deployment
 
-Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC721 wrapper, periphery, and a router configured for Ve33 pools.
+Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC721 wrappers, periphery, and a router configured for Ve33 pools.
 
 Required environment variables:
 
@@ -126,6 +127,8 @@ CORE_ADDRESS=<deployed core, defaults to 0x00000000000014aA86C5d3c41765bb24e11bd
 SALT=<create2 salt>
 VE33_ADDRESS=<expected Ve33 address>
 VE_TOKEN_ADDRESS=<expected VeToken address>
+VE33_POSITIONS_ADDRESS=<expected Ve33Positions address>
+VE33_POSITIONS_OWNER=<metadata owner for Ve33Positions, defaults to broadcaster>
 VE33_PERIPHERY_ADDRESS=<expected Ve33Periphery address>
 VE33_ROUTER_ADDRESS=<expected Ve33 router address>
 MEV_CAPTURE_ADDRESS=<MEV capture extension address, defaults to mainnet deployment>

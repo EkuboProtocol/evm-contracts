@@ -6,11 +6,12 @@ import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {Router} from "../src/Router.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
+import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
 import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 
 /// @title DeployVe33
-/// @notice Deploys the Ve33 extension, VeToken ERC721 wrapper, and Ve33Periphery.
+/// @notice Deploys the Ve33 extension, VeToken ERC721 wrapper, Ve33Positions, and Ve33Periphery.
 contract DeployVe33 is Script {
     address internal constant DEFAULT_CORE_ADDRESS = 0x00000000000014aA86C5d3c41765bb24e11bd701;
     address internal constant DEFAULT_MEV_CAPTURE_ADDRESS = 0x5555fF9Ff2757500BF4EE020DcfD0210CFfa41Be;
@@ -22,8 +23,10 @@ contract DeployVe33 is Script {
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         address mevCapture = vm.envOr("MEV_CAPTURE_ADDRESS", DEFAULT_MEV_CAPTURE_ADDRESS);
         address stakeToken = vm.envAddress("STAKE_TOKEN");
+        address positionsOwner = vm.envOr("VE33_POSITIONS_OWNER", msg.sender);
         address expectedVe33 = vm.envOr("VE33_ADDRESS", address(0));
         address expectedVeToken = vm.envOr("VE_TOKEN_ADDRESS", address(0));
+        address expectedPositions = vm.envOr("VE33_POSITIONS_ADDRESS", address(0));
         address expectedPeriphery = vm.envOr("VE33_PERIPHERY_ADDRESS", address(0));
         address expectedRouter = vm.envOr("VE33_ROUTER_ADDRESS", address(0));
 
@@ -41,6 +44,12 @@ contract DeployVe33 is Script {
 
         deployIfNeeded(
             abi.encodePacked(type(VeToken).creationCode, abi.encode(core, ve33)), salt, expectedVeToken, "VeToken"
+        );
+        deployIfNeeded(
+            abi.encodePacked(type(Ve33Positions).creationCode, abi.encode(core, ve33, positionsOwner)),
+            salt,
+            expectedPositions,
+            "Ve33Positions"
         );
         deployIfNeeded(
             abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)),

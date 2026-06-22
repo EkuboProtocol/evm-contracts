@@ -5,7 +5,6 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {
     Ve33,
     VE33_ADD_REWARDS,
-    VE33_CLAIM_REWARDS,
     VE33_DONATE_REWARDS,
     VE33_FUND_EMISSIONS,
     VE33_SWAP,
@@ -16,7 +15,6 @@ import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PoolState} from "./types/poolState.sol";
-import {PositionId, createPositionId} from "./types/positionId.sol";
 import {SwapParameters} from "./types/swapParameters.sol";
 
 /// @notice Token-settling periphery for Ve33 forwarded actions.
@@ -24,13 +22,11 @@ import {SwapParameters} from "./types/swapParameters.sol";
 contract Ve33Periphery is BaseLocker {
     using FlashAccountantLib for *;
 
-    uint256 private constant CALL_TYPE_UPDATE_POSITION = 0;
-    uint256 private constant CALL_TYPE_SWAP = 1;
-    uint256 private constant CALL_TYPE_CLAIM_REWARDS = 2;
-    uint256 private constant CALL_TYPE_DONATE_REWARDS = 3;
-    uint256 private constant CALL_TYPE_ADD_REWARDS = 4;
-    uint256 private constant CALL_TYPE_FUND_EMISSIONS = 5;
-    uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 6;
+    uint256 private constant CALL_TYPE_SWAP = 0;
+    uint256 private constant CALL_TYPE_DONATE_REWARDS = 1;
+    uint256 private constant CALL_TYPE_ADD_REWARDS = 2;
+    uint256 private constant CALL_TYPE_FUND_EMISSIONS = 3;
+    uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 4;
 
     ICore private immutable CORE_REF;
 
@@ -48,43 +44,6 @@ contract Ve33Periphery is BaseLocker {
 
     receive() external payable {}
 
-    /// @notice Computes the Core position id used by this periphery for a user-owned LP position.
-    /// @dev The caller-supplied salt is namespaced by `owner`, so identical salts and tick ranges from different users
-    ///      cannot collide in the Core position owned by this periphery.
-    /// @param owner User whose periphery position id is being derived.
-    /// @param salt User-selected position salt.
-    /// @param tickLower Lower position tick.
-    /// @param tickUpper Upper position tick.
-    /// @return The namespaced Core position id owned by this periphery.
-    function positionId(address owner, bytes24 salt, int32 tickLower, int32 tickUpper)
-        public
-        pure
-        returns (PositionId)
-    {
-        return createPositionId(bytes24(keccak256(abi.encode(owner, salt))), tickLower, tickUpper);
-    }
-
-    /// @notice Updates the caller's namespaced LP position and settles token deltas with the caller.
-    /// @param poolKey Pool containing the position.
-    /// @param salt User-selected position salt.
-    /// @param tickLower Lower position tick.
-    /// @param tickUpper Upper position tick.
-    /// @param liquidityDelta Signed liquidity change.
-    /// @return balanceUpdate Token deltas paid by or withdrawn to the caller.
-    function updatePosition(
-        PoolKey memory poolKey,
-        bytes24 salt,
-        int32 tickLower,
-        int32 tickUpper,
-        int128 liquidityDelta
-    ) external returns (PoolBalanceUpdate balanceUpdate) {
-        PositionId positionId_ = positionId(msg.sender, salt, tickLower, tickUpper);
-        balanceUpdate = abi.decode(
-            lock(abi.encode(CALL_TYPE_UPDATE_POSITION, msg.sender, poolKey, positionId_, liquidityDelta)),
-            (PoolBalanceUpdate)
-        );
-    }
-
     /// @notice Swaps through a Ve33 pool and settles token deltas with the caller and recipient.
     /// @dev The caller or router must set the intended sqrt-ratio limit before calling.
     /// @param poolKey Pool to swap against.
@@ -99,21 +58,6 @@ contract Ve33Periphery is BaseLocker {
         (balanceUpdate, stateAfter) = abi.decode(
             lock(abi.encode(CALL_TYPE_SWAP, msg.sender, poolKey, params, recipient)), (PoolBalanceUpdate, PoolState)
         );
-    }
-
-    /// @notice Claims LP reward tokens earned by the caller's namespaced LP position.
-    /// @param poolKey Pool containing the position.
-    /// @param salt User-selected position salt.
-    /// @param tickLower Lower position tick.
-    /// @param tickUpper Upper position tick.
-    /// @param recipient Account receiving claimed reward tokens.
-    /// @return amount Amount of reward token claimed.
-    function claimRewards(PoolKey memory poolKey, bytes24 salt, int32 tickLower, int32 tickUpper, address recipient)
-        external
-        returns (uint256 amount)
-    {
-        PositionId positionId_ = positionId(msg.sender, salt, tickLower, tickUpper);
-        amount = abi.decode(lock(abi.encode(CALL_TYPE_CLAIM_REWARDS, poolKey, positionId_, recipient)), (uint256));
     }
 
     /// @notice Donates stake tokens immediately to current eligible LP liquidity.
@@ -158,13 +102,7 @@ contract Ve33Periphery is BaseLocker {
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
-        if (callType == CALL_TYPE_UPDATE_POSITION) {
-            (, address payer, PoolKey memory poolKey, PositionId positionId_, int128 liquidityDelta) =
-                abi.decode(data, (uint256, address, PoolKey, PositionId, int128));
-            PoolBalanceUpdate balanceUpdate = CORE_REF.updatePosition(poolKey, positionId_, liquidityDelta);
-            _settle(poolKey, payer, payer, balanceUpdate);
-            result = abi.encode(balanceUpdate);
-        } else if (callType == CALL_TYPE_SWAP) {
+        if (callType == CALL_TYPE_SWAP) {
             (, address payer, PoolKey memory poolKey, SwapParameters params, address recipient) =
                 abi.decode(data, (uint256, address, PoolKey, SwapParameters, address));
             (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = abi.decode(
@@ -173,14 +111,6 @@ contract Ve33Periphery is BaseLocker {
             );
             _settle(poolKey, payer, recipient, balanceUpdate);
             result = abi.encode(balanceUpdate, stateAfter);
-        } else if (callType == CALL_TYPE_CLAIM_REWARDS) {
-            (, PoolKey memory poolKey, PositionId positionId_, address recipient) =
-                abi.decode(data, (uint256, PoolKey, PositionId, address));
-            result = CORE_REF.forward(
-                poolKey.config.extension(), abi.encode(VE33_CLAIM_REWARDS, poolKey, positionId_, recipient)
-            );
-            uint128 amount = uint128(abi.decode(result, (uint256)));
-            if (amount != 0) ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         } else if (callType == CALL_TYPE_DONATE_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint128 amount) =
                 abi.decode(data, (uint256, address, PoolKey, uint128));

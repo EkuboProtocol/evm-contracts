@@ -4,8 +4,7 @@
   "VeToken#increaseStakeAmount": "33084",
   "VeToken#stakeKey": "3389",
   "VeToken#stakes": "6009",
-  "VeToken#tokenURI": "24644307453392661819795076685662920393183531936217919025690677872793782722773",
-  "VeToken#tokenURI gas": "412379",
+  "VeToken#tokenURI gas": "413288",
   "VeToken#transferFrom": "31237",
   "VeToken#votingPower": "6121",
   "VeToken#withdrawStake": "36772"

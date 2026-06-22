@@ -52,11 +52,10 @@ library Ve33Lib {
     uint256 private constant UNALLOCATED_EMISSIONS_SLOT = 14;
     uint256 private constant EMISSION_RATE_SLOT = 15;
     uint256 private constant EMISSIONS_LAST_ACCRUED_SLOT = 16;
-    uint256 private constant NEXT_EMISSION_EVENT_INDEX_SLOT = 17;
-    uint256 private constant EMISSION_EVENT_TIMES_SLOT = 18;
-    uint256 private constant EMISSION_RATE_DECREASE_AT_SLOT = 19;
+    uint256 private constant EMISSION_INITIALIZED_TIME_BITMAP_SLOT = 17;
+    uint256 private constant EMISSION_RATE_DECREASE_AT_SLOT = 18;
 
-    /// @notice Duration of each global and per-pool emission stream.
+    /// @notice Duration of each per-pool emission stream.
     uint256 internal constant EMISSION_DURATION = 7 days;
 
     /// @notice Encodes a Ve33 forwarded swap call.
@@ -239,8 +238,8 @@ library Ve33Lib {
     }
 
     /// @notice Encodes a Ve33 global-emission funding call.
-    function encodeFundEmissions(uint128 amount) internal pure returns (bytes memory) {
-        return abi.encode(VE33_FUND_EMISSIONS, amount);
+    function encodeFundEmissions(uint128 amount, uint64 endTime) internal pure returns (bytes memory) {
+        return abi.encode(VE33_FUND_EMISSIONS, amount, endTime);
     }
 
     /// @notice Decodes a Ve33 global-emission funding result.
@@ -249,8 +248,11 @@ library Ve33Lib {
     }
 
     /// @notice Funds global Ve33 emissions through Core.
-    function fundEmissions(ICore core, Ve33 ve33, uint128 amount) internal returns (uint224 rate, uint64 end) {
-        (rate, end) = decodeFundEmissionsResult(core.forward(address(ve33), encodeFundEmissions(amount)));
+    function fundEmissions(ICore core, Ve33 ve33, uint128 amount, uint64 endTime)
+        internal
+        returns (uint224 rate, uint64 end)
+    {
+        (rate, end) = decodeFundEmissionsResult(core.forward(address(ve33), encodeFundEmissions(amount, endTime)));
     }
 
     /// @notice Encodes a Ve33 pool-emission trigger call.
@@ -430,31 +432,12 @@ library Ve33Lib {
         return uint64(uint256(_target(ve33).sload(bytes32(EMISSIONS_LAST_ACCRUED_SLOT))));
     }
 
-    /// @notice Returns the next unprocessed index in the emission event array.
-    function nextEmissionEventIndex(Ve33 ve33) internal view returns (uint256) {
-        return uint256(_target(ve33).sload(bytes32(NEXT_EMISSION_EVENT_INDEX_SLOT)));
-    }
-
-    /// @notice Returns the number of stored emission event times.
-    function emissionEventTimesLength(Ve33 ve33) internal view returns (uint256) {
-        return uint256(_target(ve33).sload(bytes32(EMISSION_EVENT_TIMES_SLOT)));
-    }
-
-    /// @notice Returns an emission event time by index.
-    function emissionEventTime(Ve33 ve33, uint256 index) internal view returns (uint64) {
-        bytes32 baseSlot = _dynamicArrayDataSlot(_storageSlot(EMISSION_EVENT_TIMES_SLOT));
-        bytes32 value = _target(ve33).sload(bytes32(uint256(baseSlot) + (index / 4)));
-        uint256 shift = (index % 4) * 64;
-        uint64 eventTime;
-        assembly ("memory-safe") {
-            eventTime := shr(shift, value)
-        }
-        return eventTime;
-    }
-
-    /// @notice Returns an emission event time by index.
-    function emissionEventTimes(Ve33 ve33, uint256 index) internal view returns (uint64) {
-        return emissionEventTime(ve33, index);
+    /// @notice Returns one global emission initialized-time bitmap word.
+    function emissionInitializedTimeBitmap(Ve33 ve33, uint256 word) internal view returns (uint256) {
+        return
+            uint256(
+                _target(ve33).sload(_mappingSlot(bytes32(word), _storageSlot(EMISSION_INITIALIZED_TIME_BITMAP_SLOT)))
+            );
     }
 
     /// @notice Returns the scheduled global emission-rate decrease at `time`.

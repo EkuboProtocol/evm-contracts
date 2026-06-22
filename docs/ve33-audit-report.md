@@ -2,7 +2,7 @@
 
 Date: 2026-06-22
 
-Reviewed state: `7b413cf` plus current working-tree changes to `src/libraries/Ve33Lib.sol` and gas snapshots.
+Reviewed state: current `ve-integrated-extension` working tree, including power-of-4 concentrated tick-spacing validation, pre-initialization voted-fee preservation, chosen-end global emission funding, and full-string VeToken metadata snapshots.
 
 ## Scope
 
@@ -34,9 +34,18 @@ The implementation is consistent with the intended architecture:
 
 - `Ve33` is a forward-only Core extension for Ve33 pools.
 - Core pool config fees must be zero; Ve33 accounts voter-selected swap fees outside Core LP fee accounting.
+- Concentrated Ve33 pools and votes are limited to power-of-4 tick spacings, allowing 10 concentrated pools per pair
+  under Core's current max tick spacing.
+- If a pool already has active votes before initialization, initialization records the default fee without overwriting the
+  active voted fee.
+- Pool fee validation happens before Core pool initialization; default-fee state initialization and the current fee event
+  happen after Core pool initialization.
+- Global emission funders choose a valid end time; Ve33 accrues existing emissions before adding the new rate and tracks
+  future rate decreases with a bitmap-backed schedule.
 - `Ve33` uses Core saved balances as its accounting ledger and does not transfer ERC20 tokens directly.
 - `VeToken` is an ERC721 wrapper over canonical Ve33 stake accounting.
 - `Ve33Positions` is a Ve33-specific ERC721 LP position manager and does not inherit standard LP fee-collection behavior.
+- `Ve33Positions` bounds total position liquidity to `type(int128).max`, keeping principal queries safe.
 - LP reward accounting is range-aware and tracks initialized-tick reward growth outside ranges.
 - Forward calls to Ve33 are represented by action-specific encode, decode, and execution helpers in `Ve33Lib`; there is
   no generic Ve33 forward helper.
@@ -97,7 +106,7 @@ Evidence:
 
 ### Ve33
 
-`Ve33` registers `beforeInitializePool`, `beforeSwap`, and `beforeUpdatePosition` call points. Pool initialization rejects nonzero Core config fees, computes and stores the default extension swap fee, and initializes reward state. Direct Core swaps revert; swaps must use the forwarded `VE33_SWAP` path. Integrators call this path through `Ve33Lib.swap`, which wraps action-specific `encodeSwap` and `decodeSwapResult` helpers.
+`Ve33` registers `beforeInitializePool`, `afterInitializePool`, `beforeSwap`, and `beforeUpdatePosition` call points. `beforeInitializePool` rejects nonzero Core config fees and concentrated tick spacings that are not powers of four. `afterInitializePool` computes and stores the default extension swap fee, initializes reward state, and emits `PoolSwapFeeUpdated` with the current active pool fee. If vote state already exists for the pool, initialization preserves the active voted fee and only fills `defaultSwapFee`. Direct Core swaps revert; swaps must use the forwarded `VE33_SWAP` path. Integrators call this path through `Ve33Lib.swap`, which wraps action-specific `encodeSwap` and `decodeSwapResult` helpers.
 
 The forwarded swap path:
 
@@ -123,6 +132,8 @@ LP rewards use:
 
 Position updates snapshot reward growth before liquidity changes. For concentrated pools, initialized tick boundaries are initialized, cleared, and inverted similarly to Core fee-outside accounting. For stableswap pools, reward activity is limited to the active-liquidity tick range.
 
+Global emissions are funded through a forwarded action with a caller-selected valid end time. Funding accrues existing emissions first, increases the current Q32 emission rate, records a rate decrease at the chosen end time, and marks that end time in a bitmap. Accrual walks initialized end times up to the current block timestamp, moves streamed emissions into `unallocatedEmissions`, applies scheduled rate decreases, clears consumed bitmap entries, and leaves pool selection to independent `triggerPoolEmissions` calls.
+
 ### VeToken
 
 `VeToken` is an ERC721 representation for stakes whose canonical accounting lives in `Ve33`. Token ids are used directly as Ve33 stake salts. The amount is read from Ve33 storage through `Ve33Lib`; the stake end timestamp is stored in Solady ERC721 extra data.
@@ -142,13 +153,19 @@ Transfers and approvals therefore move control of the represented stake without 
 
 Deposits and withdrawals are authorized by NFT ownership or approval, happen under a Core lock, and settle token principal through the accountant. The contract does not collect Core LP swap fees because Ve33 pools use zero Core config fees and account swap fees to voters instead.
 
+Deposits reject both per-call liquidity deltas and resulting total position liquidity above `type(int128).max`. This keeps `getPositionLiquidity` safe because the helper computes principal amounts by casting the stored position liquidity to `int128` before passing a negative liquidity delta into `liquidityDeltaToAmountDelta`.
+
 Reward claims use the action-specific `Ve33Lib.claimRewards` helper, then withdraw the returned `stakeToken` amount to the requested recipient. The extension computes rewards for the position owner as `address(Ve33Positions)`.
 
 ## Invariants Reviewed
 
 - Ve33 pools cannot be initialized with nonzero Core config fees.
+- Concentrated Ve33 pools cannot be initialized or voted on unless their tick spacing is a power of four.
+- Pre-initialization votes cannot be overwritten by later pool initialization.
+- Pool initialization emits the current active pool fee after Core initialization.
 - Direct swaps through Core are blocked for Ve33 pools.
-- Ve33 does not call ERC20 transfer helpers or custody tokens outside Core saved balances.
+- Ve33 has no `receive` function, does not call ERC20 transfer helpers, and does not custody tokens outside Core saved
+  balances.
 - Ve33 token-moving actions are forwarded and settled by wrappers or periphery contracts.
 - Voter pool fees are saved under the pool id and claimed through fee-growth accounting.
 - LP rewards are denominated in the immutable `stakeToken`.
@@ -157,6 +174,8 @@ Reward claims use the action-specific `Ve33Lib.claimRewards` helper, then withdr
 - Exact-input forwarded swaps charge fees from executed input and cap partial-fill fees.
 - VeToken claims and unstaking settle to the current NFT owner, even when an approved operator initiates the action.
 - Ve33Positions owner/approval checks gate deposits, withdrawals, and LP reward claims.
+- Ve33Positions deposits cannot make stored liquidity exceed `type(int128).max`, so `getPositionLiquidity` remains queryable.
+- Global emission schedules accrue existing rates before new funding, support multiple streams ending at the same valid time, and clear their bitmap entries after the scheduled rate decrease is applied.
 
 ## Test Coverage Reviewed
 
@@ -164,6 +183,9 @@ The existing tests cover the key audited behavior:
 
 - extension registration and call point selection,
 - zero Core fee pool initialization,
+- concentrated power-of-4 tick-spacing validation,
+- preservation of pre-initialization voted fees,
+- pool-fee event emission after initialization,
 - direct hook rejection,
 - vote validation and default fee voting,
 - forwarded swap voter fee accounting,
@@ -176,10 +198,12 @@ The existing tests cover the key audited behavior:
 - immediate and future reward schedules,
 - stableswap active-range reward behavior,
 - global emission funding and per-pool triggering,
+- caller-chosen global emission end times and shared emission-end bitmap entries,
 - malicious pool-key extension routing regression in `Ve33Periphery`,
 - Ve33Positions authorization and independent positions,
+- Ve33Positions resulting-liquidity overflow rejection and `getPositionLiquidity` queryability at `type(int128).max`,
 - reward snapshots across concentrated and stableswap boundaries,
-- VeToken metadata, stake lifecycle, transfer, approval, and owner-directed withdrawal behavior.
+- VeToken metadata JSON and decoded SVG fixture snapshots, stake lifecycle, transfer, approval, and owner-directed withdrawal behavior.
 
 ## Verification
 
@@ -188,8 +212,11 @@ Commands run against the reviewed working tree:
 ```sh
 forge fmt
 forge build --offline --sizes
+forge test --offline --match-test test_vePositionsRejectsDepositsThatOverflowQueryableLiquidity
+forge test --offline --match-contract IsPowerOfFourTest
+forge test --offline --match-contract Ve33Test
 forge test --offline --match-contract 'Ve33Test|VeTokenTest|RouterTest'
 forge test --offline
 ```
 
-The focused Ve33, VeToken, and Router tests passed after the `Ve33Lib` helper update. The full suite and size build completed successfully for the reviewed state. Existing forge-lint warnings unrelated to this report remain present in the repository.
+The focused Ve33Positions liquidity regression, focused power-of-four math suite, full Ve33 suite, focused Ve33/VeToken/Router suite, full test suite, and size build completed successfully for the reviewed working tree. The full suite passed with 825 tests. Existing forge-lint warnings unrelated to this report remain present in the repository.

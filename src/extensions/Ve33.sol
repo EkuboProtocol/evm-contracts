@@ -12,6 +12,7 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
+import {isPowerOfFour} from "../math/isPowerOfFour.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
 import {
     capFee,
@@ -27,6 +28,7 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId} from "../types/positionId.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 
 // Forward call type for extension-mediated swaps.
@@ -111,7 +113,7 @@ function createVe33RewardPoolState(uint32 _lastAccumulated, uint224 _rewardRate)
 function ve33CallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
-        afterInitializePool: false,
+        afterInitializePool: true,
         beforeSwap: true,
         afterSwap: false,
         beforeUpdatePosition: true,
@@ -127,7 +129,7 @@ function ve33CallPoints() pure returns (CallPoints memory) {
 /// distributed to ve stakers, while LPs earn the immutable `stakeToken` as rewards.
 contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
-    /// @notice Duration of each global and per-pool emission stream.
+    /// @notice Duration of each per-pool emission stream.
     uint256 public constant EMISSION_DURATION = 7 days;
     /// @notice Maximum ve stake duration.
     uint256 public constant MAX_STAKE_DURATION = VE33_MAX_STAKE_DURATION;
@@ -218,10 +220,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     uint224 internal emissionRate;
     /// @notice Last timestamp when global emissions were accrued.
     uint64 internal emissionsLastAccrued;
-    /// @notice Next unprocessed index in `emissionEventTimes`.
-    uint256 internal nextEmissionEventIndex;
-    /// @notice Sorted emission end times.
-    uint64[] internal emissionEventTimes;
+    /// @notice Bitmap of valid global emission-rate change times.
+    mapping(uint256 => uint256) private emissionInitializedTimeBitmap;
     /// @notice Global emission-rate decreases at each end time.
     mapping(uint64 => uint224) internal emissionRateDecreaseAt;
 
@@ -266,6 +266,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     error SwapMustHappenThroughForward();
     /// @notice Thrown when a vote payload or target pool is invalid.
     error InvalidVote();
+    /// @notice Thrown when a concentrated pool tick spacing is not a power of four.
+    error InvalidTickSpacing();
     /// @notice Thrown when a global emission funding amount is zero.
     error EmissionAmountTooSmall();
     /// @notice Thrown when reward schedule timestamps are invalid.
@@ -290,26 +292,38 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         totalVoteSecondsLastAccrued = uint64(block.timestamp);
     }
 
-    /// @notice Allows the extension to receive native-token voter fees.
-    receive() external payable {}
-
     /// @inheritdoc BaseExtension
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return ve33CallPoints();
     }
 
-    /// @notice Validates and initializes extension state for a new pool.
+    /// @notice Validates extension-specific pool configuration before Core initializes a new pool.
     /// @dev Pools must use zero Core fee because the active fee is stored in `poolVoteStates`.
     function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension) onlyCore {
         if (poolKey.config.fee() != 0) revert ZeroConfigFeeOnly();
 
+        if (poolKey.config.isConcentrated()) {
+            uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
+            if (!isPowerOfFour(tickSpacing)) revert InvalidTickSpacing();
+        }
+    }
+
+    /// @notice Initializes extension state after Core initializes a new pool.
+    /// @dev Preserves an active voted fee if the pool had votes before initialization.
+    function afterInitializePool(address, PoolKey memory poolKey, int32, SqrtRatio)
+        external
+        override(BaseExtension)
+        onlyCore
+    {
         PoolId poolId = poolKey.toPoolId();
         uint64 defaultSwapFee = poolKey.config.isStableswap()
             ? defaultVeFeeForStableswapAmplification(poolKey.config.stableswapAmplification())
             : defaultVeFeeForTickSpacing(poolKey.config.concentratedTickSpacing());
-        poolVoteStates[poolId].swapFee = defaultSwapFee;
-        poolVoteStates[poolId].defaultSwapFee = defaultSwapFee;
+        PoolVoteState storage poolVoteState = poolVoteStates[poolId];
+        if (poolVoteState.weight == 0) poolVoteState.swapFee = defaultSwapFee;
+        poolVoteState.defaultSwapFee = defaultSwapFee;
         poolRewardState[poolId] = createVe33RewardPoolState(uint32(block.timestamp), 0);
+        emit PoolSwapFeeUpdated(poolId, poolVoteState.swapFee);
     }
 
     /// @notice Rejects direct Core swaps.
@@ -455,9 +469,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             (uint128 amount0, uint128 amount1) = _claimPoolFees(stakeKey, poolKey, original.addr());
             result = abi.encode(amount0, amount1);
         } else if (callType == VE33_FUND_EMISSIONS) {
-            (, uint128 amount) = abi.decode(data, (uint256, uint128));
-            (uint224 rate, uint64 end) = _fundEmissions(original.addr(), amount);
-            result = abi.encode(rate, end);
+            (, uint128 amount, uint64 endTime) = abi.decode(data, (uint256, uint128, uint64));
+            uint224 rate = _fundEmissions(original.addr(), amount, endTime);
+            result = abi.encode(rate, endTime);
         } else if (callType == VE33_TRIGGER_POOL_EMISSIONS) {
             (, PoolKey memory poolKey) = abi.decode(data, (uint256, PoolKey));
             result = abi.encode(_triggerPoolEmissions(poolKey));
@@ -689,7 +703,17 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         for (uint256 i; i < length;) {
             totalWeight += weights[i];
             PoolId poolId = poolKeys[i].toPoolId();
-            if (poolKeys[i].config.extension() != address(this) || poolKeys[i].config.fee() != 0) revert InvalidVote();
+            bool invalidConcentratedSpacing;
+            if (poolKeys[i].config.isConcentrated()) {
+                uint32 tickSpacing = poolKeys[i].config.concentratedTickSpacing();
+                invalidConcentratedSpacing = !isPowerOfFour(tickSpacing);
+            }
+            if (
+                poolKeys[i].config.extension() != address(this) || poolKeys[i].config.fee() != 0
+                    || invalidConcentratedSpacing
+            ) {
+                revert InvalidVote();
+            }
             for (uint256 j; j < i;) {
                 if (PoolId.unwrap(poolId) == PoolId.unwrap(poolKeys[j].toPoolId())) revert InvalidVote();
                 unchecked {
@@ -785,22 +809,25 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         emit PoolFeesClaimed(stakeId, poolId, recipient, amount0, amount1);
     }
 
-    /// @notice Funds global ve emissions for one emission duration.
+    /// @notice Funds global ve emissions until a chosen valid end time.
     /// @dev Saves the funded amount in Core; the forwarding locker must pay `stakeToken` into Core.
     /// @param funder Account recorded in the funding event.
     /// @param amount Amount of `stakeToken` to add to the global emission stream.
+    /// @param end Emission stream end timestamp.
     /// @return rate Added Q32 global emission rate.
-    /// @return end Emission stream end timestamp.
-    function _fundEmissions(address funder, uint128 amount) private returns (uint224 rate, uint64 end) {
+    function _fundEmissions(address funder, uint128 amount, uint64 end) private returns (uint224 rate) {
         if (amount == 0) revert EmissionAmountTooSmall();
+        if (!isTimeValid({currentTime: block.timestamp, time: end}) || end <= block.timestamp) {
+            revert InvalidTimestamps();
+        }
 
-        rate = uint224(((uint256(amount) + _accrueEmissions()) << 32) / EMISSION_DURATION);
+        _accrueEmissions();
+        rate = uint224((uint256(amount) << 32) / (end - block.timestamp));
 
-        end = uint64(block.timestamp + EMISSION_DURATION);
         emissionReserve += amount;
         emissionRate += rate;
+        if (emissionRateDecreaseAt[end] == 0) _flipEmissionTime(end);
         emissionRateDecreaseAt[end] += rate;
-        emissionEventTimes.push(end);
         _updateEmissionReserveSavedBalance(int256(uint256(amount)));
 
         emit EmissionsFunded(funder, amount, rate, end);
@@ -1125,37 +1152,26 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Accrues global emissions into `unallocatedEmissions`.
     /// @return zero Always zero, used as a compact loop initializer.
     function _accrueEmissions() private returns (uint256 zero) {
-        uint256 time = emissionsLastAccrued;
+        uint256 lastAccrued = emissionsLastAccrued;
+        uint256 time = lastAccrued;
         uint224 rate = emissionRate;
-        uint256 index = nextEmissionEventIndex;
-        uint256 length = emissionEventTimes.length;
 
-        while (index < length) {
-            uint64 eventTime = emissionEventTimes[index];
-            if (eventTime > block.timestamp) break;
+        while (time != block.timestamp) {
+            (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccrued, time, block.timestamp);
 
             unchecked {
                 unallocatedEmissions += (uint256(rate) * (eventTime - time)) >> 32;
             }
-            rate -= emissionRateDecreaseAt[eventTime];
-            delete emissionRateDecreaseAt[eventTime];
-            time = eventTime;
-            do {
-                unchecked {
-                    ++index;
-                }
-            } while (index < length && emissionEventTimes[index] == eventTime);
-        }
-
-        if (time != block.timestamp) {
-            unchecked {
-                unallocatedEmissions += (uint256(rate) * (block.timestamp - time)) >> 32;
+            if (initialized) {
+                rate -= emissionRateDecreaseAt[uint64(eventTime)];
+                delete emissionRateDecreaseAt[uint64(eventTime)];
+                _flipEmissionTime(eventTime);
             }
+            time = eventTime;
         }
 
         emissionRate = rate;
         emissionsLastAccrued = uint64(block.timestamp);
-        if (index != nextEmissionEventIndex) nextEmissionEventIndex = index;
     }
 
     /// @notice Recomputes a pool's active swap fee from current voter weights.
@@ -1414,6 +1430,61 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
         unchecked {
             initializedTimeBitmap[poolId][word] ^= uint256(1) << index;
+        }
+    }
+
+    /// @notice Toggles whether a global emission-rate decrease is scheduled at a valid time.
+    /// @param time Valid schedule time.
+    function _flipEmissionTime(uint256 time) private {
+        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
+        unchecked {
+            emissionInitializedTimeBitmap[word] ^= uint256(1) << index;
+        }
+    }
+
+    /// @notice Finds the next initialized global emission schedule time at or after `fromTime`.
+    /// @param fromTime Valid time to begin searching from.
+    /// @return nextTime Next initialized time in the bitmap word.
+    /// @return isInitialized Whether an initialized time was found.
+    function _findNextEmissionTime(uint256 fromTime) private view returns (uint256 nextTime, bool isInitialized) {
+        unchecked {
+            (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
+            Bitmap bitmap = Bitmap.wrap(emissionInitializedTimeBitmap[word]);
+            uint256 nextIndex = bitmap.geSetBit(uint8(index));
+
+            isInitialized = nextIndex != 0;
+
+            nextIndex = (nextIndex - 1) % 256;
+
+            nextTime = bitmapWordAndIndexToTime(word, nextIndex);
+        }
+    }
+
+    /// @notice Searches global emission schedule times until an initialized time or upper bound is reached.
+    /// @param lastAccrued Full last-accrued timestamp used for valid-time alignment.
+    /// @param fromTime Search start.
+    /// @param untilTime Search upper bound.
+    /// @return nextTime Next initialized time or `untilTime`.
+    /// @return isInitialized Whether `nextTime` is an initialized emission schedule time.
+    function _searchForNextEmissionTime(uint256 lastAccrued, uint256 fromTime, uint256 untilTime)
+        private
+        view
+        returns (uint256 nextTime, bool isInitialized)
+    {
+        unchecked {
+            nextTime = fromTime;
+            while (!isInitialized && nextTime != untilTime) {
+                uint256 nextValid = nextValidTime(lastAccrued, nextTime);
+                if (nextValid == 0) {
+                    nextTime = untilTime;
+                    break;
+                }
+                (nextTime, isInitialized) = _findNextEmissionTime(nextValid);
+                if (nextTime > untilTime) {
+                    nextTime = untilTime;
+                    isInitialized = false;
+                }
+            }
         }
     }
 

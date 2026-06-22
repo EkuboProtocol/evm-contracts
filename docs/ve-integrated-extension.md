@@ -44,10 +44,11 @@ Pools using this extension must set the Core pool-config fee to `0`. The active 
 The extension enables these Core call points:
 
 - `beforeInitializePool`
+- `afterInitializePool`
 - `beforeSwap`
 - `beforeUpdatePosition`
 
-Pool initialization validates `poolKey.config.fee() == 0` and stores the pool's default swap fee. Concentrated pools derive the default from tick spacing. Stableswap pools derive it from amplification by converting amplification to an active-range width and then using the same tick-spacing fee formula. The default fee is capped at 50%.
+Pool initialization validates `poolKey.config.fee() == 0` and concentrated power-of-4 tick spacing in `beforeInitializePool`. It stores the pool's default swap fee and emits the current `PoolSwapFeeUpdated` value in `afterInitializePool`, after Core has initialized the pool. With Core's current max tick spacing, the power-of-4 rule allows 10 concentrated pools per pair: `1`, `4`, `16`, `64`, `256`, `1024`, `4096`, `16384`, `65536`, and `262144`. This reduces near-duplicate pool fragmentation and preserves the gas benefits of binary-aligned spacing. Stableswap pools derive the default fee from amplification by converting amplification to an active-range width and then using the same tick-spacing fee formula. The default fee is capped at 50%. If voters have already selected a fee for a pool before it is initialized, initialization records the default fee without overwriting the active voted fee.
 
 Direct Core swaps are rejected in `beforeSwap`. Swaps must be made through `Core.forward` to the extension with `VE33_SWAP`.
 
@@ -159,7 +160,7 @@ Forwarded swaps explicitly invert reward-outside snapshots for crossed concentra
 
 ## Emissions
 
-`VE33_FUND_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and increases the global one-week emission stream. A periphery such as `Ve33Periphery` pays the stake token into Core in the same lock. Funding first accrues any existing global emissions into `unallocatedEmissions`, then adds a new Q32 global emission rate that ends at `block.timestamp + 7 days`.
+`VE33_FUND_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and increases the global emission stream until a caller-chosen end time. The end time must be a valid reward-accounting timestamp and must be greater than the current block timestamp. A periphery such as `Ve33Periphery` pays the stake token into Core in the same lock. Funding first accrues any existing global emissions into `unallocatedEmissions`, then adds a new Q32 global emission rate and schedules a matching rate decrease at the chosen end time. End times are tracked in a bitmap, so multiple fundings can share the same end time without storing an append-only list.
 
 `VE33_TRIGGER_POOL_EMISSIONS` is permissionless and can be forwarded for any pool using the extension. Triggering moves saved stake token from the emission reserve bucket into the LP reward reserve bucket and schedules the pool's reward stream; no external token transfer is needed.
 
@@ -169,7 +170,7 @@ When triggered, the extension accrues global emissions, accrues total vote secon
 poolShare = unallocatedEmissions * poolVoteSeconds / totalVoteSeconds
 ```
 
-`poolVoteSeconds` is the pool's stored active vote weight integrated over time since that pool's vote seconds were last accrued. `totalVoteSeconds` is the corresponding global active vote weight integrated over time. After a successful trigger, the selected pool's `voteSeconds` are reset to zero and the same amount of seconds is subtracted from `totalVoteSeconds`, so each pool can be triggered independently without double-counting the same voting interval. The assigned amount is scheduled as LP reward-token emissions from now until the next valid reward time within one week.
+`poolVoteSeconds` is the pool's stored active vote weight integrated over time since that pool's vote seconds were last accrued. `totalVoteSeconds` is the corresponding global active vote weight integrated over time. After a successful trigger, the selected pool's `voteSeconds` are reset to zero and the same amount of seconds is subtracted from `totalVoteSeconds`, so each pool can be triggered independently without double-counting the same voting interval. The assigned amount is scheduled as LP reward-token emissions from now until the next valid reward time within the per-pool emission duration.
 
 Emissions are not triggered automatically on swaps, reward claims, or position updates. A caller must forward `VE33_TRIGGER_POOL_EMISSIONS` for the specific pool.
 

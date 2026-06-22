@@ -18,6 +18,7 @@ import {MAX_NUM_VALID_TIMES, nextValidTime} from "../../src/math/time.sol";
 import {defaultFeeForStableswapAmplification, defaultFeeForTickSpacing} from "../../src/math/tickSpacingFee.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
+import {timeToBitmapWordAndIndex} from "../../src/math/timeBitmap.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
@@ -78,8 +79,9 @@ contract Ve33Forwarder is BaseLocker {
         );
     }
 
-    function fundEmissions(uint128 amount) external returns (uint224 rate, uint64 end) {
-        (rate, end) = abi.decode(lock(abi.encode(CALL_TYPE_FUND_EMISSIONS, msg.sender, amount)), (uint224, uint64));
+    function fundEmissions(uint128 amount, uint64 endTime) external returns (uint224 rate, uint64 end) {
+        (rate, end) =
+            abi.decode(lock(abi.encode(CALL_TYPE_FUND_EMISSIONS, msg.sender, amount, endTime)), (uint224, uint64));
     }
 
     function triggerPoolEmissions(PoolKey memory poolKey) external returns (uint224 amount) {
@@ -110,8 +112,8 @@ contract Ve33Forwarder is BaseLocker {
             result = abi.encode(amount);
             if (amount != 0) ACCOUNTANT.payFrom(payer, STAKE_TOKEN, amount);
         } else if (callType == CALL_TYPE_FUND_EMISSIONS) {
-            (, address payer, uint128 amount) = abi.decode(data, (uint256, address, uint128));
-            (uint224 rate, uint64 end) = Ve33Lib.fundEmissions(CORE_REF, VE33_REF, amount);
+            (, address payer, uint128 amount, uint64 endTime) = abi.decode(data, (uint256, address, uint128, uint64));
+            (uint224 rate, uint64 end) = Ve33Lib.fundEmissions(CORE_REF, VE33_REF, amount, endTime);
             result = abi.encode(rate, end);
             if (amount != 0) ACCOUNTANT.payFrom(payer, STAKE_TOKEN, amount);
         } else if (callType == CALL_TYPE_TRIGGER_POOL_EMISSIONS) {
@@ -181,8 +183,8 @@ contract Ve33Test is FullTest {
     }
 
     function _createConcentratedPool() internal returns (PoolKey memory poolKey, PositionId positionId) {
-        poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(ve)});
-        positionId = _mintPosition(-100, 100);
+        poolKey = createPool({tick: 0, fee: 0, tickSpacing: 64, extension: address(ve)});
+        positionId = _mintPosition(-64, 64);
     }
 
     function _createConcentratedPool(uint32 tickSpacing, bytes24 salt)
@@ -339,8 +341,17 @@ contract Ve33Test is FullTest {
         return uint64(nextValidTime(block.timestamp, afterTime));
     }
 
+    function _defaultEmissionEnd() internal view returns (uint64) {
+        return _nextValidRewardTime(block.timestamp + ve.EMISSION_DURATION() - 1);
+    }
+
     function _poolMappingSlot(PoolId poolId, uint256 slot) internal pure returns (bytes32) {
         return keccak256(abi.encode(PoolId.unwrap(poolId), slot));
+    }
+
+    function _assertEmissionTimeInitialized(uint64 time, bool initialized) internal view {
+        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
+        assertEq((ve.emissionInitializedTimeBitmap(word) & (uint256(1) << index)) != 0, initialized);
     }
 
     function _poolTimeMappingSlot(PoolId poolId, uint256 slot, uint256 time) internal pure returns (bytes32) {
@@ -427,7 +438,7 @@ contract Ve33Test is FullTest {
     function test_gas_triggerPoolEmissions() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         _fundAndVote(poolKey, uint64(1 << 62));
-        forwarder.fundEmissions(10_000);
+        forwarder.fundEmissions(10_000, _defaultEmissionEnd());
         vm.warp(block.timestamp + 1 days);
 
         coolAllContracts();
@@ -512,14 +523,14 @@ contract Ve33Test is FullTest {
 
     function test_gas_peripheryFundEmissions() public {
         coolAllContracts();
-        periphery.fundEmissions(10_000);
+        periphery.fundEmissions(10_000, _defaultEmissionEnd());
         vm.snapshotGasLastCall("Ve33Periphery#fundEmissions");
     }
 
     function test_gas_peripheryTriggerPoolEmissions() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         _fundAndVote(poolKey, uint64(1 << 62));
-        periphery.fundEmissions(10_000);
+        periphery.fundEmissions(10_000, _defaultEmissionEnd());
         vm.warp(block.timestamp + 1 days);
 
         coolAllContracts();
@@ -530,9 +541,9 @@ contract Ve33Test is FullTest {
     function test_registrationAndCallPoints() public view {
         assertTrue(core.isExtensionRegistered(address(ve)));
         assertTrue(ve33CallPoints().beforeInitializePool);
+        assertTrue(ve33CallPoints().afterInitializePool);
         assertTrue(ve33CallPoints().beforeSwap);
         assertTrue(ve33CallPoints().beforeUpdatePosition);
-        assertFalse(ve33CallPoints().afterInitializePool);
         assertFalse(ve33CallPoints().afterSwap);
         assertFalse(ve33CallPoints().afterUpdatePosition);
         assertFalse(ve33CallPoints().beforeCollectFees);
@@ -542,16 +553,53 @@ contract Ve33Test is FullTest {
 
     function test_poolInitialization_setsConcentratedDefaultsAndRejectsConfigFee() public {
         vm.expectRevert(Ve33.ZeroConfigFeeOnly.selector);
-        createPool({tick: 0, fee: 1, tickSpacing: 100, extension: address(ve)});
+        createPool({tick: 0, fee: 1, tickSpacing: 64, extension: address(ve)});
 
-        (PoolKey memory poolKey,) = _createConcentratedPool();
+        vm.expectRevert(Ve33.InvalidTickSpacing.selector);
+        createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(ve)});
+
+        vm.expectRevert(Ve33.InvalidTickSpacing.selector);
+        createPool({tick: 0, fee: 0, tickSpacing: 2, extension: address(ve)});
+
+        PoolConfig config = createConcentratedPoolConfig(0, 64, address(ve));
+        PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
         PoolId poolId = poolKey.toPoolId();
-        uint64 expectedFee = defaultFeeForTickSpacing(100);
+        uint64 expectedFee = defaultFeeForTickSpacing(64);
+        vm.expectEmit(address(ve));
+        emit Ve33.PoolSwapFeeUpdated(poolId, expectedFee);
+        core.initializePool(poolKey, 0);
+
         Ve33.PoolVoteState memory state = ve.poolVoteState(poolId);
         uint64 swapFee = state.swapFee;
         uint64 defaultSwapFee = state.defaultSwapFee;
         assertEq(swapFee, expectedFee);
         assertEq(defaultSwapFee, expectedFee);
+    }
+
+    function test_poolInitialization_preservesPreInitializationVotedFee() public {
+        PoolConfig config = createConcentratedPoolConfig(0, 64, address(ve));
+        PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
+        PoolId poolId = poolKey.toPoolId();
+        uint64 votedFee = uint64(1 << 62);
+
+        uint256 veId = _createStake();
+        _vote(veId, poolKey, 1, votedFee);
+
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee, uint64 defaultSwapFee) = _poolVoteState(poolId);
+        assertEq(weight, veToken.votingPower(veId));
+        assertEq(feeWeightSum, weight * votedFee);
+        assertEq(swapFee, votedFee);
+        assertEq(defaultSwapFee, 0);
+
+        vm.expectEmit(address(ve));
+        emit Ve33.PoolSwapFeeUpdated(poolId, votedFee);
+        core.initializePool(poolKey, 0);
+
+        (weight, feeWeightSum, swapFee, defaultSwapFee) = _poolVoteState(poolId);
+        assertEq(weight, veToken.votingPower(veId));
+        assertEq(feeWeightSum, weight * votedFee);
+        assertEq(swapFee, votedFee);
+        assertEq(defaultSwapFee, defaultFeeForTickSpacing(64));
     }
 
     function test_directHooksAndInvalidCoreLockRevert() public {
@@ -608,10 +656,20 @@ contract Ve33Test is FullTest {
         vm.expectRevert(Ve33.InvalidVote.selector);
         veToken.vote(veId, poolKeys, weights, swapFees);
 
-        PoolConfig wrongFeeConfig = createConcentratedPoolConfig(1, 100, address(ve));
+        PoolConfig wrongFeeConfig = createConcentratedPoolConfig(1, 64, address(ve));
         PoolKey memory wrongFeePool =
             PoolKey({token0: address(token0), token1: address(token1), config: wrongFeeConfig});
         poolKeys[0] = wrongFeePool;
+        vm.expectRevert(Ve33.InvalidVote.selector);
+        veToken.vote(veId, poolKeys, weights, swapFees);
+
+        vm.expectRevert(Ve33.InvalidVote.selector);
+        veToken.voteWithDefaultFees(veId, poolKeys, weights);
+
+        PoolConfig invalidTickSpacingConfig = createConcentratedPoolConfig(0, 100, address(ve));
+        PoolKey memory invalidTickSpacingPool =
+            PoolKey({token0: address(token0), token1: address(token1), config: invalidTickSpacingConfig});
+        poolKeys[0] = invalidTickSpacingPool;
         vm.expectRevert(Ve33.InvalidVote.selector);
         veToken.vote(veId, poolKeys, weights, swapFees);
 
@@ -622,7 +680,7 @@ contract Ve33Test is FullTest {
         veToken.voteWithDefaultFees(veId, poolKeys, weights);
         (uint256 weight, uint256 feeWeightSum, uint64 swapFee,) = _poolVoteState(poolKey.toPoolId());
         assertEq(weight, veToken.votingPower(veId));
-        assertEq(swapFee, defaultFeeForTickSpacing(100));
+        assertEq(swapFee, defaultFeeForTickSpacing(64));
         assertEq(feeWeightSum, weight * swapFee);
 
         PoolConfig stableswapConfig = createStableswapPoolConfig(0, 20, 0, address(ve));
@@ -644,8 +702,8 @@ contract Ve33Test is FullTest {
         PoolKey[] memory twoPoolKeys = new PoolKey[](2);
         uint256[] memory dustWeights = new uint256[](2);
         uint64[] memory zeroSwapFees = new uint64[](2);
-        (PoolKey memory dustPool,) = _createConcentratedPool(200, bytes24(uint192(2)));
-        (PoolKey memory otherPool,) = _createConcentratedPool(400, bytes24(uint192(3)));
+        (PoolKey memory dustPool,) = _createConcentratedPool(256, bytes24(uint192(2)));
+        (PoolKey memory otherPool,) = _createConcentratedPool(1024, bytes24(uint192(3)));
         twoPoolKeys[0] = dustPool;
         twoPoolKeys[1] = otherPool;
         dustWeights[0] = 1;
@@ -774,7 +832,7 @@ contract Ve33Test is FullTest {
         assertEq(claimed0, 0);
         assertEq(claimed1, 0);
 
-        (PoolKey memory unvotedPool, PositionId unvotedPosition) = _createConcentratedPool(200, bytes24(uint192(2)));
+        (PoolKey memory unvotedPool, PositionId unvotedPosition) = _createConcentratedPool(256, bytes24(uint192(2)));
         _updatePosition(unvotedPool, unvotedPosition, int128(uint128(1e18)));
         _routerSwap(unvotedPool, false, 100_000, address(this));
         (saved0, saved1) = core.savedBalances(
@@ -868,8 +926,8 @@ contract Ve33Test is FullTest {
 
     function test_pokeMultiplePoolsScalesWeightsAndKeepsRoundingDust() public {
         (PoolKey memory pool0,) = _createConcentratedPool();
-        (PoolKey memory pool1,) = _createConcentratedPool(200, bytes24(uint192(2)));
-        (PoolKey memory pool2,) = _createConcentratedPool(400, bytes24(uint192(3)));
+        (PoolKey memory pool1,) = _createConcentratedPool(256, bytes24(uint192(2)));
+        (PoolKey memory pool2,) = _createConcentratedPool(1024, bytes24(uint192(3)));
         uint256 veId = _createStake();
 
         PoolKey[] memory poolKeys = new PoolKey[](3);
@@ -1028,12 +1086,12 @@ contract Ve33Test is FullTest {
     }
 
     function test_maybeAccumulateRewardsPoolRecoveryAndOutOfRangeStableswap() public {
-        PoolConfig wrongConfig = createConcentratedPoolConfig(0, 100, address(0));
+        PoolConfig wrongConfig = createConcentratedPoolConfig(0, 64, address(0));
         PoolKey memory wrongPool = PoolKey({token0: address(token0), token1: address(token1), config: wrongConfig});
         vm.expectRevert(Ve33.PoolNotInitialized.selector);
         ve.maybeAccumulateRewards(wrongPool);
 
-        (PoolKey memory initializedPool,) = _createConcentratedPool(200, bytes24(uint192(2)));
+        (PoolKey memory initializedPool,) = _createConcentratedPool(256, bytes24(uint192(2)));
         vm.store(address(ve), _poolMappingSlot(initializedPool.toPoolId(), 4), bytes32(0));
         ve.maybeAccumulateRewards(initializedPool);
         vm.warp(block.timestamp + uint256(type(uint32).max) + 1);
@@ -1064,7 +1122,7 @@ contract Ve33Test is FullTest {
         assertEq(forwarder.triggerPoolEmissions(poolKey), 0);
 
         _fundAndVote(poolKey, uint64(1 << 62));
-        forwarder.fundEmissions(1e18);
+        forwarder.fundEmissions(1e18, _defaultEmissionEnd());
         vm.warp(block.timestamp + 1 days);
         uint224 amount = forwarder.triggerPoolEmissions(poolKey);
         assertGt(amount, 0);
@@ -1081,7 +1139,7 @@ contract Ve33Test is FullTest {
 
     function test_triggerPoolEmissionsRoundsTinyPoolShareToZero() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
-        (PoolKey memory otherPool,) = _createConcentratedPool(200, bytes24(uint192(2)));
+        (PoolKey memory otherPool,) = _createConcentratedPool(256, bytes24(uint192(2)));
 
         uint256 veId = _createStake();
         PoolKey[] memory poolKeys = new PoolKey[](2);
@@ -1093,7 +1151,7 @@ contract Ve33Test is FullTest {
         weights[1] = 1e18 - 1;
         veToken.vote(veId, poolKeys, weights, swapFees);
 
-        forwarder.fundEmissions(2);
+        forwarder.fundEmissions(2, _defaultEmissionEnd());
         vm.warp(block.timestamp + ve.EMISSION_DURATION());
 
         assertEq(forwarder.triggerPoolEmissions(poolKey), 0);
@@ -1103,7 +1161,7 @@ contract Ve33Test is FullTest {
     function test_triggerPoolEmissionsCapsAmountToEmissionReserve() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         _fundAndVote(poolKey, uint64(1 << 62));
-        forwarder.fundEmissions(1);
+        forwarder.fundEmissions(1, _defaultEmissionEnd());
         vm.warp(block.timestamp + 1 days);
 
         vm.store(address(ve), bytes32(uint256(13)), bytes32(uint256(1)));
@@ -1118,7 +1176,7 @@ contract Ve33Test is FullTest {
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));
 
-        (uint224 rate,) = periphery.fundEmissions(1e18);
+        (uint224 rate,) = periphery.fundEmissions(1e18, _defaultEmissionEnd());
         assertGt(rate, 0);
 
         vm.warp(block.timestamp + 1 days);
@@ -1158,9 +1216,10 @@ contract Ve33Test is FullTest {
         assertGt(claimed, 0);
         assertEq(stakeToken.balanceOf(address(1234)), rewardBalanceBefore + claimed);
 
-        (uint224 rate, uint64 end) = periphery.fundEmissions(10_000);
+        uint64 emissionEnd = _defaultEmissionEnd();
+        (uint224 rate, uint64 end) = periphery.fundEmissions(10_000, emissionEnd);
         assertGt(rate, 0);
-        assertEq(end, uint64(block.timestamp + ve.EMISSION_DURATION()));
+        assertEq(end, emissionEnd);
         vm.warp(block.timestamp + 1 days);
         assertGt(periphery.triggerPoolEmissions(poolKey), 0);
     }
@@ -1242,30 +1301,40 @@ contract Ve33Test is FullTest {
     }
 
     function test_fundEmissionsAccruesMultipleEventsAtSameTime() public {
+        uint64 end = _defaultEmissionEnd();
         vm.expectRevert(Ve33.EmissionAmountTooSmall.selector);
-        forwarder.fundEmissions(0);
+        forwarder.fundEmissions(0, end);
 
-        forwarder.fundEmissions(1_000);
-        forwarder.fundEmissions(2_000);
+        vm.expectRevert(Ve33.InvalidTimestamps.selector);
+        forwarder.fundEmissions(1, uint64(block.timestamp));
+
+        forwarder.fundEmissions(1_000, end);
+        forwarder.fundEmissions(2_000, end);
         assertGt(ve.emissionRate(), 0);
-        assertEq(ve.emissionEventTimes(0), uint64(block.timestamp + ve.EMISSION_DURATION()));
-        assertEq(ve.emissionEventTimes(1), uint64(block.timestamp + ve.EMISSION_DURATION()));
+        assertGt(ve.emissionRateDecreaseAt(end), 0);
+        _assertEmissionTimeInitialized(end, true);
 
-        vm.warp(block.timestamp + ve.EMISSION_DURATION());
+        vm.warp(end);
         (PoolKey memory poolKey,) = _createConcentratedPool();
         forwarder.triggerPoolEmissions(poolKey);
-        assertEq(ve.nextEmissionEventIndex(), 2);
+        assertEq(ve.emissionRateDecreaseAt(end), 0);
+        _assertEmissionTimeInitialized(end, false);
         assertEq(ve.emissionRate(), 0);
         assertGt(ve.unallocatedEmissions(), 0);
     }
 
     function test_fundEmissionsAccruesBeforeAddingNewRate() public {
-        forwarder.fundEmissions(1_000);
-        vm.warp(block.timestamp + ve.EMISSION_DURATION());
+        uint64 firstEnd = _defaultEmissionEnd();
+        forwarder.fundEmissions(1_000, firstEnd);
+        vm.warp(firstEnd);
 
-        forwarder.fundEmissions(1_000);
+        uint64 secondEnd = _defaultEmissionEnd();
+        forwarder.fundEmissions(1_000, secondEnd);
 
-        assertEq(ve.nextEmissionEventIndex(), 1);
+        assertEq(ve.emissionRateDecreaseAt(firstEnd), 0);
+        _assertEmissionTimeInitialized(firstEnd, false);
+        assertGt(ve.emissionRateDecreaseAt(secondEnd), 0);
+        _assertEmissionTimeInitialized(secondEnd, true);
         assertGt(ve.unallocatedEmissions(), 0);
         assertGt(ve.emissionRate(), 0);
     }
@@ -1278,26 +1347,26 @@ contract Ve33Test is FullTest {
         uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
 
         SwapParameters upToUpper = createSwapParameters({
-            _sqrtRatioLimit: tickToSqrtRatio(101), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
+            _sqrtRatioLimit: tickToSqrtRatio(65), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
         });
         _routerSwap(poolKey, upToUpper, address(this));
         PoolState stateAfterUpper = core.poolState(poolId);
-        assertGe(stateAfterUpper.tick(), 100);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 100), global);
+        assertGe(stateAfterUpper.tick(), 64);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 64), global);
         assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
 
         SwapParameters downToLower = createSwapParameters({
-            _sqrtRatioLimit: tickToSqrtRatio(-101), _amount: int128(1e30), _isToken1: false, _skipAhead: 0
+            _sqrtRatioLimit: tickToSqrtRatio(-65), _amount: int128(1e30), _isToken1: false, _skipAhead: 0
         });
         _routerSwap(poolKey, downToLower, address(this));
         PoolState stateAfterLower = core.poolState(poolId);
-        assertLt(stateAfterLower.tick(), -100);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -100), global);
+        assertLt(stateAfterLower.tick(), -64);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -64), global);
 
         _updatePosition(poolKey, positionId, -int128(_positionLiquidity(poolKey, positionId)));
         assertEq(ve.positionRewardsSnapshotPerLiquidity(poolId, address(vePositions), positionId), 0);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -100), 0);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 100), 0);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -64), 0);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 64), 0);
 
         (PoolKey memory stablePool, PositionId stablePosition) = _createStableswapPool(20, 0);
         PoolId stablePoolId = stablePool.toPoolId();

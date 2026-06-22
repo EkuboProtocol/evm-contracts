@@ -46,6 +46,26 @@ contract VeTokenTest is FullTest {
         (, endTime) = veToken.stakes(veId);
     }
 
+    function _readSnapshotBytes(string memory path) internal view returns (bytes memory) {
+        bytes memory data = bytes(vm.readFile(path));
+        if (data.length != 0 && data[data.length - 1] == 0x0a) {
+            bytes memory trimmed = new bytes(data.length - 1);
+            for (uint256 i = 0; i < trimmed.length; i++) {
+                trimmed[i] = data[i];
+            }
+            data = trimmed;
+        }
+        return data;
+    }
+
+    function _assertSnapshotEq(bytes memory actual, string memory path) internal view {
+        bytes memory expected = _readSnapshotBytes(path);
+        assertEq(actual.length, expected.length, string.concat(path, " length"));
+        for (uint256 i = 0; i < actual.length; i++) {
+            assertEq(uint8(actual[i]), uint8(expected[i]), string.concat(path, " byte ", vm.toString(i)));
+        }
+    }
+
     function test_gas_createStake() public {
         coolAllContracts();
         veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
@@ -130,14 +150,22 @@ contract VeTokenTest is FullTest {
     function test_tokenURI_returnsErc721JsonMetadata() public {
         uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
         string memory uri = veToken.tokenURI(veId);
-        vm.snapshotValue("VeToken#tokenURI", uint256(keccak256(bytes(uri))));
         string memory prefix = "data:application/json;base64,";
         assertTrue(LibString.startsWith(uri, prefix));
 
         string memory json = string(Base64.decode(LibString.slice(uri, bytes(prefix).length)));
+        string memory imagePrefix = "\"image\":\"data:image/svg+xml;base64,";
+        uint256 imageStart = LibString.indexOf(json, imagePrefix) + bytes(imagePrefix).length;
+        uint256 imageEnd = LibString.indexOf(json, "\"", imageStart);
+        string memory svg = string(Base64.decode(LibString.slice(json, imageStart, imageEnd)));
+        _assertSnapshotEq(bytes(json), "snapshots/VeTokenTokenURI.json");
+        _assertSnapshotEq(bytes(svg), "snapshots/VeTokenTokenURI.svg");
         assertTrue(LibString.contains(json, "\"name\":\"veTT #1\""));
         assertTrue(LibString.contains(json, "\"description\":\"Vote-escrowed TestToken stake."));
         assertTrue(LibString.contains(json, "\"image\":\"data:image/svg+xml;base64,"));
+        assertTrue(LibString.startsWith(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        assertTrue(LibString.contains(svg, "viewBox=\"0 0 480 480\""));
+        assertTrue(LibString.endsWith(svg, "</svg>"));
     }
 
     function test_stakeLifecycleAndInvalidStakePaths() public {

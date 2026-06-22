@@ -97,7 +97,7 @@ Anyone can add LP rewards through the periphery:
 
 - `donateRewards(poolKey, amount)`: immediately credits current eligible liquidity.
 - `addRewards(poolKey, startTime, endTime, rewardRate)`: schedules a fixed Q32 reward rate for a pool.
-- `fundEmissions(amount)`: funds global emissions for one week.
+- `fundEmissions(amount, endTime)`: funds global emissions until a chosen valid end time.
 - `triggerPoolEmissions(poolKey)`: assigns a pool's share of funded emissions based on time-weighted votes and schedules that pool's LP rewards.
 
 Funding emissions does not choose pools by itself. Vote weights and elapsed vote time determine distribution, and each pool must be triggered independently. Anyone can trigger a voted pool.

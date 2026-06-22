@@ -22,3 +22,5 @@ docs/
 
 # Gas snapshot file (snapshots/ directory is tracked instead)
 .gas-snapshot
+
+.claude

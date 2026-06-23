@@ -11,6 +11,7 @@ import {VeToken} from "../src/VeToken.sol";
 import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
+import {StakeId} from "../src/types/stakeId.sol";
 
 contract VeTokenTest is FullTest {
     using CoreLib for *;
@@ -46,6 +47,10 @@ contract VeTokenTest is FullTest {
         (, endTime) = veToken.stakes(veId);
     }
 
+    function _stakeSavedBalanceId(address owner, StakeId stakeId) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(owner, StakeId.unwrap(stakeId)));
+    }
+
     function _readSnapshotBytes(string memory path) internal view returns (bytes memory) {
         bytes memory data = bytes(vm.readFile(path));
         if (data.length != 0 && data[data.length - 1] == 0x0a) {
@@ -68,28 +73,28 @@ contract VeTokenTest is FullTest {
 
     function test_gas_createStake() public {
         coolAllContracts();
-        veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
         vm.snapshotGasLastCall("VeToken#createStake");
     }
 
     function test_gas_stakes() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
 
         coolAllContracts();
         veToken.stakes(veId);
         vm.snapshotGasLastCall("VeToken#stakes");
     }
 
-    function test_gas_stakeKey() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+    function test_gas_stakeId() public {
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
 
         coolAllContracts();
-        veToken.stakeKey(veId);
-        vm.snapshotGasLastCall("VeToken#stakeKey");
+        veToken.stakeId(veId);
+        vm.snapshotGasLastCall("VeToken#stakeId");
     }
 
     function test_gas_votingPower() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
 
         coolAllContracts();
         veToken.votingPower(veId);
@@ -98,7 +103,7 @@ contract VeTokenTest is FullTest {
 
     function test_gas_tokenURI() public {
         vm.warp(1);
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
 
         coolAllContracts();
         veToken.tokenURI(veId);
@@ -106,7 +111,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_gas_increaseStakeAmount() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
 
         coolAllContracts();
         veToken.increaseStakeAmount(veId, 1e18);
@@ -114,15 +119,15 @@ contract VeTokenTest is FullTest {
     }
 
     function test_gas_extendStake() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + 1 weeks));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + 1 weeks));
 
         coolAllContracts();
-        veToken.extendStake(veId, uint64(block.timestamp + 2 weeks));
+        veToken.extendStake(veId, uint64(vm.getBlockTimestamp() + 2 weeks));
         vm.snapshotGasLastCall("VeToken#extendStake");
     }
 
     function test_gas_withdrawStake() public {
-        uint64 end = uint64(block.timestamp + 1);
+        uint64 end = uint64(vm.getBlockTimestamp() + 1);
         uint256 veId = veToken.createStake(1e18, end);
         vm.warp(end);
 
@@ -132,7 +137,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_gas_transferFrom() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
 
         coolAllContracts();
         veToken.transferFrom(address(this), address(1234), veId);
@@ -150,7 +155,7 @@ contract VeTokenTest is FullTest {
 
     function test_tokenURI_returnsErc721JsonMetadata() public {
         vm.warp(1);
-        uint256 veId = veToken.createStake(15e17, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(15e17, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
         string memory uri = veToken.tokenURI(veId);
         string memory prefix = "data:application/json;base64,";
         assertTrue(LibString.startsWith(uri, prefix));
@@ -177,22 +182,23 @@ contract VeTokenTest is FullTest {
         uint256 maxStakeDuration = veToken.MAX_STAKE_DURATION();
 
         vm.expectRevert(Ve33.InvalidStake.selector);
-        veToken.createStake(0, uint64(block.timestamp + 1));
+        veToken.createStake(0, uint64(vm.getBlockTimestamp() + 1));
         vm.expectRevert(Ve33.InvalidStake.selector);
-        veToken.createStake(1, uint64(block.timestamp));
+        veToken.createStake(1, uint64(vm.getBlockTimestamp()));
         vm.expectRevert(Ve33.InvalidStake.selector);
-        veToken.createStake(1, uint64(block.timestamp + maxStakeDuration + 1));
+        veToken.createStake(1, uint64(vm.getBlockTimestamp() + maxStakeDuration + 1));
 
-        uint64 end = uint64(block.timestamp + maxStakeDuration);
+        uint64 end = uint64(vm.getBlockTimestamp() + maxStakeDuration);
         uint256 veId = veToken.createStake(1e18, end);
         assertEq(veToken.ownerOf(veId), address(this));
         assertEq(veToken.balanceOf(address(this)), 1);
-        bytes32 salt = bytes32(veId);
-        bytes32 stakeId = keccak256(abi.encode(address(veToken), salt, end));
-        (uint128 saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), stakeId);
+        StakeId stakeId = veToken.stakeId(veId);
+        bytes32 savedBalanceId = _stakeSavedBalanceId(address(veToken), stakeId);
+        (uint128 saved,) =
+            core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), savedBalanceId);
         assertEq(saved, 1e18);
-        assertEq(ve33.stakeAmount(address(veToken), salt, end), 1e18);
-        assertEq(ve33.stakeAmount(address(this), salt, end), 0);
+        assertEq(ve33.stakeAmount(address(veToken), stakeId), 1e18);
+        assertEq(ve33.stakeAmount(address(this), stakeId), 0);
 
         (uint128 amount, uint64 stakeEndTime) = veToken.stakes(veId);
         assertEq(amount, 1e18);
@@ -210,16 +216,18 @@ contract VeTokenTest is FullTest {
         vm.expectRevert(VeToken.InvalidStake.selector);
         veToken.extendStake(veId, end);
         vm.warp(10);
-        uint64 extendedEnd = uint64(block.timestamp + maxStakeDuration);
+        uint64 extendedEnd = uint64(vm.getBlockTimestamp() + maxStakeDuration);
         veToken.extendStake(veId, extendedEnd);
 
         (amount, stakeEndTime) = veToken.stakes(veId);
         assertEq(amount, 3e18);
         assertEq(stakeEndTime, extendedEnd);
-        bytes32 extendedStakeId = keccak256(abi.encode(address(veToken), salt, extendedEnd));
-        (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), stakeId);
+        StakeId extendedStakeId = veToken.stakeId(veId);
+        bytes32 extendedSavedBalanceId = _stakeSavedBalanceId(address(veToken), extendedStakeId);
+        (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), savedBalanceId);
         assertEq(saved, 0);
-        (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedStakeId);
+        (saved,) =
+            core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedSavedBalanceId);
         assertEq(saved, 3e18);
 
         vm.expectRevert(Ve33.InvalidStake.selector);
@@ -230,7 +238,8 @@ contract VeTokenTest is FullTest {
         veToken.withdrawStake(veId);
 
         assertEq(stakeToken.balanceOf(address(this)), balanceBefore + 3e18);
-        (saved,) = core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedStakeId);
+        (saved,) =
+            core.savedBalances(address(ve33), address(stakeToken), address(type(uint160).max), extendedSavedBalanceId);
         assertEq(saved, 0);
         assertEq(veToken.balanceOf(address(this)), 0);
         vm.expectRevert(ERC721.TokenDoesNotExist.selector);
@@ -240,7 +249,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_erc721TransferMovesStakeControl() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
         address operator = address(1234);
 
         veToken.transferFrom(address(this), operator, veId);
@@ -248,7 +257,7 @@ contract VeTokenTest is FullTest {
         assertEq(veToken.balanceOf(address(this)), 0);
         assertEq(veToken.balanceOf(operator), 1);
         assertEq(_stakeAmount(veId), 1e18);
-        assertEq(ve33.stakeAmount(address(veToken), bytes32(veId), _stakeEnd(veId)), 1e18);
+        assertEq(ve33.stakeAmount(address(veToken), veToken.stakeId(veId)), 1e18);
 
         vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, address(this), veId));
         veToken.increaseStakeAmount(veId, 1);
@@ -263,7 +272,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_erc721ApprovedAccountCanUpdateStake() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
         address operator = address(1234);
         stakeToken.transfer(operator, 1e18);
 
@@ -288,7 +297,7 @@ contract VeTokenTest is FullTest {
     }
 
     function test_approvedWithdrawSendsStakeToCurrentOwner() public {
-        uint256 veId = veToken.createStake(1e18, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
         address operator = address(1234);
         veToken.approve(operator, veId);
         vm.warp(_stakeEnd(veId));

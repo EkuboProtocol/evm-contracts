@@ -14,9 +14,8 @@ contract Ve33Periphery is BaseLocker {
     using FlashAccountantLib for *;
 
     uint256 private constant CALL_TYPE_DONATE_REWARDS = 0;
-    uint256 private constant CALL_TYPE_ADD_REWARDS = 1;
-    uint256 private constant CALL_TYPE_FUND_EMISSIONS = 2;
-    uint256 private constant CALL_TYPE_TRIGGER_POOL_EMISSIONS = 3;
+    uint256 private constant CALL_TYPE_SCHEDULE_REWARDS = 1;
+    uint256 private constant CALL_TYPE_SCHEDULE_EMISSIONS = 2;
 
     ICore private immutable CORE_REF;
 
@@ -48,30 +47,24 @@ contract Ve33Periphery is BaseLocker {
     /// @param endTime Reward schedule end time.
     /// @param rewardRate Q32 reward rate in stake tokens per second.
     /// @return amount Amount of stake token required by the schedule.
-    function addRewards(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate)
+    function scheduleRewards(PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate)
         external
         returns (uint224 amount)
     {
         amount = abi.decode(
-            lock(abi.encode(CALL_TYPE_ADD_REWARDS, msg.sender, poolKey, startTime, endTime, rewardRate)), (uint224)
+            lock(abi.encode(CALL_TYPE_SCHEDULE_REWARDS, msg.sender, poolKey, startTime, endTime, rewardRate)), (uint224)
         );
     }
 
-    /// @notice Funds global Ve33 emissions until a chosen valid end time.
-    /// @param amount Amount of stake token to fund.
-    /// @param endTime Valid timestamp when the funded emission stream ends.
-    /// @return rate Added Q32 global emission rate.
-    /// @return end Timestamp when the funded emission stream ends.
-    function fundEmissions(uint128 amount, uint64 endTime) external returns (uint224 rate, uint64 end) {
-        (rate, end) =
-            abi.decode(lock(abi.encode(CALL_TYPE_FUND_EMISSIONS, msg.sender, amount, endTime)), (uint224, uint64));
-    }
-
-    /// @notice Assigns a voted pool's share of funded emissions to LP rewards.
-    /// @param poolKey Pool receiving its accrued emission share.
-    /// @return amount Amount scheduled as pool LP rewards.
-    function triggerPoolEmissions(PoolKey memory poolKey) external returns (uint224 amount) {
-        amount = abi.decode(lock(abi.encode(CALL_TYPE_TRIGGER_POOL_EMISSIONS, poolKey)), (uint224));
+    /// @notice Schedules global Ve33 emissions.
+    /// @param startTime Emission schedule start time, or zero for immediate start.
+    /// @param endTime Valid timestamp when the emission stream ends.
+    /// @param rewardRate Q32 global emission rate in stake tokens per second.
+    /// @return amount Amount of stake token required by the schedule.
+    function scheduleEmissions(uint64 startTime, uint64 endTime, uint224 rewardRate) external returns (uint224 amount) {
+        amount = abi.decode(
+            lock(abi.encode(CALL_TYPE_SCHEDULE_EMISSIONS, msg.sender, startTime, endTime, rewardRate)), (uint224)
+        );
     }
 
     /// @inheritdoc BaseLocker
@@ -84,20 +77,18 @@ contract Ve33Periphery is BaseLocker {
             uint128 donated = Ve33Lib.donateRewards(CORE_REF, ve33, poolKey, amount);
             result = abi.encode(donated);
             if (donated != 0) ACCOUNTANT.payFrom(payer, stakeToken, donated);
-        } else if (callType == CALL_TYPE_ADD_REWARDS) {
+        } else if (callType == CALL_TYPE_SCHEDULE_REWARDS) {
             (, address payer, PoolKey memory poolKey, uint64 startTime, uint64 endTime, uint224 rewardRate) =
                 abi.decode(data, (uint256, address, PoolKey, uint64, uint64, uint224));
-            uint224 amount = Ve33Lib.addRewards(CORE_REF, ve33, poolKey, startTime, endTime, rewardRate);
+            uint224 amount = Ve33Lib.scheduleRewards(CORE_REF, ve33, poolKey, startTime, endTime, rewardRate);
             result = abi.encode(amount);
             if (amount != 0) ACCOUNTANT.payFrom(payer, stakeToken, amount);
-        } else if (callType == CALL_TYPE_FUND_EMISSIONS) {
-            (, address payer, uint128 amount, uint64 endTime) = abi.decode(data, (uint256, address, uint128, uint64));
-            (uint224 rate, uint64 end) = Ve33Lib.fundEmissions(CORE_REF, ve33, amount, endTime);
-            result = abi.encode(rate, end);
+        } else if (callType == CALL_TYPE_SCHEDULE_EMISSIONS) {
+            (, address payer, uint64 startTime, uint64 endTime, uint224 rewardRate) =
+                abi.decode(data, (uint256, address, uint64, uint64, uint224));
+            uint224 amount = Ve33Lib.scheduleEmissions(CORE_REF, ve33, startTime, endTime, rewardRate);
+            result = abi.encode(amount);
             if (amount != 0) ACCOUNTANT.payFrom(payer, stakeToken, amount);
-        } else if (callType == CALL_TYPE_TRIGGER_POOL_EMISSIONS) {
-            (, PoolKey memory poolKey) = abi.decode(data, (uint256, PoolKey));
-            result = abi.encode(Ve33Lib.triggerPoolEmissions(CORE_REF, ve33, poolKey));
         } else {
             revert();
         }

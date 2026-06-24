@@ -20,6 +20,7 @@ import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
 import {Router} from "../src/Router.sol";
 import {BoostedFeesDataFetcher} from "../src/lens/BoostedFeesDataFetcher.sol";
 import {ManualPoolBooster} from "../src/ManualPoolBooster.sol";
+import {PoolKeyIndex} from "../src/PoolKeyIndex.sol";
 
 address constant DETERMINISTIC_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
@@ -149,6 +150,12 @@ contract DeployAll is Script {
             DEPLOYMENT_SALT,
             0xF68F25CA6C817733b7B15a42191AE72A34d56a2B,
             "CoreDataFetcher"
+        );
+        deployIfNeeded(
+            abi.encodePacked(type(PoolKeyIndex).creationCode, abi.encode(core)),
+            DEPLOYMENT_SALT,
+            0x898956fc2Aed01D5F81F556FF5dcB10534285718,
+            "PoolKeyIndex"
         );
         deployIfNeeded(
             abi.encodePacked(type(QuoteDataFetcher).creationCode, abi.encode(core)),

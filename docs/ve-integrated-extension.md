@@ -141,7 +141,7 @@ LPs earn only the immutable reward token, which is the same token used for ve st
 - `tickRewardsOutsidePerLiquidity`
 - `positionRewardsSnapshotPerLiquidity`
 
-`maybeAccumulateRewards` first accrues the global emission stream, realizes the pool's vote-weighted share since its last snapshot, and advances `rewardsGlobalPerLiquidity` using current Core pool liquidity. For stableswap pools, active liquidity is treated as zero when the current tick is outside the stableswap active-liquidity range. If liquidity is zero, realized emissions are not assigned to LPs because `rewardsGlobalPerLiquidity` is not increased.
+`maybeAccumulateRewards` first accrues the global emission stream, realizes the pool's vote-weighted share since its last snapshot, and advances `rewardsGlobalPerLiquidity` using current Core pool liquidity. If liquidity is zero, including before a voted pool is initialized or before liquidity is added, realized emissions are not assigned to LPs because `rewardsGlobalPerLiquidity` is not increased. Those emissions are intentionally burned rather than blocked by pool-existence checks.
 
 `beforeUpdatePosition` snapshots position rewards before liquidity changes. It uses the same snapshot adjustment trick as Core: rewards earned before the update are preserved by moving `positionRewardsSnapshotPerLiquidity` based on the next liquidity value. If the position fully exits, the snapshot is cleared and unclaimed rewards are discarded.
 
@@ -153,9 +153,9 @@ in range:     rewardsGlobalPerLiquidity - lowerOutside - upperOutside
 above range:  upperOutside - lowerOutside
 ```
 
-Forwarded swaps explicitly invert reward-outside snapshots for crossed concentrated ticks. For stableswap pools, the active-liquidity lower and upper ticks are updated when swaps cross the stableswap active range. This prevents out-of-range positions from earning rewards while they are out of range.
+Forwarded swaps explicitly invert reward-outside snapshots for crossed concentrated ticks. Stableswap positions use the pool's global reward growth directly, so stableswap liquidity can keep earning emissions when the current tick is outside the stableswap active-liquidity range.
 
-`VE33_CLAIM_REWARDS` accumulates the pool, computes the position's reward amount from the difference between current in-range reward growth and `positionRewardsSnapshotPerLiquidity`, updates the snapshot to current in-range growth, subtracts the claimed amount from the LP-reward saved-balance bucket, and returns the amount to the forwarding locker for withdrawal by `Ve33Positions`.
+`VE33_CLAIM_REWARDS` accumulates the pool, computes the position's reward amount from the difference between current position reward growth and `positionRewardsSnapshotPerLiquidity`, updates the snapshot to current reward growth, subtracts the claimed amount from the LP-reward saved-balance bucket, and returns the amount to the forwarding locker for withdrawal by `Ve33Positions`.
 
 ## Emissions
 
@@ -178,7 +178,7 @@ poolEmissionAmount =
   (emissionGrowthGlobalX128 - poolSnapshot) * pool active vote weight
 ```
 
-That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has current active LP liquidity. There is no separate trigger call and no keeper-chosen pool distribution step. A newly voted pool snapshots current global emission growth before its weight is added, so it starts earning from the new vote timestamp rather than receiving past emissions. If the pool has no active LP liquidity when its emission share is realized, the realized amount cannot be claimed by positions.
+That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has current Core liquidity. There is no separate trigger call and no keeper-chosen pool distribution step. A newly voted pool snapshots current global emission growth before its weight is added, so it starts earning from the new vote timestamp rather than receiving past emissions. If the pool is not initialized yet or has no liquidity when its emission share is realized, the realized amount is burned.
 
 ## Settlement Model
 

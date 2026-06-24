@@ -102,22 +102,23 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     }
 
     /// @notice Stake amounts by `(owner, stakeId)`.
-    mapping(address => mapping(StakeId => uint128)) private stakeAmounts;
+    mapping(address owner => mapping(StakeId stakeId => uint128 amount)) private stakeAmounts;
     /// @notice Pool currently voted on by each stake id.
-    mapping(address => mapping(StakeId => PoolId)) private votedPoolIds;
+    mapping(address owner => mapping(StakeId stakeId => PoolId poolId)) private votedPoolIds;
     /// @notice Per-stake vote and fee snapshots for the currently voted pool.
-    mapping(address => mapping(StakeId => VePoolPosition)) private vePoolPositions;
+    mapping(address owner => mapping(StakeId stakeId => VePoolPosition position)) private vePoolPositions;
     /// @notice Aggregated voting and fee state for each pool.
-    mapping(PoolId => PoolVoteState) private poolVoteStates;
-    /// @notice Canonical pool keys for initialized Ve33 pools, used to accrue rewards during vote updates.
-    mapping(PoolId => PoolKey) private storedPoolKeys;
+    mapping(PoolId poolId => PoolVoteState state) private poolVoteStates;
 
-    /// @notice Global reward-token growth per unit of in-range liquidity for each pool.
-    mapping(PoolId => uint256) private rewardsGlobalPerLiquidity;
+    /// @notice Global reward-token growth per unit of liquidity for each pool.
+    mapping(PoolId poolId => uint256 rewardsPerLiquidity) private rewardsGlobalPerLiquidity;
     /// @notice Reward growth outside each initialized tick, used to compute in-range rewards.
-    mapping(PoolId => mapping(int32 => uint256)) private tickRewardsOutsidePerLiquidity;
+    mapping(PoolId poolId => mapping(int32 tick => uint256 rewardsOutsidePerLiquidity)) private
+        tickRewardsOutsidePerLiquidity;
     /// @notice Per-position reward growth snapshot.
-    mapping(PoolId => mapping(address => mapping(PositionId => uint256))) private positionRewardsSnapshotPerLiquidity;
+    mapping(
+        PoolId poolId => mapping(address owner => mapping(PositionId positionId => uint256 rewardsSnapshotPerLiquidity))
+    ) private positionRewardsSnapshotPerLiquidity;
 
     /// @notice Total active ve vote weight across all pools.
     uint128 private totalVoteWeight;
@@ -129,9 +130,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Last timestamp when global emissions were accrued.
     uint64 private emissionsLastAccrued;
     /// @notice Bitmap of valid global emission-rate change times.
-    mapping(uint256 => Bitmap) private emissionInitializedTimeBitmap;
+    mapping(uint256 word => Bitmap bitmap) private emissionInitializedTimeBitmap;
     /// @notice Global emission-rate deltas at each initialized time.
-    mapping(uint64 => int256) private emissionRateDeltaAtTime;
+    mapping(uint64 time => int256 rateDelta) private emissionRateDeltaAtTime;
 
     /// @notice Emitted when stake is added.
     event StakeIncreased(address owner, StakeId stakeId, uint128 amount);
@@ -158,14 +159,12 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Emitted when an LP position claims reward tokens.
     event RewardsClaimed(PoolId poolId, address owner, PositionId positionId, address recipient, uint256 amount);
 
-    /// @notice Thrown when a pool is initialized with a nonzero Core fee.
-    error ZeroConfigFeeOnly();
     /// @notice Thrown when a swap attempts to bypass the forward-only swap path.
     error SwapMustHappenThroughForward();
     /// @notice Thrown when a vote payload or target pool is invalid.
     error InvalidVote();
-    /// @notice Thrown when a concentrated pool tick spacing is not a power of four.
-    error InvalidTickSpacing();
+    /// @notice Thrown when a pool key is not valid for this extension.
+    error InvalidPoolKey();
     /// @notice Thrown when a global emission schedule amount is zero.
     error EmissionAmountTooSmall();
     /// @notice Thrown when emission schedule timestamps are invalid.
@@ -174,8 +173,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     error RewardAmountOverflow();
     /// @notice Thrown when an emission-rate delta exceeds the allowed bound.
     error MaxRateDeltaPerTime();
-    /// @notice Thrown when reward accounting is requested for a pool not initialized for this extension.
-    error PoolNotInitialized();
     /// @notice Thrown when a stake amount or timestamp is invalid.
     error InvalidStake();
 
@@ -195,12 +192,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Validates extension-specific pool configuration before Core initializes a new pool.
     /// @dev Pools must use zero Core fee because the active fee is stored in `poolVoteStates`.
     function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension) onlyCore {
-        if (poolKey.config.fee() != 0) revert ZeroConfigFeeOnly();
-
-        if (poolKey.config.isConcentrated()) {
-            uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
-            if (!isPowerOfFour(tickSpacing)) revert InvalidTickSpacing();
-        }
+        checkValidPoolKey(poolKey);
     }
 
     /// @notice Initializes extension reward state after Core initializes a new pool.
@@ -210,8 +202,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         onlyCore
     {
         PoolId poolId = poolKey.toPoolId();
-        storedPoolKeys[poolId] = poolKey;
-        poolVoteStates[poolId].emissionGrowthGlobalX128Snapshot = emissionGrowthGlobalX128;
+        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
     }
 
     /// @notice Rejects direct Core swaps.
@@ -246,6 +237,19 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         }
     }
 
+    /// @notice Checks that a pool key is configured for Ve33 accounting.
+    /// @dev Ve33 pools must use this extension, zero Core fee, and power-of-four concentrated tick spacing.
+    function checkValidPoolKey(PoolKey memory poolKey) private view {
+        bool invalidConcentratedSpacing;
+        if (poolKey.config.isConcentrated()) {
+            uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
+            invalidConcentratedSpacing = !isPowerOfFour(tickSpacing);
+        }
+        if (poolKey.config.extension() != address(this) || poolKey.config.fee() != 0 || invalidConcentratedSpacing) {
+            revert InvalidPoolKey();
+        }
+    }
+
     /// @notice Replaces the vote for a stake owned by the caller.
     /// @dev The stake's full current voting power is assigned to `poolKey`. `swapFee` is capped to the protocol maximum.
     /// @param stakeId Stake whose votes are being updated.
@@ -274,32 +278,14 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     }
 
     /// @notice Accumulates global emissions into the pool reward-per-liquidity global value.
-    /// @dev If the pool has no active in-range liquidity, accrued emissions are not assigned to LPs.
+    /// @dev If the pool has no liquidity, accrued emissions are not assigned to LPs.
     /// @param poolKey Pool whose reward state is being accumulated.
     function maybeAccumulateRewards(PoolKey memory poolKey) public {
-        unchecked {
-            PoolId poolId = poolKey.toPoolId();
-            if (storedPoolKeys[poolId].config.extension() != address(this)) {
-                if (poolKey.config.extension() != address(this) || !CORE.poolState(poolId).isInitialized()) {
-                    revert PoolNotInitialized();
-                }
-                storedPoolKeys[poolId] = poolKey;
-            }
+        PoolId poolId = poolKey.toPoolId();
+        PoolState coreState = CORE.poolState(poolId);
+        checkValidPoolKey(poolKey);
 
-            _accrueEmissions();
-
-            uint128 liquidity = _activeRewardLiquidity(poolKey, CORE.poolState(poolId));
-            uint256 emissionRewardsAccrued = _poolEmissionRewardsAccrued(poolId);
-
-            if (emissionRewardsAccrued != 0) {
-                if (liquidity != 0) {
-                    if (emissionRewardsAccrued > type(uint128).max) revert RewardAmountOverflow();
-                    rewardsGlobalPerLiquidity[poolId] += (emissionRewardsAccrued << 128) / liquidity;
-                }
-
-                emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
-            }
-        }
+        _accumulatePoolRewards(poolId, coreState.liquidity());
     }
 
     /// @notice Handles extension forward calls from Core.
@@ -425,14 +411,13 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             PoolState coreState = CORE.poolState(poolId);
             int32 tick = coreState.tick();
             uint128 liquidityNext = addLiquidityDelta(liquidity, liquidityDelta);
-            uint256 rewardsInsidePerLiquidity =
-                _getRewardsInsidePerLiquidity(poolId, tick, positionId.tickLower(), positionId.tickUpper());
+            uint256 rewardsInsidePerLiquidity = poolKey.config.isStableswap()
+                ? rewardsGlobalPerLiquidity[poolId]
+                : _getRewardsInsidePerLiquidity(poolId, tick, positionId.tickLower(), positionId.tickUpper());
             uint256 snapshot = positionRewardsSnapshotPerLiquidity[poolId][owner][positionId];
             uint256 amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
-            if (poolKey.config.isStableswap()) {
-                _updateStableswapTickRewardsPerLiquidityOutside(poolKey, poolId, coreState, liquidityDelta);
-            } else {
+            if (poolKey.config.isConcentrated()) {
                 _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickLower(), liquidityDelta);
                 _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickUpper(), liquidityDelta);
             }
@@ -440,8 +425,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             if (liquidityNext == 0) {
                 positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = 0;
             } else {
-                uint256 rewardsInsideNextPerLiquidity =
-                    _getRewardsInsidePerLiquidity(poolId, tick, positionId.tickLower(), positionId.tickUpper());
+                uint256 rewardsInsideNextPerLiquidity = poolKey.config.isStableswap()
+                    ? rewardsGlobalPerLiquidity[poolId]
+                    : _getRewardsInsidePerLiquidity(poolId, tick, positionId.tickLower(), positionId.tickUpper());
                 unchecked {
                     positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] =
                         rewardsInsideNextPerLiquidity - ((amount << 128) / liquidityNext);
@@ -472,7 +458,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         _clearVotes(owner, stakeId);
         nextAmount = stakeAmounts[owner][stakeId] + amount;
         stakeAmounts[owner][stakeId] = nextAmount;
-        _updateStakeSavedBalance(owner, stakeId, int256(uint256(amount)));
+        CORE.updateSavedBalances(
+            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, stakeId), int256(uint256(amount)), 0
+        );
 
         emit StakeIncreased(owner, stakeId, amount);
     }
@@ -491,7 +479,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
         _clearVotes(owner, stakeId);
         stakeAmounts[owner][stakeId] = 0;
-        _updateStakeSavedBalance(owner, stakeId, -int256(uint256(unstaked)));
+        CORE.updateSavedBalances(
+            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, stakeId), -int256(uint256(unstaked)), 0
+        );
 
         emit StakeDecreased(owner, stakeId, unstaked);
     }
@@ -517,8 +507,16 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         stakeAmounts[owner][fromStakeId] = currentAmount - amount;
         nextAmount = stakeAmounts[owner][toStakeId] + amount;
         stakeAmounts[owner][toStakeId] = nextAmount;
-        _updateStakeSavedBalance(owner, fromStakeId, -int256(uint256(amount)));
-        _updateStakeSavedBalance(owner, toStakeId, int256(uint256(amount)));
+        CORE.updateSavedBalances(
+            stakeToken,
+            address(type(uint160).max),
+            _stakeSavedBalanceId(owner, fromStakeId),
+            -int256(uint256(amount)),
+            0
+        );
+        CORE.updateSavedBalances(
+            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, toStakeId), int256(uint256(amount)), 0
+        );
 
         emit StakeMoved(owner, fromStakeId, toStakeId);
     }
@@ -544,8 +542,16 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         stakeAmounts[owner][fromStakeId] = currentAmount - amount;
         nextAmount = stakeAmounts[owner][toStakeId] + amount;
         stakeAmounts[owner][toStakeId] = nextAmount;
-        _updateStakeSavedBalance(owner, fromStakeId, -int256(uint256(amount)));
-        _updateStakeSavedBalance(owner, toStakeId, int256(uint256(amount)));
+        CORE.updateSavedBalances(
+            stakeToken,
+            address(type(uint160).max),
+            _stakeSavedBalanceId(owner, fromStakeId),
+            -int256(uint256(amount)),
+            0
+        );
+        CORE.updateSavedBalances(
+            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, toStakeId), int256(uint256(amount)), 0
+        );
         _pokeVotes(owner, fromStakeId, _votingPower(owner, fromStakeId));
 
         emit StakeMoved(owner, fromStakeId, toStakeId);
@@ -561,20 +567,13 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         uint128 power = _votingPower(owner, stakeId);
         if (power == 0) revert InvalidVote();
 
-        bool invalidConcentratedSpacing;
-        if (poolKey.config.isConcentrated()) {
-            uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
-            invalidConcentratedSpacing = !isPowerOfFour(tickSpacing);
-        }
-        if (poolKey.config.extension() != address(this) || poolKey.config.fee() != 0 || invalidConcentratedSpacing) {
-            revert InvalidVote();
-        }
+        checkValidPoolKey(poolKey);
 
         _clearVotes(owner, stakeId);
 
         PoolId poolId = poolKey.toPoolId();
         uint64 cappedSwapFee = capFee(swapFee);
-        _accumulatePoolEmissionsForVote(poolId, poolKey);
+        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
         PoolVoteState storage poolState = poolVoteStates[poolId];
         VePoolPosition storage vePool = vePoolPositions[owner][stakeId];
@@ -676,7 +675,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
         if (amount == 0) revert EmissionAmountTooSmall();
         if (amount > type(uint128).max) revert RewardAmountOverflow();
-        _updateRewardSavedBalance(int256(uint256(amount)));
+        CORE.updateSavedBalances(
+            stakeToken, address(type(uint160).max), VE33_LP_REWARD_SAVED_BALANCE_ID, int256(uint256(amount)), 0
+        );
 
         int256 rewardRateDelta = int256(uint256(rewardRate));
         if (startTime > block.timestamp) {
@@ -688,24 +689,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         _updateEmissionTime(endTime, -rewardRateDelta);
 
         emit EmissionsScheduled(funder, startTime, endTime, rewardRate, amount);
-    }
-
-    /// @notice Returns liquidity eligible for reward growth at the current pool price.
-    /// @dev Stableswap active liquidity is zero outside its configured active range.
-    /// @param poolKey Pool whose reward liquidity is being checked.
-    /// @param coreState Current Core pool state.
-    /// @return liquidity In-range liquidity eligible for LP rewards.
-    function _activeRewardLiquidity(PoolKey memory poolKey, PoolState coreState)
-        private
-        pure
-        returns (uint128 liquidity)
-    {
-        liquidity = coreState.liquidity();
-        if (liquidity != 0 && poolKey.config.isStableswap()) {
-            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
-            int32 tick = coreState.tick();
-            if (tick < lower || tick >= upper) liquidity = 0;
-        }
     }
 
     /// @notice Claims reward tokens earned by an LP position.
@@ -725,9 +708,11 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         uint128 liquidity = CORE.poolPositions(poolId, owner, positionId).liquidity;
         uint256 snapshot = positionRewardsSnapshotPerLiquidity[poolId][owner][positionId];
 
-        uint256 rewardsInsidePerLiquidity = _getRewardsInsidePerLiquidity(
-            poolId, CORE.poolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
-        );
+        uint256 rewardsInsidePerLiquidity = poolKey.config.isStableswap()
+            ? rewardsGlobalPerLiquidity[poolId]
+            : _getRewardsInsidePerLiquidity(
+                poolId, CORE.poolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
+            );
         amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
         positionRewardsSnapshotPerLiquidity[poolId][owner][positionId] = liquidity == 0 ? 0 : rewardsInsidePerLiquidity;
@@ -736,7 +721,13 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
         if (amount != 0) {
             uint128 amountUint128 = uint128(amount);
-            _updateRewardSavedBalance(-int256(uint256(amountUint128)));
+            CORE.updateSavedBalances(
+                stakeToken,
+                address(type(uint160).max),
+                VE33_LP_REWARD_SAVED_BALANCE_ID,
+                -int256(uint256(amountUint128)),
+                0
+            );
         }
 
         emit RewardsClaimed(poolId, owner, positionId, recipient, amount);
@@ -752,7 +743,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         uint128 weight = vePool.weight;
         if (weight == 0) return;
 
-        _accumulatePoolEmissionsForVote(poolId, storedPoolKeys[poolId]);
+        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
         PoolVoteState storage poolState = poolVoteStates[poolId];
         _setVePoolWeight(poolState, vePool, 0);
@@ -783,7 +774,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         previousWeight = vePool.weight;
         if (previousWeight == 0) return (0, 0);
 
-        _accumulatePoolEmissionsForVote(poolId, storedPoolKeys[poolId]);
+        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
         if (targetWeight >= previousWeight) return (previousWeight, previousWeight);
         nextWeight = targetWeight;
@@ -858,14 +849,23 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         }
     }
 
-    /// @notice Accrues pool emissions before vote weight changes.
-    /// @dev Uninitialized pools can be voted on, but cannot accrue LP rewards until after initialization.
-    function _accumulatePoolEmissionsForVote(PoolId poolId, PoolKey memory poolKey) private {
-        if (CORE.poolState(poolId).isInitialized()) {
-            maybeAccumulateRewards(poolKey);
-        } else {
+    /// @notice Accumulates global emissions into one pool's LP reward growth.
+    /// @param poolId Pool whose reward state is being accumulated.
+    /// @param liquidity Current Core pool liquidity.
+    function _accumulatePoolRewards(PoolId poolId, uint128 liquidity) private {
+        unchecked {
             _accrueEmissions();
-            poolVoteStates[poolId].emissionGrowthGlobalX128Snapshot = emissionGrowthGlobalX128;
+
+            uint256 emissionRewardsAccrued = _poolEmissionRewardsAccrued(poolId);
+
+            if (emissionRewardsAccrued != 0) {
+                if (liquidity != 0) {
+                    if (emissionRewardsAccrued > type(uint128).max) revert RewardAmountOverflow();
+                    rewardsGlobalPerLiquidity[poolId] += (emissionRewardsAccrued << 128) / liquidity;
+                }
+
+                emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
+            }
         }
     }
 
@@ -946,39 +946,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     ) private {
         if (tickBefore == tickAfter) return;
 
-        uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
+        if (poolKey.config.isStableswap()) return;
 
-        if (poolKey.config.isStableswap()) {
-            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
-            if (tickAfter > tickBefore) {
-                if (tickBefore < lower && tickAfter >= lower) {
-                    unchecked {
-                        tickRewardsOutsidePerLiquidity[poolId][lower] =
-                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][lower];
-                    }
-                }
-                if (tickBefore < upper && tickAfter >= upper) {
-                    unchecked {
-                        tickRewardsOutsidePerLiquidity[poolId][upper] =
-                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][upper];
-                    }
-                }
-            } else {
-                if (tickBefore >= upper && tickAfter < upper) {
-                    unchecked {
-                        tickRewardsOutsidePerLiquidity[poolId][upper] =
-                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][upper];
-                    }
-                }
-                if (tickBefore >= lower && tickAfter < lower) {
-                    unchecked {
-                        tickRewardsOutsidePerLiquidity[poolId][lower] =
-                            rewardsGlobalPerLiquidity_ - tickRewardsOutsidePerLiquidity[poolId][lower];
-                    }
-                }
-            }
-            return;
-        }
+        uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
 
         uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
 
@@ -1010,20 +980,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         }
     }
 
-    /// @notice Updates the saved balance for funded LP reward tokens.
-    /// @param delta Signed LP-reward balance delta.
-    function _updateRewardSavedBalance(int256 delta) private {
-        CORE.updateSavedBalances(stakeToken, address(type(uint160).max), VE33_LP_REWARD_SAVED_BALANCE_ID, delta, 0);
-    }
-
-    /// @notice Updates the saved balance for staked tokens.
-    /// @param owner Locker representation that owns the stake.
-    /// @param stakeId Stake id whose saved balance changes.
-    /// @param delta Signed staked-token balance delta.
-    function _updateStakeSavedBalance(address owner, StakeId stakeId, int256 delta) private {
-        CORE.updateSavedBalances(stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, stakeId), delta, 0);
-    }
-
     /// @notice Computes the Core saved-balance id for a staked token balance.
     function _stakeSavedBalanceId(address owner, StakeId stakeId) private pure returns (bytes32 result) {
         assembly ("memory-safe") {
@@ -1031,20 +987,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             mstore(0x20, stakeId)
             result := keccak256(0x0c, 0x34)
         }
-    }
-
-    /// @notice Computes reward growth inside a position's tick range.
-    /// @param poolId Pool containing the position.
-    /// @param tickLower Position lower tick.
-    /// @param tickUpper Position upper tick.
-    /// @return rewardsInsidePerLiquidity Reward growth inside the range.
-    function _getRewardsInsidePerLiquidity(PoolId poolId, int32 tickLower, int32 tickUpper)
-        private
-        view
-        returns (uint256 rewardsInsidePerLiquidity)
-    {
-        rewardsInsidePerLiquidity =
-            _getRewardsInsidePerLiquidity(poolId, CORE.poolState(poolId).tick(), tickLower, tickUpper);
     }
 
     /// @notice Computes reward growth inside a position's tick range using a known current tick.
@@ -1087,31 +1029,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             if (liquidityNetNext != 0) {
                 tickRewardsOutsidePerLiquidity[poolId][tick] =
                     tickCurrent >= tick ? rewardsGlobalPerLiquidity[poolId] : 0;
-            }
-        }
-    }
-
-    /// @notice Updates reward-outside state when stableswap active liquidity appears or disappears.
-    /// @param poolKey Stableswap pool key.
-    /// @param poolId Id of `poolKey`.
-    /// @param liquidityDelta Position liquidity delta.
-    function _updateStableswapTickRewardsPerLiquidityOutside(
-        PoolKey memory poolKey,
-        PoolId poolId,
-        PoolState coreState,
-        int128 liquidityDelta
-    ) private {
-        uint128 liquidity = coreState.liquidity();
-        uint128 liquidityNext = addLiquidityDelta(liquidity, liquidityDelta);
-        if ((liquidity == 0) != (liquidityNext == 0)) {
-            (int32 lower, int32 upper) = poolKey.config.stableswapActiveLiquidityTickRange();
-            delete tickRewardsOutsidePerLiquidity[poolId][lower];
-            delete tickRewardsOutsidePerLiquidity[poolId][upper];
-            if (liquidityNext != 0) {
-                int32 tick = coreState.tick();
-                uint256 rewardsGlobalPerLiquidity_ = rewardsGlobalPerLiquidity[poolId];
-                tickRewardsOutsidePerLiquidity[poolId][lower] = tick >= lower ? rewardsGlobalPerLiquidity_ : 0;
-                tickRewardsOutsidePerLiquidity[poolId][upper] = tick >= upper ? rewardsGlobalPerLiquidity_ : 0;
             }
         }
     }

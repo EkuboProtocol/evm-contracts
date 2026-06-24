@@ -45,11 +45,11 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     }
 
     /// @inheritdoc IERC20
-    mapping(address owner => mapping(address spender => uint256)) public override allowance;
+    mapping(address owner => mapping(address spender => uint256 amount)) public override allowance;
 
     /// @notice Mapping of account balances (not public because we use coreBalance for Core)
     /// @dev Private mapping to track individual account balances
-    mapping(address account => uint256) private _balanceOf;
+    mapping(address account => uint256 amount) private _balanceOf;
 
     /// @notice Transient balance for the Core contract
     /// @dev Core never actually holds a real balance of this token, we just use this transient balance to enable low cost payments to core

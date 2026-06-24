@@ -16,7 +16,6 @@ import {
 import {ICore} from "../interfaces/ICore.sol";
 import {FlashAccountantLib} from "./FlashAccountantLib.sol";
 import {PoolId} from "../types/poolId.sol";
-import {PoolConfig} from "../types/poolConfig.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
@@ -37,15 +36,14 @@ library Ve33Lib {
     uint256 private constant VOTED_POOL_IDS_SLOT = 1;
     uint256 private constant VE_POOL_POSITIONS_SLOT = 2;
     uint256 private constant POOL_VOTE_STATES_SLOT = 3;
-    uint256 private constant STORED_POOL_KEYS_SLOT = 4;
-    uint256 private constant REWARDS_GLOBAL_PER_LIQUIDITY_SLOT = 5;
-    uint256 private constant TICK_REWARDS_OUTSIDE_PER_LIQUIDITY_SLOT = 6;
-    uint256 private constant POSITION_REWARDS_SNAPSHOT_PER_LIQUIDITY_SLOT = 7;
-    uint256 private constant TOTAL_VOTE_WEIGHT_SLOT = 8;
-    uint256 private constant EMISSION_GROWTH_GLOBAL_X128_SLOT = 9;
-    uint256 private constant EMISSION_RATE_AND_LAST_ACCRUED_SLOT = 10;
-    uint256 private constant EMISSION_INITIALIZED_TIME_BITMAP_SLOT = 11;
-    uint256 private constant EMISSION_RATE_DELTA_AT_TIME_SLOT = 12;
+    uint256 private constant REWARDS_GLOBAL_PER_LIQUIDITY_SLOT = 4;
+    uint256 private constant TICK_REWARDS_OUTSIDE_PER_LIQUIDITY_SLOT = 5;
+    uint256 private constant POSITION_REWARDS_SNAPSHOT_PER_LIQUIDITY_SLOT = 6;
+    uint256 private constant TOTAL_VOTE_WEIGHT_SLOT = 7;
+    uint256 private constant EMISSION_GROWTH_GLOBAL_X128_SLOT = 8;
+    uint256 private constant EMISSION_RATE_AND_LAST_ACCRUED_SLOT = 9;
+    uint256 private constant EMISSION_INITIALIZED_TIME_BITMAP_SLOT = 10;
+    uint256 private constant EMISSION_RATE_DELTA_AT_TIME_SLOT = 11;
 
     /// @notice Encodes a Ve33 forwarded swap call.
     function encodeSwap(PoolKey memory poolKey, SwapParameters params) internal pure returns (bytes memory) {
@@ -271,16 +269,7 @@ library Ve33Lib {
         state.weight = uint128(uint256(weight));
     }
 
-    /// @notice Returns the canonical key recorded for an initialized Ve33 pool.
-    function storedPoolKey(Ve33 ve33, PoolId poolId) internal view returns (PoolKey memory key) {
-        StorageSlot slot = _poolMappingSlot(poolId, STORED_POOL_KEYS_SLOT);
-        (bytes32 token0, bytes32 token1, bytes32 config) = ve33.sload(slot, _add(slot, 1), _add(slot, 2));
-        key.token0 = address(uint160(uint256(token0)));
-        key.token1 = address(uint160(uint256(token1)));
-        key.config = PoolConfig.wrap(config);
-    }
-
-    /// @notice Returns global reward growth per unit of in-range liquidity for a pool.
+    /// @notice Returns global reward growth per unit of liquidity for a pool.
     function rewardsGlobalPerLiquidity(Ve33 ve33, PoolId poolId) internal view returns (uint256) {
         return uint256(ve33.sload(_poolMappingSlot(poolId, REWARDS_GLOBAL_PER_LIQUIDITY_SLOT)));
     }

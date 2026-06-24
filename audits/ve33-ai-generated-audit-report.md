@@ -95,15 +95,16 @@ Ve33 voting validates that a pool key belongs to the Ve33 extension, uses zero C
 concentrated tick spacing. It does not require the pool to already be initialized. This permits permissionless
 pre-initialization signaling.
 
-Uninitialized pools cannot accrue LP rewards because they do not yet have Core pool liquidity. When such a pool is voted,
+Uninitialized pools cannot assign LP rewards because they do not yet have Core pool liquidity. When such a pool is voted,
 Ve33 snapshots current global emission growth for that pool before adding vote weight, so the pool cannot claim global
-emissions from before the vote. Once the pool is initialized, normal pool touches can realize its share of later emission
-growth.
+emissions from before the vote. Later pool touches can still accrue the pool's emission share before initialization or
+liquidity; those emissions are burned by advancing the pool snapshot without increasing reward growth. Once the pool is
+initialized and liquid, normal pool touches can realize its share of later emission growth.
 
 Operational impact:
 
 - Votes for never-initialized pools can remain part of total active vote weight until users revote, clear, poke, move, or
-  expire those stakes.
+  expire those stakes, and their emission share may be burned while the pool remains uninitialized or empty.
 - Emission growth earned by initialized pools is still computed from total active vote weight, so abandoned
   pre-initialization votes can dilute initialized pools until refreshed.
 
@@ -194,17 +195,19 @@ LP reward accounting is range-aware. The extension tracks:
 - global reward growth per liquidity,
 - initialized tick reward growth outside,
 - position reward growth snapshots,
-- stableswap active-range reward boundaries,
 - global emission growth per unit of active vote weight.
 
 Position reward snapshots are updated before liquidity changes. Concentrated tick outside values are initialized,
-cleared, and inverted as positions and swaps cross initialized ticks.
+cleared, and inverted as positions and swaps cross initialized ticks. Stableswap positions use global pool reward growth
+directly and can earn emissions while the current tick is outside the stableswap active-liquidity range.
 
 Global emissions are permissionlessly scheduled through `VE33_SCHEDULE_EMISSIONS`. The caller chooses valid start and
 end times and a Q32 reward rate, and the required token amount is prepaid into the LP reward saved-balance bucket.
 `_accrueEmissions` advances `emissionGrowthGlobalX128` using the current total active vote weight. Each pool stores an
 `emissionGrowthGlobalX128Snapshot`; when the pool is touched, its share of global growth is realized into
-`rewardsGlobalPerLiquidity` for current active LP liquidity. There is no separate pool-emission trigger.
+`rewardsGlobalPerLiquidity` for current Core pool liquidity. If the pool is uninitialized or has zero liquidity, the
+pool's realized share is burned by advancing its snapshot without increasing reward growth. There is no separate
+pool-emission trigger.
 
 Stake accounting lives in Ve33, but token transfers do not. Stake, unstake, and stake movement update saved-balance
 buckets and canonical stake mappings. Wrappers such as VeToken settle the actual token movement around the forwarded
@@ -213,7 +216,7 @@ call.
 ### Ve33Lib
 
 `Ve33Lib` contains action-specific calldata encoders, result decoders, and forward-call helpers for Ve33. It also exposes
-storage reader helpers for stakes, vote states, emission state, stored pool keys, pool reward growth, and voting power
+storage reader helpers for stakes, vote states, emission state, pool reward growth, and voting power
 calculations.
 
 This design keeps call sites explicit and avoids a generic Ve33 forwarding surface. The main tradeoff is storage layout
@@ -324,7 +327,7 @@ The reviewed test suite covers the major audited behaviors:
 - exact-output fee accounting,
 - voter fee claims and pro-rata fee growth,
 - reward claims and zero-liquidity emission realization behavior,
-- reward boundary snapshots for concentrated and stableswap pools,
+- concentrated reward boundary snapshots and stableswap global reward behavior,
 - global emission scheduling, valid chosen start/end times, same-time schedule aggregation, and continuous pool-touch
   allocation,
 - zero-vote emission interval behavior,

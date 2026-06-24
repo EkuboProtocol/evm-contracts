@@ -77,10 +77,10 @@ LPs should remember:
 - Ve33 LPs do not earn Core swap fees.
 - LPs earn the stake token from global emissions directed by active votes.
 - Rewards are range-aware. Out-of-range concentrated positions do not earn while out of range.
-- Stableswap positions only earn while the pool price is inside the stableswap active-liquidity range.
+- Stableswap positions use global pool reward growth and can earn while the pool price is outside the stableswap active-liquidity range.
 - `claimRewards(tokenId, poolKey, tickLower, tickUpper, recipient)` claims accrued reward tokens.
 - Before liquidity changes, Ve33 snapshots earned rewards. If a position fully exits, any unclaimed reward dust left in the snapshot is discarded.
-- If emissions are realized while eligible liquidity is zero, those rewards are not assigned to LP positions.
+- If emissions are realized before a pool is initialized or while pool liquidity is zero, those rewards are burned rather than assigned to LP positions.
 
 ## Swappers And Routers
 

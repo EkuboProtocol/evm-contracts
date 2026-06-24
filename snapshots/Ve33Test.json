@@ -4,10 +4,10 @@
   "Router#ve33SwapVe33Position": "107851",
   "Ve33#emissionAccrualOnPoolTouch": "84146",
   "Ve33#vote one pool": "139283",
-  "Ve33Periphery#scheduleEmissions": "125611",
-  "Ve33Positions#claimAccruedEmissions": "143892",
-  "Ve33Positions#claimRewards": "71709",
+  "Ve33Periphery#scheduleEmissions": "125605",
+  "Ve33Positions#claimAccruedEmissions": "143910",
+  "Ve33Positions#claimRewards": "71727",
   "Ve33Positions#deposit": "348545",
-  "VeToken#claimPoolFees": "59809",
+  "VeToken#claimPoolFees": "59803",
   "VeToken#vote": "139283"
 }

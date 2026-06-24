@@ -75,12 +75,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Token used for ve staking, global emissions, and LP rewards.
     address public immutable stakeToken;
 
-    /// @notice Emitted when stake is added.
-    event StakeIncreased(address owner, StakeId stakeId, uint128 amount);
-    /// @notice Emitted when expired stake is removed.
-    event StakeDecreased(address owner, StakeId stakeId, uint128 amount);
-    /// @notice Emitted when stake is moved between stake keys.
-    event StakeMoved(address owner, StakeId fromStakeId, StakeId toStakeId);
+    /// @notice Emitted when a stake amount changes.
+    /// @dev Positive deltas add stake, negative deltas remove stake.
+    event StakeChanged(address owner, StakeId stakeId, int256 delta);
     /// @notice Emitted after a stake's vote is updated.
     event Voted(address owner, StakeId stakeId, PoolId poolId, uint128 weight, uint64 swapFee);
     /// @notice Emitted after a stake's vote is cleared.
@@ -392,7 +389,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         _setStakeAmount(msg.sender, toStakeId, nextAmount);
         _pokeVote(msg.sender, fromStakeId);
 
-        emit StakeMoved(msg.sender, fromStakeId, toStakeId);
+        emit StakeChanged(msg.sender, fromStakeId, -int256(uint256(amount)));
+        emit StakeChanged(msg.sender, toStakeId, int256(uint256(amount)));
     }
 
     /// @notice Splits stake into a new stake key owned by the caller while preserving the source vote.
@@ -414,7 +412,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         _setStakeAmount(msg.sender, toStakeId, nextAmount);
         _pokeVote(msg.sender, fromStakeId);
 
-        emit StakeMoved(msg.sender, fromStakeId, toStakeId);
+        emit StakeChanged(msg.sender, fromStakeId, -int256(uint256(amount)));
+        emit StakeChanged(msg.sender, toStakeId, int256(uint256(amount)));
     }
 
     /// @notice Accumulates global emissions into the pool reward-per-liquidity global value.
@@ -594,7 +593,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
         );
 
-        emit StakeIncreased(owner, stakeId, amount);
+        emit StakeChanged(owner, stakeId, int256(uint256(amount)));
     }
 
     /// @notice Removes stake from an expired stake and records the saved-balance decrease.
@@ -615,7 +614,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, -int256(uint256(unstaked)), 0
         );
 
-        emit StakeDecreased(owner, stakeId, unstaked);
+        emit StakeChanged(owner, stakeId, -int256(uint256(unstaked)));
     }
 
     /// @notice Applies a stake's vote to pool accounting.

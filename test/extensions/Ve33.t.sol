@@ -31,6 +31,8 @@ import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {StakeId, createStakeId} from "../../src/types/stakeId.sol";
 import {Locker} from "../../src/types/locker.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
+import {VePoolVote} from "../../src/types/vePoolVote.sol";
+import {VePoolFeeState} from "../../src/types/vePoolFeeState.sol";
 
 contract Ve33Forwarder is BaseLocker {
     using FlashAccountantLib for *;
@@ -284,17 +286,15 @@ contract Ve33Test is FullTest {
         veToken.vote(veId, poolKey, swapFee);
     }
 
-    function _poolVoteState(PoolId poolId)
+    function _poolVoteTotals(PoolId poolId)
         internal
         view
         returns (uint256 weight, uint256 feeWeightSum, uint64 swapFee)
     {
-        Ve33.PoolVoteState memory state = ve.poolVoteState(poolId);
-        weight = state.weight;
-        feeWeightSum = state.feeWeightSum;
-        assembly ("memory-safe") {
-            swapFee := div(feeWeightSum, weight)
-        }
+        VePoolFeeState feeState = ve.poolFeeState(poolId);
+        weight = ve.poolTotalWeight(poolId);
+        feeWeightSum = feeState.feeWeightSum();
+        swapFee = feeState.swapFee();
     }
 
     function _fundAndVote(PoolKey memory poolKey, uint64 swapFee) internal returns (uint256 veId) {
@@ -484,9 +484,8 @@ contract Ve33Test is FullTest {
         PoolId poolId = poolKey.toPoolId();
         core.initializePool(poolKey, 0);
 
-        Ve33.PoolVoteState memory state = ve.poolVoteState(poolId);
-        assertEq(state.weight, 0);
-        assertEq(state.feeWeightSum, 0);
+        assertEq(ve.poolTotalWeight(poolId), 0);
+        assertEq(ve.poolFeeState(poolId).feeWeightSum(), 0);
     }
 
     function test_poolInitialization_preservesPreInitializationVotedFee() public {
@@ -498,14 +497,14 @@ contract Ve33Test is FullTest {
         uint256 veId = _createStake();
         _vote(veId, poolKey, votedFee);
 
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteState(poolId);
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
         assertEq(weight, veToken.votingPower(veId));
         assertEq(feeWeightSum, weight * votedFee);
         assertEq(swapFee, votedFee);
 
         core.initializePool(poolKey, 0);
 
-        (weight, feeWeightSum, swapFee) = _poolVoteState(poolId);
+        (weight, feeWeightSum, swapFee) = _poolVoteTotals(poolId);
         assertEq(weight, veToken.votingPower(veId));
         assertEq(feeWeightSum, weight * votedFee);
         assertEq(swapFee, votedFee);
@@ -547,6 +546,13 @@ contract Ve33Test is FullTest {
             PoolKey({token0: address(token0), token1: address(token1), config: invalidTickSpacingConfig});
         vm.expectRevert(Ve33.TickSpacingMustBePowerOfFour.selector);
         veToken.vote(veId, invalidTickSpacingPool, 1);
+
+        veToken.vote(veId, poolKey, type(uint64).max);
+        VePoolVote vote = ve.vePoolVote(address(veToken), _stakeId(veId));
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolKey.toPoolId());
+        assertEq(vote.timestamp(), vm.getBlockTimestamp());
+        assertEq(feeWeightSum, weight * type(uint64).max);
+        assertEq(swapFee, type(uint64).max);
 
         vm.warp(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         uint256 expiredVeId = veToken.createStake(1, uint64(vm.getBlockTimestamp() + 1));
@@ -685,11 +691,11 @@ contract Ve33Test is FullTest {
     function test_clearVotesOnStakeChangesZerosDerivedFee() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         uint256 veId = _fundAndVote(poolKey, 0);
-        (,, uint64 swapFee) = _poolVoteState(poolKey.toPoolId());
+        (,, uint64 swapFee) = _poolVoteTotals(poolKey.toPoolId());
         assertEq(swapFee, 0);
 
         veToken.increaseStakeAmount(veId, 1);
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFeeAfterIncrease) = _poolVoteState(poolKey.toPoolId());
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFeeAfterIncrease) = _poolVoteTotals(poolKey.toPoolId());
         assertEq(weight, 0);
         assertEq(feeWeightSum, 0);
         assertEq(swapFeeAfterIncrease, 0);
@@ -698,7 +704,7 @@ contract Ve33Test is FullTest {
         vm.warp(vm.getBlockTimestamp() + 1);
         veToken.extendStake(veId, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
         (uint256 weightAfterExtend, uint256 feeWeightSumAfterExtend, uint64 swapFeeAfterExtend) =
-            _poolVoteState(poolKey.toPoolId());
+            _poolVoteTotals(poolKey.toPoolId());
         assertEq(weightAfterExtend, 0);
         assertEq(feeWeightSumAfterExtend, 0);
         assertEq(swapFeeAfterExtend, 0);
@@ -707,7 +713,7 @@ contract Ve33Test is FullTest {
         vm.warp(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         veToken.withdrawStake(veId);
         (uint256 weightAfterWithdraw, uint256 feeWeightSumAfterWithdraw, uint64 swapFeeAfterWithdraw) =
-            _poolVoteState(poolKey.toPoolId());
+            _poolVoteTotals(poolKey.toPoolId());
         assertEq(weightAfterWithdraw, 0);
         assertEq(feeWeightSumAfterWithdraw, 0);
         assertEq(swapFeeAfterWithdraw, 0);
@@ -724,7 +730,7 @@ contract Ve33Test is FullTest {
 
         PoolId poolId = poolKey.toPoolId();
         StakeId sourceStakeId = _stakeId(veId);
-        uint256 initialWeight = ve.vePoolPosition(address(veToken), sourceStakeId).weight;
+        uint256 initialWeight = ve.vePoolVote(address(veToken), sourceStakeId).weight();
 
         _routerSwap(poolKey, false, 100_000, address(this));
         uint128 expectedFee = computeFee(100_000, votedFee);
@@ -736,11 +742,11 @@ contract Ve33Test is FullTest {
         assertGt(initialWeight, sourcePower);
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), sourceStakeId)), PoolId.unwrap(poolId));
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), splitStakeId)), 0);
-        assertEq(ve.vePoolPosition(address(veToken), sourceStakeId).weight, sourcePower);
-        assertEq(ve.vePoolPosition(address(veToken), sourceStakeId).swapFee, votedFee);
-        assertEq(ve.vePoolPosition(address(veToken), splitStakeId).weight, 0);
+        assertEq(ve.vePoolVote(address(veToken), sourceStakeId).weight(), sourcePower);
+        assertEq(ve.vePoolVote(address(veToken), sourceStakeId).swapFee(), votedFee);
+        assertEq(ve.vePoolVote(address(veToken), splitStakeId).weight(), 0);
 
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteState(poolId);
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
         assertEq(weight, sourcePower);
         assertEq(feeWeightSum, sourcePower * votedFee);
         assertEq(swapFee, votedFee);
@@ -758,7 +764,7 @@ contract Ve33Test is FullTest {
         uint256 veId = _fundAndVote(poolKey, votedFee);
         PoolId poolId = poolKey.toPoolId();
 
-        (uint256 initialWeight,,) = _poolVoteState(poolId);
+        (uint256 initialWeight,,) = _poolVoteTotals(poolId);
         _routerSwap(poolKey, false, 100_000, address(this));
         uint128 expectedFee = computeFee(100_000, votedFee);
 
@@ -770,12 +776,12 @@ contract Ve33Test is FullTest {
 
         assertEq(previousWeight, initialWeight);
         assertEq(nextWeight, currentPower);
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteState(poolId);
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
         assertEq(weight, currentPower);
         assertEq(feeWeightSum, currentPower * votedFee);
         assertEq(swapFee, votedFee);
         assertEq(ve.totalVoteWeight(), currentPower);
-        assertEq(ve.poolVoteState(poolId).emissionGrowthGlobalX128Snapshot, ve.emissionGrowthGlobalX128());
+        assertEq(ve.poolEmissionGrowthGlobalX128Snapshot(poolId), ve.emissionGrowthGlobalX128());
 
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
         assertApproxEqAbs(claimed0, expectedFee, 2);
@@ -792,11 +798,11 @@ contract Ve33Test is FullTest {
         assertEq(nextWeight, 0);
 
         _vote(veId, poolKey, uint64(1 << 62));
-        (uint256 weightBefore,,) = _poolVoteState(poolKey.toPoolId());
+        (uint256 weightBefore,,) = _poolVoteTotals(poolKey.toPoolId());
         (previousWeight, nextWeight) = ve.poke(address(veToken), stakeId);
         assertEq(previousWeight, weightBefore);
         assertEq(nextWeight, weightBefore);
-        (uint256 weightAfter,,) = _poolVoteState(poolKey.toPoolId());
+        (uint256 weightAfter,,) = _poolVoteTotals(poolKey.toPoolId());
         assertEq(weightAfter, weightBefore);
     }
 
@@ -823,17 +829,17 @@ contract Ve33Test is FullTest {
         assertGt(previousWeight1, nextWeight1);
 
         PoolId poolId0 = pool0.toPoolId();
-        uint256 vePoolWeight0 = ve.vePoolPosition(address(veToken), stakeId0).weight;
-        (uint256 poolWeight0, uint256 feeWeightSum0, uint64 swapFee0) = _poolVoteState(poolId0);
-        assertEq(poolWeight0, vePoolWeight0);
-        assertEq(feeWeightSum0, vePoolWeight0 * fee0);
+        uint256 veVoteWeight0 = ve.vePoolVote(address(veToken), stakeId0).weight();
+        (uint256 poolWeight0, uint256 feeWeightSum0, uint64 swapFee0) = _poolVoteTotals(poolId0);
+        assertEq(poolWeight0, veVoteWeight0);
+        assertEq(feeWeightSum0, veVoteWeight0 * fee0);
         assertEq(swapFee0, fee0);
 
         PoolId poolId1 = pool1.toPoolId();
-        uint256 vePoolWeight1 = ve.vePoolPosition(address(veToken), stakeId1).weight;
-        (uint256 poolWeight1, uint256 feeWeightSum1, uint64 swapFee1) = _poolVoteState(poolId1);
-        assertEq(poolWeight1, vePoolWeight1);
-        assertEq(feeWeightSum1, vePoolWeight1 * fee1);
+        uint256 veVoteWeight1 = ve.vePoolVote(address(veToken), stakeId1).weight();
+        (uint256 poolWeight1, uint256 feeWeightSum1, uint64 swapFee1) = _poolVoteTotals(poolId1);
+        assertEq(poolWeight1, veVoteWeight1);
+        assertEq(feeWeightSum1, veVoteWeight1 * fee1);
         assertEq(swapFee1, fee1);
 
         assertEq(ve.totalVoteWeight(), nextWeight0 + nextWeight1);
@@ -844,19 +850,19 @@ contract Ve33Test is FullTest {
         uint64 votedFee = uint64(1 << 62);
         uint256 veId = _fundAndVote(poolKey, votedFee);
         PoolId poolId = poolKey.toPoolId();
-        (uint256 initialWeight,,) = _poolVoteState(poolId);
+        (uint256 initialWeight,,) = _poolVoteTotals(poolId);
 
         vm.warp(_stakeId(veId).endTime());
         (uint256 previousWeight, uint256 nextWeight) = ve.poke(address(veToken), _stakeId(veId));
 
         assertEq(previousWeight, initialWeight);
         assertEq(nextWeight, 0);
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteState(poolId);
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
         assertEq(weight, 0);
         assertEq(feeWeightSum, 0);
         assertEq(swapFee, 0);
         assertEq(ve.totalVoteWeight(), 0);
-        assertEq(ve.vePoolPosition(address(veToken), _stakeId(veId)).weight, 0);
+        assertEq(ve.vePoolVote(address(veToken), _stakeId(veId)).weight(), 0);
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(veId))), 0);
     }
 
@@ -871,9 +877,9 @@ contract Ve33Test is FullTest {
         uint256 veId1 = _createStake();
         _vote(veId1, poolKey, fee1);
 
-        (uint256 totalWeight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteState(poolId);
-        uint256 weight0 = ve.vePoolPosition(address(veToken), _stakeId(veId0)).weight;
-        uint256 weight1 = ve.vePoolPosition(address(veToken), _stakeId(veId1)).weight;
+        (uint256 totalWeight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
+        uint256 weight0 = ve.vePoolVote(address(veToken), _stakeId(veId0)).weight();
+        uint256 weight1 = ve.vePoolVote(address(veToken), _stakeId(veId1)).weight();
         assertEq(totalWeight, weight0 + weight1);
         assertEq(feeWeightSum, weight0 * fee0 + weight1 * fee1);
         assertEq(uint256(swapFee), feeWeightSum / totalWeight);
@@ -1226,7 +1232,7 @@ contract Ve33Test is FullTest {
         PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
         PoolId poolId = poolKey.toPoolId();
 
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteState(poolId);
+        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
 
         assertEq(weight, 0);
         assertEq(feeWeightSum, 0);

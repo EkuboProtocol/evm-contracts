@@ -24,7 +24,8 @@ import {StakeId} from "../types/stakeId.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
-import {VePoolPosition} from "../types/vePoolPosition.sol";
+import {VePoolFeeState} from "../types/vePoolFeeState.sol";
+import {VePoolVote} from "../types/vePoolVote.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
 import {Ve33StorageLayout} from "./Ve33StorageLayout.sol";
 
@@ -222,23 +223,8 @@ library Ve33Lib {
     }
 
     /// @notice Returns per-stake vote and fee accounting for the currently voted pool.
-    function vePoolPosition(Ve33 ve33, address owner, StakeId stakeId)
-        internal
-        view
-        returns (VePoolPosition memory position)
-    {
-        StorageSlot slot = Ve33StorageLayout.vePoolPositionSlot(owner, stakeId);
-        bytes32 packed = ve33.sload(slot);
-
-        uint256 packedValue = uint256(packed);
-        uint128 weight;
-        uint64 swapFee;
-        assembly ("memory-safe") {
-            weight := packedValue
-            swapFee := shr(128, packedValue)
-        }
-        position.weight = weight;
-        position.swapFee = swapFee;
+    function vePoolVote(Ve33 ve33, address owner, StakeId stakeId) internal view returns (VePoolVote vote) {
+        vote = VePoolVote.wrap(ve33.sload(Ve33StorageLayout.vePoolVoteSlot(owner, stakeId)));
     }
 
     /// @notice Returns a stake's snapshot of pool fee growth for its currently voted pool.
@@ -253,15 +239,19 @@ library Ve33Lib {
         feeGrowthSnapshot.value1 = uint256(value1);
     }
 
-    /// @notice Returns aggregated voting and fee state for a pool.
-    function poolVoteState(Ve33 ve33, PoolId poolId) internal view returns (Ve33.PoolVoteState memory state) {
-        StorageSlot slot = Ve33StorageLayout.poolVoteStateSlot(poolId);
-        (bytes32 emissionGrowthGlobalX128Snapshot, bytes32 feeWeightSum, bytes32 weight) =
-            ve33.sload(slot, slot.next(), slot.add(2));
+    /// @notice Returns a pool's emission-growth snapshot.
+    function poolEmissionGrowthGlobalX128Snapshot(Ve33 ve33, PoolId poolId) internal view returns (uint256) {
+        return uint256(ve33.sload(Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId)));
+    }
 
-        state.emissionGrowthGlobalX128Snapshot = uint256(emissionGrowthGlobalX128Snapshot);
-        state.feeWeightSum = uint192(uint256(feeWeightSum));
-        state.weight = uint128(uint256(weight));
+    /// @notice Returns a pool's packed fee-weight sum and cached swap fee.
+    function poolFeeState(Ve33 ve33, PoolId poolId) internal view returns (VePoolFeeState) {
+        return VePoolFeeState.wrap(ve33.sload(Ve33StorageLayout.poolFeeStateSlot(poolId)));
+    }
+
+    /// @notice Returns a pool's total active vote weight.
+    function poolTotalWeight(Ve33 ve33, PoolId poolId) internal view returns (uint128) {
+        return uint128(uint256(ve33.sload(Ve33StorageLayout.poolTotalWeightSlot(poolId))));
     }
 
     /// @notice Returns accumulated pool fees per unit of vote weight.

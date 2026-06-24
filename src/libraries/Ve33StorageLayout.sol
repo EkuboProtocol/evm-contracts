@@ -21,15 +21,20 @@ library Ve33StorageLayout {
     /// @dev Generated using: cast keccak "Ve33StorageLayout#VOTED_POOL_IDS"
     bytes32 internal constant VOTED_POOL_IDS_OFFSET =
         0x9fe4011cb2802dbdb1920c49e91d91623fe459ad47ab879023a04bd66f14db7b;
-    /// @dev Generated using: cast keccak "Ve33StorageLayout#VE_POOL_POSITIONS"
-    bytes32 internal constant VE_POOL_POSITIONS_OFFSET =
-        0xa3b38b78d6a06fec5bad985c3236a9fe4d36ba3cd1eff6efd044a0b4faf51344;
+    /// @dev Generated using: cast keccak "Ve33StorageLayout#VE_POOL_VOTES"
+    bytes32 internal constant VE_POOL_VOTES_OFFSET = 0x8765e5a95ee611ec54f6dbea00f7e39e5183919c05deb57f864690aa70f7da5f;
     /// @dev Generated using: cast keccak "Ve33StorageLayout#VE_POOL_FEE_GROWTH_SNAPSHOTS"
     bytes32 internal constant VE_POOL_FEE_GROWTH_SNAPSHOTS_OFFSET =
         0x68cfbdb1fd71eed41f8ef8e18b2f4850238033554ef4c9fb587cb198a1d7c0db;
-    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_VOTE_STATES"
-    bytes32 internal constant POOL_VOTE_STATES_OFFSET =
-        0x4a20cbf52e79e5a49be90e4226b18d0aa0c3f540014a272687fa7e1c15ff56cd;
+    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_EMISSION_GROWTH_GLOBAL_X128_SNAPSHOTS"
+    bytes32 internal constant POOL_EMISSION_GROWTH_GLOBAL_X128_SNAPSHOTS_OFFSET =
+        0x8695bdcbbe8669aa39c45810141041cc083bec67dfefcbff155befe7bc3d5c78;
+    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_FEE_STATES"
+    bytes32 internal constant POOL_FEE_STATES_OFFSET =
+        0x2ddd369911f3df37f381a02a272e932049cecd3447d14d787a8a8fd0418544ce;
+    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_TOTAL_WEIGHTS"
+    bytes32 internal constant POOL_TOTAL_WEIGHTS_OFFSET =
+        0x3a93fa7e86b9b605f8975a2840f6d3e652f72249743bc849ba2127796588c5ff;
     /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_FEE_GROWTH"
     bytes32 internal constant POOL_FEE_GROWTH_OFFSET =
         0xc961ee626d9b17659189fec087c4e08068c036fe14a263a6d519de462aec1bc1;
@@ -63,10 +68,10 @@ library Ve33StorageLayout {
         );
     }
 
-    /// @notice Computes the first storage slot for a stake's active ve pool position.
-    function vePoolPositionSlot(address owner, StakeId stakeId) internal pure returns (StorageSlot slot) {
+    /// @notice Computes the storage slot for a stake's active ve pool vote.
+    function vePoolVoteSlot(address owner, StakeId stakeId) internal pure returns (StorageSlot slot) {
         slot = StorageSlot.wrap(
-            EfficientHashLib.hash(bytes32(uint256(uint160(owner))), StakeId.unwrap(stakeId), VE_POOL_POSITIONS_OFFSET)
+            EfficientHashLib.hash(bytes32(uint256(uint160(owner))), StakeId.unwrap(stakeId), VE_POOL_VOTES_OFFSET)
         );
     }
 
@@ -79,9 +84,21 @@ library Ve33StorageLayout {
         );
     }
 
-    /// @notice Computes the first storage slot for aggregated voting state for a pool.
-    function poolVoteStateSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
-        slot = StorageSlot.wrap(EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_VOTE_STATES_OFFSET));
+    /// @notice Computes the storage slot for a pool's emission-growth snapshot.
+    function poolEmissionGrowthGlobalX128SnapshotSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(
+            EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_EMISSION_GROWTH_GLOBAL_X128_SNAPSHOTS_OFFSET)
+        );
+    }
+
+    /// @notice Computes the storage slot for a pool's fee-weight sum and cached swap fee.
+    function poolFeeStateSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_FEE_STATES_OFFSET));
+    }
+
+    /// @notice Computes the storage slot for a pool's total active vote weight.
+    function poolTotalWeightSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_TOTAL_WEIGHTS_OFFSET));
     }
 
     /// @notice Computes the first storage slot for pool fee growth per unit of vote weight.

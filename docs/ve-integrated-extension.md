@@ -91,9 +91,9 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 ## Voting
 
-`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, and `mergeStakes(fromVeId, toVeId)`.
+`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, and `mergeStakes(fromVeId, toVeId)`.
 
-Each pool tracks active vote weight, voter fee growth, a snapshot of global emission growth, and the weighted fee sum. When votes change, each selected fee is capped and the pool fee is computed on demand as `feeWeightSum / weight`; integer division rounds down. With no active votes, this EVM `div` returns zero, so the pool has no extension swap fee.
+Each pool tracks active vote weight, voter fee growth, a snapshot of global emission growth, and the weighted fee sum. When votes change, the pool fee is computed as `feeWeightSum / weight`; integer division rounds down. With no active votes, this EVM `div` returns zero, so the pool has no extension swap fee.
 
 Voting power is sampled when `vote` or `poke` is called:
 
@@ -101,7 +101,7 @@ Voting power is sampled when `vote` or `poke` is called:
 stakeAmount * (endTime - block.timestamp) / VE33_MAX_STAKE_DURATION
 ```
 
-That current power is written into `PoolVoteState.weight` and the stake's `VePoolPosition.weight` for the selected pool. Stored pool weights do not continuously decay on their own. They change when the stake votes again, when a stake operation clears the vote, or when anyone calls `poke` for the stake. Emission allocation uses these stored active weights when global emission growth accrues.
+That current power is written into the pool's total weight slot and the stake's packed `VePoolVote` record for the selected pool, together with the voted fee and last vote-accounting timestamp. Stored pool weights do not continuously decay on their own. They change when the stake votes again, when a stake operation clears the vote, or when anyone calls `poke` for the stake. Emission allocation uses these stored active weights when global emission growth accrues.
 
 Increasing, extending, merging, or withdrawing a stake clears affected votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and emission-growth snapshots synchronized with voting power. Multi-pool allocation is represented by multiple stake ids: `VeToken.splitStake` can split one NFT into another NFT with the same end time while preserving the source vote, and `VeToken.mergeStakes` can merge two NFTs with the destination end time set to the greater of the two merged stake end times. Merging clears affected stake votes.
 

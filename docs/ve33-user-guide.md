@@ -16,7 +16,7 @@ Ve33 pools are Ekubo Core pools with a custom extension. The Core pool fee is se
 
 Ve33 pools must be initialized with `poolKey.config.fee() == 0`. Direct Core swaps revert. Swaps must go through a router that forwards `VE33_SWAP` to the extension.
 
-The active swap fee is computed from Ve33 pool vote state. If nobody has active votes on a pool, the extension swap fee is zero. Voters choose explicit fees, capped at 50%.
+The active swap fee is computed from Ve33 pool vote state. If nobody has active votes on a pool, the extension swap fee is zero. Voters choose explicit `uint64` 0.64 fixed-point fees.
 
 ## Stakers
 

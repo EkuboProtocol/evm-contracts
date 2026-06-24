@@ -19,8 +19,9 @@ The audit scope is limited to source files introduced, modified, or removed by t
 - `src/Router.sol`
 - `src/base/BaseRouter.sol`
 - `src/math/isPowerOfFour.sol`
-- `src/math/tickSpacingFee.sol`
 - `src/types/stakeId.sol`
+- `src/types/vePoolFeeState.sol`
+- `src/types/vePoolVote.sol`
 - `src/MEVCaptureRouter.sol` removal and migration into `src/Router.sol`
 
 Tests, docs, deploy helpers, and unchanged dependencies were reviewed as supporting evidence. They were not part of the
@@ -273,8 +274,6 @@ the Ve33 forward handler.
 `isPowerOfFour` is a free function used to constrain concentrated Ve33 tick spacing and reduce pool fragmentation. Core
 already enforces maximum tick spacing, so this helper only answers whether a provided spacing is a power of four.
 
-`tickSpacingFee` now only contains `capFee` and `MAX_VE_FEE`, capping voter-selected explicit fees at 50%.
-
 `StakeId` is a custom type storing `bytes24 salt || uint64 endTime`.
 
 ### MEVCaptureRouter Removal
@@ -317,7 +316,7 @@ The reviewed test suite covers the major audited behaviors:
 - extension registration and call point selection,
 - zero Core fee pool initialization,
 - concentrated power-of-four tick-spacing validation and fuzzing,
-- explicit fee capping,
+- explicit fee voting,
 - pre-initialization vote support and later reward accounting,
 - direct hook and direct swap rejection,
 - vote validation, vote clearing, decay, and `poke`,

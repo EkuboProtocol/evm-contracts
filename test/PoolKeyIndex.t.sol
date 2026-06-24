@@ -46,10 +46,21 @@ contract PoolKeyIndexTest is FullTest {
         index.register(poolKey);
     }
 
+    function test_register_doesNotValidatePoolKeyBeforeInitializedCheck() public {
+        PoolKey memory poolKey = PoolKey({
+            token0: address(token1), token1: address(token0), config: createConcentratedPoolConfig(0, 0, address(0))
+        });
+
+        vm.expectRevert(ICore.PoolNotInitialized.selector);
+        index.register(poolKey);
+    }
+
     function test_register_isIdempotent() public {
         PoolKey memory poolKey = createPool(0, 0, 100);
 
+        assertFalse(index.isRegistered(poolKey.toPoolId()));
         assertTrue(index.register(poolKey));
+        assertTrue(index.isRegistered(poolKey.toPoolId()));
         assertFalse(index.register(poolKey));
 
         assertEq(index.poolIdCount(), 1);

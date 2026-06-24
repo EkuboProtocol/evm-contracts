@@ -12,16 +12,8 @@ import {PoolKey} from "./types/poolKey.sol";
 contract PoolKeyIndex is UsesCore {
     using CoreLib for *;
 
-    /// @notice Emitted when a pool key is first registered
-    /// @param poolId The pool id derived from the registered pool key
-    /// @param poolKey The registered pool key
-    event PoolKeyRegistered(PoolId indexed poolId, PoolKey poolKey);
-
     /// @notice Registered pool key for a pool id
     mapping(PoolId poolId => PoolKey poolKey) public poolKeyById;
-
-    /// @notice Whether a pool id has been registered in this index
-    mapping(PoolId poolId => bool registered) public isRegistered;
 
     /// @notice All registered pool ids
     PoolId[] public poolIds;
@@ -38,22 +30,22 @@ contract PoolKeyIndex is UsesCore {
     /// @param poolKey The initialized pool key to register
     /// @return inserted True if the pool key was newly inserted, false if it was already registered
     function register(PoolKey memory poolKey) external returns (bool inserted) {
-        poolKey.validate();
-
         PoolId poolId = poolKey.toPoolId();
         if (!CORE.poolState(poolId).isInitialized()) revert ICore.PoolNotInitialized();
 
-        inserted = !isRegistered[poolId];
+        inserted = !isRegistered(poolId);
         if (inserted) {
-            isRegistered[poolId] = true;
             poolKeyById[poolId] = poolKey;
             poolIds.push(poolId);
             tokenPoolIds[poolKey.token0].push(poolId);
             tokenPoolIds[poolKey.token1].push(poolId);
             extensionPoolIds[poolKey.config.extension()].push(poolId);
-
-            emit PoolKeyRegistered(poolId, poolKey);
         }
+    }
+
+    /// @notice Returns whether a pool id has been registered in this index
+    function isRegistered(PoolId poolId) public view returns (bool) {
+        return poolKeyById[poolId].token1 != address(0);
     }
 
     /// @notice Returns the number of registered pool ids

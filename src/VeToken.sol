@@ -24,9 +24,7 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
 
     uint256 private constant CALL_TYPE_STAKE = 0;
     uint256 private constant CALL_TYPE_UNSTAKE = 1;
-    uint256 private constant CALL_TYPE_MOVE_STAKE = 2;
-    uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 3;
-    uint256 private constant CALL_TYPE_SPLIT_STAKE = 4;
+    uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 2;
 
     /// @notice The Ve33 extension that owns the canonical stake, vote, and fee accounting.
     Ve33 public immutable ve33;
@@ -185,7 +183,7 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
 
         StakeId currentStakeId = createStakeId(_stakeSalt(veId), currentEnd);
         uint128 amount = ve33.stakeAmount(address(this), currentStakeId);
-        lock(abi.encode(CALL_TYPE_MOVE_STAKE, currentStakeId, createStakeId(_stakeSalt(veId), end), amount));
+        ve33.moveStake(currentStakeId, createStakeId(_stakeSalt(veId), end), amount);
         _setExtraData(veId, end);
     }
 
@@ -206,7 +204,7 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
         }
         _mintAndSetExtraDataUnchecked(ownerOf(veId), splitVeId, end);
 
-        lock(abi.encode(CALL_TYPE_SPLIT_STAKE, fromStakeId, createStakeId(_stakeSalt(splitVeId), end), amount));
+        ve33.splitStake(fromStakeId, createStakeId(_stakeSalt(splitVeId), end), amount);
     }
 
     /// @notice Merges one represented stake into another represented stake.
@@ -234,11 +232,11 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
 
         if (toEnd != mergedEnd) {
             uint128 toAmount = ve33.stakeAmount(address(this), currentToStakeId);
-            if (toAmount != 0) lock(abi.encode(CALL_TYPE_MOVE_STAKE, currentToStakeId, mergedToStakeId, toAmount));
+            if (toAmount != 0) ve33.moveStake(currentToStakeId, mergedToStakeId, toAmount);
             _setExtraData(toVeId, mergedEnd);
         }
 
-        nextAmount = abi.decode(lock(abi.encode(CALL_TYPE_MOVE_STAKE, fromStakeId, mergedToStakeId, amount)), (uint128));
+        nextAmount = ve33.moveStake(fromStakeId, mergedToStakeId, amount);
 
         _burn(fromVeId);
         _setExtraData(fromVeId, 0);
@@ -316,14 +314,6 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
             uint128 unstaked = Ve33Lib.unstake(CORE, ve33, id);
             result = abi.encode(unstaked);
             ACCOUNTANT.withdraw(stakeToken, recipient, unstaked);
-        } else if (callType == CALL_TYPE_MOVE_STAKE) {
-            (, StakeId fromStakeId, StakeId toStakeId, uint128 amount) =
-                abi.decode(data, (uint256, StakeId, StakeId, uint128));
-            result = abi.encode(Ve33Lib.moveStake(CORE, ve33, fromStakeId, toStakeId, amount));
-        } else if (callType == CALL_TYPE_SPLIT_STAKE) {
-            (, StakeId fromStakeId, StakeId toStakeId, uint128 amount) =
-                abi.decode(data, (uint256, StakeId, StakeId, uint128));
-            result = abi.encode(Ve33Lib.splitStake(CORE, ve33, fromStakeId, toStakeId, amount));
         } else if (callType == CALL_TYPE_CLAIM_POOL_FEES) {
             (, uint256 veId, address recipient, PoolKey memory poolKey) =
                 abi.decode(data, (uint256, uint256, address, PoolKey));

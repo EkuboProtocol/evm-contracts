@@ -68,26 +68,24 @@ bytes24 salt || uint64 endTime
 
 For `VeToken`, `salt = bytes24(uint192(veId))`. The current stake amount is fetched from `Ve33Lib.stakeAmount(ve33, address(veToken), stakeId)` whenever the wrapper needs it, so the NFT does not store the amount. The stake end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
 
-The saved-balance id for staked tokens is:
+All stake-token backing is saved under a single Core saved-balance salt:
 
 ```text
-keccak256(abi.encodePacked(owner, StakeId.unwrap(stakeId)))
+VE33_STAKE_TOKEN_SAVED_BALANCE_ID
 ```
 
 Forward stake call types:
 
 - `VE33_STAKE`: increases `stakeAmounts[originalLocker][stakeId]`
 - `VE33_UNSTAKE`: removes an entire expired stake key and returns the unstaked amount
-- `VE33_MOVE_STAKE`: moves amount from one `stakeId` to another
-- `VE33_SPLIT_STAKE`: splits amount into another `stakeId` while preserving the source vote
 
-`Ve33` updates Core saved balances for staked tokens under `address(ve33)` and the stake id:
+`Ve33` updates Core saved balances for staked tokens under `address(ve33)` and the aggregate stake-token salt:
 
 ```text
-CORE.updateSavedBalances(stakeToken, address(type(uint160).max), stakeSavedBalanceId, delta, 0)
+CORE.updateSavedBalances(stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, delta, 0)
 ```
 
-It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, but unstaked tokens and claimed pool fees settle to the current NFT owner. Extending and merging are implemented with `VE33_MOVE_STAKE`, which clears affected votes and moves saved balance between stake ids without moving tokens. Splitting uses `VE33_SPLIT_STAKE`, which keeps the source stake voted and resizes the source vote weight to the reduced current voting power; the newly split stake starts unvoted.
+It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, but unstaked tokens and claimed pool fees settle to the current NFT owner. Extending and merging call `Ve33.moveStake` directly, which moves stake accounting between stake ids without touching Core saved balances. `moveStake` resizes the source stake vote to the source's remaining voting power and leaves any destination vote unchanged. Splitting calls `Ve33.splitStake` directly, which keeps the source stake voted and resizes the source vote weight to the reduced current voting power; the newly split stake starts unvoted.
 
 ## Voting
 
@@ -95,17 +93,18 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 Each pool tracks active vote weight, voter fee growth, a snapshot of global emission growth, and the weighted fee sum. When votes change, the pool fee is computed as `feeWeightSum / weight`; integer division rounds down. With no active votes, this EVM `div` returns zero, so the pool has no extension swap fee.
 
-Voting power is sampled when `vote` or `poke` is called:
+Voting power is sampled when `vote` is called or when the stake owner changes stake accounting through owner-authorized
+stake operations:
 
 ```text
 stakeAmount * (endTime - block.timestamp) / VE33_MAX_STAKE_DURATION
 ```
 
-That current power is written into the pool's total weight slot and the stake's packed `VePoolVote` record for the selected pool, together with the voted fee and last vote-accounting timestamp. Stored pool weights do not continuously decay on their own. They change when the stake votes again, when a stake operation clears the vote, or when anyone calls `poke` for the stake. Emission allocation uses these stored active weights when global emission growth accrues.
+That current power is written into the pool's total weight slot and the stake's packed `VePoolVote` record for the selected pool, together with the voted fee and last vote-accounting timestamp. Stored pool weights do not continuously decay on their own. They change when the stake votes again or when a stake operation updates or clears the vote. Emission allocation uses these stored active weights when global emission growth accrues.
 
-Increasing, extending, merging, or withdrawing a stake clears affected votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and emission-growth snapshots synchronized with voting power. Multi-pool allocation is represented by multiple stake ids: `VeToken.splitStake` can split one NFT into another NFT with the same end time while preserving the source vote, and `VeToken.mergeStakes` can merge two NFTs with the destination end time set to the greater of the two merged stake end times. Merging clears affected stake votes.
+Increasing stake amount or withdrawing an expired stake clears affected votes before the amount changes. Extending and merging move stake accounting to the later destination stake id and clear or resize affected votes as part of the owner-authorized operation. Splitting preserves the source vote with reduced current voting power and leaves the new stake id unvoted. Multi-pool allocation is represented by multiple stake ids: `VeToken.splitStake` can split one NFT into another NFT with the same end time while preserving the source vote, and `VeToken.mergeStakes` can merge two NFTs with the destination end time set to the greater of the two merged stake end times.
 
-`poke` is a permissionless stale-vote cleanup path. It accrues the affected pool's reward and fee accounting using the existing stored weight up to the poke timestamp, then reduces the stake's active pool weight to current decayed voting power. If the stake has expired, `poke` clears its vote and the affected pool has zero extension fee when no other votes remain. Since `poke` does not require a lock or token settlement, keepers can batch direct `Ve33.poke(owner, stakeId)` calls through generic multicall tooling. Claiming pool fees does not poke automatically, so users who intend to extend or restake can avoid redundant weight-refresh gas.
+There is no external permissionless stale-vote poke. If a stake owner wants to keep voter fees accrued under the old vote snapshot, it should claim those pool fees through the lock/forward path before voting for a new pool, clearing a vote, increasing stake, extending, merging, splitting, or withdrawing. This keeps token settlement in the wrapper/periphery layer because fee claims require the pool tokens from `PoolKey`.
 
 `vote` is not a forwarded action because it does not require token settlement. It must be called by the `Ve33` stake owner for the `StakeId`; for the ERC721 wrapper that means `VeToken` authorizes the user or approved operator, then calls `Ve33.vote` as the stake owner.
 
@@ -171,7 +170,7 @@ emissionGrowthGlobalX128 += emittedAmount / total active vote weight
 
 If total active vote weight is zero for an interval, that interval does not increase global emission growth and no LP can claim that interval. The prepaid tokens remain in the LP-reward saved-balance bucket as unassigned backing; they are not retroactively distributed when votes appear later.
 
-Each pool stores `emissionGrowthGlobalX128Snapshot`. When the pool is touched through a swap, position update, reward claim, vote update, clear, or poke, `Ve33` accrues global emissions and computes:
+Each pool stores `emissionGrowthGlobalX128Snapshot`. When the pool is touched through a swap, position update, reward claim, vote update, clear, or stake change, `Ve33` accrues global emissions and computes:
 
 ```text
 poolEmissionAmount =
@@ -185,8 +184,7 @@ That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has 
 The extension relies on Core saved balances for deferred accounting:
 
 - swap fees are saved under `address(ve33)` and the pool id
-- LP rewards and scheduled emissions are saved under `address(ve33)` and LP reward salt `VE33_LP_REWARD_SAVED_BALANCE_ID`
-- ve stake is saved under `address(ve33)` and `keccak256(abi.encodePacked(owner, StakeId.unwrap(stakeId)))`
+- staked balances, LP rewards, and scheduled emissions are saved under `address(ve33)` and aggregate stake-token salt `VE33_STAKE_TOKEN_SAVED_BALANCE_ID`
 
 `Ve33` accounts for staking, unstaking, moving stake balances, emission funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, `Ve33Positions` is the reference implementation for LP position and reward-claim settlement, and `Ve33Periphery` is the reference implementation for generic emission token settlement.
 

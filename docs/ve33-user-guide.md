@@ -39,11 +39,10 @@ Important details:
 
 - The ve NFT owner, or an approved NFT operator, can manage the stake.
 - Claimed pool fees and withdrawn stake tokens go to the current NFT owner.
-- Increasing, extending, merging, or withdrawing a stake clears the affected stake votes.
+- Increasing, extending, merging, or withdrawing a stake updates or clears the affected stake votes.
 - Splitting preserves the source stake vote with reduced weight; the newly split stake starts unvoted.
-- Voting power is sampled when voting or when the stake is poked. Stored pool votes do not decay continuously.
-- Anyone can call `Ve33.poke(owner, stakeId)` to refresh stale vote weights to current voting power or clear expired votes. Keepers can batch direct `poke` calls through generic multicall tooling.
-- Claiming pool fees does not automatically poke. This avoids extra gas when a staker plans to extend or restake immediately after claiming.
+- Voting power is sampled when voting or when the stake owner changes the stake in a way that refreshes the stored vote. Stored pool votes do not decay continuously.
+- Claim pool fees before changing a stake's vote, extending, merging, splitting, increasing, or withdrawing if you want to keep fees accrued under the previous stored vote.
 
 ## Voting And Fees
 
@@ -55,7 +54,7 @@ For each pool:
 active swap fee = sum(active vote weight * selected fee) / total active vote weight
 ```
 
-If active vote weight is zero, the extension swap fee is zero. Because the active fee comes from current stored votes, pool fees can change whenever votes are updated, stakes are changed, or stale votes are poked.
+If active vote weight is zero, the extension swap fee is zero. Because the active fee comes from current stored votes, pool fees can change whenever votes are updated or stakes are changed.
 
 Voter fees are distributed only to active voters on the pool at the time fees are accounted.
 
@@ -98,14 +97,14 @@ Anyone can fund global LP emissions through the periphery:
 
 - `scheduleEmissions(startTime, endTime, rewardRate)`: schedules a global Q32 emission rate.
 
-Scheduling emissions does not choose pools by itself. As global emissions accrue, active vote weights determine the share earned by each pool. A pool realizes its share when it is touched by normal activity such as swaps, position updates, reward claims, vote updates, or pokes. There is no separate pool-emission trigger.
+Scheduling emissions does not choose pools by itself. As global emissions accrue, active vote weights determine the share earned by each pool. A pool realizes its share when it is touched by normal activity such as swaps, position updates, reward claims, vote updates, or stake changes. There is no separate pool-emission trigger.
 
 ## Operational Notes
 
-- Keepers can improve accounting freshness by poking old stakes through `Ve33.poke(owner, stakeId)`, batching direct `poke` calls through generic multicall tooling, or touching pools that have accrued rewards.
 - Stakers are economically encouraged to claim, extend, and revote before their voting power becomes stale.
+- There is no external permissionless stale-vote poke path. The stake owner wrapper is responsible for claiming fees before it replaces a vote or changes a stake in a way that discards the old fee snapshot.
 - Pool fees are not meant to be predictable across long time windows. Swappers should quote the fee for the swap they are about to execute.
-- Integrators should use `Ve33Lib` against `Ve33` exposed storage for views such as stake amount, voting power, pool vote state, reward globals, and emission growth. Funded LP reward backing is a Core saved balance under the Ve33 LP reward saved-balance salt.
+- Integrators should use `Ve33Lib` against `Ve33` exposed storage for views such as stake amount, voting power, pool vote state, reward globals, and emission growth. Staked balances and funded LP reward backing share the aggregate Ve33 stake-token saved-balance salt.
 - Ve33 uses Core saved balances as its ledger. `Ve33` itself does not perform ERC20 transfers; wrappers and peripheries settle token movement inside Core locks.
 
 ## Deployment

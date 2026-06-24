@@ -39,21 +39,17 @@ uint256 constant VE33_CLAIM_REWARDS = 1;
 uint256 constant VE33_STAKE = 2;
 // Forward call type for decreasing an expired ve stake.
 uint256 constant VE33_UNSTAKE = 3;
-// Forward call type for moving stake to a different stake id.
-uint256 constant VE33_MOVE_STAKE = 4;
 // Forward call type for claiming voter pool fees.
-uint256 constant VE33_CLAIM_POOL_FEES = 5;
+uint256 constant VE33_CLAIM_POOL_FEES = 4;
 // Forward call type for scheduling global emissions.
-uint256 constant VE33_SCHEDULE_EMISSIONS = 6;
-// Forward call type for splitting stake while preserving the source vote.
-uint256 constant VE33_SPLIT_STAKE = 7;
+uint256 constant VE33_SCHEDULE_EMISSIONS = 5;
 
 // Maximum absolute scheduled emission-rate delta allowed at one valid time.
 uint256 constant VE33_MAX_ABS_VALUE_EMISSION_RATE_DELTA = type(uint192).max / MAX_NUM_VALID_TIMES;
 // Maximum ve stake duration.
 uint256 constant VE33_MAX_STAKE_DURATION = 4 * 365 days;
-// Saved-balance salt for funded LP rewards.
-bytes32 constant VE33_LP_REWARD_SAVED_BALANCE_ID = bytes32(0);
+// Saved-balance salt for all stake-token balances, including staked balances and scheduled emissions.
+bytes32 constant VE33_STAKE_TOKEN_SAVED_BALANCE_ID = bytes32(0);
 
 /// @notice Returns the Core hooks enabled by `Ve33`.
 function ve33CallPoints() pure returns (CallPoints memory) {
@@ -95,8 +91,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     event PoolFeesClaimed(
         PoolId poolId, address owner, StakeId stakeId, address recipient, uint128 amount0, uint128 amount1
     );
-    /// @notice Emitted when a stake's active vote is reduced to current decayed voting power.
-    event StakePoked(address owner, StakeId stakeId, uint256 previousWeight, uint256 nextWeight);
     /// @notice Emitted when global emissions are scheduled.
     event EmissionsScheduled(address funder, uint64 startTime, uint64 endTime, uint224 rewardRate, uint224 amount);
     /// @notice Emitted when a pool accrues its share of global emissions to LP rewards.
@@ -378,15 +372,49 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         _clearVotes(msg.sender, stakeId);
     }
 
-    /// @notice Permissionlessly refreshes a stake's active vote to its current decayed voting power.
-    /// @dev Accrues reward and voter-fee accounting before reducing weights. Expired stakes are cleared.
-    /// @param owner Locker representation that owns the stake.
-    /// @param stakeId Stake whose active vote is refreshed.
-    /// @return previousWeight Total active vote weight before the poke.
-    /// @return nextWeight Total active vote weight after the poke.
-    function poke(address owner, StakeId stakeId) external returns (uint256 previousWeight, uint256 nextWeight) {
-        (previousWeight, nextWeight) = _pokeVotes(owner, stakeId, _votingPower(owner, stakeId));
-        emit StakePoked(owner, stakeId, previousWeight, nextWeight);
+    /// @notice Moves stake between two stake keys owned by the caller.
+    /// @dev Does not require a Core lock because no token balance changes.
+    /// @param fromStakeId Source stake id.
+    /// @param toStakeId Destination stake id.
+    /// @param amount Amount of stake to move.
+    /// @return nextAmount Destination stake amount after the move.
+    function moveStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
+        _validateNewStake(toStakeId, amount);
+        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId) || toStakeId.endTime() < fromStakeId.endTime()) {
+            revert InvalidStake();
+        }
+
+        uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
+        if (amount > currentAmount) revert InvalidStake();
+
+        _setStakeAmount(msg.sender, fromStakeId, currentAmount - amount);
+        nextAmount = _stakeAmount(msg.sender, toStakeId) + amount;
+        _setStakeAmount(msg.sender, toStakeId, nextAmount);
+        _pokeVote(msg.sender, fromStakeId);
+
+        emit StakeMoved(msg.sender, fromStakeId, toStakeId);
+    }
+
+    /// @notice Splits stake into a new stake key owned by the caller while preserving the source vote.
+    /// @dev Does not require a Core lock because no token balance changes.
+    /// @param fromStakeId Source stake id.
+    /// @param toStakeId Destination stake id.
+    /// @param amount Amount of stake to split into the destination key.
+    /// @return nextAmount Destination stake amount after the split.
+    function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
+        _validateNewStake(toStakeId, amount);
+        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId)) revert InvalidStake();
+
+        uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
+        if (amount >= currentAmount) revert InvalidStake();
+
+        _clearVotes(msg.sender, toStakeId);
+        _setStakeAmount(msg.sender, fromStakeId, currentAmount - amount);
+        nextAmount = _stakeAmount(msg.sender, toStakeId) + amount;
+        _setStakeAmount(msg.sender, toStakeId, nextAmount);
+        _pokeVote(msg.sender, fromStakeId);
+
+        emit StakeMoved(msg.sender, fromStakeId, toStakeId);
     }
 
     /// @notice Accumulates global emissions into the pool reward-per-liquidity global value.
@@ -422,14 +450,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         } else if (callType == VE33_UNSTAKE) {
             (, StakeId stakeId) = abi.decode(data, (uint256, StakeId));
             result = abi.encode(_unstake(original.addr(), stakeId));
-        } else if (callType == VE33_MOVE_STAKE) {
-            (, StakeId fromStakeId, StakeId toStakeId, uint128 amount) =
-                abi.decode(data, (uint256, StakeId, StakeId, uint128));
-            result = abi.encode(_moveStake(original.addr(), fromStakeId, toStakeId, amount));
-        } else if (callType == VE33_SPLIT_STAKE) {
-            (, StakeId fromStakeId, StakeId toStakeId, uint128 amount) =
-                abi.decode(data, (uint256, StakeId, StakeId, uint128));
-            result = abi.encode(_splitStake(original.addr(), fromStakeId, toStakeId, amount));
         } else if (callType == VE33_CLAIM_POOL_FEES) {
             (, StakeId stakeId, PoolKey memory poolKey) = abi.decode(data, (uint256, StakeId, PoolKey));
             (uint128 amount0, uint128 amount1) = _claimPoolFees(original.addr(), stakeId, poolKey, original.addr());
@@ -571,7 +591,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         nextAmount = _stakeAmount(owner, stakeId) + amount;
         _setStakeAmount(owner, stakeId, nextAmount);
         CORE.updateSavedBalances(
-            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, stakeId), int256(uint256(amount)), 0
+            stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
         );
 
         emit StakeIncreased(owner, stakeId, amount);
@@ -592,81 +612,10 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         _clearVotes(owner, stakeId);
         _setStakeAmount(owner, stakeId, 0);
         CORE.updateSavedBalances(
-            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, stakeId), -int256(uint256(unstaked)), 0
+            stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, -int256(uint256(unstaked)), 0
         );
 
         emit StakeDecreased(owner, stakeId, unstaked);
-    }
-
-    /// @notice Moves stake between two stake keys for the same owner.
-    /// @dev Used by wrappers to model extension by withdrawing one stake key and staking into another without transfers.
-    /// @param owner Locker representation that owns both stake keys.
-    /// @param fromStakeId Source stake id.
-    /// @param toStakeId Destination stake id.
-    /// @param amount Amount of stake to move.
-    /// @return nextAmount Destination stake amount after the move.
-    function _moveStake(address owner, StakeId fromStakeId, StakeId toStakeId, uint128 amount)
-        private
-        returns (uint128 nextAmount)
-    {
-        _validateNewStake(toStakeId, amount);
-
-        uint128 currentAmount = _stakeAmount(owner, fromStakeId);
-        if (amount > currentAmount) revert InvalidStake();
-
-        _clearVotes(owner, fromStakeId);
-        _clearVotes(owner, toStakeId);
-        _setStakeAmount(owner, fromStakeId, currentAmount - amount);
-        nextAmount = _stakeAmount(owner, toStakeId) + amount;
-        _setStakeAmount(owner, toStakeId, nextAmount);
-        CORE.updateSavedBalances(
-            stakeToken,
-            address(type(uint160).max),
-            _stakeSavedBalanceId(owner, fromStakeId),
-            -int256(uint256(amount)),
-            0
-        );
-        CORE.updateSavedBalances(
-            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, toStakeId), int256(uint256(amount)), 0
-        );
-
-        emit StakeMoved(owner, fromStakeId, toStakeId);
-    }
-
-    /// @notice Splits stake into a new stake key for the same owner.
-    /// @dev The source stake keeps its vote; only its active weight is resized to the reduced voting power.
-    /// @param owner Locker representation that owns both stake keys.
-    /// @param fromStakeId Source stake id.
-    /// @param toStakeId Destination stake id.
-    /// @param amount Amount of stake to split into the destination key.
-    /// @return nextAmount Destination stake amount after the split.
-    function _splitStake(address owner, StakeId fromStakeId, StakeId toStakeId, uint128 amount)
-        private
-        returns (uint128 nextAmount)
-    {
-        _validateNewStake(toStakeId, amount);
-        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId)) revert InvalidStake();
-
-        uint128 currentAmount = _stakeAmount(owner, fromStakeId);
-        if (amount >= currentAmount) revert InvalidStake();
-
-        _clearVotes(owner, toStakeId);
-        _setStakeAmount(owner, fromStakeId, currentAmount - amount);
-        nextAmount = _stakeAmount(owner, toStakeId) + amount;
-        _setStakeAmount(owner, toStakeId, nextAmount);
-        CORE.updateSavedBalances(
-            stakeToken,
-            address(type(uint160).max),
-            _stakeSavedBalanceId(owner, fromStakeId),
-            -int256(uint256(amount)),
-            0
-        );
-        CORE.updateSavedBalances(
-            stakeToken, address(type(uint160).max), _stakeSavedBalanceId(owner, toStakeId), int256(uint256(amount)), 0
-        );
-        _pokeVotes(owner, fromStakeId, _votingPower(owner, fromStakeId));
-
-        emit StakeMoved(owner, fromStakeId, toStakeId);
     }
 
     /// @notice Applies a stake's vote to pool accounting.
@@ -790,7 +739,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         if (amount == 0) revert EmissionAmountTooSmall();
         if (amount > type(uint128).max) revert RewardAmountOverflow();
         CORE.updateSavedBalances(
-            stakeToken, address(type(uint160).max), VE33_LP_REWARD_SAVED_BALANCE_ID, int256(uint256(amount)), 0
+            stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
         );
 
         int256 rewardRateDelta = int256(uint256(rewardRate));
@@ -841,7 +790,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             CORE.updateSavedBalances(
                 stakeToken,
                 address(type(uint160).max),
-                VE33_LP_REWARD_SAVED_BALANCE_ID,
+                VE33_STAKE_TOKEN_SAVED_BALANCE_ID,
                 -int256(uint256(amountUint128)),
                 0
             );
@@ -881,17 +830,13 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         emit VoteCleared(owner, stakeId, poolId);
     }
 
-    /// @notice Reduces a stake's active vote weight to a target weight.
+    /// @notice Reduces a stake's active vote weight to current decayed voting power.
     /// @dev Accrues reward and voter-fee accounting before changing future weights.
     /// @param owner Locker representation that owns the stake.
     /// @param stakeId Stake id whose votes are refreshed.
-    /// @param targetWeight Current decayed voting power for the stake.
     /// @return previousWeight Total active vote weight before refresh.
     /// @return nextWeight Total active vote weight after refresh.
-    function _pokeVotes(address owner, StakeId stakeId, uint256 targetWeight)
-        private
-        returns (uint256 previousWeight, uint256 nextWeight)
-    {
+    function _pokeVote(address owner, StakeId stakeId) private returns (uint256 previousWeight, uint256 nextWeight) {
         PoolId poolId = _votedPoolId(owner, stakeId);
         VePoolVote veVote = _vePoolVote(owner, stakeId);
         previousWeight = veVote.weight();
@@ -899,6 +844,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
         _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
+        uint256 targetWeight = _votingPower(owner, stakeId);
         if (targetWeight >= previousWeight) return (previousWeight, previousWeight);
         nextWeight = targetWeight;
 
@@ -1096,15 +1042,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
                     );
                 }
             }
-        }
-    }
-
-    /// @notice Computes the Core saved-balance id for a staked token balance.
-    function _stakeSavedBalanceId(address owner, StakeId stakeId) private pure returns (bytes32 result) {
-        assembly ("memory-safe") {
-            mstore(0, owner)
-            mstore(0x20, stakeId)
-            result := keccak256(0x0c, 0x34)
         }
     }
 

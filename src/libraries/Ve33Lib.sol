@@ -6,9 +6,7 @@ import {
     VE33_CLAIM_POOL_FEES,
     VE33_CLAIM_REWARDS,
     VE33_MAX_STAKE_DURATION,
-    VE33_MOVE_STAKE,
     VE33_SCHEDULE_EMISSIONS,
-    VE33_SPLIT_STAKE,
     VE33_STAKE,
     VE33_SWAP,
     VE33_UNSTAKE
@@ -109,52 +107,6 @@ library Ve33Lib {
     /// @notice Unstakes tokens from Ve33 through Core.
     function unstake(ICore core, Ve33 ve33, StakeId stakeId) internal returns (uint128 unstaked) {
         unstaked = decodeUnstakeResult(core.forward(address(ve33), encodeUnstake(stakeId)));
-    }
-
-    /// @notice Encodes a Ve33 move-stake call.
-    function encodeMoveStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(VE33_MOVE_STAKE, fromStakeId, toStakeId, amount);
-    }
-
-    /// @notice Decodes a Ve33 move-stake result.
-    function decodeMoveStakeResult(bytes memory data) internal pure returns (uint128 nextAmount) {
-        nextAmount = abi.decode(data, (uint128));
-    }
-
-    /// @notice Moves stake between two Ve33 stake keys through Core.
-    function moveStake(ICore core, Ve33 ve33, StakeId fromStakeId, StakeId toStakeId, uint128 amount)
-        internal
-        returns (uint128 nextAmount)
-    {
-        nextAmount = decodeMoveStakeResult(core.forward(address(ve33), encodeMoveStake(fromStakeId, toStakeId, amount)));
-    }
-
-    /// @notice Encodes a Ve33 split-stake call.
-    function encodeSplitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(VE33_SPLIT_STAKE, fromStakeId, toStakeId, amount);
-    }
-
-    /// @notice Decodes a Ve33 split-stake result.
-    function decodeSplitStakeResult(bytes memory data) internal pure returns (uint128 nextAmount) {
-        nextAmount = abi.decode(data, (uint128));
-    }
-
-    /// @notice Splits stake between two Ve33 stake keys through Core.
-    function splitStake(ICore core, Ve33 ve33, StakeId fromStakeId, StakeId toStakeId, uint128 amount)
-        internal
-        returns (uint128 nextAmount)
-    {
-        nextAmount = decodeSplitStakeResult(
-            core.forward(address(ve33), encodeSplitStake(fromStakeId, toStakeId, amount))
-        );
     }
 
     /// @notice Encodes a Ve33 pool-fee claim call.

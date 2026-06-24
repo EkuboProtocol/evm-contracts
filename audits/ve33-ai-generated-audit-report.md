@@ -13,6 +13,7 @@ The audit scope is limited to source files introduced, modified, or removed by t
 
 - `src/extensions/Ve33.sol`
 - `src/libraries/Ve33Lib.sol`
+- `src/lens/Ve33DataFetcher.sol`
 - `src/Ve33Periphery.sol`
 - `src/Ve33Positions.sol`
 - `src/VeToken.sol`
@@ -74,21 +75,21 @@ exact `Ve33` storage layout.
 ### I-01: Vote Decay Is Sampled When Stakes Are Touched
 
 Voting power decays linearly with remaining stake duration, but stored pool vote weights do not continuously update on
-chain. They are refreshed when a stake votes, is poked, is split, is moved, is increased, is unstaked, or otherwise
-resizes, clears, or rewrites voting state.
+chain. They are refreshed when a stake votes, is split, is moved, is increased, is unstaked, or otherwise resizes,
+clears, or rewrites voting state.
 
 This is consistent with the intended gas model. Each stake id votes for at most one pool, so pool fee weights and
-emission allocation use the last sampled voting power for that stake id until someone updates the stale vote. The `poke`
-path exists to let anyone refresh stale stakes. Because it does not require a lock or token settlement, keepers can batch
-direct `Ve33.poke(owner, stakeId)` calls through generic multicall tooling. Users who want multi-pool allocation split
-stake into multiple stake ids and vote each stake id on one pool. Splitting preserves the source vote with reduced
-weight; the newly split stake starts unvoted.
+emission allocation use the last sampled voting power for that stake id until the stake owner updates the stale vote.
+There is no external permissionless stale-vote poke path. Users who want multi-pool allocation split stake into multiple
+stake ids and vote each stake id on one pool. Splitting preserves the source vote with reduced weight; the newly split
+stake starts unvoted.
 
 Operational impact:
 
 - Active pool fees can lag current decayed voting power until votes are touched.
-- Emission allocation can include stale weight for a stake until the stale vote is poked or otherwise changed.
-- Keepers or interested users should call `poke` on long-idle stakes when current weights matter.
+- Emission allocation can include stale weight for a stake until the stale vote is changed by the stake owner.
+- Stake owner wrappers should claim voter fees before replacing a vote or changing stake accounting when preserving
+  accrued fees matters.
 
 ### I-02: Votes Can Be Cast Before Pool Initialization
 
@@ -104,15 +105,16 @@ initialized and liquid, normal pool touches can realize its share of later emiss
 
 Operational impact:
 
-- Votes for never-initialized pools can remain part of total active vote weight until users revote, clear, poke, move, or
+- Votes for never-initialized pools can remain part of total active vote weight until users revote, clear, move, or
   expire those stakes, and their emission share may be burned while the pool remains uninitialized or empty.
 - Emission growth earned by initialized pools is still computed from total active vote weight, so abandoned
   pre-initialization votes can dilute initialized pools until refreshed.
 
 ### I-03: Core Saved-Balance Width Bounds Large Accounting Flows
 
-Ve33 uses Core saved balances for stake balances, fee buckets, funded rewards, and claimable accounting. These lanes are
-bounded by Core's saved-balance width. Ve33 also bounds scheduled emission amounts to fit the supported accounting width.
+Ve33 uses Core saved balances for fee buckets, claimable accounting, and one aggregate stake-token bucket that backs both
+staked balances and funded rewards. These lanes are bounded by Core's saved-balance width. Ve33 also bounds scheduled
+emission amounts to fit the supported accounting width.
 
 This is not a vulnerability under the branch's token supply assumptions, but it is a hard accounting boundary. Very large
 single emission schedules or very infrequent reward realization could revert instead of partially accepting excess
@@ -203,7 +205,8 @@ cleared, and inverted as positions and swaps cross initialized ticks. Stableswap
 directly and can earn emissions while the current tick is outside the stableswap active-liquidity range.
 
 Global emissions are permissionlessly scheduled through `VE33_SCHEDULE_EMISSIONS`. The caller chooses valid start and
-end times and a Q32 reward rate, and the required token amount is prepaid into the LP reward saved-balance bucket.
+end times and a Q32 reward rate, and the required token amount is prepaid into the aggregate stake-token saved-balance
+bucket.
 `_accrueEmissions` advances `emissionGrowthGlobalX128` using the current total active vote weight. Each pool stores an
 `emissionGrowthGlobalX128Snapshot`; when the pool is touched, its share of global growth is realized into
 `rewardsGlobalPerLiquidity` for current Core pool liquidity. If the pool is uninitialized or has zero liquidity, the
@@ -292,7 +295,7 @@ importance of correct immutable extension address configuration.
 - Forwarded exact-output swaps gross up the actual Core input by the current voter fee.
 - Active pool fee is the weighted average of explicit fee votes and is zero when active pool vote weight is zero.
 - Voter fee accounting uses saved balances and fee-growth snapshots.
-- Vote updates, clears, and pokes accrue pool emission state before weight changes.
+- Vote updates, clears, and stake changes accrue pool emission state before weight changes.
 - Global emissions are scheduled through forward calls, prepaid into saved balances, and allocated by
   `emissionGrowthGlobalX128` according to active vote weight.
 - Ve33 does not transfer ERC20 tokens or receive native ETH directly.
@@ -319,7 +322,7 @@ The reviewed test suite covers the major audited behaviors:
 - explicit fee voting,
 - pre-initialization vote support and later reward accounting,
 - direct hook and direct swap rejection,
-- vote validation, vote clearing, decay, and `poke`,
+- vote validation, vote clearing, and sampled decay,
 - zero-fee behavior when no active votes exist,
 - forwarded swaps through the router,
 - partial exact-input fee accounting for both token directions,
@@ -342,7 +345,7 @@ The reviewed test suite covers the major audited behaviors:
 The audited code is still a large economic system with several surfaces that should receive continued review:
 
 - economic effects of sampled vote decay,
-- keeper incentives and timing around `poke` and normal pool touches,
+- timing around stale stored votes and normal pool touches,
 - pool fragmentation and stake incentives under the power-of-four tick-spacing policy,
 - zero-vote and zero-liquidity scheduled-emission behavior,
 - production deployment configuration for router and periphery immutables,
@@ -364,4 +367,4 @@ Results:
 - `git diff --check` passed.
 - `forge fmt` completed.
 - `forge build --offline --sizes` passed.
-- `forge test --offline` passed: 812 tests passed, 0 failed, 0 skipped.
+- `forge test --offline` passed: 816 tests passed, 0 failed, 0 skipped.

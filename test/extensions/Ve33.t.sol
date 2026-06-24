@@ -8,7 +8,7 @@ import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
-import {Ve33, VE33_LP_REWARD_SAVED_BALANCE_ID, ve33CallPoints} from "../../src/extensions/Ve33.sol";
+import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../../src/extensions/Ve33.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
@@ -41,7 +41,6 @@ contract Ve33Forwarder is BaseLocker {
     uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 4;
     uint256 private constant CALL_TYPE_STAKE = 5;
     uint256 private constant CALL_TYPE_UNSTAKE = 6;
-    uint256 private constant CALL_TYPE_MOVE_STAKE = 7;
 
     ICore private immutable CORE_REF;
     Ve33 private immutable VE33_REF;
@@ -77,7 +76,7 @@ contract Ve33Forwarder is BaseLocker {
     }
 
     function moveStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
-        nextAmount = abi.decode(lock(abi.encode(CALL_TYPE_MOVE_STAKE, fromStakeId, toStakeId, amount)), (uint128));
+        nextAmount = VE33_REF.moveStake(fromStakeId, toStakeId, amount);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
@@ -103,10 +102,6 @@ contract Ve33Forwarder is BaseLocker {
             uint128 unstaked = Ve33Lib.unstake(CORE_REF, VE33_REF, stakeId);
             result = abi.encode(unstaked);
             ACCOUNTANT.withdraw(STAKE_TOKEN, msg.sender, unstaked);
-        } else if (callType == CALL_TYPE_MOVE_STAKE) {
-            (, StakeId fromStakeId, StakeId toStakeId, uint128 amount) =
-                abi.decode(data, (uint256, StakeId, StakeId, uint128));
-            result = abi.encode(Ve33Lib.moveStake(CORE_REF, VE33_REF, fromStakeId, toStakeId, amount));
         } else {
             revert();
         }
@@ -334,16 +329,6 @@ contract Ve33Test is FullTest {
         coolAllContracts();
         _vote(veId, poolKey, uint64(1 << 62));
         vm.snapshotGasLastCall("Ve33#vote one pool");
-    }
-
-    function test_gas_poke() public {
-        (PoolKey memory poolKey,) = _createConcentratedPool();
-        uint256 veId = _fundAndVote(poolKey, uint64(1 << 62));
-        vm.warp(vm.getBlockTimestamp() + 1 weeks);
-
-        coolAllContracts();
-        ve.poke(address(veToken), _stakeId(veId));
-        vm.snapshotGasLastCall("Ve33#poke");
     }
 
     function test_gas_forwardedSwap() public {
@@ -757,56 +742,7 @@ contract Ve33Test is FullTest {
         assertEq(claimed1, 0);
     }
 
-    function test_pokeRefreshesDecayedVotesAndPreservesAccruedFees() public {
-        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
-        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
-        uint64 votedFee = uint64(1 << 62);
-        uint256 veId = _fundAndVote(poolKey, votedFee);
-        PoolId poolId = poolKey.toPoolId();
-
-        (uint256 initialWeight,,) = _poolVoteTotals(poolId);
-        _routerSwap(poolKey, false, 100_000, address(this));
-        uint128 expectedFee = computeFee(100_000, votedFee);
-
-        vm.warp(vm.getBlockTimestamp() + 1 weeks);
-        StakeId stakeId = _stakeId(veId);
-        uint256 currentPower = ve.votingPower(address(veToken), stakeId);
-        vm.prank(address(1234));
-        (uint256 previousWeight, uint256 nextWeight) = ve.poke(address(veToken), stakeId);
-
-        assertEq(previousWeight, initialWeight);
-        assertEq(nextWeight, currentPower);
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
-        assertEq(weight, currentPower);
-        assertEq(feeWeightSum, currentPower * votedFee);
-        assertEq(swapFee, votedFee);
-        assertEq(ve.totalVoteWeight(), currentPower);
-        assertEq(ve.poolEmissionGrowthGlobalX128Snapshot(poolId), ve.emissionGrowthGlobalX128());
-
-        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
-        assertApproxEqAbs(claimed0, expectedFee, 2);
-        assertEq(claimed1, 0);
-    }
-
-    function test_pokeNoopsWithoutVotesOrWithoutDecay() public {
-        (PoolKey memory poolKey,) = _createConcentratedPool();
-        uint256 veId = _createStake();
-        StakeId stakeId = _stakeId(veId);
-
-        (uint256 previousWeight, uint256 nextWeight) = ve.poke(address(veToken), stakeId);
-        assertEq(previousWeight, 0);
-        assertEq(nextWeight, 0);
-
-        _vote(veId, poolKey, uint64(1 << 62));
-        (uint256 weightBefore,,) = _poolVoteTotals(poolKey.toPoolId());
-        (previousWeight, nextWeight) = ve.poke(address(veToken), stakeId);
-        assertEq(previousWeight, weightBefore);
-        assertEq(nextWeight, weightBefore);
-        (uint256 weightAfter,,) = _poolVoteTotals(poolKey.toPoolId());
-        assertEq(weightAfter, weightBefore);
-    }
-
-    function test_splitStakesVoteMultiplePoolsAndPokeIndependently() public {
+    function test_splitStakesVoteMultiplePoolsIndependently() public {
         (PoolKey memory pool0,) = _createConcentratedPool();
         (PoolKey memory pool1,) = _createConcentratedPool(256, bytes24(uint192(2)));
 
@@ -819,51 +755,21 @@ contract Ve33Test is FullTest {
         _vote(veId0, pool0, fee0);
         _vote(veId1, pool1, fee1);
 
-        StakeId stakeId0 = _stakeId(veId0);
-        StakeId stakeId1 = _stakeId(veId1);
-        vm.warp(vm.getBlockTimestamp() + 3 weeks);
-        (uint256 previousWeight0, uint256 nextWeight0) = ve.poke(address(veToken), stakeId0);
-        (uint256 previousWeight1, uint256 nextWeight1) = ve.poke(address(veToken), stakeId1);
-
-        assertGt(previousWeight0, nextWeight0);
-        assertGt(previousWeight1, nextWeight1);
-
         PoolId poolId0 = pool0.toPoolId();
-        uint256 veVoteWeight0 = ve.vePoolVote(address(veToken), stakeId0).weight();
+        uint256 veVoteWeight0 = ve.vePoolVote(address(veToken), _stakeId(veId0)).weight();
         (uint256 poolWeight0, uint256 feeWeightSum0, uint64 swapFee0) = _poolVoteTotals(poolId0);
         assertEq(poolWeight0, veVoteWeight0);
         assertEq(feeWeightSum0, veVoteWeight0 * fee0);
         assertEq(swapFee0, fee0);
 
         PoolId poolId1 = pool1.toPoolId();
-        uint256 veVoteWeight1 = ve.vePoolVote(address(veToken), stakeId1).weight();
+        uint256 veVoteWeight1 = ve.vePoolVote(address(veToken), _stakeId(veId1)).weight();
         (uint256 poolWeight1, uint256 feeWeightSum1, uint64 swapFee1) = _poolVoteTotals(poolId1);
         assertEq(poolWeight1, veVoteWeight1);
         assertEq(feeWeightSum1, veVoteWeight1 * fee1);
         assertEq(swapFee1, fee1);
 
-        assertEq(ve.totalVoteWeight(), nextWeight0 + nextWeight1);
-    }
-
-    function test_pokeClearsExpiredVotes() public {
-        (PoolKey memory poolKey,) = _createConcentratedPool();
-        uint64 votedFee = uint64(1 << 62);
-        uint256 veId = _fundAndVote(poolKey, votedFee);
-        PoolId poolId = poolKey.toPoolId();
-        (uint256 initialWeight,,) = _poolVoteTotals(poolId);
-
-        vm.warp(_stakeId(veId).endTime());
-        (uint256 previousWeight, uint256 nextWeight) = ve.poke(address(veToken), _stakeId(veId));
-
-        assertEq(previousWeight, initialWeight);
-        assertEq(nextWeight, 0);
-        (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
-        assertEq(weight, 0);
-        assertEq(feeWeightSum, 0);
-        assertEq(swapFee, 0);
-        assertEq(ve.totalVoteWeight(), 0);
-        assertEq(ve.vePoolVote(address(veToken), _stakeId(veId)).weight(), 0);
-        assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(veId))), 0);
+        assertEq(ve.totalVoteWeight(), veVoteWeight0 + veVoteWeight1);
     }
 
     function test_multipleVotersSetWeightedFeeAndClaimProRataFees() public {
@@ -914,6 +820,10 @@ contract Ve33Test is FullTest {
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 100);
         assertEq(ve.stakeAmount(address(forwarder), toStakeId), 50);
 
+        StakeId shorterStakeId = createStakeId(bytes24("shorter"), uint64(vm.getBlockTimestamp() + 3 days));
+        vm.expectRevert(Ve33.InvalidStake.selector);
+        forwarder.moveStake(stakeId, shorterStakeId, 1);
+
         vm.warp(endTime);
         assertEq(forwarder.unstake(stakeId), 100);
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 0);
@@ -957,15 +867,15 @@ contract Ve33Test is FullTest {
         uint256 voteTime = vm.getBlockTimestamp() + 1 days;
         vm.warp(voteTime);
         _fundAndVote(poolKey, uint64(1 << 62));
-        uint256 fundedRewardsBeforeClaim = _rewardSavedBalance(VE33_LP_REWARD_SAVED_BALANCE_ID);
+        uint256 fundedRewardsBeforeClaim = _rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID);
 
         vm.warp(voteTime + 1 days);
         ve.maybeAccumulateRewards(poolKey);
-        assertEq(_rewardSavedBalance(VE33_LP_REWARD_SAVED_BALANCE_ID), fundedRewardsBeforeClaim);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), fundedRewardsBeforeClaim);
         uint256 claimed = _claimRewards(poolKey, positionId, address(this));
         assertGt(claimed, 0);
         assertLt(claimed, fundedRewardsBeforeClaim);
-        assertEq(_rewardSavedBalance(VE33_LP_REWARD_SAVED_BALANCE_ID), fundedRewardsBeforeClaim - claimed);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), fundedRewardsBeforeClaim - claimed);
     }
 
     function test_scheduleEmissionsWithoutVotesDoesNotAccrueRewards() public {
@@ -975,13 +885,13 @@ contract Ve33Test is FullTest {
         uint64 end = _defaultEmissionEnd();
         uint224 scheduled = _scheduleEmissions(1_000, end);
         assertGt(scheduled, 0);
-        assertEq(_rewardSavedBalance(VE33_LP_REWARD_SAVED_BALANCE_ID), scheduled);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), scheduled);
 
         vm.warp(end);
         ve.maybeAccumulateRewards(poolKey);
 
         assertEq(ve.emissionRate(), 0);
-        assertEq(_rewardSavedBalance(VE33_LP_REWARD_SAVED_BALANCE_ID), scheduled);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), scheduled);
         assertEq(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 
@@ -1133,7 +1043,7 @@ contract Ve33Test is FullTest {
         assertEq(ve.emissionRateDeltaAtTime(end), 0);
         _assertEmissionTimeInitialized(end, false);
         assertEq(ve.emissionRate(), 0);
-        assertEq(_rewardSavedBalance(VE33_LP_REWARD_SAVED_BALANCE_ID), 3_000);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), 3_000);
     }
 
     function test_scheduleEmissionsAccruesBeforeAddingNewRate() public {

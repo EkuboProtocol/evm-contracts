@@ -43,6 +43,11 @@ jobs:
           forge build --sizes
         id: build
 
+      - name: Run DeployAll script
+        run: |
+          forge script script/DeployAll.s.sol
+        id: deploy-all
+
       - name: Run Forge tests
         run: |
           forge test --gas-snapshot-check=true -vvv

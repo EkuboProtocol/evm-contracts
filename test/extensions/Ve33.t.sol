@@ -13,6 +13,7 @@ import {ICore} from "../../src/interfaces/ICore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
+import {Ve33StorageLayout} from "../../src/libraries/Ve33StorageLayout.sol";
 import {amountBeforeFee, computeFee} from "../../src/math/fee.sol";
 import {nextValidTime} from "../../src/math/time.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
@@ -29,6 +30,7 @@ import {SwapParameters, createSwapParameters} from "../../src/types/swapParamete
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {StakeId, createStakeId} from "../../src/types/stakeId.sol";
 import {Locker} from "../../src/types/locker.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
 
 contract Ve33Forwarder is BaseLocker {
     using FlashAccountantLib for *;
@@ -316,10 +318,6 @@ contract Ve33Test is FullTest {
         scheduledAmount = forwarder.scheduleEmissions(0, endTime, _emissionRateForAmount(amount, endTime));
     }
 
-    function _poolMappingSlot(PoolId poolId, uint256 slot) internal pure returns (bytes32) {
-        return keccak256(abi.encode(PoolId.unwrap(poolId), slot));
-    }
-
     function _rewardSavedBalance(bytes32 salt) internal view returns (uint128 saved) {
         (saved,) = core.savedBalances(address(ve), address(stakeToken), address(type(uint160).max), salt);
     }
@@ -472,13 +470,13 @@ contract Ve33Test is FullTest {
     }
 
     function test_poolInitializationRejectsInvalidConfig() public {
-        vm.expectRevert(Ve33.InvalidPoolKey.selector);
+        vm.expectRevert(Ve33.FeeMustBeZero.selector);
         createPool({tick: 0, fee: 1, tickSpacing: 64, extension: address(ve)});
 
-        vm.expectRevert(Ve33.InvalidPoolKey.selector);
+        vm.expectRevert(Ve33.TickSpacingMustBePowerOfFour.selector);
         createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(ve)});
 
-        vm.expectRevert(Ve33.InvalidPoolKey.selector);
+        vm.expectRevert(Ve33.TickSpacingMustBePowerOfFour.selector);
         createPool({tick: 0, fee: 0, tickSpacing: 2, extension: address(ve)});
 
         PoolConfig config = createConcentratedPoolConfig(0, 64, address(ve));
@@ -534,20 +532,20 @@ contract Ve33Test is FullTest {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         uint256 veId = _createStake();
 
-        PoolKey memory wrongExtensionPool = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(0)});
+        PoolKey memory wrongExtensionPool = createPool({tick: 0, fee: 0, tickSpacing: 64, extension: address(0)});
         vm.expectRevert(Ve33.InvalidPoolKey.selector);
         veToken.vote(veId, wrongExtensionPool, 1);
 
         PoolConfig wrongFeeConfig = createConcentratedPoolConfig(1, 64, address(ve));
         PoolKey memory wrongFeePool =
             PoolKey({token0: address(token0), token1: address(token1), config: wrongFeeConfig});
-        vm.expectRevert(Ve33.InvalidPoolKey.selector);
+        vm.expectRevert(Ve33.FeeMustBeZero.selector);
         veToken.vote(veId, wrongFeePool, 1);
 
         PoolConfig invalidTickSpacingConfig = createConcentratedPoolConfig(0, 100, address(ve));
         PoolKey memory invalidTickSpacingPool =
             PoolKey({token0: address(token0), token1: address(token1), config: invalidTickSpacingConfig});
-        vm.expectRevert(Ve33.InvalidPoolKey.selector);
+        vm.expectRevert(Ve33.TickSpacingMustBePowerOfFour.selector);
         veToken.vote(veId, invalidTickSpacingPool, 1);
 
         vm.warp(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
@@ -1213,7 +1211,11 @@ contract Ve33Test is FullTest {
         PoolId poolId = poolKey.toPoolId();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
 
-        vm.store(address(ve), _poolMappingSlot(poolId, 4), bytes32(type(uint256).max));
+        vm.store(
+            address(ve),
+            StorageSlot.unwrap(Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId)),
+            bytes32(type(uint256).max)
+        );
 
         vm.expectRevert(Ve33.RewardAmountOverflow.selector);
         _claimRewards(poolKey, positionId, address(this));

@@ -23,27 +23,17 @@ import {PositionId} from "../types/positionId.sol";
 import {StakeId} from "../types/stakeId.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
+import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
+import {VePoolPosition} from "../types/vePoolPosition.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
+import {Ve33StorageLayout} from "./Ve33StorageLayout.sol";
 
 /// @title Ve33 Library
 /// @notice Exposed-storage readers for Ve33 state.
-/// @dev Slot constants match Ve33's declared storage layout. Ve33 inherits only storage-less bases.
+/// @dev Storage readers must use Ve33StorageLayout so they match Ve33's manual storage slots.
 library Ve33Lib {
     using ExposedStorageLib for *;
     using FlashAccountantLib for *;
-
-    uint256 private constant STAKE_AMOUNTS_SLOT = 0;
-    uint256 private constant VOTED_POOL_IDS_SLOT = 1;
-    uint256 private constant VE_POOL_POSITIONS_SLOT = 2;
-    uint256 private constant POOL_VOTE_STATES_SLOT = 3;
-    uint256 private constant REWARDS_GLOBAL_PER_LIQUIDITY_SLOT = 4;
-    uint256 private constant TICK_REWARDS_OUTSIDE_PER_LIQUIDITY_SLOT = 5;
-    uint256 private constant POSITION_REWARDS_SNAPSHOT_PER_LIQUIDITY_SLOT = 6;
-    uint256 private constant TOTAL_VOTE_WEIGHT_SLOT = 7;
-    uint256 private constant EMISSION_GROWTH_GLOBAL_X128_SLOT = 8;
-    uint256 private constant EMISSION_RATE_AND_LAST_ACCRUED_SLOT = 9;
-    uint256 private constant EMISSION_INITIALIZED_TIME_BITMAP_SLOT = 10;
-    uint256 private constant EMISSION_RATE_DELTA_AT_TIME_SLOT = 11;
 
     /// @notice Encodes a Ve33 forwarded swap call.
     function encodeSwap(PoolKey memory poolKey, SwapParameters params) internal pure returns (bytes memory) {
@@ -211,7 +201,7 @@ library Ve33Lib {
 
     /// @notice Returns stake for `(owner, stakeId)`.
     function stakeAmount(Ve33 ve33, address owner, StakeId stakeId) internal view returns (uint128) {
-        return uint128(uint256(ve33.sload(_stakeAmountSlot(owner, stakeId))));
+        return uint128(uint256(ve33.sload(Ve33StorageLayout.stakeAmountSlot(owner, stakeId))));
     }
 
     /// @notice Returns current linearly decaying voting power for a canonical stake key.
@@ -228,18 +218,17 @@ library Ve33Lib {
 
     /// @notice Returns the pool currently voted on by `stakeId`.
     function votedPool(Ve33 ve33, address owner, StakeId stakeId) internal view returns (PoolId) {
-        return PoolId.wrap(ve33.sload(_votedPoolIdSlot(owner, stakeId)));
+        return PoolId.wrap(ve33.sload(Ve33StorageLayout.votedPoolIdSlot(owner, stakeId)));
     }
 
     /// @notice Returns per-stake vote and fee accounting for the currently voted pool.
     function vePoolPosition(Ve33 ve33, address owner, StakeId stakeId)
         internal
         view
-        returns (Ve33.VePoolPosition memory position)
+        returns (VePoolPosition memory position)
     {
-        StorageSlot slot = _vePoolPositionSlot(owner, stakeId);
-        (bytes32 packed, bytes32 feeGrowth0X128Snapshot, bytes32 feeGrowth1X128Snapshot) =
-            ve33.sload(slot, _add(slot, 1), _add(slot, 2));
+        StorageSlot slot = Ve33StorageLayout.vePoolPositionSlot(owner, stakeId);
+        bytes32 packed = ve33.sload(slot);
 
         uint256 packedValue = uint256(packed);
         uint128 weight;
@@ -250,38 +239,47 @@ library Ve33Lib {
         }
         position.weight = weight;
         position.swapFee = swapFee;
-        position.feeGrowth0X128Snapshot = uint256(feeGrowth0X128Snapshot);
-        position.feeGrowth1X128Snapshot = uint256(feeGrowth1X128Snapshot);
+    }
+
+    /// @notice Returns a stake's snapshot of pool fee growth for its currently voted pool.
+    function vePoolFeeGrowthSnapshot(Ve33 ve33, address owner, StakeId stakeId)
+        internal
+        view
+        returns (FeesPerLiquidity memory feeGrowthSnapshot)
+    {
+        StorageSlot slot = Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(owner, stakeId);
+        (bytes32 value0, bytes32 value1) = ve33.sload(slot, slot.next());
+        feeGrowthSnapshot.value0 = uint256(value0);
+        feeGrowthSnapshot.value1 = uint256(value1);
     }
 
     /// @notice Returns aggregated voting and fee state for a pool.
     function poolVoteState(Ve33 ve33, PoolId poolId) internal view returns (Ve33.PoolVoteState memory state) {
-        StorageSlot slot = _poolMappingSlot(poolId, POOL_VOTE_STATES_SLOT);
-        (bytes32 feeGrowth0X128, bytes32 feeGrowth1X128, bytes32 emissionGrowthGlobalX128Snapshot) =
-            ve33.sload(slot, _add(slot, 1), _add(slot, 2));
-        bytes32 feeWeightSum = ve33.sload(_add(slot, 3));
-        bytes32 weight = ve33.sload(_add(slot, 4));
+        StorageSlot slot = Ve33StorageLayout.poolVoteStateSlot(poolId);
+        (bytes32 emissionGrowthGlobalX128Snapshot, bytes32 feeWeightSum, bytes32 weight) =
+            ve33.sload(slot, slot.next(), slot.add(2));
 
-        state.feeGrowth0X128 = uint256(feeGrowth0X128);
-        state.feeGrowth1X128 = uint256(feeGrowth1X128);
         state.emissionGrowthGlobalX128Snapshot = uint256(emissionGrowthGlobalX128Snapshot);
         state.feeWeightSum = uint192(uint256(feeWeightSum));
         state.weight = uint128(uint256(weight));
     }
 
+    /// @notice Returns accumulated pool fees per unit of vote weight.
+    function poolFeeGrowth(Ve33 ve33, PoolId poolId) internal view returns (FeesPerLiquidity memory feeGrowth) {
+        StorageSlot slot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
+        (bytes32 value0, bytes32 value1) = ve33.sload(slot, slot.next());
+        feeGrowth.value0 = uint256(value0);
+        feeGrowth.value1 = uint256(value1);
+    }
+
     /// @notice Returns global reward growth per unit of liquidity for a pool.
     function rewardsGlobalPerLiquidity(Ve33 ve33, PoolId poolId) internal view returns (uint256) {
-        return uint256(ve33.sload(_poolMappingSlot(poolId, REWARDS_GLOBAL_PER_LIQUIDITY_SLOT)));
+        return uint256(ve33.sload(Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId)));
     }
 
     /// @notice Returns reward growth outside an initialized tick.
     function tickRewardsOutsidePerLiquidity(Ve33 ve33, PoolId poolId, int32 tick) internal view returns (uint256) {
-        StorageSlot poolSlot = _poolMappingSlot(poolId, TICK_REWARDS_OUTSIDE_PER_LIQUIDITY_SLOT);
-        bytes32 tickKey;
-        assembly ("memory-safe") {
-            tickKey := signextend(3, tick)
-        }
-        return uint256(ve33.sload(_mappingSlot(tickKey, poolSlot)));
+        return uint256(ve33.sload(Ve33StorageLayout.tickRewardsOutsidePerLiquiditySlot(poolId, tick)));
     }
 
     /// @notice Returns a position reward growth snapshot.
@@ -290,81 +288,36 @@ library Ve33Lib {
         view
         returns (uint256)
     {
-        StorageSlot poolSlot = _poolMappingSlot(poolId, POSITION_REWARDS_SNAPSHOT_PER_LIQUIDITY_SLOT);
-        StorageSlot ownerSlot = _mappingSlot(bytes32(uint256(uint160(owner))), poolSlot);
-        return uint256(ve33.sload(_mappingSlot(PositionId.unwrap(positionId), ownerSlot)));
+        return uint256(ve33.sload(Ve33StorageLayout.positionRewardsSnapshotPerLiquiditySlot(poolId, owner, positionId)));
     }
 
     /// @notice Returns total active ve vote weight across all pools.
     function totalVoteWeight(Ve33 ve33) internal view returns (uint256) {
-        return uint128(uint256(ve33.sload(bytes32(TOTAL_VOTE_WEIGHT_SLOT))));
+        return uint128(uint256(ve33.sload(Ve33StorageLayout.totalVoteWeightSlot())));
     }
 
     /// @notice Returns accumulated global emission growth per unit of active vote weight.
     function emissionGrowthGlobalX128(Ve33 ve33) internal view returns (uint256) {
-        return uint256(ve33.sload(bytes32(EMISSION_GROWTH_GLOBAL_X128_SLOT)));
+        return uint256(ve33.sload(Ve33StorageLayout.emissionGrowthGlobalX128Slot()));
     }
 
     /// @notice Returns the current global Q32 emission rate.
     function emissionRate(Ve33 ve33) internal view returns (uint192) {
-        return uint192(uint256(ve33.sload(bytes32(EMISSION_RATE_AND_LAST_ACCRUED_SLOT))));
+        return uint192(uint256(ve33.sload(Ve33StorageLayout.emissionRateAndLastAccruedSlot())));
     }
 
     /// @notice Returns the last timestamp when global emissions were accrued.
     function emissionsLastAccrued(Ve33 ve33) internal view returns (uint64) {
-        return uint64(uint256(ve33.sload(bytes32(EMISSION_RATE_AND_LAST_ACCRUED_SLOT))) >> 192);
+        return uint64(uint256(ve33.sload(Ve33StorageLayout.emissionRateAndLastAccruedSlot())) >> 192);
     }
 
     /// @notice Returns one global emission initialized-time bitmap word.
     function emissionInitializedTimeBitmap(Ve33 ve33, uint256 word) internal view returns (uint256) {
-        return uint256(ve33.sload(_mappingSlot(bytes32(word), _storageSlot(EMISSION_INITIALIZED_TIME_BITMAP_SLOT))));
+        return uint256(ve33.sload(Ve33StorageLayout.emissionInitializedTimeBitmapSlot(word)));
     }
 
     /// @notice Returns the scheduled global emission-rate delta at `time`.
     function emissionRateDeltaAtTime(Ve33 ve33, uint64 time) internal view returns (int256) {
-        return int256(
-            uint256(ve33.sload(_mappingSlot(bytes32(uint256(time)), _storageSlot(EMISSION_RATE_DELTA_AT_TIME_SLOT))))
-        );
-    }
-
-    function _stakeAmountSlot(address owner, StakeId stakeId) private pure returns (StorageSlot) {
-        return _mappingSlot(
-            StakeId.unwrap(stakeId), _mappingSlot(bytes32(uint256(uint160(owner))), _storageSlot(STAKE_AMOUNTS_SLOT))
-        );
-    }
-
-    function _votedPoolIdSlot(address owner, StakeId stakeId) private pure returns (StorageSlot) {
-        return _mappingSlot(
-            StakeId.unwrap(stakeId), _mappingSlot(bytes32(uint256(uint160(owner))), _storageSlot(VOTED_POOL_IDS_SLOT))
-        );
-    }
-
-    function _vePoolPositionSlot(address owner, StakeId stakeId) private pure returns (StorageSlot) {
-        StorageSlot ownerSlot = _mappingSlot(bytes32(uint256(uint160(owner))), _storageSlot(VE_POOL_POSITIONS_SLOT));
-        return _mappingSlot(StakeId.unwrap(stakeId), ownerSlot);
-    }
-
-    function _poolMappingSlot(PoolId poolId, uint256 slot) private pure returns (StorageSlot) {
-        return _mappingSlot(PoolId.unwrap(poolId), _storageSlot(slot));
-    }
-
-    function _mappingSlot(bytes32 key, StorageSlot slot) private pure returns (StorageSlot result) {
-        assembly ("memory-safe") {
-            mstore(0, key)
-            mstore(32, slot)
-            result := keccak256(0, 64)
-        }
-    }
-
-    function _storageSlot(uint256 slot) private pure returns (StorageSlot result) {
-        assembly ("memory-safe") {
-            result := slot
-        }
-    }
-
-    function _add(StorageSlot slot, uint256 offset) private pure returns (StorageSlot result) {
-        assembly ("memory-safe") {
-            result := add(slot, offset)
-        }
+        return int256(uint256(ve33.sload(Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time))));
     }
 }

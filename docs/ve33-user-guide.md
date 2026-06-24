@@ -104,7 +104,7 @@ Scheduling emissions does not choose pools by itself. As global emissions accrue
 - Stakers are economically encouraged to claim, extend, and revote before their voting power becomes stale.
 - There is no external permissionless stale-vote poke path. The stake owner wrapper is responsible for claiming fees before it replaces a vote or changes a stake in a way that discards the old fee snapshot.
 - Pool fees are not meant to be predictable across long time windows. Swappers should quote the fee for the swap they are about to execute.
-- Integrators should use `Ve33Lib` against `Ve33` exposed storage for views such as stake amount, voting power, pool vote state, reward globals, and emission growth. Staked balances and funded LP reward backing share the aggregate Ve33 stake-token saved-balance salt.
+- Integrators should use `Ve33Lib` against `Ve33` exposed storage for views such as stake amount, voting power, pool vote state, reward globals, and emission growth. Voter fees share the aggregate Ve33 pool-fee saved-balance salt per token pair, while staked balances and funded LP reward backing share the aggregate Ve33 stake-token saved-balance salt.
 - Ve33 uses Core saved balances as its ledger. `Ve33` itself does not perform ERC20 transfers; wrappers and peripheries settle token movement inside Core locks.
 
 ## Deployment

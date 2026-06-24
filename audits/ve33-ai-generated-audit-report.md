@@ -1,6 +1,6 @@
 # AI-Generated Ve33 Branch Audit Report
 
-Date: 2026-06-23
+Date: 2026-06-24
 
 Branch reviewed: `ve-integrated-extension`
 
@@ -37,8 +37,8 @@ The branch implements a Ve33-specific extension architecture with these main pro
 
 - Ve33 pools use zero Core config fees and account voter-selected swap fees outside Core LP fee accounting.
 - Direct Core swaps are blocked for Ve33 pools; swaps are executed through the forwarded Ve33 swap path.
-- Voter fees are charged by the extension swap path, saved under pool-specific Core saved-balance buckets, and claimed by
-  stake owners through fee-growth accounting.
+- Voter fees are charged by the extension swap path, saved under a shared Core saved-balance bucket per token pair, and
+  claimed by stake owners through fee-growth accounting.
 - LPs do not earn swap fees. They earn the immutable `stakeToken` through range-aware per-position rewards funded by
   global emissions.
 - LP reward accounting mirrors Core fee-outside accounting by tracking global reward growth, initialized-tick reward
@@ -112,9 +112,9 @@ Operational impact:
 
 ### I-03: Core Saved-Balance Width Bounds Large Accounting Flows
 
-Ve33 uses Core saved balances for fee buckets, claimable accounting, and one aggregate stake-token bucket that backs both
-staked balances and funded rewards. These lanes are bounded by Core's saved-balance width. Ve33 also bounds scheduled
-emission amounts to fit the supported accounting width.
+Ve33 uses Core saved balances for shared token-pair fee buckets, claimable accounting, and one aggregate stake-token
+bucket that backs both staked balances and funded rewards. These lanes are bounded by Core's saved-balance width. Ve33
+also bounds scheduled emission amounts to fit the supported accounting width.
 
 This is not a vulnerability under the branch's token supply assumptions, but it is a hard accounting boundary. Very large
 single emission schedules or very infrequent reward realization could revert instead of partially accepting excess
@@ -185,8 +185,9 @@ expose a generic arbitrary forward helper.
 
 The swap path accumulates rewards before price movement, removes a maximum voter fee from exact-input swaps before
 calling Core, computes exact-input fees from actual consumed input, caps those fees to the amount removed up front, and
-adds exact-output voter fees after Core computes the required input. The resulting voter fees are saved into
-pool-specific fee buckets and added to voter fee-growth accounting when active vote weight is nonzero.
+adds exact-output voter fees after Core computes the required input. The resulting voter fees are saved into the shared
+pool-fee saved-balance bucket for the token pair and added to voter fee-growth accounting when active vote weight is
+nonzero.
 
 Voter fee accounting tracks fee growth per pool token and per stake. Vote changes first accrue pool emission/reward
 accounting for the old stored weight, then update active weight and selected fee for the stake's one voted pool. The
@@ -295,6 +296,10 @@ importance of correct immutable extension address configuration.
 - Forwarded exact-output swaps gross up the actual Core input by the current voter fee.
 - Active pool fee is the weighted average of explicit fee votes and is zero when active pool vote weight is zero.
 - Voter fee accounting uses saved balances and fee-growth snapshots.
+- The shared token-pair voter fee saved-balance bucket remains solvent against all currently claimable tracked voter
+  fees across tracked pools sharing that token pair.
+- The shared stake-token saved-balance bucket remains solvent against tracked stake principal plus all currently
+  claimable tracked LP rewards after materializing pool reward accrual.
 - Vote updates, clears, and stake changes accrue pool emission state before weight changes.
 - Global emissions are scheduled through forward calls, prepaid into saved balances, and allocated by
   `emissionGrowthGlobalX128` according to active vote weight.
@@ -334,6 +339,11 @@ The reviewed test suite covers the major audited behaviors:
   allocation,
 - zero-vote emission interval behavior,
 - pro-rata distribution to touched pools with active votes,
+- invariant coverage that positions never claim more than their active-liquidity share of global emissions,
+- invariant coverage that shared voter fee saved balances cover all currently claimable tracked voter fees across
+  tracked pools sharing a token pair,
+- invariant coverage that the shared stake-token saved balance covers tracked stake principal and all currently
+  claimable tracked LP rewards after pool reward accrual is materialized,
 - Ve33Periphery immutable-extension forwarding and settlement coverage,
 - Ve33Positions authorization, independent positions, reward claims, and liquidity overflow guard,
 - VeToken stake lifecycle, split/merge, transfers, approvals, fee claims, unstake settlement, metadata, SVG decoding,
@@ -366,5 +376,5 @@ Results:
 
 - `git diff --check` passed.
 - `forge fmt` completed.
-- `forge build --offline --sizes` passed.
-- `forge test --offline` passed: 816 tests passed, 0 failed, 0 skipped.
+- `forge build --offline --sizes` passed, with existing lint warnings.
+- `forge test --offline` passed: 819 tests passed, 0 failed, 0 skipped.

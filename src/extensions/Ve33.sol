@@ -50,6 +50,8 @@ uint256 constant VE33_MAX_ABS_VALUE_EMISSION_RATE_DELTA = type(uint192).max / MA
 uint256 constant VE33_MAX_STAKE_DURATION = 4 * 365 days;
 // Saved-balance salt for all stake-token balances, including staked balances and scheduled emissions.
 bytes32 constant VE33_STAKE_TOKEN_SAVED_BALANCE_ID = bytes32(0);
+// Saved-balance salt for all voter pool fees, shared by token pair.
+bytes32 constant VE33_POOL_FEES_SAVED_BALANCE_ID = bytes32(uint256(1));
 
 /// @notice Returns the Core hooks enabled by `Ve33`.
 function ve33CallPoints() pure returns (CallPoints memory) {
@@ -515,7 +517,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             }
 
             if (fee0 != 0 || fee1 != 0) {
-                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, PoolId.unwrap(poolId), fee0, fee1);
+                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID, fee0, fee1);
                 _accountPoolFees(poolId, uint128(uint256(int256(fee0))), uint128(uint256(int256(fee1))));
             }
 
@@ -700,7 +702,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             CORE.updateSavedBalances(
                 poolKey.token0,
                 poolKey.token1,
-                PoolId.unwrap(poolId),
+                VE33_POOL_FEES_SAVED_BALANCE_ID,
                 -int256(uint256(amount0)),
                 -int256(uint256(amount1))
             );

@@ -112,14 +112,14 @@ There is no external permissionless stale-vote poke. If a stake owner wants to k
 
 The forwarded swap handler uses the supplied `SwapParameters` as-is. Routers and callers are responsible for setting default sqrt-ratio limits before forwarding.
 
-For exact-input swaps, the extension computes the maximum voter fee from `params.amount()`, calls Core with `amount - fee`, then computes the actual charged fee from the executed input delta returned by Core. If the swap executes partially, for example because it hits `sqrtRatioLimit`, the charged fee is capped to the maximum fee removed before the Core swap. The fee is added back to the returned input delta, saved under the extension and pool id, and accounted to voter fee growth.
+For exact-input swaps, the extension computes the maximum voter fee from `params.amount()`, calls Core with `amount - fee`, then computes the actual charged fee from the executed input delta returned by Core. If the swap executes partially, for example because it hits `sqrtRatioLimit`, the charged fee is capped to the maximum fee removed before the Core swap. The fee is added back to the returned input delta, saved under the extension and shared pool-fee salt for the token pair, and accounted to voter fee growth.
 
 For exact-output swaps, the extension calls Core with the zero-config-fee exact-output parameters, grosses up the Core-computed input with `amountBeforeFee`, saves the extra input as voter fees, and increases voter fee growth.
 
 Swap fees are stored with:
 
 ```text
-CORE.updateSavedBalances(token0, token1, PoolId.unwrap(poolId), fee0, fee1)
+CORE.updateSavedBalances(token0, token1, VE33_POOL_FEES_SAVED_BALANCE_ID, fee0, fee1)
 ```
 
 The extension does not call `CORE.accumulateAsFees`, so LPs do not earn Core swap fees. Only fees accounted while a pool has nonzero active vote weight increase voter fee growth. With no active vote weight, the extension swap fee is zero.
@@ -183,7 +183,7 @@ That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has 
 
 The extension relies on Core saved balances for deferred accounting:
 
-- swap fees are saved under `address(ve33)` and the pool id
+- swap fees are saved under `address(ve33)` and shared token-pair salt `VE33_POOL_FEES_SAVED_BALANCE_ID`
 - staked balances, LP rewards, and scheduled emissions are saved under `address(ve33)` and aggregate stake-token salt `VE33_STAKE_TOKEN_SAVED_BALANCE_ID`
 
 `Ve33` accounts for staking, unstaking, moving stake balances, emission funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, `Ve33Positions` is the reference implementation for LP position and reward-claim settlement, and `Ve33Periphery` is the reference implementation for generic emission token settlement.

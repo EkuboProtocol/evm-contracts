@@ -15,7 +15,12 @@ import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
-import {Ve33, ve33CallPoints} from "../../src/extensions/Ve33.sol";
+import {
+    Ve33,
+    VE33_POOL_FEES_SAVED_BALANCE_ID,
+    VE33_STAKE_TOKEN_SAVED_BALANCE_ID,
+    ve33CallPoints
+} from "../../src/extensions/Ve33.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
@@ -139,6 +144,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     function touchPool(uint256 poolIndex) external {
         _syncModel();
         ve33.maybeAccumulateRewards(_pool(poolIndex).poolKey);
+        _assertStakeTokenSolvent();
     }
 
     function claimRewards(uint256 positionIndex) external {
@@ -156,6 +162,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         );
         position.claimed += amount;
         _assertPositionClaimWithinBound(position);
+        _assertStakeTokenSolvent();
     }
 
     function claimPoolFees(uint256 stakeIndex) external {
@@ -201,6 +208,12 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
 
     function checkAllVoterFeesSolvent() external view {
         _assertAllVoterFeesSolvent();
+    }
+
+    function checkStakeTokenSolvent() external {
+        _syncModel();
+        _accumulateAllPools();
+        _assertStakeTokenSolvent();
     }
 
     function _mintPosition(uint256 poolIndex, int32 tickLower, int32 tickUpper) private {
@@ -260,29 +273,96 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     function _assertAllVoterFeesSolvent() private view {
         for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
             TrackedPool memory trackedPool = pools[poolIndex];
-            uint256 claimable0;
-            uint256 claimable1;
+            uint256 totalClaimable0;
+            uint256 totalClaimable1;
 
-            FeesPerLiquidity memory feeGrowth = ve33.poolFeeGrowth(trackedPool.poolId);
-            for (uint256 stakeIndex = 0; stakeIndex < stakes.length; stakeIndex++) {
-                TrackedStake memory stake = stakes[stakeIndex];
-                if (PoolId.unwrap(ve33.votedPool(address(veToken), stake.stakeId)) != PoolId.unwrap(trackedPool.poolId))
-                {
-                    continue;
-                }
+            for (uint256 pairedPoolIndex = 0; pairedPoolIndex < pools.length; pairedPoolIndex++) {
+                TrackedPool memory pairedPool = pools[pairedPoolIndex];
+                if (pairedPool.poolKey.token0 != trackedPool.poolKey.token0) continue;
+                if (pairedPool.poolKey.token1 != trackedPool.poolKey.token1) continue;
 
-                VePoolVote vote = ve33.vePoolVote(address(veToken), stake.stakeId);
-                FeesPerLiquidity memory snapshot = ve33.vePoolFeeGrowthSnapshot(address(veToken), stake.stakeId);
-                (uint128 amount0, uint128 amount1) = vote.fees(feeGrowth, snapshot);
-                claimable0 += amount0;
-                claimable1 += amount1;
+                (uint256 poolClaimable0, uint256 poolClaimable1) = _poolClaimableFees(pairedPool);
+                totalClaimable0 += poolClaimable0;
+                totalClaimable1 += poolClaimable1;
             }
 
             (uint128 saved0, uint128 saved1) = core.savedBalances(
-                address(ve33), trackedPool.poolKey.token0, trackedPool.poolKey.token1, PoolId.unwrap(trackedPool.poolId)
+                address(ve33), trackedPool.poolKey.token0, trackedPool.poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID
             );
-            assertGe(saved0, claimable0);
-            assertGe(saved1, claimable1);
+            assertGe(saved0, totalClaimable0);
+            assertGe(saved1, totalClaimable1);
+        }
+    }
+
+    function _assertStakeTokenSolvent() private view {
+        uint256 claimableRewards;
+        for (uint256 positionIndex = 0; positionIndex < positions.length; positionIndex++) {
+            claimableRewards += _positionClaimableRewards(positions[positionIndex]);
+        }
+
+        uint256 staked;
+        for (uint256 stakeIndex = 0; stakeIndex < stakes.length; stakeIndex++) {
+            staked += ve33.stakeAmount(address(veToken), stakes[stakeIndex].stakeId);
+        }
+
+        (uint128 saved,) = core.savedBalances(
+            address(ve33), ve33.stakeToken(), address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
+        );
+        assertGe(saved, staked + claimableRewards);
+    }
+
+    function _positionClaimableRewards(TrackedPosition memory position) private view returns (uint256 amount) {
+        TrackedPool memory trackedPool = pools[position.poolIndex];
+        uint256 rewardsInsidePerLiquidity = _positionRewardsInsidePerLiquidity(trackedPool, position.positionId);
+        uint256 snapshot =
+            ve33.positionRewardsSnapshotPerLiquidity(trackedPool.poolId, address(ve33Positions), position.positionId);
+        if (position.liquidity != 0) {
+            unchecked {
+                amount = FixedPointMathLib.fullMulDivN(rewardsInsidePerLiquidity - snapshot, position.liquidity, 128);
+            }
+        }
+    }
+
+    function _positionRewardsInsidePerLiquidity(TrackedPool memory trackedPool, PositionId positionId)
+        private
+        view
+        returns (uint256 rewardsInsidePerLiquidity)
+    {
+        if (trackedPool.poolKey.config.isStableswap()) {
+            return ve33.rewardsGlobalPerLiquidity(trackedPool.poolId);
+        }
+
+        int32 tick = core.poolState(trackedPool.poolId).tick();
+        uint256 lower = ve33.tickRewardsOutsidePerLiquidity(trackedPool.poolId, positionId.tickLower());
+        uint256 upper = ve33.tickRewardsOutsidePerLiquidity(trackedPool.poolId, positionId.tickUpper());
+        unchecked {
+            if (tick < positionId.tickLower()) {
+                rewardsInsidePerLiquidity = lower - upper;
+            } else if (tick < positionId.tickUpper()) {
+                rewardsInsidePerLiquidity = ve33.rewardsGlobalPerLiquidity(trackedPool.poolId) - upper - lower;
+            } else {
+                rewardsInsidePerLiquidity = upper - lower;
+            }
+        }
+    }
+
+    function _poolClaimableFees(TrackedPool memory trackedPool)
+        private
+        view
+        returns (uint256 claimable0, uint256 claimable1)
+    {
+        FeesPerLiquidity memory feeGrowth = ve33.poolFeeGrowth(trackedPool.poolId);
+        for (uint256 stakeIndex = 0; stakeIndex < stakes.length; stakeIndex++) {
+            TrackedStake memory stake = stakes[stakeIndex];
+            if (PoolId.unwrap(ve33.votedPool(address(veToken), stake.stakeId)) != PoolId.unwrap(trackedPool.poolId)) {
+                continue;
+            }
+
+            VePoolVote vote = ve33.vePoolVote(address(veToken), stake.stakeId);
+            FeesPerLiquidity memory snapshot = ve33.vePoolFeeGrowthSnapshot(address(veToken), stake.stakeId);
+            (uint128 amount0, uint128 amount1) = vote.fees(feeGrowth, snapshot);
+            claimable0 += amount0;
+            claimable1 += amount1;
         }
     }
 
@@ -292,6 +372,12 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
 
     function _pool(uint256 poolIndex) private view returns (TrackedPool storage) {
         return pools[bound(poolIndex, 0, pools.length - 1)];
+    }
+
+    function _accumulateAllPools() private {
+        for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
+            ve33.maybeAccumulateRewards(pools[poolIndex].poolKey);
+        }
     }
 
     function _mulDivUp(uint256 x, uint256 y, uint256 denominator) private pure returns (uint256 result) {
@@ -344,10 +430,11 @@ contract Ve33EmissionsInvariantTest is FullTest {
 
         targetContract(address(handler));
 
-        bytes4[] memory excluded = new bytes4[](3);
+        bytes4[] memory excluded = new bytes4[](4);
         excluded[0] = Ve33EmissionsInvariantHandler.initializePositions.selector;
         excluded[1] = Ve33EmissionsInvariantHandler.checkNoPositionOverclaimed.selector;
         excluded[2] = Ve33EmissionsInvariantHandler.checkAllVoterFeesSolvent.selector;
+        excluded[3] = Ve33EmissionsInvariantHandler.checkStakeTokenSolvent.selector;
         excludeSelector(FuzzSelector(address(handler), excluded));
     }
 
@@ -357,5 +444,9 @@ contract Ve33EmissionsInvariantTest is FullTest {
 
     function invariant_voterFeesAreAlwaysSolvent() public view {
         handler.checkAllVoterFeesSolvent();
+    }
+
+    function invariant_stakeTokenBackingIsAlwaysSolvent() public {
+        handler.checkStakeTokenSolvent();
     }
 }

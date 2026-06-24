@@ -190,4 +190,4 @@ The extension relies on Core saved balances for deferred accounting:
 
 ## Deployment
 
-`script/DeployVe33.s.sol` deploys `Ve33`, `VeToken`, `Ve33Positions`, and `Ve33Periphery` with deterministic CREATE2 deployment. It requires `CORE_ADDRESS` and `STAKE_TOKEN`, and accepts optional expected-address environment variables for deployment verification. See the user guide for the operator-facing command.
+`script/DeployVe33.s.sol` deploys `Ve33`, `VeToken`, `Ve33Positions`, and `Ve33Periphery` with deterministic CREATE2 deployment. It requires `CORE_ADDRESS` and `STAKE_TOKEN`, and accepts optional expected-address environment variables for deployment verification. `script/DeployRouter.s.sol` deploys the router separately so chains without Ve33 do not need a Ve33 address. See the user guide for the operator-facing commands.

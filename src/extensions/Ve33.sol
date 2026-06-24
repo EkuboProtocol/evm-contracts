@@ -1170,9 +1170,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Toggles whether a global emission-rate decrease is scheduled at a valid time.
     /// @param time Valid schedule time.
     function _flipEmissionTime(uint256 time) private {
-        (uint256 word, uint8 index) = timeToBitmapWordAndIndex(time);
+        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
         unchecked {
-            _setEmissionInitializedTimeBitmap(word, _emissionInitializedTimeBitmap(word).toggle(index));
+            _setEmissionInitializedTimeBitmap(word, _emissionInitializedTimeBitmap(word).toggle(uint8(index)));
         }
     }
 
@@ -1182,9 +1182,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @return isInitialized Whether an initialized time was found.
     function _findNextEmissionTime(uint256 fromTime) private view returns (uint256 nextTime, bool isInitialized) {
         unchecked {
-            (uint256 word, uint8 index) = timeToBitmapWordAndIndex(fromTime);
+            (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
             Bitmap bitmap = _emissionInitializedTimeBitmap(word);
-            uint256 nextIndex = bitmap.geSetBit(index);
+            uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
             isInitialized = nextIndex != 0;
 

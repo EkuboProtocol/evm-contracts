@@ -109,7 +109,8 @@ Scheduling emissions does not choose pools by itself. As global emissions accrue
 
 ## Deployment
 
-Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC721 wrappers, periphery, and a router configured for Ve33 pools.
+Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC721 wrappers, and periphery. Use
+`script/DeployRouter.s.sol` separately on chains where a Ve33-aware router should be deployed.
 
 Required environment variables:
 
@@ -127,12 +128,24 @@ VE_TOKEN_ADDRESS=<expected VeToken address>
 VE33_POSITIONS_ADDRESS=<expected Ve33Positions address>
 VE33_POSITIONS_OWNER=<metadata owner for Ve33Positions, defaults to broadcaster>
 VE33_PERIPHERY_ADDRESS=<expected Ve33Periphery address>
-VE33_ROUTER_ADDRESS=<expected Ve33 router address>
-MEV_CAPTURE_ADDRESS=<MEV capture extension address, defaults to mainnet deployment>
 ```
 
 Run with Foundry's offline mode:
 
 ```sh
 forge script --offline script/DeployVe33.s.sol --broadcast --rpc-url <rpc>
+```
+
+Router deployment accepts these optional environment variables:
+
+```text
+CORE_ADDRESS=<deployed core, defaults to 0x00000000000014aA86C5d3c41765bb24e11bd701>
+SALT=<create2 salt>
+MEV_CAPTURE_ADDRESS=<MEV capture extension address, defaults to mainnet deployment>
+VE33_ADDRESS=<Ve33 extension address, defaults to address(0)>
+ROUTER_ADDRESS=<expected router address>
+```
+
+```sh
+forge script --offline script/DeployRouter.s.sol --broadcast --rpc-url <rpc>
 ```

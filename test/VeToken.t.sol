@@ -126,6 +126,24 @@ contract VeTokenTest is FullTest {
         vm.snapshotGasLastCall("VeToken#extendStake");
     }
 
+    function test_gas_splitStake() public {
+        uint256 veId = veToken.createStake(2e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
+
+        coolAllContracts();
+        veToken.splitStake(veId, 1e18);
+        vm.snapshotGasLastCall("VeToken#splitStake");
+    }
+
+    function test_gas_mergeStakes() public {
+        uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        uint256 toVeId = veToken.createStake(1e18, end);
+        uint256 fromVeId = veToken.createStake(1e18, end);
+
+        coolAllContracts();
+        veToken.mergeStakes(fromVeId, toVeId);
+        vm.snapshotGasLastCall("VeToken#mergeStakes");
+    }
+
     function test_gas_withdrawStake() public {
         uint64 end = uint64(vm.getBlockTimestamp() + 1);
         uint256 veId = veToken.createStake(1e18, end);
@@ -246,6 +264,89 @@ contract VeTokenTest is FullTest {
         veToken.ownerOf(veId);
         vm.expectRevert(ERC721.TokenDoesNotExist.selector);
         veToken.tokenURI(veId);
+    }
+
+    function test_splitAndMergeStakeLifecycle() public {
+        uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        uint256 veId = veToken.createStake(4e18, end);
+
+        vm.expectRevert(VeToken.InvalidStake.selector);
+        veToken.splitStake(veId, 0);
+        vm.expectRevert(VeToken.InvalidStake.selector);
+        veToken.splitStake(veId, 4e18);
+
+        uint256 splitVeId = veToken.splitStake(veId, 1e18);
+        assertEq(veToken.ownerOf(splitVeId), address(this));
+        assertEq(veToken.balanceOf(address(this)), 2);
+        assertEq(_stakeAmount(veId), 3e18);
+        assertEq(_stakeAmount(splitVeId), 1e18);
+        assertEq(_stakeEnd(splitVeId), end);
+
+        StakeId stakeId = veToken.stakeId(veId);
+        StakeId splitStakeId = veToken.stakeId(splitVeId);
+        (uint128 saved,) = core.savedBalances(
+            address(ve33),
+            address(stakeToken),
+            address(type(uint160).max),
+            _stakeSavedBalanceId(address(veToken), stakeId)
+        );
+        assertEq(saved, 3e18);
+        (saved,) = core.savedBalances(
+            address(ve33),
+            address(stakeToken),
+            address(type(uint160).max),
+            _stakeSavedBalanceId(address(veToken), splitStakeId)
+        );
+        assertEq(saved, 1e18);
+
+        vm.expectRevert(VeToken.InvalidStake.selector);
+        veToken.mergeStakes(veId, veId);
+
+        assertEq(veToken.mergeStakes(splitVeId, veId), 4e18);
+        assertEq(_stakeAmount(veId), 4e18);
+        (saved,) = core.savedBalances(
+            address(ve33),
+            address(stakeToken),
+            address(type(uint160).max),
+            _stakeSavedBalanceId(address(veToken), splitStakeId)
+        );
+        assertEq(saved, 0);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        veToken.ownerOf(splitVeId);
+
+        uint64 shortEnd = uint64(end - 1);
+        uint256 shortVeId = veToken.createStake(1e18, shortEnd);
+        uint256 longVeId = veToken.createStake(2e18, end);
+        StakeId oldShortStakeId = veToken.stakeId(shortVeId);
+        StakeId longStakeId = veToken.stakeId(longVeId);
+
+        assertEq(veToken.mergeStakes(longVeId, shortVeId), 3e18);
+        assertEq(_stakeAmount(shortVeId), 3e18);
+        assertEq(_stakeEnd(shortVeId), end);
+
+        (saved,) = core.savedBalances(
+            address(ve33),
+            address(stakeToken),
+            address(type(uint160).max),
+            _stakeSavedBalanceId(address(veToken), oldShortStakeId)
+        );
+        assertEq(saved, 0);
+        (saved,) = core.savedBalances(
+            address(ve33),
+            address(stakeToken),
+            address(type(uint160).max),
+            _stakeSavedBalanceId(address(veToken), longStakeId)
+        );
+        assertEq(saved, 0);
+        (saved,) = core.savedBalances(
+            address(ve33),
+            address(stakeToken),
+            address(type(uint160).max),
+            _stakeSavedBalanceId(address(veToken), veToken.stakeId(shortVeId))
+        );
+        assertEq(saved, 3e18);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        veToken.ownerOf(longVeId);
     }
 
     function test_erc721TransferMovesStakeControl() public {

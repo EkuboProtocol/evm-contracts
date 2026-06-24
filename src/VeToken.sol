@@ -8,6 +8,7 @@ import {DateTimeLib} from "solady/utils/DateTimeLib.sol";
 import {LibString} from "solady/utils/LibString.sol";
 
 import {BaseLocker} from "./base/BaseLocker.sol";
+import {UsesCore} from "./base/UsesCore.sol";
 import {Ve33, VE33_MAX_STAKE_DURATION} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
@@ -17,7 +18,7 @@ import {StakeId, createStakeId} from "./types/stakeId.sol";
 
 /// @notice ERC721 representation over Ve33 stake accounting.
 /// @dev The canonical stake is owned by this wrapper in Ve33. ERC721 ownership controls the wrapper.
-contract VeToken is ERC721, BaseLocker {
+contract VeToken is ERC721, BaseLocker, UsesCore {
     using FlashAccountantLib for *;
     using Ve33Lib for Ve33;
 
@@ -25,6 +26,7 @@ contract VeToken is ERC721, BaseLocker {
     uint256 private constant CALL_TYPE_UNSTAKE = 1;
     uint256 private constant CALL_TYPE_MOVE_STAKE = 2;
     uint256 private constant CALL_TYPE_CLAIM_POOL_FEES = 3;
+    uint256 private constant CALL_TYPE_SPLIT_STAKE = 4;
 
     /// @notice The Ve33 extension that owns the canonical stake, vote, and fee accounting.
     Ve33 public immutable ve33;
@@ -53,7 +55,7 @@ contract VeToken is ERC721, BaseLocker {
     /// @notice Creates the ERC721 stake wrapper.
     /// @param core The Ekubo Core contract used for lock and token settlement.
     /// @param _ve33 The Ve33 extension containing canonical vote-escrow accounting.
-    constructor(ICore core, Ve33 _ve33) BaseLocker(core) {
+    constructor(ICore core, Ve33 _ve33) BaseLocker(core) UsesCore(core) {
         ve33 = _ve33;
         stakeToken = _ve33.stakeToken();
         _stakeTokenName = IERC20(stakeToken).name();
@@ -187,6 +189,61 @@ contract VeToken is ERC721, BaseLocker {
         _setExtraData(veId, end);
     }
 
+    /// @notice Splits part of a represented stake into a newly minted ERC721 with the same end timestamp.
+    /// @dev The caller must own or be approved for `veId`. The source stake keeps its vote with reduced weight.
+    /// @param veId The ERC721 token id and source Ve33 stake salt.
+    /// @param amount The amount of stake token to move into the new ERC721.
+    /// @return splitVeId The newly minted ERC721 token id.
+    function splitStake(uint256 veId, uint128 amount) external authorizedForStake(veId) returns (uint256 splitVeId) {
+        uint64 end = _stakeEndTime(veId);
+        StakeId fromStakeId = createStakeId(_stakeSalt(veId), end);
+        uint128 currentAmount = ve33.stakeAmount(address(this), fromStakeId);
+        if (amount == 0 || amount >= currentAmount) revert InvalidStake();
+
+        splitVeId = nextVeId;
+        unchecked {
+            nextVeId = splitVeId + 1;
+        }
+        _mintAndSetExtraDataUnchecked(ownerOf(veId), splitVeId, end);
+
+        lock(abi.encode(CALL_TYPE_SPLIT_STAKE, fromStakeId, createStakeId(_stakeSalt(splitVeId), end), amount));
+    }
+
+    /// @notice Merges one represented stake into another represented stake.
+    /// @dev The caller must own or be approved for both tokens. The destination end becomes the greater end time.
+    /// @param fromVeId The ERC721 token id whose entire stake is moved and then burned.
+    /// @param toVeId The ERC721 token id receiving the stake.
+    /// @return nextAmount Destination stake amount after the merge.
+    function mergeStakes(uint256 fromVeId, uint256 toVeId)
+        external
+        authorizedForStake(fromVeId)
+        authorizedForStake(toVeId)
+        returns (uint128 nextAmount)
+    {
+        if (fromVeId == toVeId) revert InvalidStake();
+
+        uint64 fromEnd = _stakeEndTime(fromVeId);
+        uint64 toEnd = _stakeEndTime(toVeId);
+        uint64 mergedEnd = fromEnd > toEnd ? fromEnd : toEnd;
+
+        StakeId fromStakeId = createStakeId(_stakeSalt(fromVeId), fromEnd);
+        StakeId currentToStakeId = createStakeId(_stakeSalt(toVeId), toEnd);
+        StakeId mergedToStakeId = createStakeId(_stakeSalt(toVeId), mergedEnd);
+        uint128 amount = ve33.stakeAmount(address(this), fromStakeId);
+        if (amount == 0) return ve33.stakeAmount(address(this), currentToStakeId);
+
+        if (toEnd != mergedEnd) {
+            uint128 toAmount = ve33.stakeAmount(address(this), currentToStakeId);
+            if (toAmount != 0) lock(abi.encode(CALL_TYPE_MOVE_STAKE, currentToStakeId, mergedToStakeId, toAmount));
+            _setExtraData(toVeId, mergedEnd);
+        }
+
+        nextAmount = abi.decode(lock(abi.encode(CALL_TYPE_MOVE_STAKE, fromStakeId, mergedToStakeId, amount)), (uint128));
+
+        _burn(fromVeId);
+        _setExtraData(fromVeId, 0);
+    }
+
     /// @notice Unstakes an expired represented stake and burns its ERC721 token.
     /// @dev The caller must own or be approved for `veId`; unstaked tokens are withdrawn to the current ERC721 owner.
     /// @param veId The ERC721 token id and Ve33 stake salt.
@@ -205,15 +262,6 @@ contract VeToken is ERC721, BaseLocker {
         return ve33.votingPower(address(this), stakeId(veId));
     }
 
-    /// @notice Permissionlessly refreshes the represented stake's active votes to current voting power.
-    /// @dev Useful for keepers to reduce stale decayed votes or clear expired votes. Does not settle tokens.
-    /// @param veId The ERC721 token id and Ve33 stake salt.
-    /// @return previousWeight Total active vote weight before the poke.
-    /// @return nextWeight Total active vote weight after the poke.
-    function poke(uint256 veId) external returns (uint256 previousWeight, uint256 nextWeight) {
-        return ve33.poke(address(this), stakeId(veId));
-    }
-
     /// @notice Returns the Ve33 stake id represented by an ERC721 token.
     /// @dev The Ve33 stake owner is always this contract, and the salt is `bytes24(veId)`.
     /// @param veId The ERC721 token id.
@@ -222,17 +270,20 @@ contract VeToken is ERC721, BaseLocker {
         return createStakeId(_stakeSalt(veId), _stakeEndTime(veId));
     }
 
-    /// @notice Votes a represented stake on pools with explicit swap fees.
+    /// @notice Votes a represented stake on one pool with an explicit swap fee.
     /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
-    /// @param poolKeys The pools to vote on.
-    /// @param weights The vote weights for each pool.
-    /// @param swapFees The selected swap fee for each pool.
-    function vote(uint256 veId, PoolKey[] calldata poolKeys, uint256[] calldata weights, uint64[] calldata swapFees)
-        external
-        authorizedForStake(veId)
-    {
-        ve33.vote(stakeId(veId), poolKeys, weights, swapFees);
+    /// @param poolKey The pool to vote on.
+    /// @param swapFee The selected swap fee for the pool.
+    function vote(uint256 veId, PoolKey calldata poolKey, uint64 swapFee) external authorizedForStake(veId) {
+        ve33.vote(stakeId(veId), poolKey, swapFee);
+    }
+
+    /// @notice Clears a represented stake's active pool vote.
+    /// @dev The caller must own or be approved for `veId`.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    function clearVote(uint256 veId) external authorizedForStake(veId) {
+        ve33.clearVote(stakeId(veId));
     }
 
     /// @notice Claims pool fees earned by a represented stake to its current ERC721 owner.
@@ -257,25 +308,26 @@ contract VeToken is ERC721, BaseLocker {
 
         if (callType == CALL_TYPE_STAKE) {
             (, address owner, StakeId id, uint128 amount) = abi.decode(data, (uint256, address, StakeId, uint128));
-            uint128 nextAmount = Ve33Lib.stake(ICore(payable(address(ACCOUNTANT))), ve33, id, amount);
+            uint128 nextAmount = Ve33Lib.stake(CORE, ve33, id, amount);
             result = abi.encode(nextAmount);
             if (amount != 0) ACCOUNTANT.payFrom(owner, stakeToken, amount);
         } else if (callType == CALL_TYPE_UNSTAKE) {
             (, StakeId id, address recipient) = abi.decode(data, (uint256, StakeId, address));
-            uint128 unstaked = Ve33Lib.unstake(ICore(payable(address(ACCOUNTANT))), ve33, id);
+            uint128 unstaked = Ve33Lib.unstake(CORE, ve33, id);
             result = abi.encode(unstaked);
             ACCOUNTANT.withdraw(stakeToken, recipient, unstaked);
         } else if (callType == CALL_TYPE_MOVE_STAKE) {
             (, StakeId fromStakeId, StakeId toStakeId, uint128 amount) =
                 abi.decode(data, (uint256, StakeId, StakeId, uint128));
-            result = abi.encode(
-                Ve33Lib.moveStake(ICore(payable(address(ACCOUNTANT))), ve33, fromStakeId, toStakeId, amount)
-            );
+            result = abi.encode(Ve33Lib.moveStake(CORE, ve33, fromStakeId, toStakeId, amount));
+        } else if (callType == CALL_TYPE_SPLIT_STAKE) {
+            (, StakeId fromStakeId, StakeId toStakeId, uint128 amount) =
+                abi.decode(data, (uint256, StakeId, StakeId, uint128));
+            result = abi.encode(Ve33Lib.splitStake(CORE, ve33, fromStakeId, toStakeId, amount));
         } else if (callType == CALL_TYPE_CLAIM_POOL_FEES) {
             (, uint256 veId, address recipient, PoolKey memory poolKey) =
                 abi.decode(data, (uint256, uint256, address, PoolKey));
-            (uint128 amount0, uint128 amount1) =
-                Ve33Lib.claimPoolFees(ICore(payable(address(ACCOUNTANT))), ve33, stakeId(veId), poolKey);
+            (uint128 amount0, uint128 amount1) = Ve33Lib.claimPoolFees(CORE, ve33, stakeId(veId), poolKey);
             result = abi.encode(amount0, amount1);
             ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
         } else {

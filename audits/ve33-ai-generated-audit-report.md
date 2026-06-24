@@ -21,7 +21,6 @@ The audit scope is limited to source files introduced, modified, or removed by t
 - `src/math/isPowerOfFour.sol`
 - `src/math/tickSpacingFee.sol`
 - `src/types/stakeId.sol`
-- `src/types/ve33RewardPoolState.sol`
 - `src/MEVCaptureRouter.sol` removal and migration into `src/Router.sol`
 
 Tests, docs, deploy helpers, and unchanged dependencies were reviewed as supporting evidence. They were not part of the
@@ -38,7 +37,8 @@ The branch implements a Ve33-specific extension architecture with these main pro
 - Direct Core swaps are blocked for Ve33 pools; swaps are executed through the forwarded Ve33 swap path.
 - Voter fees are charged by the extension swap path, saved under pool-specific Core saved-balance buckets, and claimed by
   stake owners through fee-growth accounting.
-- LPs do not earn swap fees. They earn the immutable `stakeToken` through range-aware per-position rewards.
+- LPs do not earn swap fees. They earn the immutable `stakeToken` through range-aware per-position rewards funded by
+  global emissions.
 - LP reward accounting mirrors Core fee-outside accounting by tracking global reward growth, initialized-tick reward
   growth outside, and per-position reward snapshots.
 - Ve33 does not perform token transfers and does not custody tokens directly. It accounts token obligations through Core
@@ -73,12 +73,15 @@ exact `Ve33` storage layout.
 ### I-01: Vote Decay Is Sampled When Stakes Are Touched
 
 Voting power decays linearly with remaining stake duration, but stored pool vote weights do not continuously update on
-chain. They are refreshed when a stake votes, is poked, is moved, is increased, is unstaked, or otherwise clears and
-rewrites voting state.
+chain. They are refreshed when a stake votes, is poked, is split, is moved, is increased, is unstaked, or otherwise
+resizes, clears, or rewrites voting state.
 
-This is consistent with the intended gas model. It means pool fee weights and emission allocation use the last sampled
-voting power until someone updates stale votes. The `poke` path exists to let anyone refresh stale stakes, and VeToken
-exposes that operation for NFT-represented stakes.
+This is consistent with the intended gas model. Each stake id votes for at most one pool, so pool fee weights and
+emission allocation use the last sampled voting power for that stake id until someone updates the stale vote. The `poke`
+path exists to let anyone refresh stale stakes. Because it does not require a lock or token settlement, keepers can batch
+direct `Ve33.poke(owner, stakeId)` calls through generic multicall tooling. Users who want multi-pool allocation split
+stake into multiple stake ids and vote each stake id on one pool. Splitting preserves the source vote with reduced
+weight; the newly split stake starts unvoted.
 
 Operational impact:
 
@@ -92,10 +95,10 @@ Ve33 voting validates that a pool key belongs to the Ve33 extension, uses zero C
 concentrated tick spacing. It does not require the pool to already be initialized. This permits permissionless
 pre-initialization signaling.
 
-Uninitialized pools cannot accrue LP rewards because they do not yet have Core pool liquidity or stored pool reward
-state. When such a pool is voted, Ve33 snapshots current global emission growth for that pool before adding vote weight,
-so the pool cannot claim global emissions from before the vote. Once the pool is initialized, normal pool touches can
-realize its share of later emission growth.
+Uninitialized pools cannot accrue LP rewards because they do not yet have Core pool liquidity. When such a pool is voted,
+Ve33 snapshots current global emission growth for that pool before adding vote weight, so the pool cannot claim global
+emissions from before the vote. Once the pool is initialized, normal pool touches can realize its share of later emission
+growth.
 
 Operational impact:
 
@@ -106,29 +109,28 @@ Operational impact:
 
 ### I-03: Core Saved-Balance Width Bounds Large Accounting Flows
 
-Ve33 uses Core saved balances for stake balances, fee buckets, reward reserves, emission reserves, and claimable
-accounting. These lanes are bounded by Core's saved-balance width. Ve33 also bounds scheduled reward and emission amounts
-to fit the supported accounting width.
+Ve33 uses Core saved balances for stake balances, fee buckets, funded rewards, and claimable accounting. These lanes are
+bounded by Core's saved-balance width. Ve33 also bounds scheduled emission amounts to fit the supported accounting width.
 
 This is not a vulnerability under the branch's token supply assumptions, but it is a hard accounting boundary. Very large
-single schedules, very large donations, or very infrequent reward realization could revert instead of partially accepting
-excess amounts.
+single emission schedules or very infrequent reward realization could revert instead of partially accepting excess
+amounts.
 
 Operational impact:
 
 - Funders should avoid creating per-bucket balances near fixed-width limits.
-- Schedulers should prefer bounded rates and durations that keep one schedule's prepaid amount well below the supported
+- Emission schedulers should prefer bounded rates and durations that keep one schedule's prepaid amount well below the supported
   width.
 
 ### I-04: Zero-Vote Emission Intervals Are Not Retroactive
 
-Global emissions are scheduled as Q32 rates and prepaid into the LP reward reserve. When global emissions accrue while
+Global emissions are scheduled as Q32 rates and prepaid into the LP-reward saved-balance bucket. When global emissions accrue while
 `totalVoteWeight == 0`, `emissionGrowthGlobalX128` does not increase. Those elapsed emissions are therefore not
 claimable by any pool and are not retroactively distributed when votes appear later.
 
-The prepaid tokens remain in the reward reserve and in `emissionReserve` as unassigned backing. Later global emission
-growth can consume reserve, but only for intervals where active vote weight exists and the emission rate is still active
-or has been extended by later schedules.
+The prepaid tokens remain in the LP-reward saved-balance bucket as unassigned backing. Later global emission growth can
+assign rewards from the deterministic schedule, but only for intervals where active vote weight exists and the emission
+rate is still active or has been extended by later schedules.
 
 Operational impact:
 
@@ -174,8 +176,8 @@ hooks. It validates zero Core config fees and power-of-four concentrated tick sp
 then stores the canonical pool key and initializes reward/emission snapshots after initialization.
 
 The extension is forward-first for user-facing actions that require token accounting or Core lock context. It dispatches
-specific actions for swaps, stake changes, LP reward donations and schedules, global emission schedules, LP reward
-claims, and voter fee claims. It does not expose a generic arbitrary forward helper.
+specific actions for swaps, stake changes, global emission schedules, LP reward claims, and voter fee claims. It does not
+expose a generic arbitrary forward helper.
 
 The swap path accumulates rewards before price movement, removes a maximum voter fee from exact-input swaps before
 calling Core, computes exact-input fees from actual consumed input, caps those fees to the amount removed up front, and
@@ -183,16 +185,15 @@ adds exact-output voter fees after Core computes the required input. The resulti
 pool-specific fee buckets and added to voter fee-growth accounting when active vote weight is nonzero.
 
 Voter fee accounting tracks fee growth per pool token and per stake. Vote changes first accrue pool emission/reward
-accounting for the old stored weights, then update active weights and selected fees. The active pool fee is computed on
-demand as `feeWeightSum / weight`. The assembly `div` intentionally returns zero when `weight == 0`, so unvoted pools
-have no extension swap fee.
+accounting for the old stored weight, then update active weight and selected fee for the stake's one voted pool. The
+active pool fee is computed on demand as `feeWeightSum / weight`. The assembly `div` intentionally returns zero when
+`weight == 0`, so unvoted pools have no extension swap fee.
 
 LP reward accounting is range-aware. The extension tracks:
 
 - global reward growth per liquidity,
 - initialized tick reward growth outside,
 - position reward growth snapshots,
-- per-pool scheduled reward-rate deltas,
 - stableswap active-range reward boundaries,
 - global emission growth per unit of active vote weight.
 
@@ -203,8 +204,7 @@ Global emissions are permissionlessly scheduled through `VE33_SCHEDULE_EMISSIONS
 end times and a Q32 reward rate, and the required token amount is prepaid into the LP reward saved-balance bucket.
 `_accrueEmissions` advances `emissionGrowthGlobalX128` using the current total active vote weight. Each pool stores an
 `emissionGrowthGlobalX128Snapshot`; when the pool is touched, its share of global growth is realized into
-`rewardsGlobalPerLiquidity` for current active LP liquidity and subtracted from `emissionReserve`. There is no separate
-pool-emission trigger.
+`rewardsGlobalPerLiquidity` for current active LP liquidity. There is no separate pool-emission trigger.
 
 Stake accounting lives in Ve33, but token transfers do not. Stake, unstake, and stake movement update saved-balance
 buckets and canonical stake mappings. Wrappers such as VeToken settle the actual token movement around the forwarded
@@ -213,7 +213,7 @@ call.
 ### Ve33Lib
 
 `Ve33Lib` contains action-specific calldata encoders, result decoders, and forward-call helpers for Ve33. It also exposes
-storage reader helpers for stakes, vote states, pool reward state, emission state, stored pool keys, and voting power
+storage reader helpers for stakes, vote states, emission state, stored pool keys, pool reward growth, and voting power
 calculations.
 
 This design keeps call sites explicit and avoids a generic Ve33 forwarding surface. The main tradeoff is storage layout
@@ -222,12 +222,10 @@ coupling. Any future Ve33 storage layout change must be reviewed against `Ve33Li
 ### Ve33Periphery
 
 `Ve33Periphery` is a settlement helper for actions that require token movement around Ve33 forward calls. It is bound to
-an immutable `Ve33` instance and forwards reward and emission actions to that immutable address, not to an arbitrary
-extension supplied through a pool key.
+an immutable `Ve33` instance and forwards emission actions to that immutable address.
 
-The reviewed periphery exposes reward donation, pool reward scheduling, and global emission scheduling. It no longer
-exposes a swap function. Swap support is routed through `Router`, which handles swap normalization and calls Ve33's
-forwarded swap path for Ve33 pools.
+The reviewed periphery exposes global emission scheduling. It no longer exposes a swap function. Swap support is routed
+through `Router`, which handles swap normalization and calls Ve33's forwarded swap path for Ve33 pools.
 
 ### Ve33Positions
 
@@ -274,8 +272,7 @@ already enforces maximum tick spacing, so this helper only answers whether a pro
 
 `tickSpacingFee` now only contains `capFee` and `MAX_VE_FEE`, capping voter-selected explicit fees at 50%.
 
-`StakeId` is a custom type storing `bytes24 salt || uint64 endTime`. `Ve33RewardPoolState` is a custom type storing a
-32-bit truncated last-accumulated timestamp and a 224-bit Q32 reward rate.
+`StakeId` is a custom type storing `bytes24 salt || uint64 endTime`.
 
 ### MEVCaptureRouter Removal
 
@@ -293,7 +290,7 @@ importance of correct immutable extension address configuration.
 - Forwarded exact-output swaps gross up the actual Core input by the current voter fee.
 - Active pool fee is the weighted average of explicit fee votes and is zero when active pool vote weight is zero.
 - Voter fee accounting uses saved balances and fee-growth snapshots.
-- Vote updates, clears, and pokes accrue pool emission/reward state before weight changes.
+- Vote updates, clears, and pokes accrue pool emission state before weight changes.
 - Global emissions are scheduled through forward calls, prepaid into saved balances, and allocated by
   `emissionGrowthGlobalX128` according to active vote weight.
 - Ve33 does not transfer ERC20 tokens or receive native ETH directly.
@@ -301,7 +298,7 @@ importance of correct immutable extension address configuration.
 - LP reward accounting is per-position and range-aware.
 - Initialized tick reward-outside accounting is updated when swaps cross initialized ticks.
 - Position reward snapshots are updated before liquidity changes.
-- Zero-liquidity reward donations are saved but produce no claimable LP reward growth.
+- Zero-liquidity emission realization produces no claimable LP reward growth.
 - Emission scheduling accrues existing emission state before adding a new rate.
 - Emission schedulers choose valid start and end times, and scheduled rate deltas are tracked without storing an
   append-only list.
@@ -326,17 +323,17 @@ The reviewed test suite covers the major audited behaviors:
 - partial exact-input fee accounting for both token directions,
 - exact-output fee accounting,
 - voter fee claims and pro-rata fee growth,
-- reward donation, reward claims, zero-liquidity donation behavior, and future reward schedules,
+- reward claims and zero-liquidity emission realization behavior,
 - reward boundary snapshots for concentrated and stableswap pools,
 - global emission scheduling, valid chosen start/end times, same-time schedule aggregation, and continuous pool-touch
   allocation,
 - zero-vote emission interval behavior,
-- pro-rata distribution to touched voted pools,
+- pro-rata distribution to touched pools with active votes,
 - Ve33Periphery immutable-extension forwarding and settlement coverage,
 - Ve33Positions authorization, independent positions, reward claims, and liquidity overflow guard,
-- VeToken stake lifecycle, transfers, approvals, fee claims, unstake settlement, metadata, SVG decoding, and gas
-  snapshots,
-- `StakeId` and `Ve33RewardPoolState` custom-type round trips and dirty-bit behavior.
+- VeToken stake lifecycle, split/merge, transfers, approvals, fee claims, unstake settlement, metadata, SVG decoding,
+  and gas snapshots,
+- `StakeId` custom-type round trips and dirty-bit behavior.
 
 ## Residual Risk
 
@@ -365,4 +362,4 @@ Results:
 - `git diff --check` passed.
 - `forge fmt` completed.
 - `forge build --offline --sizes` passed.
-- `forge test --offline` passed: 825 tests passed, 0 failed, 0 skipped.
+- `forge test --offline` passed: 812 tests passed, 0 failed, 0 skipped.

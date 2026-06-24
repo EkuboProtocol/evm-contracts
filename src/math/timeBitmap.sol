@@ -7,7 +7,7 @@ import {StorageSlot} from "../types/storageSlot.sol";
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the time is initialized
 // Always rounds the time down
-function timeToBitmapWordAndIndex(uint256 time) pure returns (uint256 word, uint256 index) {
+function timeToBitmapWordAndIndex(uint256 time) pure returns (uint256 word, uint8 index) {
     assembly ("memory-safe") {
         word := shr(16, time)
         index := and(shr(8, time), 0xff)
@@ -24,7 +24,7 @@ function bitmapWordAndIndexToTime(uint256 word, uint256 index) pure returns (uin
 
 // Flips the tick in the bitmap from true to false or vice versa
 function flipTime(StorageSlot slot, uint256 time) {
-    (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
+    (uint256 word, uint8 index) = timeToBitmapWordAndIndex(time);
     StorageSlot wordSlot = slot.add(word);
     wordSlot.store(wordSlot.load() ^ bytes32(1 << index));
 }
@@ -37,11 +37,11 @@ function findNextInitializedTime(StorageSlot slot, uint256 fromTime)
 {
     unchecked {
         // convert the given time to the bitmap position of the next nearest potential initialized time
-        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
+        (uint256 word, uint8 index) = timeToBitmapWordAndIndex(fromTime);
 
         // find the index of the previous tick in that word
         Bitmap bitmap = Bitmap.wrap(uint256(slot.add(word).load()));
-        uint256 nextIndex = bitmap.geSetBit(uint8(index));
+        uint256 nextIndex = bitmap.geSetBit(index);
 
         isInitialized = nextIndex != 0;
 

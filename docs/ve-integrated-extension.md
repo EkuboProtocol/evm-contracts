@@ -29,7 +29,7 @@ For role-oriented user documentation, see [Ve33 User Guide](./ve33-user-guide.md
 - wrapper vote and pool-fee claim calls
 - on-chain ERC721 JSON metadata derived from the staked token and current stake state
 
-`Ve33Positions` is the ERC721 LP position manager. It owns Core positions for Ve33 LPs, settles liquidity token payments, and forwards LP reward claims to `Ve33`. `Ve33Periphery` owns token settlement for generic Ve33 actions such as reward donations, explicit reward schedules, and global emission schedules. Swaps are settled by the configured router. `Ve33` itself accounts balances only with Core saved balances and does not transfer ERC20s.
+`Ve33Positions` is the ERC721 LP position manager. It owns Core positions for Ve33 LPs, settles liquidity token payments, and forwards LP reward claims to `Ve33`. `Ve33Periphery` owns token settlement for generic Ve33 actions such as global emission schedules. Swaps are settled by the configured router. `Ve33` itself accounts balances only with Core saved balances and does not transfer ERC20s.
 
 For LP positions, `Ve33Positions` derives the Core `PositionId` from `(tokenId, tickLower, tickUpper)` and owns the resulting Core position as the locker contract. ERC721 ownership and approvals authorize deposits, withdrawals, and reward claims. This keeps LP position ownership explicit without inheriting the standard `BasePositions` swap-fee collection assumptions.
 
@@ -79,6 +79,7 @@ Forward stake call types:
 - `VE33_STAKE`: increases `stakeAmounts[originalLocker][stakeId]`
 - `VE33_UNSTAKE`: removes an entire expired stake key and returns the unstaked amount
 - `VE33_MOVE_STAKE`: moves amount from one `stakeId` to another
+- `VE33_SPLIT_STAKE`: splits amount into another `stakeId` while preserving the source vote
 
 `Ve33` updates Core saved balances for staked tokens under `address(ve33)` and the stake id:
 
@@ -86,11 +87,11 @@ Forward stake call types:
 CORE.updateSavedBalances(stakeToken, address(type(uint160).max), stakeSavedBalanceId, delta, 0)
 ```
 
-It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, but unstaked tokens and claimed pool fees settle to the current NFT owner. Extending is implemented as `VE33_MOVE_STAKE`, which moves saved balance from the old stake id to the new stake id without moving tokens.
+It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, but unstaked tokens and claimed pool fees settle to the current NFT owner. Extending and merging are implemented with `VE33_MOVE_STAKE`, which clears affected votes and moves saved balance between stake ids without moving tokens. Splitting uses `VE33_SPLIT_STAKE`, which keeps the source stake voted and resizes the source vote weight to the reduced current voting power; the newly split stake starts unvoted.
 
 ## Voting
 
-`Ve33.vote` accepts explicit `uint64` swap fees. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. The optional `VeToken` wrapper exposes `vote(veId, poolKeys, weights, swapFees)` and `poke(veId)` as a permissionless convenience for refreshing stale represented stakes.
+`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%, and `capFee` caps voter-selected fees to `1 << 63` or 50%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, and `mergeStakes(fromVeId, toVeId)`.
 
 Each pool tracks active vote weight, voter fee growth, a snapshot of global emission growth, and the weighted fee sum. When votes change, each selected fee is capped and the pool fee is computed on demand as `feeWeightSum / weight`; integer division rounds down. With no active votes, this EVM `div` returns zero, so the pool has no extension swap fee.
 
@@ -100,11 +101,11 @@ Voting power is sampled when `vote` or `poke` is called:
 stakeAmount * (endTime - block.timestamp) / VE33_MAX_STAKE_DURATION
 ```
 
-That current power is split across the supplied relative weights and written into `PoolVoteState.weight` and each stake's `VePoolPosition.weight`. Stored pool weights do not continuously decay on their own. They change when the stake votes again, when a stake operation clears votes, or when anyone calls `poke` for the stake. Emission allocation uses these stored active weights when global emission growth accrues.
+That current power is written into `PoolVoteState.weight` and the stake's `VePoolPosition.weight` for the selected pool. Stored pool weights do not continuously decay on their own. They change when the stake votes again, when a stake operation clears the vote, or when anyone calls `poke` for the stake. Emission allocation uses these stored active weights when global emission growth accrues.
 
-Changing a stake clears that stake's votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and emission-growth snapshots synchronized with voting power.
+Increasing, extending, merging, or withdrawing a stake clears affected votes before the amount or end time changes, keeping vote weights, fee-growth snapshots, and emission-growth snapshots synchronized with voting power. Multi-pool allocation is represented by multiple stake ids: `VeToken.splitStake` can split one NFT into another NFT with the same end time while preserving the source vote, and `VeToken.mergeStakes` can merge two NFTs with the destination end time set to the greater of the two merged stake end times. Merging clears affected stake votes.
 
-`poke` is a permissionless stale-vote cleanup path. It accrues affected pools' reward and fee accounting using the existing stored weights up to the poke timestamp, then reduces the stake's active pool weights to current decayed voting power. If the stake has expired, `poke` clears its votes and the affected pools have zero extension fee when no other votes remain. `VeToken.poke(veId)` calls the same extension logic for ERC721-represented stakes. Claiming pool fees does not poke automatically, so users who intend to extend or restake can avoid redundant weight-refresh gas.
+`poke` is a permissionless stale-vote cleanup path. It accrues the affected pool's reward and fee accounting using the existing stored weight up to the poke timestamp, then reduces the stake's active pool weight to current decayed voting power. If the stake has expired, `poke` clears its vote and the affected pool has zero extension fee when no other votes remain. Since `poke` does not require a lock or token settlement, keepers can batch direct `Ve33.poke(owner, stakeId)` calls through generic multicall tooling. Claiming pool fees does not poke automatically, so users who intend to extend or restake can avoid redundant weight-refresh gas.
 
 `vote` is not a forwarded action because it does not require token settlement. It must be called by the `Ve33` stake owner for the `StakeId`; for the ERC721 wrapper that means `VeToken` authorizes the user or approved operator, then calls `Ve33.vote` as the stake owner.
 
@@ -126,7 +127,7 @@ The extension does not call `CORE.accumulateAsFees`, so LPs do not earn Core swa
 
 ## Voter Fee Claims
 
-Voter fees use fee-growth accounting over each pool's active vote weight. Each stake snapshots `feeGrowth0X128` and `feeGrowth1X128` for every voted pool. On nonzero weight changes, `Ve33` uses the Core snapshot-adjustment trick: it computes fees accumulated under the old weight, sets the new weight, then moves the fee-growth snapshots backward so the already accumulated amount remains claimable under the next weight. If a stake's pool vote weight is cleared to zero, pending unclaimed voter fees for that pool position are discarded.
+Voter fees use fee-growth accounting over each pool's active vote weight. Each stake snapshots `feeGrowth0X128Snapshot` and `feeGrowth1X128Snapshot` for its current voted pool. On nonzero weight changes, `Ve33` uses the Core snapshot-adjustment trick: it computes fees accumulated under the old weight, sets the new weight, then moves the fee-growth snapshots backward so the already accumulated amount remains claimable under the next weight. If a stake's pool vote weight is cleared to zero, pending unclaimed voter fees for that pool position are discarded.
 
 `VE33_CLAIM_POOL_FEES` is a forwarded action. It subtracts the claimed amount from the extension's saved balance and returns the claimed token amounts to the forwarding locker.
 
@@ -134,17 +135,13 @@ For wrapper-owned stakes, the `Ve33` stake owner is `address(veToken)`. `VeToken
 
 ## LP Reward Token
 
-LPs earn only the immutable reward token, which is the same token used for ve stakes. LP rewards are independent of Core swap fees. Reward accounting uses reward-per-liquidity accumulators:
+LPs earn only the immutable reward token, which is the same token used for ve stakes. LP rewards come from global emissions directed by active votes and are independent of Core swap fees. Reward accounting uses reward-per-liquidity accumulators:
 
-- `poolRewardState`, which packs last-accumulated time and the current Q32 reward rate
 - `rewardsGlobalPerLiquidity`
 - `tickRewardsOutsidePerLiquidity`
 - `positionRewardsSnapshotPerLiquidity`
-- scheduled `rewardRateDeltaAtTime`
 
-`maybeAccumulateRewards` advances `rewardsGlobalPerLiquidity` using current Core pool liquidity. For stableswap pools, active liquidity is treated as zero when the current tick is outside the stableswap active-liquidity range. If liquidity is zero, accrued scheduled rewards are not assigned to LPs because `rewardsGlobalPerLiquidity` is not increased.
-
-`VE33_SCHEDULE_REWARDS` schedules a Q32 reward rate between valid reward times. If `startTime` is in the past or zero, the new rate is applied immediately; otherwise a future rate delta is stored in `rewardRateDeltaAtTime`. The required token amount is rounded up from `rewardRate * duration` and saved in the reward reserve. `VE33_DONATE_REWARDS` immediately increases `rewardsGlobalPerLiquidity` for current active liquidity. For stableswap pools, active liquidity is zero outside the stableswap active-liquidity range. If active liquidity is zero, the donated amount is still credited to the reward reserve saved balance, but no position reward growth is created, so the donation is not claimable by LP positions.
+`maybeAccumulateRewards` first accrues the global emission stream, realizes the pool's vote-weighted share since its last snapshot, and advances `rewardsGlobalPerLiquidity` using current Core pool liquidity. For stableswap pools, active liquidity is treated as zero when the current tick is outside the stableswap active-liquidity range. If liquidity is zero, realized emissions are not assigned to LPs because `rewardsGlobalPerLiquidity` is not increased.
 
 `beforeUpdatePosition` snapshots position rewards before liquidity changes. It uses the same snapshot adjustment trick as Core: rewards earned before the update are preserved by moving `positionRewardsSnapshotPerLiquidity` based on the next liquidity value. If the position fully exits, the snapshot is cleared and unclaimed rewards are discarded.
 
@@ -158,13 +155,13 @@ above range:  upperOutside - lowerOutside
 
 Forwarded swaps explicitly invert reward-outside snapshots for crossed concentrated ticks. For stableswap pools, the active-liquidity lower and upper ticks are updated when swaps cross the stableswap active range. This prevents out-of-range positions from earning rewards while they are out of range.
 
-`VE33_CLAIM_REWARDS` accumulates the pool, computes the position's reward amount from the difference between current in-range reward growth and `positionRewardsSnapshotPerLiquidity`, updates the snapshot to current in-range growth, subtracts the claimed amount from the reward reserve saved balance, and returns the amount to the forwarding locker for withdrawal by `Ve33Positions`.
+`VE33_CLAIM_REWARDS` accumulates the pool, computes the position's reward amount from the difference between current in-range reward growth and `positionRewardsSnapshotPerLiquidity`, updates the snapshot to current in-range growth, subtracts the claimed amount from the LP-reward saved-balance bucket, and returns the amount to the forwarding locker for withdrawal by `Ve33Positions`.
 
 ## Emissions
 
 `VE33_SCHEDULE_EMISSIONS` is a forwarded action that saves funded `stakeToken` in Core and schedules a global Q32 emission rate between caller-selected valid times. The call is permissionless. Governance, a PID controller, or any other external policy component can decide when and how much to schedule, but `Ve33` does not query or privilege that policy component.
 
-Scheduling first accrues the existing global emission stream, computes the token amount required for `rewardRate * duration`, saves that amount in the LP reward reserve saved-balance bucket, increases `emissionReserve`, and records emission-rate deltas in `emissionRateDeltaAtTime`. Start and end times are tracked in a bitmap, so multiple schedules can share the same valid time without storing an append-only list.
+Scheduling first accrues the existing global emission stream, computes the token amount required for `rewardRate * duration`, saves that amount in the LP-reward saved-balance bucket, and records emission-rate deltas in `emissionRateDeltaAtTime`. Start and end times are tracked in a bitmap, so multiple schedules can share the same valid time without storing an append-only list.
 
 Global emissions are accounted with:
 
@@ -172,27 +169,26 @@ Global emissions are accounted with:
 emissionGrowthGlobalX128 += emittedAmount / total active vote weight
 ```
 
-If total active vote weight is zero for an interval, that interval does not increase global emission growth and no LP can claim that interval. The prepaid tokens remain in the reward reserve and `emissionReserve` as unassigned backing; they are not retroactively distributed when votes appear later.
+If total active vote weight is zero for an interval, that interval does not increase global emission growth and no LP can claim that interval. The prepaid tokens remain in the LP-reward saved-balance bucket as unassigned backing; they are not retroactively distributed when votes appear later.
 
-Each pool stores `emissionGrowthGlobalX128Snapshot`. When the pool is touched through a swap, position update, reward claim, reward donation, explicit reward schedule, vote update, clear, or poke, `Ve33` accrues global emissions and computes:
+Each pool stores `emissionGrowthGlobalX128Snapshot`. When the pool is touched through a swap, position update, reward claim, vote update, clear, or poke, `Ve33` accrues global emissions and computes:
 
 ```text
 poolEmissionAmount =
   (emissionGrowthGlobalX128 - poolSnapshot) * pool active vote weight
 ```
 
-That amount is capped by `emissionReserve`, subtracted from `emissionReserve`, and immediately added to `rewardsGlobalPerLiquidity` for the pool's current active LP liquidity. There is no separate trigger call and no keeper-chosen pool distribution step. A newly voted pool snapshots current global emission growth before its weight is added, so it starts earning from the new vote timestamp rather than receiving past emissions. If the pool has no active LP liquidity when its emission share is realized, the realized amount is removed from `emissionReserve` but cannot be claimed by positions.
+That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has current active LP liquidity. There is no separate trigger call and no keeper-chosen pool distribution step. A newly voted pool snapshots current global emission growth before its weight is added, so it starts earning from the new vote timestamp rather than receiving past emissions. If the pool has no active LP liquidity when its emission share is realized, the realized amount cannot be claimed by positions.
 
 ## Settlement Model
 
 The extension relies on Core saved balances for deferred accounting:
 
 - swap fees are saved under `address(ve33)` and the pool id
-- LP rewards are saved under `address(ve33)` and reward reserve salt `bytes32(0)`
-- scheduled emissions are also prepaid into the LP reward reserve salt `bytes32(0)`; `emissionReserve` tracks the portion not yet assigned by global emission growth
+- LP rewards and scheduled emissions are saved under `address(ve33)` and LP reward salt `VE33_LP_REWARD_SAVED_BALANCE_ID`
 - ve stake is saved under `address(ve33)` and `keccak256(abi.encodePacked(owner, StakeId.unwrap(stakeId)))`
 
-`Ve33` accounts for staking, unstaking, moving stake balances, reward funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, `Ve33Positions` is the reference implementation for LP position and reward-claim settlement, and `Ve33Periphery` is the reference implementation for generic reward and emission token settlement.
+`Ve33` accounts for staking, unstaking, moving stake balances, emission funding, reward claiming, and fee claiming, but does not directly transfer tokens. Callers that integrate directly with token-moving forwarded actions must settle the corresponding payment or withdrawal in the same Core lock. `VeToken` is the reference implementation for stake-owned fee claims and stake-token settlement, `Ve33Positions` is the reference implementation for LP position and reward-claim settlement, and `Ve33Periphery` is the reference implementation for generic emission token settlement.
 
 ## Deployment
 

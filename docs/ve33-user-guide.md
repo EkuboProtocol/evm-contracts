@@ -9,7 +9,7 @@ Ve33 pools are Ekubo Core pools with a custom extension. The Core pool fee is se
 - `Ve33`: the pool extension. It stores votes, pool fees, LP reward accounting, emissions, and canonical stake balances. It does not transfer ERC20 tokens directly.
 - `VeToken`: an optional ERC721 wrapper for Ve33 stakes. Each NFT controls one Ve33 stake and can be transferred or approved like a normal NFT.
 - `Ve33Positions`: the ERC721 manager for Ve33 LP positions. It owns Core positions, settles liquidity token payments, and claims LP rewards.
-- `Ve33Periphery`: the token-settling helper for reward donations, reward schedules, and emissions.
+- `Ve33Periphery`: the token-settling helper for global emission schedules.
 - `Ve33Lib`: read helpers for Ve33 storage exposed through `ExposedStorage`.
 
 ## Pool Rules
@@ -30,23 +30,24 @@ Using `VeToken`, the common flow is:
 
 1. Approve the stake token to `VeToken`.
 2. Call `createStake(amount, end)` to mint a ve NFT.
-3. Vote with `vote(veId, poolKeys, weights, swapFees)`.
+3. Vote with `vote(veId, poolKey, swapFee)`.
 4. Claim voter swap fees with `claimPoolFees(veId, poolKey)`.
-5. Extend by calling `extendStake(veId, newEnd)`, or add amount with `increaseStakeAmount(veId, amount)`.
+5. Extend by calling `extendStake(veId, newEnd)`, split with `splitStake(veId, amount)`, merge stakes with `mergeStakes(fromVeId, toVeId)`, or add amount with `increaseStakeAmount(veId, amount)`.
 6. After expiry, call `withdrawStake(veId)` to burn the NFT and withdraw the stake token to the current NFT owner.
 
 Important details:
 
 - The ve NFT owner, or an approved NFT operator, can manage the stake.
 - Claimed pool fees and withdrawn stake tokens go to the current NFT owner.
-- Increasing, extending, or withdrawing a stake clears that stake's votes.
+- Increasing, extending, merging, or withdrawing a stake clears the affected stake votes.
+- Splitting preserves the source stake vote with reduced weight; the newly split stake starts unvoted.
 - Voting power is sampled when voting or when the stake is poked. Stored pool votes do not decay continuously.
-- Anyone can call `VeToken.poke(veId)` or `Ve33.poke(owner, stakeId)` to refresh stale vote weights to current voting power or clear expired votes.
+- Anyone can call `Ve33.poke(owner, stakeId)` to refresh stale vote weights to current voting power or clear expired votes. Keepers can batch direct `poke` calls through generic multicall tooling.
 - Claiming pool fees does not automatically poke. This avoids extra gas when a staker plans to extend or restake immediately after claiming.
 
 ## Voting And Fees
 
-Each vote assigns relative weights across pools and a selected swap fee per pool. Ve33 converts the relative weights into the stake's current voting power and stores active pool weights.
+Each stake id votes for one pool with one selected swap fee. Ve33 converts the stake's current voting power into active pool weight. Users who want to allocate voting power across multiple pools split their stake into multiple stake ids, vote each stake id on one pool, and can later merge stake ids back together. A merge sets the destination stake end time to the greater end time of the two merged stakes.
 
 For each pool:
 
@@ -74,12 +75,12 @@ The ERC721 owner or approved operator can deposit, withdraw principal, and claim
 LPs should remember:
 
 - Ve33 LPs do not earn Core swap fees.
-- LPs earn the stake token from donations, scheduled pool rewards, and global emissions directed by active votes.
+- LPs earn the stake token from global emissions directed by active votes.
 - Rewards are range-aware. Out-of-range concentrated positions do not earn while out of range.
 - Stableswap positions only earn while the pool price is inside the stableswap active-liquidity range.
 - `claimRewards(tokenId, poolKey, tickLower, tickUpper, recipient)` claims accrued reward tokens.
 - Before liquidity changes, Ve33 snapshots earned rewards. If a position fully exits, any unclaimed reward dust left in the snapshot is discarded.
-- If rewards are donated or accrue while eligible liquidity is zero, those rewards are not assigned to LP positions.
+- If emissions are realized while eligible liquidity is zero, those rewards are not assigned to LP positions.
 
 ## Swappers And Routers
 
@@ -93,20 +94,18 @@ For exact-output swaps, Ve33 lets Core compute the required input, grosses that 
 
 ## Reward Funders
 
-Anyone can add LP rewards through the periphery:
+Anyone can fund global LP emissions through the periphery:
 
-- `donateRewards(poolKey, amount)`: immediately credits current eligible liquidity.
-- `scheduleRewards(poolKey, startTime, endTime, rewardRate)`: schedules a fixed Q32 reward rate for a pool.
 - `scheduleEmissions(startTime, endTime, rewardRate)`: schedules a global Q32 emission rate.
 
-Scheduling emissions does not choose pools by itself. As global emissions accrue, active vote weights determine the share earned by each pool. A pool realizes its share when it is touched by normal activity such as swaps, position updates, reward claims, reward scheduling, vote updates, or pokes. There is no separate pool-emission trigger.
+Scheduling emissions does not choose pools by itself. As global emissions accrue, active vote weights determine the share earned by each pool. A pool realizes its share when it is touched by normal activity such as swaps, position updates, reward claims, vote updates, or pokes. There is no separate pool-emission trigger.
 
 ## Operational Notes
 
-- Keepers can improve accounting freshness by poking old stakes through `VeToken.poke(veId)` or touching pools that have accrued rewards.
+- Keepers can improve accounting freshness by poking old stakes through `Ve33.poke(owner, stakeId)`, batching direct `poke` calls through generic multicall tooling, or touching pools that have accrued rewards.
 - Stakers are economically encouraged to claim, extend, and revote before their voting power becomes stale.
 - Pool fees are not meant to be predictable across long time windows. Swappers should quote the fee for the swap they are about to execute.
-- Integrators should use `Ve33Lib` against `Ve33` exposed storage for views such as stake amount, voting power, pool vote state, reward globals, emission growth, and emission reserves.
+- Integrators should use `Ve33Lib` against `Ve33` exposed storage for views such as stake amount, voting power, pool vote state, reward globals, and emission growth. Funded LP reward backing is a Core saved balance under the Ve33 LP reward saved-balance salt.
 - Ve33 uses Core saved balances as its ledger. `Ve33` itself does not perform ERC20 transfers; wrappers and peripheries settle token movement inside Core locks.
 
 ## Deployment

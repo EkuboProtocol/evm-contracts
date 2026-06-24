@@ -435,12 +435,21 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param data ABI-encoded call type and payload.
     /// @return result ABI-encoded result for the selected forward call.
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
-        uint256 callType = abi.decode(data, (uint256));
+        uint256 callType;
+        assembly ("memory-safe") {
+            callType := mload(add(data, 0x20))
+        }
 
         if (callType == VE33_SWAP) {
             (, PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (uint256, PoolKey, SwapParameters));
             (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = _swap(poolKey, params);
-            result = abi.encode(balanceUpdate, stateAfter);
+            assembly ("memory-safe") {
+                result := mload(0x40)
+                mstore(result, 0x40)
+                mstore(add(result, 0x20), balanceUpdate)
+                mstore(add(result, 0x40), stateAfter)
+                mstore(0x40, add(result, 0x60))
+            }
         } else if (callType == VE33_CLAIM_REWARDS) {
             (, PoolKey memory poolKey, PositionId positionId, address recipient) =
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
@@ -476,16 +485,19 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     {
         unchecked {
             PoolId poolId = poolKey.toPoolId();
-            maybeAccumulateRewards(poolKey);
-            int32 tickBefore = CORE.poolState(poolId).tick();
+            PoolState stateBefore = CORE.poolState(poolId);
+            checkValidPoolKey(poolKey);
+            _accumulatePoolRewards(poolId, stateBefore.liquidity());
 
+            bool isConcentrated = poolKey.config.isConcentrated();
             uint64 swapFee = _poolFeeState(poolId).swapFee();
             int128 fee0;
             int128 fee1;
             uint128 exactInMaxFee;
             SwapParameters coreParams = params;
+            bool exactOut = params.isExactOut();
 
-            if (swapFee != 0 && !params.isExactOut()) {
+            if (swapFee != 0 && !exactOut) {
                 uint128 amount = uint128(uint256(int256(params.amount())));
                 uint128 fee = exactInMaxFee = computeFee(amount, swapFee);
                 coreParams = createSwapParameters(
@@ -498,30 +510,42 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
             (balanceUpdate, stateAfter) = CORE.swap(0, poolKey, coreParams);
 
-            if (balanceUpdate.delta0() > 0) {
-                uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
-                uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
-                int128 fee = SafeCastLib.toInt128(
-                    params.isExactOut() ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee)
-                );
-                fee0 = fee;
-                balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0() + fee, balanceUpdate.delta1());
-            } else if (balanceUpdate.delta1() > 0) {
-                uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
-                uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
-                int128 fee = SafeCastLib.toInt128(
-                    params.isExactOut() ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee)
-                );
-                fee1 = fee;
-                balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + fee);
+            if (swapFee != 0) {
+                int128 delta0 = balanceUpdate.delta0();
+                int128 delta1 = balanceUpdate.delta1();
+                if (delta0 > 0) {
+                    uint128 inputAmount = uint128(uint256(int256(delta0)));
+                    uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
+                    int128 fee =
+                        SafeCastLib.toInt128(exactOut ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee));
+                    fee0 = fee;
+                    balanceUpdate = createPoolBalanceUpdate(delta0 + fee, delta1);
+                } else if (delta1 > 0) {
+                    uint128 inputAmount = uint128(uint256(int256(delta1)));
+                    uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
+                    int128 fee =
+                        SafeCastLib.toInt128(exactOut ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee));
+                    fee1 = fee;
+                    balanceUpdate = createPoolBalanceUpdate(delta0, delta1 + fee);
+                }
+
+                if (fee0 != 0 || fee1 != 0) {
+                    CORE.updateSavedBalances(
+                        poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID, fee0, fee1
+                    );
+                    _accountPoolFees(poolId, uint128(uint256(int256(fee0))), uint128(uint256(int256(fee1))));
+                }
             }
 
-            if (fee0 != 0 || fee1 != 0) {
-                CORE.updateSavedBalances(poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID, fee0, fee1);
-                _accountPoolFees(poolId, uint128(uint256(int256(fee0))), uint128(uint256(int256(fee1))));
+            if (isConcentrated) {
+                _updateCrossedTicks(
+                    poolId,
+                    stateBefore.tick(),
+                    stateAfter.tick(),
+                    poolKey.config.concentratedTickSpacing(),
+                    params.skipAhead()
+                );
             }
-
-            _updateCrossedTicks(poolKey, poolId, tickBefore, stateAfter.tick(), params.skipAhead());
         }
     }
 
@@ -996,25 +1020,21 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
     /// @notice Updates tick reward snapshots for ticks crossed by a forwarded swap.
     /// @dev Mirrors Core fee-outside inversion so reward growth remains range-aware.
-    /// @param poolKey Pool that was swapped.
     /// @param poolId Id of `poolKey`.
     /// @param tickBefore Tick before the swap.
     /// @param tickAfter Tick after the swap.
+    /// @param tickSpacing Concentrated tick spacing for the pool.
     /// @param skipAhead Tick-bitmap skip-ahead hint supplied to the swap.
     function _updateCrossedTicks(
-        PoolKey memory poolKey,
         PoolId poolId,
         int32 tickBefore,
         int32 tickAfter,
+        uint32 tickSpacing,
         uint256 skipAhead
     ) private {
         if (tickBefore == tickAfter) return;
 
-        if (poolKey.config.isStableswap()) return;
-
         uint256 rewardsGlobalPerLiquidity_ = _rewardsGlobalPerLiquidity(poolId);
-
-        uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
 
         bool priceIncreasing = tickAfter > tickBefore;
         if (!priceIncreasing) {

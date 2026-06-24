@@ -63,13 +63,12 @@ contract Ve33Forwarder is BaseLocker {
         );
     }
 
-    function claimPoolFees(StakeId stakeId, PoolKey memory poolKey)
+    function claimPoolFees(StakeId stakeId, PoolKey calldata poolKey)
         external
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = abi.decode(
-            lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, stakeId, poolKey)), (uint128, uint128)
-        );
+        (amount0, amount1) =
+            abi.decode(lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, stakeId, poolKey)), (uint128, uint128));
     }
 
     function stake(StakeId stakeId, uint128 amount) external returns (uint128 nextAmount) {

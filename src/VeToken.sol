@@ -290,7 +290,7 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
     /// @param poolKey The pool whose voter fees should be claimed.
     /// @return amount0 The amount of token0 withdrawn to the owner.
     /// @return amount1 The amount of token1 withdrawn to the owner.
-    function claimPoolFees(uint256 veId, PoolKey memory poolKey) external returns (uint128 amount0, uint128 amount1) {
+    function claimPoolFees(uint256 veId, PoolKey calldata poolKey) external returns (uint128 amount0, uint128 amount1) {
         address owner = ownerOf(veId);
         (amount0, amount1) =
             abi.decode(lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, owner, poolKey)), (uint128, uint128));

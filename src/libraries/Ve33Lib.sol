@@ -36,7 +36,16 @@ library Ve33Lib {
 
     /// @notice Encodes a Ve33 forwarded swap call.
     function encodeSwap(PoolKey memory poolKey, SwapParameters params) internal pure returns (bytes memory) {
-        return abi.encode(VE33_SWAP, poolKey, params);
+        bytes memory data = new bytes(160);
+        assembly ("memory-safe") {
+            let ptr := add(data, 0x20)
+            mstore(ptr, VE33_SWAP)
+            mstore(add(ptr, 0x20), mload(poolKey))
+            mstore(add(ptr, 0x40), mload(add(poolKey, 0x20)))
+            mstore(add(ptr, 0x60), mload(add(poolKey, 0x40)))
+            mstore(add(ptr, 0x80), params)
+        }
+        return data;
     }
 
     /// @notice Decodes a Ve33 forwarded swap result.
@@ -45,7 +54,10 @@ library Ve33Lib {
         pure
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
-        (balanceUpdate, stateAfter) = abi.decode(data, (PoolBalanceUpdate, PoolState));
+        assembly ("memory-safe") {
+            balanceUpdate := mload(add(data, 0x20))
+            stateAfter := mload(add(data, 0x40))
+        }
     }
 
     /// @notice Executes a Ve33 forwarded swap through Core.

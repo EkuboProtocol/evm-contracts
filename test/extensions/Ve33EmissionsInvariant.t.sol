@@ -28,7 +28,10 @@ import {PoolId} from "../../src/types/poolId.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {StakeId} from "../../src/types/stakeId.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
+import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
+import {VePoolVote} from "../../src/types/vePoolVote.sol";
 
 contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     using CoreLib for *;
@@ -52,8 +55,15 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         uint256 maxEarned;
     }
 
+    struct TrackedStake {
+        uint256 poolIndex;
+        uint256 veId;
+        StakeId stakeId;
+    }
+
     ICore private immutable core;
     Ve33 private immutable ve33;
+    VeToken private immutable veToken;
     Ve33Positions private immutable ve33Positions;
     Router private immutable router;
     TestToken private immutable token0;
@@ -63,6 +73,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
 
     TrackedPool[] private pools;
     TrackedPosition[] private positions;
+    TrackedStake[] private stakes;
     uint256 private lastSynced;
     bool private initialized;
 
@@ -71,6 +82,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     constructor(
         ICore _core,
         Ve33 _ve33,
+        VeToken _veToken,
         Ve33Positions _ve33Positions,
         Router _router,
         TestToken _token0,
@@ -78,10 +90,13 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         Vm _vm,
         PoolKey memory pool0,
         PoolKey memory pool1,
+        uint256 veId0,
+        uint256 veId1,
         uint256 _emissionEnd
     ) {
         core = _core;
         ve33 = _ve33;
+        veToken = _veToken;
         ve33Positions = _ve33Positions;
         router = _router;
         token0 = _token0;
@@ -96,6 +111,8 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
 
         pools.push(TrackedPool({poolKey: pool0, poolId: pool0.toPoolId()}));
         pools.push(TrackedPool({poolKey: pool1, poolId: pool1.toPoolId()}));
+        stakes.push(TrackedStake({poolIndex: 0, veId: veId0, stakeId: _veToken.stakeId(veId0)}));
+        stakes.push(TrackedStake({poolIndex: 1, veId: veId1, stakeId: _veToken.stakeId(veId1)}));
         lastSynced = vm.getBlockTimestamp();
     }
 
@@ -141,6 +158,13 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         _assertPositionClaimWithinBound(position);
     }
 
+    function claimPoolFees(uint256 stakeIndex) external {
+        _syncModel();
+        TrackedStake memory stake = stakes[bound(stakeIndex, 0, stakes.length - 1)];
+        veToken.claimPoolFees(stake.veId, pools[stake.poolIndex].poolKey);
+        _assertAllVoterFeesSolvent();
+    }
+
     function swap(uint256 poolIndex, bool isToken1, int128 amount) external {
         _syncModel();
 
@@ -173,6 +197,10 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         for (uint256 i = 0; i < positions.length; i++) {
             _assertPositionClaimWithinBound(positions[i]);
         }
+    }
+
+    function checkAllVoterFeesSolvent() external view {
+        _assertAllVoterFeesSolvent();
     }
 
     function _mintPosition(uint256 poolIndex, int32 tickLower, int32 tickUpper) private {
@@ -229,6 +257,35 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         assertLe(position.claimed, position.maxEarned + REWARD_TOLERANCE);
     }
 
+    function _assertAllVoterFeesSolvent() private view {
+        for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
+            TrackedPool memory trackedPool = pools[poolIndex];
+            uint256 claimable0;
+            uint256 claimable1;
+
+            FeesPerLiquidity memory feeGrowth = ve33.poolFeeGrowth(trackedPool.poolId);
+            for (uint256 stakeIndex = 0; stakeIndex < stakes.length; stakeIndex++) {
+                TrackedStake memory stake = stakes[stakeIndex];
+                if (PoolId.unwrap(ve33.votedPool(address(veToken), stake.stakeId)) != PoolId.unwrap(trackedPool.poolId))
+                {
+                    continue;
+                }
+
+                VePoolVote vote = ve33.vePoolVote(address(veToken), stake.stakeId);
+                FeesPerLiquidity memory snapshot = ve33.vePoolFeeGrowthSnapshot(address(veToken), stake.stakeId);
+                (uint128 amount0, uint128 amount1) = vote.fees(feeGrowth, snapshot);
+                claimable0 += amount0;
+                claimable1 += amount1;
+            }
+
+            (uint128 saved0, uint128 saved1) = core.savedBalances(
+                address(ve33), trackedPool.poolKey.token0, trackedPool.poolKey.token1, PoolId.unwrap(trackedPool.poolId)
+            );
+            assertGe(saved0, claimable0);
+            assertGe(saved1, claimable1);
+        }
+    }
+
     function _isActive(PositionId positionId, int32 tick) private pure returns (bool) {
         return tick >= positionId.tickLower() && tick < positionId.tickUpper();
     }
@@ -272,14 +329,14 @@ contract Ve33EmissionsInvariantTest is FullTest {
         uint64 stakeEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         uint256 veId0 = veToken.createStake(1e18, stakeEnd);
         uint256 veId1 = veToken.createStake(1e18, stakeEnd);
-        veToken.vote(veId0, pool0, 0);
-        veToken.vote(veId1, pool1, 0);
+        veToken.vote(veId0, pool0, uint64(1 << 62));
+        veToken.vote(veId1, pool1, uint64(1 << 62));
 
         uint256 emissionEnd = nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 365 days);
         periphery.scheduleEmissions(0, uint64(emissionEnd), uint224(uint256(1e12) << 32));
 
         handler = new Ve33EmissionsInvariantHandler(
-            core, ve33, ve33Positions, router, token0, token1, vm, pool0, pool1, emissionEnd
+            core, ve33, veToken, ve33Positions, router, token0, token1, vm, pool0, pool1, veId0, veId1, emissionEnd
         );
         token0.transfer(address(handler), type(uint128).max);
         token1.transfer(address(handler), type(uint128).max);
@@ -287,13 +344,18 @@ contract Ve33EmissionsInvariantTest is FullTest {
 
         targetContract(address(handler));
 
-        bytes4[] memory excluded = new bytes4[](2);
+        bytes4[] memory excluded = new bytes4[](3);
         excluded[0] = Ve33EmissionsInvariantHandler.initializePositions.selector;
         excluded[1] = Ve33EmissionsInvariantHandler.checkNoPositionOverclaimed.selector;
+        excluded[2] = Ve33EmissionsInvariantHandler.checkAllVoterFeesSolvent.selector;
         excludeSelector(FuzzSelector(address(handler), excluded));
     }
 
     function invariant_positionsNeverClaimMoreThanActiveLiquidityShare() public view {
         handler.checkNoPositionOverclaimed();
+    }
+
+    function invariant_voterFeesAreAlwaysSolvent() public view {
+        handler.checkAllVoterFeesSolvent();
     }
 }

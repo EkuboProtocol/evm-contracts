@@ -69,6 +69,41 @@ contract PoolKeyIndexTest is FullTest {
         assertEq(index.extensionPoolIdCount(address(0)), 1);
     }
 
+    function test_registerMultiple_registersPoolKeys() public {
+        PoolKey memory poolKey0 = createPool(0, 0, 100);
+        PoolKey memory poolKey1 = createPool(1, 1, 100);
+        PoolKey[] memory poolKeys = new PoolKey[](2);
+        poolKeys[0] = poolKey0;
+        poolKeys[1] = poolKey1;
+
+        index.registerMultiple(poolKeys);
+
+        assertTrue(index.isRegistered(poolKey0.toPoolId()));
+        assertTrue(index.isRegistered(poolKey1.toPoolId()));
+        assertEq(index.poolIdCount(), 2);
+
+        PoolKey[] memory registeredPoolKeys = index.getPoolKeys();
+        assertEq(registeredPoolKeys.length, 2);
+        assertPoolKeyEq(registeredPoolKeys[0], poolKey0);
+        assertPoolKeyEq(registeredPoolKeys[1], poolKey1);
+    }
+
+    function test_registerMultiple_isIdempotent() public {
+        PoolKey memory poolKey0 = createPool(0, 0, 100);
+        PoolKey memory poolKey1 = createPool(1, 1, 100);
+        PoolKey[] memory poolKeys = new PoolKey[](3);
+        poolKeys[0] = poolKey0;
+        poolKeys[1] = poolKey1;
+        poolKeys[2] = poolKey0;
+
+        index.registerMultiple(poolKeys);
+
+        assertEq(index.poolIdCount(), 2);
+        assertEq(index.tokenPoolIdCount(poolKey0.token0), 2);
+        assertEq(index.tokenPoolIdCount(poolKey0.token1), 2);
+        assertEq(index.extensionPoolIdCount(address(0)), 2);
+    }
+
     function test_getPoolKeysByToken() public {
         PoolKey memory poolKey0 = createPool(0, 0, 100);
         PoolKey memory poolKey1 = createPool(1, 1, 100);

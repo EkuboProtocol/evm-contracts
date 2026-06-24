@@ -29,7 +29,7 @@ contract PoolKeyIndex is UsesCore {
     /// @notice Registers an initialized pool key for discovery
     /// @param poolKey The initialized pool key to register
     /// @return inserted True if the pool key was newly inserted, false if it was already registered
-    function register(PoolKey memory poolKey) external returns (bool inserted) {
+    function register(PoolKey memory poolKey) public returns (bool inserted) {
         PoolId poolId = poolKey.toPoolId();
         if (!CORE.poolState(poolId).isInitialized()) revert ICore.PoolNotInitialized();
 
@@ -40,6 +40,16 @@ contract PoolKeyIndex is UsesCore {
             tokenPoolIds[poolKey.token0].push(poolId);
             tokenPoolIds[poolKey.token1].push(poolId);
             extensionPoolIds[poolKey.config.extension()].push(poolId);
+        }
+    }
+
+    /// @notice Registers multiple initialized pool keys for discovery
+    /// @param poolKeys The initialized pool keys to register
+    function registerMultiple(PoolKey[] calldata poolKeys) external {
+        PoolKey memory poolKey;
+        for (uint256 i = 0; i < poolKeys.length; i++) {
+            poolKey = poolKeys[i];
+            register(poolKey);
         }
     }
 

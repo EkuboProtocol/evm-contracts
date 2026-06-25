@@ -86,9 +86,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Emitted when a swap accounts fees to voters.
     event PoolFeesAccounted(PoolId poolId, uint128 amount0, uint128 amount1);
     /// @notice Emitted when accrued voter fees are claimed for a stake.
-    event PoolFeesClaimed(
-        PoolId poolId, address owner, StakeId stakeId, address recipient, uint128 amount0, uint128 amount1
-    );
+    event PoolFeesClaimed(PoolId poolId, address owner, StakeId stakeId, uint128 amount0, uint128 amount1);
     /// @notice Emitted when global emissions are scheduled.
     event EmissionsScheduled(address funder, uint64 startTime, uint64 endTime, uint224 rewardRate, uint224 amount);
     /// @notice Emitted when a pool accrues its share of global emissions to LP rewards.
@@ -509,7 +507,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             result = abi.encode(_unstake(original.addr(), stakeId));
         } else if (callType == VE33_CLAIM_POOL_FEES) {
             (, StakeId stakeId, PoolKey memory poolKey) = abi.decode(data, (uint256, StakeId, PoolKey));
-            (uint128 amount0, uint128 amount1) = _claimPoolFees(original.addr(), stakeId, poolKey, original.addr());
+            (uint128 amount0, uint128 amount1) = _claimPoolFees(original.addr(), stakeId, poolKey);
             result = abi.encode(amount0, amount1);
         } else if (callType == VE33_SCHEDULE_EMISSIONS) {
             (, uint64 startTime, uint64 endTime, uint224 rewardRate) =
@@ -718,10 +716,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param owner Locker representation that owns the stake.
     /// @param stakeId Stake claiming fees.
     /// @param poolKey Pool whose fees are claimed.
-    /// @param recipient Account recorded in the claim event.
     /// @return amount0 Claimed token0 amount.
     /// @return amount1 Claimed token1 amount.
-    function _claimPoolFees(address owner, StakeId stakeId, PoolKey memory poolKey, address recipient)
+    function _claimPoolFees(address owner, StakeId stakeId, PoolKey memory poolKey)
         private
         returns (uint128 amount0, uint128 amount1)
     {
@@ -730,7 +727,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         PoolId poolId = poolKey.toPoolId();
         VePoolVote veVote = _vePoolVote(owner, stakeId);
         if (veVote.weight() == 0 || PoolId.unwrap(_votedPoolId(owner, stakeId)) != PoolId.unwrap(poolId)) {
-            emit PoolFeesClaimed(poolId, owner, stakeId, recipient, 0, 0);
+            emit PoolFeesClaimed(poolId, owner, stakeId, 0, 0);
             return (0, 0);
         }
 
@@ -749,7 +746,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             );
         }
 
-        emit PoolFeesClaimed(poolId, owner, stakeId, recipient, amount0, amount1);
+        emit PoolFeesClaimed(poolId, owner, stakeId, amount0, amount1);
     }
 
     /// @notice Schedules global ve emissions for a chosen valid time range.

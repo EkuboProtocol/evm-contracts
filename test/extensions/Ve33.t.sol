@@ -121,6 +121,7 @@ contract Ve33Test is FullTest {
     using Ve33Lib for Ve33;
 
     event VoteWeightApplied(address owner, StakeId stakeId, PoolId poolId, uint128 weight, uint64 swapFee);
+    event PoolFeesClaimed(PoolId poolId, address owner, StakeId stakeId, uint128 amount0, uint128 amount1);
 
     Ve33 internal ve;
     VeToken internal veToken;
@@ -645,10 +646,18 @@ contract Ve33Test is FullTest {
         veToken.approve(operator, veId);
 
         uint256 recipientBalanceBefore = token0.balanceOf(recipient);
+        StakeId stakeId = _stakeId(veId);
+        PoolId poolId = poolKey.toPoolId();
+        (uint128 expected0, uint128 expected1) = ve.vePoolVote(address(veToken), stakeId)
+            .fees(ve.poolFeeGrowth(poolId), ve.vePoolFeeGrowthSnapshot(address(veToken), stakeId));
+        vm.expectEmit(address(ve));
+        emit PoolFeesClaimed(poolId, address(veToken), stakeId, expected0, expected1);
         vm.prank(operator);
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey, recipient);
         assertGt(claimed0, 0);
         assertEq(claimed1, 0);
+        assertEq(claimed0, expected0);
+        assertEq(claimed1, expected1);
         assertEq(token0.balanceOf(recipient), recipientBalanceBefore + claimed0);
         assertEq(token0.balanceOf(operator), 0);
 

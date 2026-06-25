@@ -18,6 +18,7 @@ import {ICore} from "../../src/interfaces/ICore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
+import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {Ve33StorageLayout} from "../../src/libraries/Ve33StorageLayout.sol";
 import {amountBeforeFee, computeFee} from "../../src/math/fee.sol";
 import {nextValidTime} from "../../src/math/time.sol";
@@ -38,6 +39,7 @@ import {Locker} from "../../src/types/locker.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {VePoolVote} from "../../src/types/vePoolVote.sol";
 import {VePoolFeeState} from "../../src/types/vePoolFeeState.sol";
+import {Vm} from "forge-std/Test.sol";
 
 contract Ve33Forwarder is BaseLocker {
     using FlashAccountantLib for *;
@@ -121,6 +123,7 @@ contract Ve33Test is FullTest {
     using Ve33Lib for Ve33;
 
     event VoteWeightApplied(address owner, StakeId stakeId, PoolId poolId, uint128 weight, uint64 swapFee);
+    event PoolFeesAccounted(PoolId poolId, uint128 amount0, uint128 amount1);
     event PoolFeesClaimed(PoolId poolId, address owner, StakeId stakeId, uint128 amount0, uint128 amount1);
 
     Ve33 internal ve;
@@ -600,18 +603,20 @@ contract Ve33Test is FullTest {
         uint64 swapFee = uint64(1 << 62);
         uint256 veId = _fundAndVote(poolKey, swapFee);
 
+        uint128 expectedFee = computeFee(100_000, swapFee);
+        vm.expectEmit(address(ve));
+        emit PoolFeesAccounted(poolKey.toPoolId(), expectedFee, 0);
         _routerSwap(poolKey, false, 100_000, address(this));
 
-        uint128 expectedFee = computeFee(100_000, swapFee);
         (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
         assertEq(saved0, expectedFee);
         assertEq(saved1, 0);
 
         uint256 balanceBefore = token0.balanceOf(address(this));
-        (uint128 emptyClaim0, uint128 emptyClaim1) = forwarder.claimPoolFees(_stakeId(veId), poolKey);
-        assertEq(emptyClaim0, 0);
-        assertEq(emptyClaim1, 0);
+        StakeId stakeId = _stakeId(veId);
+        vm.expectRevert(Ve33.PoolNotVoted.selector);
+        forwarder.claimPoolFees(stakeId, poolKey);
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
         assertApproxEqAbs(claimed0, expectedFee, 2);
         assertEq(claimed1, 0);
@@ -621,6 +626,23 @@ contract Ve33Test is FullTest {
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
         assertEq(saved0, expectedFee - claimed0);
         assertEq(saved1, 0);
+
+        FeesPerLiquidity memory snapshotBefore = ve.vePoolFeeGrowthSnapshot(address(veToken), stakeId);
+        vm.recordLogs();
+        (uint128 zeroClaim0, uint128 zeroClaim1) = veToken.claimPoolFeesToSelf(veId, poolKey);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(zeroClaim0, 0);
+        assertEq(zeroClaim1, 0);
+        FeesPerLiquidity memory snapshotAfter = ve.vePoolFeeGrowthSnapshot(address(veToken), stakeId);
+        assertEq(snapshotAfter.value0, snapshotBefore.value0);
+        assertEq(snapshotAfter.value1, snapshotBefore.value1);
+
+        bytes32 poolFeesClaimedTopic = keccak256("PoolFeesClaimed(bytes32,address,bytes32,uint128,uint128)");
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(ve) && logs[i].topics.length != 0) {
+                assertNotEq(logs[i].topics[0], poolFeesClaimedTopic);
+            }
+        }
     }
 
     function test_veTokenClaimPoolFees_requiresAuthorizationAndSupportsRecipient() public {
@@ -644,6 +666,11 @@ contract Ve33Test is FullTest {
         veToken.claimPoolFeesToSelf(veId, poolKey);
 
         veToken.approve(operator, veId);
+
+        (PoolKey memory otherPoolKey,) = _createConcentratedPool(256, bytes24("other-pool"));
+        vm.expectRevert(Ve33.PoolNotVoted.selector);
+        vm.prank(operator);
+        veToken.claimPoolFees(veId, otherPoolKey, recipient);
 
         uint256 recipientBalanceBefore = token0.balanceOf(recipient);
         StakeId stakeId = _stakeId(veId);

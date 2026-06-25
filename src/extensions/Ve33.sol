@@ -98,6 +98,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     error SwapMustHappenThroughForward();
     /// @notice Thrown when a pool key is not valid for this extension.
     error InvalidPoolKey();
+    /// @notice Thrown when claiming voter fees for a pool the stake did not vote for.
+    error PoolNotVoted();
     /// @notice Thrown when a Ve33 pool uses a nonzero Core fee.
     error FeeMustBeZero();
     /// @notice Thrown when a concentrated Ve33 pool tick spacing is not a power of four.
@@ -529,15 +531,14 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
         unchecked {
-            PoolId poolId = poolKey.toPoolId();
             checkValidPoolKey(poolKey);
+            PoolId poolId = poolKey.toPoolId();
             PoolState stateBefore = CORE.poolState(poolId);
             _accumulatePoolRewards(poolId, stateBefore.liquidity());
 
-            bool isConcentrated = poolKey.config.isConcentrated();
             uint64 swapFee = _poolFeeState(poolId).swapFee();
-            int128 fee0;
-            int128 fee1;
+            uint128 feeAmount;
+            bool feeIsToken1;
             uint128 exactInMaxFee;
             SwapParameters coreParams = params;
             bool exactOut = params.isExactOut();
@@ -563,26 +564,42 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
                     uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
                     int128 fee =
                         SafeCastLib.toInt128(exactOut ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee));
-                    fee0 = fee;
+                    feeAmount = uint128(uint256(int256(fee)));
                     balanceUpdate = createPoolBalanceUpdate(delta0 + fee, delta1);
                 } else if (delta1 > 0) {
                     uint128 inputAmount = uint128(uint256(int256(delta1)));
                     uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
                     int128 fee =
                         SafeCastLib.toInt128(exactOut ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee));
-                    fee1 = fee;
+                    feeAmount = uint128(uint256(int256(fee)));
+                    feeIsToken1 = true;
                     balanceUpdate = createPoolBalanceUpdate(delta0, delta1 + fee);
                 }
 
-                if (fee0 != 0 || fee1 != 0) {
+                if (feeAmount != 0) {
+                    int256 feeDelta = int256(uint256(feeAmount));
                     CORE.updateSavedBalances(
-                        poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID, fee0, fee1
+                        poolKey.token0,
+                        poolKey.token1,
+                        VE33_POOL_FEES_SAVED_BALANCE_ID,
+                        feeIsToken1 ? int256(0) : feeDelta,
+                        feeIsToken1 ? feeDelta : int256(0)
                     );
-                    _accountPoolFees(poolId, uint128(uint256(int256(fee0))), uint128(uint256(int256(fee1))));
+
+                    uint128 weight = _poolTotalWeight(poolId);
+                    if (weight != 0) {
+                        StorageSlot feeGrowthSlot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
+                        if (feeIsToken1) feeGrowthSlot = feeGrowthSlot.next();
+                        feeGrowthSlot.store(
+                            bytes32(uint256(feeGrowthSlot.load()) + ((uint256(feeAmount) << 128) / weight))
+                        );
+                    }
+
+                    emit PoolFeesAccounted(poolId, feeIsToken1 ? 0 : feeAmount, feeIsToken1 ? feeAmount : 0);
                 }
             }
 
-            if (isConcentrated) {
+            if (poolKey.config.isConcentrated()) {
                 _updateCrossedTicks(
                     poolId,
                     stateBefore.tick(),
@@ -691,26 +708,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         emit StakeChanged(owner, stakeId, -int256(uint256(unstaked)));
     }
 
-    /// @notice Adds swap fees to a pool's voter fee-growth accumulators.
-    /// @param poolId Pool receiving fees.
-    /// @param amount0 Token0 fee amount.
-    /// @param amount1 Token1 fee amount.
-    function _accountPoolFees(PoolId poolId, uint128 amount0, uint128 amount1) private {
-        uint128 weight = _poolTotalWeight(poolId);
-        if (weight != 0) {
-            FeesPerLiquidity memory feeGrowthDelta =
-                feesPerLiquidityFromAmounts({amount0: amount0, amount1: amount1, liquidity: weight});
-            FeesPerLiquidity memory feeGrowth = _poolFeeGrowth(poolId);
-            unchecked {
-                feeGrowth.value0 += feeGrowthDelta.value0;
-                feeGrowth.value1 += feeGrowthDelta.value1;
-            }
-            _setPoolFeeGrowth(poolId, feeGrowth);
-        }
-
-        emit PoolFeesAccounted(poolId, amount0, amount1);
-    }
-
     /// @notice Claims accrued voter fees while this extension is handling a forwarded call.
     /// @dev Subtracts fees from the extension's saved balance. The forwarding locker withdraws the tokens.
     /// @param owner Locker representation that owns the stake.
@@ -722,21 +719,17 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         private
         returns (uint128 amount0, uint128 amount1)
     {
-        checkValidPoolKey(poolKey);
-
         PoolId poolId = poolKey.toPoolId();
+        if (PoolId.unwrap(poolId) != PoolId.unwrap(_votedPoolId(owner, stakeId))) revert PoolNotVoted();
+
         VePoolVote veVote = _vePoolVote(owner, stakeId);
-        if (veVote.weight() == 0 || PoolId.unwrap(_votedPoolId(owner, stakeId)) != PoolId.unwrap(poolId)) {
-            emit PoolFeesClaimed(poolId, owner, stakeId, 0, 0);
-            return (0, 0);
-        }
 
         FeesPerLiquidity memory feeGrowth = _poolFeeGrowth(poolId);
         FeesPerLiquidity memory feeGrowthSnapshot = _vePoolFeeGrowthSnapshot(owner, stakeId);
         (amount0, amount1) = veVote.fees(feeGrowth, feeGrowthSnapshot);
-        _setVePoolFeeGrowthSnapshot(owner, stakeId, feeGrowth);
 
         if (amount0 != 0 || amount1 != 0) {
+            _setVePoolFeeGrowthSnapshot(owner, stakeId, feeGrowth);
             CORE.updateSavedBalances(
                 poolKey.token0,
                 poolKey.token1,
@@ -744,9 +737,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
                 -int256(uint256(amount0)),
                 -int256(uint256(amount1))
             );
-        }
 
-        emit PoolFeesClaimed(poolId, owner, stakeId, amount0, amount1);
+            emit PoolFeesClaimed(poolId, owner, stakeId, amount0, amount1);
+        }
     }
 
     /// @notice Schedules global ve emissions for a chosen valid time range.

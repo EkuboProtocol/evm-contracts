@@ -1,7 +1,7 @@
 {
-  "VeToken#createStake": "153779",
+  "VeToken#createStake": "153788",
   "VeToken#extendStake": "38255",
-  "VeToken#increaseStakeAmount": "34527",
+  "VeToken#increaseStakeAmount": "34536",
   "VeToken#mergeStakes": "28033",
   "VeToken#splitStake": "70408",
   "VeToken#stakeId": "2961",
@@ -9,5 +9,5 @@
   "VeToken#tokenURI gas": "409896",
   "VeToken#transferFrom": "31259",
   "VeToken#votingPower": "5952",
-  "VeToken#withdrawStake": "36795"
+  "VeToken#withdrawStake": "36801"
 }

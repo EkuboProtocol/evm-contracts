@@ -20,7 +20,7 @@ import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {Ve33StorageLayout} from "../../src/libraries/Ve33StorageLayout.sol";
-import {amountBeforeFee, computeFee} from "../../src/math/fee.sol";
+import {computeFee} from "../../src/math/fee.sol";
 import {nextValidTime} from "../../src/math/time.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
@@ -603,29 +603,47 @@ contract Ve33Test is FullTest {
         uint64 swapFee = uint64(1 << 62);
         uint256 veId = _fundAndVote(poolKey, swapFee);
 
-        uint128 expectedFee = computeFee(100_000, swapFee);
-        vm.expectEmit(address(ve));
-        emit PoolFeesAccounted(poolKey.toPoolId(), expectedFee, 0);
-        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.recordLogs();
+        PoolBalanceUpdate balanceUpdate = _routerSwap(poolKey, false, 100_000, address(this));
+        Vm.Log[] memory swapLogs = vm.getRecordedLogs();
 
         (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        assertEq(saved0, expectedFee);
-        assertEq(saved1, 0);
+        uint128 outputAfterFee = uint128(uint256(-int256(balanceUpdate.delta1())));
+        uint128 expectedFee = computeFee(outputAfterFee + saved1, swapFee);
+        assertEq(saved0, 0);
+        assertEq(saved1, expectedFee);
 
-        uint256 balanceBefore = token0.balanceOf(address(this));
+        bytes32 poolFeesAccountedTopic = keccak256("PoolFeesAccounted(bytes32,uint128,uint128)");
+        bool sawPoolFeesAccounted;
+        for (uint256 i = 0; i < swapLogs.length; i++) {
+            if (
+                swapLogs[i].emitter == address(ve) && swapLogs[i].topics.length != 0
+                    && swapLogs[i].topics[0] == poolFeesAccountedTopic
+            ) {
+                (PoolId emittedPoolId, uint128 amount0, uint128 amount1) =
+                    abi.decode(swapLogs[i].data, (PoolId, uint128, uint128));
+                assertEq(PoolId.unwrap(emittedPoolId), PoolId.unwrap(poolKey.toPoolId()));
+                assertEq(amount0, 0);
+                assertEq(amount1, expectedFee);
+                sawPoolFeesAccounted = true;
+            }
+        }
+        assertTrue(sawPoolFeesAccounted);
+
+        uint256 balanceBefore = token1.balanceOf(address(this));
         StakeId stakeId = _stakeId(veId);
         vm.expectRevert(Ve33.PoolNotVoted.selector);
         forwarder.claimPoolFees(stakeId, poolKey);
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
-        assertApproxEqAbs(claimed0, expectedFee, 2);
-        assertEq(claimed1, 0);
-        assertEq(token0.balanceOf(address(this)), balanceBefore + claimed0);
+        assertEq(claimed0, 0);
+        assertApproxEqAbs(claimed1, expectedFee, 2);
+        assertEq(token1.balanceOf(address(this)), balanceBefore + claimed1);
 
         (saved0, saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        assertEq(saved0, expectedFee - claimed0);
-        assertEq(saved1, 0);
+        assertEq(saved0, 0);
+        assertEq(saved1, expectedFee - claimed1);
 
         FeesPerLiquidity memory snapshotBefore = ve.vePoolFeeGrowthSnapshot(address(veToken), stakeId);
         vm.recordLogs();
@@ -672,7 +690,7 @@ contract Ve33Test is FullTest {
         vm.prank(operator);
         veToken.claimPoolFees(veId, otherPoolKey, recipient);
 
-        uint256 recipientBalanceBefore = token0.balanceOf(recipient);
+        uint256 recipientBalanceBefore = token1.balanceOf(recipient);
         StakeId stakeId = _stakeId(veId);
         PoolId poolId = poolKey.toPoolId();
         (uint128 expected0, uint128 expected1) = ve.vePoolVote(address(veToken), stakeId)
@@ -681,21 +699,21 @@ contract Ve33Test is FullTest {
         emit PoolFeesClaimed(poolId, address(veToken), stakeId, expected0, expected1);
         vm.prank(operator);
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey, recipient);
-        assertGt(claimed0, 0);
-        assertEq(claimed1, 0);
+        assertEq(claimed0, 0);
+        assertGt(claimed1, 0);
         assertEq(claimed0, expected0);
         assertEq(claimed1, expected1);
-        assertEq(token0.balanceOf(recipient), recipientBalanceBefore + claimed0);
-        assertEq(token0.balanceOf(operator), 0);
+        assertEq(token1.balanceOf(recipient), recipientBalanceBefore + claimed1);
+        assertEq(token1.balanceOf(operator), 0);
 
         _routerSwap(poolKey, false, 100_000, address(this));
 
-        uint256 operatorBalanceBefore = token0.balanceOf(operator);
+        uint256 operatorBalanceBefore = token1.balanceOf(operator);
         vm.prank(operator);
         (claimed0, claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
-        assertGt(claimed0, 0);
-        assertEq(claimed1, 0);
-        assertEq(token0.balanceOf(operator), operatorBalanceBefore + claimed0);
+        assertEq(claimed0, 0);
+        assertGt(claimed1, 0);
+        assertEq(token1.balanceOf(operator), operatorBalanceBefore + claimed1);
     }
 
     function test_forwardedExactInputPartialToken0SwapAccountsExecutedInputFee() public {
@@ -713,11 +731,12 @@ contract Ve33Test is FullTest {
         PoolBalanceUpdate balanceUpdate = _routerSwap(poolKey, params, address(this));
         (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        uint128 coreInput = uint128(uint256(int256(balanceUpdate.delta0()))) - saved0;
+        uint128 outputAfterFee = uint128(uint256(-int256(balanceUpdate.delta1())));
 
-        assertEq(saved0, amountBeforeFee(coreInput, swapFee) - coreInput);
-        assertLt(saved0, computeFee(amount, swapFee));
-        assertEq(saved1, 0);
+        assertEq(saved0, 0);
+        assertEq(saved1, computeFee(outputAfterFee + saved1, swapFee));
+        assertGt(saved1, 0);
+        assertLe(uint128(uint256(int256(balanceUpdate.delta0()))), amount);
     }
 
     function test_forwardedExactInputPartialToken1SwapAccountsExecutedInputFee() public {
@@ -735,11 +754,12 @@ contract Ve33Test is FullTest {
         PoolBalanceUpdate balanceUpdate = _routerSwap(poolKey, params, address(this));
         (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        uint128 coreInput = uint128(uint256(int256(balanceUpdate.delta1()))) - saved1;
+        uint128 outputAfterFee = uint128(uint256(-int256(balanceUpdate.delta0())));
 
-        assertEq(saved0, 0);
-        assertEq(saved1, amountBeforeFee(coreInput, swapFee) - coreInput);
-        assertLt(saved1, computeFee(amount, swapFee));
+        assertEq(saved0, computeFee(outputAfterFee + saved0, swapFee));
+        assertGt(saved0, 0);
+        assertEq(saved1, 0);
+        assertLe(uint128(uint256(int256(balanceUpdate.delta1()))), amount);
     }
 
     function test_forwardedSwapCoversToken1AndExactOutFeeBranches() public {
@@ -748,9 +768,9 @@ contract Ve33Test is FullTest {
         _fundAndVote(poolKey, uint64(1 << 62));
 
         _routerSwap(poolKey, true, 100_000, address(this));
-        (, uint128 saved1AfterExactIn) =
+        (uint128 saved0AfterExactIn,) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        assertGt(saved1AfterExactIn, 0);
+        assertGt(saved0AfterExactIn, 0);
 
         SwapParameters token1Out = createSwapParameters({
             _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: -int128(1_000), _isToken1: true, _skipAhead: 0
@@ -758,7 +778,7 @@ contract Ve33Test is FullTest {
         _routerSwap(poolKey, token1Out, address(this));
         (uint128 saved0AfterExactOut,) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        assertGt(saved0AfterExactOut, 0);
+        assertGt(saved0AfterExactOut, saved0AfterExactIn);
 
         SwapParameters token0Out = createSwapParameters({
             _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: -int128(1_000), _isToken1: false, _skipAhead: 0
@@ -766,7 +786,7 @@ contract Ve33Test is FullTest {
         _routerSwap(poolKey, token0Out, address(this));
         (, uint128 saved1AfterExactOut) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        assertGt(saved1AfterExactOut, saved1AfterExactIn);
+        assertGt(saved1AfterExactOut, 0);
     }
 
     function test_zeroFeeVoteAndUnweightedFees() public {
@@ -836,8 +856,11 @@ contract Ve33Test is FullTest {
         StakeId sourceStakeId = _stakeId(veId);
         uint256 initialWeight = ve.vePoolVote(address(veToken), sourceStakeId).weight();
 
-        _routerSwap(poolKey, false, 100_000, address(this));
-        uint128 expectedFee = computeFee(100_000, votedFee);
+        PoolBalanceUpdate balanceUpdate = _routerSwap(poolKey, false, 100_000, address(this));
+        (, uint128 saved1) =
+            core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
+        uint128 outputAfterFee = uint128(uint256(-int256(balanceUpdate.delta1())));
+        uint128 expectedFee = computeFee(outputAfterFee + saved1, votedFee);
 
         uint256 splitVeId = veToken.splitStake(veId, 1e18);
         StakeId splitStakeId = _stakeId(splitVeId);
@@ -857,8 +880,8 @@ contract Ve33Test is FullTest {
         assertEq(ve.totalVoteWeight(), sourcePower);
 
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
-        assertApproxEqAbs(claimed0, expectedFee, 2);
-        assertEq(claimed1, 0);
+        assertEq(claimed0, 0);
+        assertApproxEqAbs(claimed1, expectedFee, 2);
     }
 
     function test_splitStakesVoteMultiplePoolsIndependently() public {
@@ -909,18 +932,19 @@ contract Ve33Test is FullTest {
         assertEq(feeWeightSum, weight0 * fee0 + weight1 * fee1);
         assertEq(uint256(swapFee), feeWeightSum / totalWeight);
 
-        _routerSwap(poolKey, false, 100_000, address(this));
-        (uint128 saved0,) =
+        PoolBalanceUpdate balanceUpdate = _routerSwap(poolKey, false, 100_000, address(this));
+        (, uint128 saved1) =
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
-        assertEq(saved0, computeFee(100_000, swapFee));
+        uint128 outputAfterFee = uint128(uint256(-int256(balanceUpdate.delta1())));
+        assertEq(saved1, computeFee(outputAfterFee + saved1, swapFee));
 
         (uint128 claimed0A, uint128 claimed1A) = veToken.claimPoolFeesToSelf(veId0, poolKey);
         (uint128 claimed0B, uint128 claimed1B) = veToken.claimPoolFeesToSelf(veId1, poolKey);
-        assertEq(claimed1A, 0);
-        assertEq(claimed1B, 0);
-        assertApproxEqAbs(claimed0A, (uint256(saved0) * weight0) / totalWeight, 1);
-        assertApproxEqAbs(claimed0B, (uint256(saved0) * weight1) / totalWeight, 1);
-        assertApproxEqAbs(uint256(claimed0A) + claimed0B, saved0, 2);
+        assertEq(claimed0A, 0);
+        assertEq(claimed0B, 0);
+        assertApproxEqAbs(claimed1A, (uint256(saved1) * weight0) / totalWeight, 1);
+        assertApproxEqAbs(claimed1B, (uint256(saved1) * weight1) / totalWeight, 1);
+        assertApproxEqAbs(uint256(claimed1A) + claimed1B, saved1, 2);
     }
 
     function test_stakeActionsReturnUsefulAmounts() public {
@@ -1320,6 +1344,40 @@ contract Ve33Test is FullTest {
 
         _updatePosition(stablePool, stablePosition, -int128(_positionLiquidity(stablePool, stablePosition)));
         assertEq(ve.tickRewardsOutsidePerLiquidity(stablePoolId, upper), 0);
+    }
+
+    function test_concentratedRewardsPauseWhilePositionIsOutOfRangeAcrossCrossings() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        PositionId upperPositionId = _mintPosition(64, 128);
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _updatePosition(poolKey, upperPositionId, int128(uint128(2e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(30_000, _defaultEmissionEnd());
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
+
+        SwapParameters upToUpper = createSwapParameters({
+            _sqrtRatioLimit: tickToSqrtRatio(65), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
+        });
+        _routerSwap(poolKey, upToUpper, address(this));
+        assertGe(core.poolState(poolKey.toPoolId()).tick(), 64);
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+        assertEq(_claimRewards(poolKey, positionId, address(this)), 0);
+        assertGt(_claimRewards(poolKey, upperPositionId, address(this)), 0);
+
+        SwapParameters downIntoRange = createSwapParameters({
+            _sqrtRatioLimit: tickToSqrtRatio(0), _amount: int128(1e30), _isToken1: false, _skipAhead: 0
+        });
+        _routerSwap(poolKey, downIntoRange, address(this));
+        PoolState stateAfterReenteringRange = core.poolState(poolKey.toPoolId());
+        assertGe(stateAfterReenteringRange.tick(), -64);
+        assertLt(stateAfterReenteringRange.tick(), 64);
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 
     function test_claimRewardsOverflowReverts() public {

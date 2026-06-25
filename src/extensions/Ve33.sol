@@ -26,7 +26,7 @@ import {PositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {StakeId} from "../types/stakeId.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
-import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "../types/feesPerLiquidity.sol";
 import {VePoolFeeState, createVePoolFeeState} from "../types/vePoolFeeState.sol";
 import {VePoolVote, createVePoolVote} from "../types/vePoolVote.sol";
@@ -138,10 +138,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         override(BaseExtension)
         onlyCore
     {
-        checkValidPoolKey(poolKey);
-
         PoolId poolId = poolKey.toPoolId();
-        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
+        _accumulatePoolRewards({poolId: poolId, liquidity: 0});
     }
 
     /// @notice Rejects direct Core swaps.
@@ -521,7 +519,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     }
 
     /// @notice Executes a forward-only swap and accounts voter fees.
-    /// @dev For exact input, the Core swap amount is reduced by the extension fee; for exact output, input is grossed up.
+    /// @dev Fees are accounted in the unspecified token: output for exact input, input for exact output.
     /// @param poolKey Pool to swap against.
     /// @param params Swap parameters supplied by the router/caller.
     /// @return balanceUpdate Balance deltas including extension fees.
@@ -538,64 +536,53 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
             uint64 swapFee = _poolFeeState(poolId).swapFee();
             uint128 feeAmount;
-            bool feeIsToken1;
-            uint128 exactInMaxFee;
-            SwapParameters coreParams = params;
+            bool feeIsToken1 = !params.isToken1();
             bool exactOut = params.isExactOut();
 
-            if (swapFee != 0 && !exactOut) {
-                uint128 amount = uint128(uint256(int256(params.amount())));
-                uint128 fee = exactInMaxFee = computeFee(amount, swapFee);
-                coreParams = createSwapParameters(
-                    params.sqrtRatioLimit(),
-                    SafeCastLib.toInt128(uint256(amount - fee)),
-                    params.isToken1(),
-                    params.skipAhead()
-                );
-            }
-
-            (balanceUpdate, stateAfter) = CORE.swap(0, poolKey, coreParams);
+            (balanceUpdate, stateAfter) = CORE.swap(0, poolKey, params);
 
             if (swapFee != 0) {
                 int128 delta0 = balanceUpdate.delta0();
                 int128 delta1 = balanceUpdate.delta1();
-                if (delta0 > 0) {
-                    uint128 inputAmount = uint128(uint256(int256(delta0)));
-                    uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
-                    int128 fee =
-                        SafeCastLib.toInt128(exactOut ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee));
-                    feeAmount = uint128(uint256(int256(fee)));
-                    balanceUpdate = createPoolBalanceUpdate(delta0 + fee, delta1);
-                } else if (delta1 > 0) {
-                    uint128 inputAmount = uint128(uint256(int256(delta1)));
-                    uint128 inputFee = amountBeforeFee(inputAmount, swapFee) - inputAmount;
-                    int128 fee =
-                        SafeCastLib.toInt128(exactOut ? inputFee : FixedPointMathLib.min(inputFee, exactInMaxFee));
-                    feeAmount = uint128(uint256(int256(fee)));
-                    feeIsToken1 = true;
-                    balanceUpdate = createPoolBalanceUpdate(delta0, delta1 + fee);
+                int128 feeTokenDelta = feeIsToken1 ? delta1 : delta0;
+
+                if (feeTokenDelta != 0 && exactOut == (feeTokenDelta > 0)) {
+                    int256 signedFeeTokenDelta = int256(feeTokenDelta);
+                    uint128 amount = uint128(
+                        FixedPointMathLib.ternary(exactOut, uint256(signedFeeTokenDelta), uint256(-signedFeeTokenDelta))
+                    );
+                    feeAmount = exactOut ? amountBeforeFee(amount, swapFee) - amount : computeFee(amount, swapFee);
+
+                    int128 updatedFeeTokenDelta = SafeCastLib.toInt128(signedFeeTokenDelta + int256(uint256(feeAmount)));
+                    if (feeIsToken1) {
+                        delta1 = updatedFeeTokenDelta;
+                    } else {
+                        delta0 = updatedFeeTokenDelta;
+                    }
+                    balanceUpdate = createPoolBalanceUpdate(delta0, delta1);
                 }
 
                 if (feeAmount != 0) {
-                    int256 feeDelta = int256(uint256(feeAmount));
+                    uint128 feeAmount0 = uint128(FixedPointMathLib.ternary(feeIsToken1, 0, feeAmount));
+                    uint128 feeAmount1 = uint128(FixedPointMathLib.ternary(feeIsToken1, feeAmount, 0));
                     CORE.updateSavedBalances(
                         poolKey.token0,
                         poolKey.token1,
                         VE33_POOL_FEES_SAVED_BALANCE_ID,
-                        feeIsToken1 ? int256(0) : feeDelta,
-                        feeIsToken1 ? feeDelta : int256(0)
+                        int256(uint256(feeAmount0)),
+                        int256(uint256(feeAmount1))
                     );
 
                     uint128 weight = _poolTotalWeight(poolId);
                     if (weight != 0) {
-                        StorageSlot feeGrowthSlot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
-                        if (feeIsToken1) feeGrowthSlot = feeGrowthSlot.next();
+                        StorageSlot feeGrowthSlot = Ve33StorageLayout.poolFeeGrowthSlot(poolId)
+                            .add(FixedPointMathLib.ternary(feeIsToken1, 1, 0));
                         feeGrowthSlot.store(
                             bytes32(uint256(feeGrowthSlot.load()) + ((uint256(feeAmount) << 128) / weight))
                         );
                     }
 
-                    emit PoolFeesAccounted(poolId, feeIsToken1 ? 0 : feeAmount, feeIsToken1 ? feeAmount : 0);
+                    emit PoolFeesAccounted(poolId, feeAmount0, feeAmount1);
                 }
             }
 
@@ -969,7 +956,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
             if (emissionRewardsAccrued != 0) {
                 if (liquidity != 0) {
-                    if (emissionRewardsAccrued > type(uint128).max) revert RewardAmountOverflow();
                     _setRewardsGlobalPerLiquidity(
                         poolId, _rewardsGlobalPerLiquidity(poolId) + ((emissionRewardsAccrued << 128) / liquidity)
                     );
@@ -1048,9 +1034,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
         uint256 rewardsGlobalPerLiquidity_ = _rewardsGlobalPerLiquidity(poolId);
 
-        bool priceIncreasing = tickAfter > tickBefore;
-        if (!priceIncreasing) {
-            int32 tick = tickBefore;
+        int32 tick = tickBefore;
+        if (tickAfter < tickBefore) {
             while (true) {
                 bool initialized;
                 (tick, initialized) = CORE.prevInitializedTick(poolId, tick, tickSpacing, skipAhead);
@@ -1062,9 +1047,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
                     tick--;
                 }
             }
-        }
-        if (priceIncreasing) {
-            int32 tick = tickBefore;
+        } else {
             while (true) {
                 bool initialized;
                 (tick, initialized) = CORE.nextInitializedTick(poolId, tick, tickSpacing, skipAhead);

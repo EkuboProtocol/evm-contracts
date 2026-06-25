@@ -42,8 +42,9 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
     /// @dev Token ids start at 1 and are used directly as Ve33 stake salts.
     uint256 public nextVeId = 1;
 
-    /// @notice Thrown when a stake update is invalid for this wrapper.
-    error InvalidStake();
+    /// @notice Thrown when a token id cannot be represented as a Ve33 stake salt.
+    /// @param veId The ERC721 token id.
+    error StakeSaltOverflow(uint256 veId);
 
     /// @notice Thrown when a caller is not the ERC721 owner or approved account for a represented stake.
     /// @param caller The unauthorized caller.
@@ -179,7 +180,6 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
     /// @param end The new stake end timestamp.
     function extendStake(uint256 veId, uint64 end) external authorizedForStake(veId) {
         uint64 currentEnd = _stakeEndTime(veId);
-        if (end <= currentEnd) revert InvalidStake();
 
         StakeId currentStakeId = createStakeId(_stakeSalt(veId), currentEnd);
         uint128 amount = ve33.stakeAmount(address(this), currentStakeId);
@@ -195,8 +195,6 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
     function splitStake(uint256 veId, uint128 amount) external authorizedForStake(veId) returns (uint256 splitVeId) {
         uint64 end = _stakeEndTime(veId);
         StakeId fromStakeId = createStakeId(_stakeSalt(veId), end);
-        uint128 currentAmount = ve33.stakeAmount(address(this), fromStakeId);
-        if (amount == 0 || amount >= currentAmount) revert InvalidStake();
 
         splitVeId = nextVeId;
         unchecked {
@@ -208,7 +206,8 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
     }
 
     /// @notice Merges one represented stake into another represented stake.
-    /// @dev The caller must own or be approved for both tokens. The destination end becomes the greater end time.
+    /// @dev The caller must own or be approved for both tokens. The destination stake id is kept unchanged, so `fromVeId`
+    ///      must not end after `toVeId`.
     /// @param fromVeId The ERC721 token id whose entire stake is moved and then burned.
     /// @param toVeId The ERC721 token id receiving the stake.
     /// @return nextAmount Destination stake amount after the merge.
@@ -218,25 +217,15 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
         authorizedForStake(toVeId)
         returns (uint128 nextAmount)
     {
-        if (fromVeId == toVeId) revert InvalidStake();
-
         uint64 fromEnd = _stakeEndTime(fromVeId);
         uint64 toEnd = _stakeEndTime(toVeId);
-        uint64 mergedEnd = fromEnd > toEnd ? fromEnd : toEnd;
 
         StakeId fromStakeId = createStakeId(_stakeSalt(fromVeId), fromEnd);
-        StakeId currentToStakeId = createStakeId(_stakeSalt(toVeId), toEnd);
-        StakeId mergedToStakeId = createStakeId(_stakeSalt(toVeId), mergedEnd);
+        StakeId toStakeId = createStakeId(_stakeSalt(toVeId), toEnd);
         uint128 amount = ve33.stakeAmount(address(this), fromStakeId);
-        if (amount == 0) return ve33.stakeAmount(address(this), currentToStakeId);
+        if (amount == 0) return ve33.stakeAmount(address(this), toStakeId);
 
-        if (toEnd != mergedEnd) {
-            uint128 toAmount = ve33.stakeAmount(address(this), currentToStakeId);
-            if (toAmount != 0) ve33.moveStake(currentToStakeId, mergedToStakeId, toAmount);
-            _setExtraData(toVeId, mergedEnd);
-        }
-
-        nextAmount = ve33.moveStake(fromStakeId, mergedToStakeId, amount);
+        nextAmount = ve33.moveStake(fromStakeId, toStakeId, amount);
 
         _burn(fromVeId);
         _setExtraData(fromVeId, 0);
@@ -335,7 +324,7 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
 
     /// @notice Converts an ERC721 id into the stake salt used by Ve33.
     function _stakeSalt(uint256 veId) private pure returns (bytes24 salt) {
-        if (veId > type(uint192).max) revert InvalidStake();
+        if (veId > type(uint192).max) revert StakeSaltOverflow(veId);
         assembly ("memory-safe") {
             salt := shl(64, veId)
         }

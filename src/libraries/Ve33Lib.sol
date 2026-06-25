@@ -141,7 +141,7 @@ library Ve33Lib {
     }
 
     /// @notice Encodes a Ve33 global-emission schedule call.
-    function encodeScheduleEmissions(uint64 startTime, uint64 endTime, uint224 rewardRate)
+    function encodeScheduleEmissions(uint32 startTime, uint32 endTime, uint224 rewardRate)
         internal
         pure
         returns (bytes memory)
@@ -155,7 +155,7 @@ library Ve33Lib {
     }
 
     /// @notice Schedules global Ve33 emissions through Core.
-    function scheduleEmissions(ICore core, Ve33 ve33, uint64 startTime, uint64 endTime, uint224 rewardRate)
+    function scheduleEmissions(ICore core, Ve33 ve33, uint32 startTime, uint32 endTime, uint224 rewardRate)
         internal
         returns (uint224 amount)
     {
@@ -172,12 +172,14 @@ library Ve33Lib {
     /// @notice Returns current linearly decaying voting power for a canonical stake key.
     function votingPower(Ve33 ve33, address owner, StakeId stakeId) internal view returns (uint128 power) {
         uint64 endTime = stakeId.endTime();
-        if (block.timestamp >= endTime) return 0;
+        uint64 secondsUntilEnd;
+        unchecked {
+            secondsUntilEnd = endTime - uint64(block.timestamp);
+        }
+        if (secondsUntilEnd == 0 || secondsUntilEnd > VE33_MAX_STAKE_DURATION) return 0;
 
         unchecked {
-            power = uint128(
-                (uint256(stakeAmount(ve33, owner, stakeId)) * (endTime - block.timestamp)) / VE33_MAX_STAKE_DURATION
-            );
+            power = uint128((uint256(stakeAmount(ve33, owner, stakeId)) * secondsUntilEnd) / VE33_MAX_STAKE_DURATION);
         }
     }
 
@@ -261,8 +263,8 @@ library Ve33Lib {
     }
 
     /// @notice Returns the last timestamp when global emissions were accrued.
-    function emissionsLastAccrued(Ve33 ve33) internal view returns (uint64) {
-        return uint64(uint256(ve33.sload(Ve33StorageLayout.emissionRateAndLastAccruedSlot())) >> 192);
+    function emissionsLastAccrued(Ve33 ve33) internal view returns (uint32) {
+        return uint32(uint256(ve33.sload(Ve33StorageLayout.emissionRateAndLastAccruedSlot())) >> 192);
     }
 
     /// @notice Returns one global emission initialized-time bitmap word.
@@ -271,7 +273,7 @@ library Ve33Lib {
     }
 
     /// @notice Returns the scheduled global emission-rate delta at `time`.
-    function emissionRateDeltaAtTime(Ve33 ve33, uint64 time) internal view returns (int256) {
+    function emissionRateDeltaAtTime(Ve33 ve33, uint32 time) internal view returns (int256) {
         return int256(uint256(ve33.sload(Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time))));
     }
 }

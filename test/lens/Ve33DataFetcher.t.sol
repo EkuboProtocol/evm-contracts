@@ -30,12 +30,18 @@ contract Ve33DataFetcherTest is FullTest {
         stakeToken.approve(address(periphery), type(uint256).max);
     }
 
-    function _nextValidEmissionTime(uint256 afterTime) internal view returns (uint64) {
-        return uint64(nextValidTime(vm.getBlockTimestamp(), afterTime));
+    function _nextValidEmissionTime(uint256 afterTime) internal view returns (uint32) {
+        return uint32(nextValidTime(vm.getBlockTimestamp(), afterTime));
     }
 
-    function _expectedEmissions(uint256 rate, uint64 startTime, uint64 endTime) internal pure returns (uint256) {
+    function _expectedEmissions(uint256 rate, uint256 startTime, uint256 endTime) internal pure returns (uint256) {
         return (rate * (endTime - startTime)) >> 32;
+    }
+
+    function _realEmissionTimeAtOrAfter(uint256 referenceTime, uint32 time) internal pure returns (uint256 realTime) {
+        unchecked {
+            realTime = referenceTime + (time - uint32(referenceTime));
+        }
     }
 
     function test_getEmissionState_empty() public {
@@ -52,7 +58,7 @@ contract Ve33DataFetcherTest is FullTest {
     function test_getEmissionState_immediateSchedule() public {
         vm.warp(1);
 
-        uint64 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
+        uint32 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
         uint224 rate = uint224(3 << 32);
         periphery.scheduleEmissions(0, endTime, rate);
 
@@ -60,7 +66,7 @@ contract Ve33DataFetcherTest is FullTest {
 
         assertEq(state.currentTimestamp, vm.getBlockTimestamp());
         assertEq(state.currentEmissionRate, rate);
-        assertEq(state.totalRemainingEmissions, _expectedEmissions(rate, uint64(vm.getBlockTimestamp()), endTime));
+        assertEq(state.totalRemainingEmissions, _expectedEmissions(rate, vm.getBlockTimestamp(), endTime));
         assertEq(state.futureEmissionRateChanges.length, 1);
 
         Ve33EmissionRateChange memory change = state.futureEmissionRateChanges[0];
@@ -72,7 +78,7 @@ contract Ve33DataFetcherTest is FullTest {
     function test_getEmissionState_aggregatesSameTimeChanges() public {
         vm.warp(1);
 
-        uint64 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
+        uint32 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
         uint224 rate0 = uint224(2 << 32);
         uint224 rate1 = uint224(5 << 32);
         uint256 totalRate = uint256(rate0) + uint256(rate1);
@@ -82,7 +88,7 @@ contract Ve33DataFetcherTest is FullTest {
         Ve33EmissionState memory state = dataFetcher.getEmissionState();
 
         assertEq(state.currentEmissionRate, totalRate);
-        assertEq(state.totalRemainingEmissions, _expectedEmissions(totalRate, uint64(vm.getBlockTimestamp()), endTime));
+        assertEq(state.totalRemainingEmissions, _expectedEmissions(totalRate, vm.getBlockTimestamp(), endTime));
         assertEq(state.futureEmissionRateChanges.length, 1);
         assertEq(state.futureEmissionRateChanges[0].time, endTime);
         assertEq(state.futureEmissionRateChanges[0].emissionRateDelta, -int256(totalRate));
@@ -92,14 +98,16 @@ contract Ve33DataFetcherTest is FullTest {
     function test_getEmissionState_appliesElapsedChangesWithoutMutatingVe33() public {
         vm.warp(1);
 
-        uint64 startTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1_000);
-        uint64 endTime = _nextValidEmissionTime(startTime);
+        uint32 startTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1_000);
+        uint32 endTime = _nextValidEmissionTime(startTime);
+        uint256 realStartTime = _realEmissionTimeAtOrAfter(vm.getBlockTimestamp(), startTime);
+        uint256 realEndTime = _realEmissionTimeAtOrAfter(realStartTime, endTime);
         uint224 rate = uint224(7 << 32);
         periphery.scheduleEmissions(startTime, endTime, rate);
 
         Ve33EmissionState memory beforeStart = dataFetcher.getEmissionState();
         assertEq(beforeStart.currentEmissionRate, 0);
-        assertEq(beforeStart.totalRemainingEmissions, _expectedEmissions(rate, startTime, endTime));
+        assertEq(beforeStart.totalRemainingEmissions, _expectedEmissions(rate, realStartTime, realEndTime));
         assertEq(beforeStart.futureEmissionRateChanges.length, 2);
         assertEq(beforeStart.futureEmissionRateChanges[0].time, startTime);
         assertEq(beforeStart.futureEmissionRateChanges[0].emissionRateDelta, int256(uint256(rate)));
@@ -114,7 +122,7 @@ contract Ve33DataFetcherTest is FullTest {
         assertEq(ve.emissionRate(), 0);
         assertEq(atStart.currentTimestamp, startTime);
         assertEq(atStart.currentEmissionRate, rate);
-        assertEq(atStart.totalRemainingEmissions, _expectedEmissions(rate, startTime, endTime));
+        assertEq(atStart.totalRemainingEmissions, _expectedEmissions(rate, realStartTime, realEndTime));
         assertEq(atStart.futureEmissionRateChanges.length, 1);
         assertEq(atStart.futureEmissionRateChanges[0].time, endTime);
         assertEq(atStart.futureEmissionRateChanges[0].emissionRateDelta, -int256(uint256(rate)));

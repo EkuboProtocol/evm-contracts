@@ -91,7 +91,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         PoolId poolId, address owner, StakeId stakeId, address recipient, uint128 amount0, uint128 amount1
     );
     /// @notice Emitted when global emissions are scheduled.
-    event EmissionsScheduled(address funder, uint64 startTime, uint64 endTime, uint224 rewardRate, uint224 amount);
+    event EmissionsScheduled(address funder, uint32 startTime, uint32 endTime, uint224 rewardRate, uint224 amount);
     /// @notice Emitted when a pool accrues its share of global emissions to LP rewards.
     event PoolEmissionsAccrued(PoolId poolId, uint256 amount);
     /// @notice Emitted when an LP position claims reward tokens.
@@ -123,7 +123,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param _stakeToken Token used for ve stakes and LP rewards.
     constructor(ICore core, address _stakeToken) BaseExtension(core) BaseForwardee(core) {
         stakeToken = _stakeToken;
-        _setEmissionRateAndLastAccrued({rate: 0, lastAccrued: uint64(block.timestamp)});
+        _setEmissionRateAndLastAccrued({rate: 0, lastAccrued: uint32(block.timestamp)});
     }
 
     /// @inheritdoc BaseExtension
@@ -170,12 +170,33 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @return power Current voting power.
     function _votingPower(address owner, StakeId stakeId) private view returns (uint128 power) {
         uint64 endTime = stakeId.endTime();
-        if (block.timestamp >= endTime) return 0;
+        uint64 secondsUntilEnd = _secondsUntilStakeEnd(endTime);
+        if (secondsUntilEnd == 0 || secondsUntilEnd > VE33_MAX_STAKE_DURATION) return 0;
 
         unchecked {
-            power = uint128(
-                (uint256(_stakeAmount(owner, stakeId)) * (endTime - block.timestamp)) / VE33_MAX_STAKE_DURATION
-            );
+            power = uint128((uint256(_stakeAmount(owner, stakeId)) * secondsUntilEnd) / VE33_MAX_STAKE_DURATION);
+        }
+    }
+
+    /// @notice Returns seconds until a uint64 stake timestamp, interpreted modulo 2**64.
+    function _secondsUntilStakeEnd(uint64 endTime) private view returns (uint64 secondsUntilEnd) {
+        unchecked {
+            secondsUntilEnd = endTime - uint64(block.timestamp);
+        }
+    }
+
+    /// @notice Returns the latest full timestamp at or before now matching a packed uint32 timestamp.
+    /// @dev Mirrors TWAMM's packed-time recovery for `lastVirtualOrderExecutionTime`.
+    function _realEmissionTimeAtOrBeforeNow(uint32 time) private view returns (uint256 realTime) {
+        unchecked {
+            realTime = block.timestamp - (uint32(block.timestamp) - time);
+        }
+    }
+
+    /// @notice Returns the earliest full timestamp at or after `referenceTime` matching a packed uint32 timestamp.
+    function _realEmissionTimeAtOrAfter(uint256 referenceTime, uint32 time) private pure returns (uint256 realTime) {
+        unchecked {
+            realTime = referenceTime + (time - uint32(referenceTime));
         }
     }
 
@@ -313,11 +334,11 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId).store(bytes32(value));
     }
 
-    function _emissionRateDeltaAtTime(uint64 time) private view returns (int256) {
+    function _emissionRateDeltaAtTime(uint32 time) private view returns (int256) {
         return int256(uint256(Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time).load()));
     }
 
-    function _setEmissionRateDeltaAtTime(uint64 time, int256 value) private {
+    function _setEmissionRateDeltaAtTime(uint32 time, int256 value) private {
         Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time).store(bytes32(uint256(value)));
     }
 
@@ -345,13 +366,13 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         Ve33StorageLayout.emissionGrowthGlobalX128Slot().store(bytes32(value));
     }
 
-    function _emissionRateAndLastAccrued() private view returns (uint192 rate, uint64 lastAccrued) {
+    function _emissionRateAndLastAccrued() private view returns (uint192 rate, uint32 lastAccrued) {
         uint256 packed = uint256(Ve33StorageLayout.emissionRateAndLastAccruedSlot().load());
         rate = uint192(packed);
-        lastAccrued = uint64(packed >> 192);
+        lastAccrued = uint32(packed >> 192);
     }
 
-    function _setEmissionRateAndLastAccrued(uint192 rate, uint64 lastAccrued) private {
+    function _setEmissionRateAndLastAccrued(uint192 rate, uint32 lastAccrued) private {
         Ve33StorageLayout.emissionRateAndLastAccruedSlot().store(bytes32(uint256(rate) | (uint256(lastAccrued) << 192)));
     }
 
@@ -361,14 +382,39 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param poolKey Pool receiving the stake's full active voting power.
     /// @param swapFee Explicit swap fee vote for the pool.
     function vote(StakeId stakeId, PoolKey calldata poolKey, uint64 swapFee) external {
-        _vote(msg.sender, stakeId, poolKey, swapFee);
+        uint128 power = _votingPower(msg.sender, stakeId);
+        if (power == 0) revert InvalidVote();
+
+        checkValidPoolKey(poolKey);
+
+        _clearVote(msg.sender, stakeId);
+
+        PoolId poolId = poolKey.toPoolId();
+        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
+
+        uint128 totalWeight = _poolTotalWeight(poolId);
+        uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
+
+        unchecked {
+            totalWeight += power;
+            feeWeightSum += uint192(uint256(power) * swapFee);
+            _setTotalVoteWeight(_totalVoteWeight() + power);
+        }
+        _setPoolTotalWeight(poolId, totalWeight);
+        _setPoolFeeState(poolId, feeWeightSum, totalWeight);
+
+        _setVotedPoolId(msg.sender, stakeId, poolId);
+        _setVePoolVote(msg.sender, stakeId, createVePoolVote(power, swapFee, uint64(block.timestamp)));
+        _setVePoolFeeGrowthSnapshot(msg.sender, stakeId, _poolFeeGrowth(poolId));
+
+        emit Voted(msg.sender, stakeId, poolId, power, swapFee);
     }
 
     /// @notice Clears the active vote for a stake owned by the caller.
     /// @dev Pending unclaimed voter fees for the stake's current pool are discarded.
     /// @param stakeId Stake whose vote is cleared.
     function clearVote(StakeId stakeId) external {
-        _clearVotes(msg.sender, stakeId);
+        _clearVote(msg.sender, stakeId);
     }
 
     /// @notice Moves stake between two stake keys owned by the caller.
@@ -379,7 +425,11 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @return nextAmount Destination stake amount after the move.
     function moveStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
         _validateNewStake(toStakeId, amount);
-        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId) || toStakeId.endTime() < fromStakeId.endTime()) {
+        uint64 moveDuration;
+        unchecked {
+            moveDuration = toStakeId.endTime() - fromStakeId.endTime();
+        }
+        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId) || moveDuration > VE33_MAX_STAKE_DURATION) {
             revert InvalidStake();
         }
 
@@ -408,7 +458,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
         if (amount >= currentAmount) revert InvalidStake();
 
-        _clearVotes(msg.sender, toStakeId);
+        _clearVote(msg.sender, toStakeId);
         _setStakeAmount(msg.sender, fromStakeId, currentAmount - amount);
         nextAmount = _stakeAmount(msg.sender, toStakeId) + amount;
         _setStakeAmount(msg.sender, toStakeId, nextAmount);
@@ -465,8 +515,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             (uint128 amount0, uint128 amount1) = _claimPoolFees(original.addr(), stakeId, poolKey, original.addr());
             result = abi.encode(amount0, amount1);
         } else if (callType == VE33_SCHEDULE_EMISSIONS) {
-            (, uint64 startTime, uint64 endTime, uint224 rewardRate) =
-                abi.decode(data, (uint256, uint64, uint64, uint224));
+            (, uint32 startTime, uint32 endTime, uint224 rewardRate) =
+                abi.decode(data, (uint256, uint32, uint32, uint224));
             result = abi.encode(_scheduleEmissions(original.addr(), startTime, endTime, rewardRate));
         } else {
             revert();
@@ -598,7 +648,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param amount Amount being staked or moved.
     function _validateNewStake(StakeId stakeId, uint128 amount) private view {
         uint64 endTime = stakeId.endTime();
-        if (amount == 0 || endTime <= block.timestamp || endTime > block.timestamp + VE33_MAX_STAKE_DURATION) {
+        uint64 secondsUntilEnd = _secondsUntilStakeEnd(endTime);
+        if (amount == 0 || secondsUntilEnd == 0 || secondsUntilEnd > VE33_MAX_STAKE_DURATION) {
             revert InvalidStake();
         }
     }
@@ -612,7 +663,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     function _stake(address owner, StakeId stakeId, uint128 amount) private returns (uint128 nextAmount) {
         _validateNewStake(stakeId, amount);
 
-        _clearVotes(owner, stakeId);
+        _clearVote(owner, stakeId);
         nextAmount = _stakeAmount(owner, stakeId) + amount;
         _setStakeAmount(owner, stakeId, nextAmount);
         CORE.updateSavedBalances(
@@ -632,50 +683,16 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         if (unstaked == 0) return 0;
 
         uint64 endTime = stakeId.endTime();
-        if (block.timestamp < endTime) revert InvalidStake();
+        uint64 secondsUntilEnd = _secondsUntilStakeEnd(endTime);
+        if (secondsUntilEnd != 0 && secondsUntilEnd <= VE33_MAX_STAKE_DURATION) revert InvalidStake();
 
-        _clearVotes(owner, stakeId);
+        _clearVote(owner, stakeId);
         _setStakeAmount(owner, stakeId, 0);
         CORE.updateSavedBalances(
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, -int256(uint256(unstaked)), 0
         );
 
         emit StakeChanged(owner, stakeId, -int256(uint256(unstaked)));
-    }
-
-    /// @notice Applies a stake's vote to pool accounting.
-    /// @dev Clears the previous vote first. Invalid pools and zero voting power revert.
-    /// @param owner Locker representation that owns the stake.
-    /// @param stakeId Stake whose voting power is allocated.
-    /// @param poolKey Pool receiving the stake's full active voting power.
-    /// @param swapFee Explicit swap fee vote for the pool.
-    function _vote(address owner, StakeId stakeId, PoolKey calldata poolKey, uint64 swapFee) private {
-        uint128 power = _votingPower(owner, stakeId);
-        if (power == 0) revert InvalidVote();
-
-        checkValidPoolKey(poolKey);
-
-        _clearVotes(owner, stakeId);
-
-        PoolId poolId = poolKey.toPoolId();
-        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
-
-        uint128 totalWeight = _poolTotalWeight(poolId);
-        uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
-
-        unchecked {
-            totalWeight += power;
-            feeWeightSum += uint192(uint256(power) * swapFee);
-            _setTotalVoteWeight(_totalVoteWeight() + power);
-        }
-        _setPoolTotalWeight(poolId, totalWeight);
-        _setPoolFeeState(poolId, feeWeightSum, totalWeight);
-
-        _setVotedPoolId(owner, stakeId, poolId);
-        _setVePoolVote(owner, stakeId, createVePoolVote(power, swapFee, uint64(block.timestamp)));
-        _setVePoolFeeGrowthSnapshot(owner, stakeId, _poolFeeGrowth(poolId));
-
-        emit Voted(owner, stakeId, poolId, power, swapFee);
     }
 
     /// @notice Adds swap fees to a pool's voter fee-growth accumulators.
@@ -742,14 +759,18 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param endTime Emission schedule end time.
     /// @param rewardRate Q32 global emission rate in stake tokens per second.
     /// @return amount Amount of `stakeToken` required by the schedule.
-    function _scheduleEmissions(address funder, uint64 startTime, uint64 endTime, uint224 rewardRate)
+    function _scheduleEmissions(address funder, uint32 startTime, uint32 endTime, uint224 rewardRate)
         private
         returns (uint224 amount)
     {
+        uint256 currentTime = block.timestamp;
+        uint256 realStartTime = startTime == 0 ? currentTime : _realEmissionTimeAtOrAfter(currentTime, startTime);
+        uint256 realEndTime = _realEmissionTimeAtOrAfter(realStartTime, endTime);
+
         if (
-            !isTimeValid({currentTime: block.timestamp, time: startTime})
-                || !isTimeValid({currentTime: block.timestamp, time: endTime}) || endTime <= startTime
-                || endTime <= block.timestamp
+            (startTime != 0 && !isTimeValid({currentTime: currentTime, time: realStartTime}))
+                || !isTimeValid({currentTime: currentTime, time: realEndTime}) || realEndTime <= realStartTime
+                || realEndTime <= currentTime
         ) {
             revert InvalidTimestamps();
         }
@@ -757,7 +778,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         _accrueEmissions();
 
         unchecked {
-            uint256 realDuration = uint256(endTime) - FixedPointMathLib.max(block.timestamp, startTime);
+            uint256 realDuration = realEndTime - FixedPointMathLib.max(currentTime, realStartTime);
             amount = uint224(((realDuration * rewardRate) + type(uint32).max) >> 32);
         }
 
@@ -768,10 +789,10 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         );
 
         int256 rewardRateDelta = int256(uint256(rewardRate));
-        if (startTime > block.timestamp) {
+        if (realStartTime > currentTime) {
             _updateEmissionTime(startTime, rewardRateDelta);
         } else {
-            (uint192 rate, uint64 lastAccrued) = _emissionRateAndLastAccrued();
+            (uint192 rate, uint32 lastAccrued) = _emissionRateAndLastAccrued();
             _setEmissionRateAndLastAccrued(uint192(_addEmissionRate(rate, rewardRateDelta)), lastAccrued);
         }
 
@@ -828,7 +849,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @dev Pending voter fees are discarded when a vote is fully cleared, matching zero-liquidity Core positions.
     /// @param owner Locker representation that owns the stake.
     /// @param stakeId Stake id whose votes are cleared.
-    function _clearVotes(address owner, StakeId stakeId) private {
+    function _clearVote(address owner, StakeId stakeId) private {
         PoolId poolId = _votedPoolId(owner, stakeId);
         VePoolVote veVote = _vePoolVote(owner, stakeId);
         uint128 weight = veVote.weight();
@@ -989,14 +1010,16 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
     /// @notice Accrues global emissions into global emission growth.
     function _accrueEmissions() private {
-        (uint192 rate, uint64 lastAccrued) = _emissionRateAndLastAccrued();
-        if (lastAccrued == block.timestamp) return;
+        (uint192 rate, uint32 lastAccrued) = _emissionRateAndLastAccrued();
+        uint256 currentTime = block.timestamp;
+        uint256 lastAccruedTime = _realEmissionTimeAtOrBeforeNow(lastAccrued);
+        if (lastAccruedTime == currentTime) return;
 
-        uint256 time = lastAccrued;
+        uint256 time = lastAccruedTime;
         uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
 
-        while (time != block.timestamp) {
-            (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccrued, time, block.timestamp);
+        while (time != currentTime) {
+            (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccruedTime, time, currentTime);
 
             uint128 weight = _totalVoteWeight();
             uint256 amount;
@@ -1007,15 +1030,15 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
                 emissionGrowthGlobalX128_ += FixedPointMathLib.fullMulDiv(amount, 1 << 128, weight);
             }
             if (initialized) {
-                rate = uint192(_addEmissionRate(rate, _emissionRateDeltaAtTime(uint64(eventTime))));
-                _setEmissionRateDeltaAtTime(uint64(eventTime), 0);
+                rate = uint192(_addEmissionRate(rate, _emissionRateDeltaAtTime(uint32(eventTime))));
+                _setEmissionRateDeltaAtTime(uint32(eventTime), 0);
                 _flipEmissionTime(eventTime);
             }
             time = eventTime;
         }
 
         _setEmissionGrowthGlobalX128(emissionGrowthGlobalX128_);
-        _setEmissionRateAndLastAccrued(rate, uint64(block.timestamp));
+        _setEmissionRateAndLastAccrued(rate, uint32(currentTime));
     }
 
     /// @notice Updates tick reward snapshots for ticks crossed by a forwarded swap.
@@ -1156,7 +1179,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Updates a global scheduled emission-rate delta at a valid time.
     /// @param time Valid schedule time.
     /// @param delta Signed emission-rate delta to add at `time`.
-    function _updateEmissionTime(uint64 time, int256 delta) private {
+    function _updateEmissionTime(uint32 time, int256 delta) private {
         int256 rateDelta = _emissionRateDeltaAtTime(time);
         int256 rateDeltaNext = _addConstrainRateDelta(rateDelta, delta);
 
@@ -1170,7 +1193,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Toggles whether a global emission-rate decrease is scheduled at a valid time.
     /// @param time Valid schedule time.
     function _flipEmissionTime(uint256 time) private {
-        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
+        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(uint32(time));
         unchecked {
             _setEmissionInitializedTimeBitmap(word, _emissionInitializedTimeBitmap(word).toggle(uint8(index)));
         }
@@ -1182,7 +1205,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @return isInitialized Whether an initialized time was found.
     function _findNextEmissionTime(uint256 fromTime) private view returns (uint256 nextTime, bool isInitialized) {
         unchecked {
-            (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
+            (uint256 word, uint256 index) = timeToBitmapWordAndIndex(uint32(fromTime));
             Bitmap bitmap = _emissionInitializedTimeBitmap(word);
             uint256 nextIndex = bitmap.geSetBit(uint8(index));
 
@@ -1190,7 +1213,7 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
 
             nextIndex = (nextIndex - 1) % 256;
 
-            nextTime = bitmapWordAndIndexToTime(word, nextIndex);
+            nextTime = _realEmissionTimeAtOrAfter(fromTime, uint32(bitmapWordAndIndexToTime(word, nextIndex)));
         }
     }
 

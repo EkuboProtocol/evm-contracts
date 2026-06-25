@@ -57,7 +57,7 @@ contract Ve33Forwarder is BaseLocker {
         STAKE_TOKEN = stakeToken;
     }
 
-    function scheduleEmissions(uint64 startTime, uint64 endTime, uint224 rewardRate) external returns (uint224 amount) {
+    function scheduleEmissions(uint32 startTime, uint32 endTime, uint224 rewardRate) external returns (uint224 amount) {
         amount = abi.decode(
             lock(abi.encode(CALL_TYPE_SCHEDULE_EMISSIONS, msg.sender, startTime, endTime, rewardRate)), (uint224)
         );
@@ -91,8 +91,8 @@ contract Ve33Forwarder is BaseLocker {
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == CALL_TYPE_SCHEDULE_EMISSIONS) {
-            (, address payer, uint64 startTime, uint64 endTime, uint224 rewardRate) =
-                abi.decode(data, (uint256, address, uint64, uint64, uint224));
+            (, address payer, uint32 startTime, uint32 endTime, uint224 rewardRate) =
+                abi.decode(data, (uint256, address, uint32, uint32, uint224));
             uint224 amount = Ve33Lib.scheduleEmissions(CORE_REF, VE33_REF, startTime, endTime, rewardRate);
             result = abi.encode(amount);
             if (amount != 0) ACCOUNTANT.payFrom(payer, STAKE_TOKEN, amount);
@@ -305,19 +305,26 @@ contract Ve33Test is FullTest {
         _vote(veId, poolKey, swapFee);
     }
 
-    function _nextValidRewardTime(uint256 afterTime) internal view returns (uint64) {
-        return uint64(nextValidTime(vm.getBlockTimestamp(), afterTime));
+    function _nextValidRewardTime(uint256 afterTime) internal view returns (uint32) {
+        return uint32(nextValidTime(vm.getBlockTimestamp(), afterTime));
     }
 
-    function _defaultEmissionEnd() internal view returns (uint64) {
+    function _defaultEmissionEnd() internal view returns (uint32) {
         return _nextValidRewardTime(vm.getBlockTimestamp() + 1 weeks - 1);
     }
 
-    function _emissionRateForAmount(uint128 amount, uint64 endTime) internal view returns (uint224) {
-        return uint224((uint256(amount) << 32) / (endTime - vm.getBlockTimestamp()));
+    function _realEmissionTimeAtOrAfter(uint256 referenceTime, uint32 time) internal pure returns (uint256 realTime) {
+        unchecked {
+            realTime = referenceTime + (time - uint32(referenceTime));
+        }
     }
 
-    function _scheduleEmissions(uint128 amount, uint64 endTime) internal returns (uint224 scheduledAmount) {
+    function _emissionRateForAmount(uint128 amount, uint32 endTime) internal view returns (uint224) {
+        uint256 realEndTime = _realEmissionTimeAtOrAfter(vm.getBlockTimestamp(), endTime);
+        return uint224((uint256(amount) << 32) / (realEndTime - vm.getBlockTimestamp()));
+    }
+
+    function _scheduleEmissions(uint128 amount, uint32 endTime) internal returns (uint224 scheduledAmount) {
         scheduledAmount = forwarder.scheduleEmissions(0, endTime, _emissionRateForAmount(amount, endTime));
     }
 
@@ -325,7 +332,7 @@ contract Ve33Test is FullTest {
         (saved,) = core.savedBalances(address(ve), address(stakeToken), address(type(uint160).max), salt);
     }
 
-    function _assertEmissionTimeInitialized(uint64 time, bool initialized) internal view {
+    function _assertEmissionTimeInitialized(uint32 time, bool initialized) internal view {
         (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
         assertEq((ve.emissionInitializedTimeBitmap(word) & (uint256(1) << index)) != 0, initialized);
     }
@@ -429,7 +436,7 @@ contract Ve33Test is FullTest {
     }
 
     function test_gas_peripheryScheduleEmissions() public {
-        uint64 end = _defaultEmissionEnd();
+        uint32 end = _defaultEmissionEnd();
 
         coolAllContracts();
         periphery.scheduleEmissions(0, end, _emissionRateForAmount(10_000, end));
@@ -440,7 +447,7 @@ contract Ve33Test is FullTest {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));
-        uint64 end = _defaultEmissionEnd();
+        uint32 end = _defaultEmissionEnd();
         periphery.scheduleEmissions(0, end, _emissionRateForAmount(10_000, end));
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
@@ -921,7 +928,7 @@ contract Ve33Test is FullTest {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
 
-        uint64 end = _defaultEmissionEnd();
+        uint32 end = _defaultEmissionEnd();
         uint224 scheduled = _scheduleEmissions(1e18, end);
         assertGt(scheduled, 0);
 
@@ -943,7 +950,7 @@ contract Ve33Test is FullTest {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
 
-        uint64 end = _defaultEmissionEnd();
+        uint32 end = _defaultEmissionEnd();
         uint224 scheduled = _scheduleEmissions(1_000, end);
         assertGt(scheduled, 0);
         assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), scheduled);
@@ -984,7 +991,7 @@ contract Ve33Test is FullTest {
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));
 
-        uint64 end = _defaultEmissionEnd();
+        uint32 end = _defaultEmissionEnd();
         uint224 amount = periphery.scheduleEmissions(0, end, _emissionRateForAmount(1e18, end));
         assertGt(amount, 0);
 
@@ -1044,7 +1051,7 @@ contract Ve33Test is FullTest {
         );
         assertGt(token1.balanceOf(address(1234)), token1BalanceBefore);
 
-        uint64 emissionEnd = _defaultEmissionEnd();
+        uint32 emissionEnd = _defaultEmissionEnd();
         uint256 stakeBalanceBefore = stakeToken.balanceOf(address(this));
         uint224 amount = periphery.scheduleEmissions(0, emissionEnd, _emissionRateForAmount(10_000, emissionEnd));
         assertGt(amount, 0);
@@ -1117,12 +1124,12 @@ contract Ve33Test is FullTest {
     }
 
     function test_scheduleEmissionsAccruesMultipleEventsAtSameTime() public {
-        uint64 end = _defaultEmissionEnd();
+        uint32 end = _defaultEmissionEnd();
         vm.expectRevert(Ve33.EmissionAmountTooSmall.selector);
         forwarder.scheduleEmissions(0, end, 0);
 
         vm.expectRevert(Ve33.InvalidTimestamps.selector);
-        forwarder.scheduleEmissions(0, uint64(vm.getBlockTimestamp()), uint224(1 << 32));
+        forwarder.scheduleEmissions(0, uint32(vm.getBlockTimestamp()), uint224(1 << 32));
 
         forwarder.scheduleEmissions(0, end, _emissionRateForAmount(1_000, end));
         forwarder.scheduleEmissions(0, end, _emissionRateForAmount(2_000, end));
@@ -1140,11 +1147,11 @@ contract Ve33Test is FullTest {
     }
 
     function test_scheduleEmissionsAccruesBeforeAddingNewRate() public {
-        uint64 firstEnd = _defaultEmissionEnd();
+        uint32 firstEnd = _defaultEmissionEnd();
         forwarder.scheduleEmissions(0, firstEnd, _emissionRateForAmount(1_000, firstEnd));
         vm.warp(firstEnd);
 
-        uint64 secondEnd = _defaultEmissionEnd();
+        uint32 secondEnd = _defaultEmissionEnd();
         forwarder.scheduleEmissions(0, secondEnd, _emissionRateForAmount(1_000, secondEnd));
 
         assertEq(ve.emissionRateDeltaAtTime(firstEnd), 0);
@@ -1153,6 +1160,32 @@ contract Ve33Test is FullTest {
         _assertEmissionTimeInitialized(secondEnd, true);
         assertEq(ve.emissionGrowthGlobalX128(), 0);
         assertGt(ve.emissionRate(), 0);
+    }
+
+    function test_scheduleEmissionsAccruesAcrossUint32Wrap() public {
+        vm.warp(uint256(type(uint32).max) - 1 days);
+
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+
+        uint256 realEndTime = nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 2 days);
+        uint32 end = uint32(realEndTime);
+        uint224 scheduled = _scheduleEmissions(10_000, end);
+
+        assertGt(scheduled, 0);
+        assertLt(end, uint32(vm.getBlockTimestamp()));
+        assertLt(ve.emissionRateDeltaAtTime(end), int256(0));
+        _assertEmissionTimeInitialized(end, true);
+
+        vm.warp(realEndTime);
+        ve.maybeAccumulateRewards(poolKey);
+
+        assertEq(ve.emissionsLastAccrued(), end);
+        assertEq(ve.emissionRate(), 0);
+        assertEq(ve.emissionRateDeltaAtTime(end), 0);
+        _assertEmissionTimeInitialized(end, false);
+        assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 
     function test_rewardSnapshotsAcrossConcentratedAndStableswapBoundaries() public {

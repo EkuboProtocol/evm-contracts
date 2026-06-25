@@ -12,6 +12,12 @@ import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/ex
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
 
+contract ZeroStakeTokenVe33 {
+    function stakeToken() external pure returns (address) {
+        return address(0);
+    }
+}
+
 contract VeTokenTest is FullTest {
     using CoreLib for *;
     using Ve33Lib for Ve33;
@@ -172,6 +178,12 @@ contract VeTokenTest is FullTest {
         assertTrue(veToken.supportsInterface(0x5b5e139f));
     }
 
+    function test_constructor_revertsIfStakeTokenIsNativeTokenSentinel() public {
+        ZeroStakeTokenVe33 zeroStakeTokenVe33 = new ZeroStakeTokenVe33();
+        vm.expectRevert(VeToken.InvalidStakeToken.selector);
+        new VeToken(core, Ve33(payable(address(zeroStakeTokenVe33))));
+    }
+
     function test_multicall_batchesStakeActionsAndReads() public {
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         bytes[] memory calls = new bytes[](3);
@@ -288,6 +300,9 @@ contract VeTokenTest is FullTest {
         veToken.splitStake(veId, 0);
         vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.splitStake(veId, 4e18);
+        assertEq(veToken.nextVeId(), 2);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        veToken.ownerOf(2);
 
         uint256 splitVeId = veToken.splitStake(veId, 1e18);
         assertEq(veToken.ownerOf(splitVeId), address(this));

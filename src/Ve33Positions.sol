@@ -31,6 +31,7 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
     uint256 private constant CALL_TYPE_DEPOSIT = 0;
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_CLAIM_REWARDS = 2;
+    uint256 private constant CALL_TYPE_WITHDRAW_AND_CLAIM_REWARDS = 3;
 
     /// @notice The Ve33 extension whose pools this position manager supports.
     Ve33 public immutable ve33;
@@ -172,6 +173,46 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
         (amount0, amount1) = withdraw(id, poolKey, tickLower, tickUpper, liquidity, msg.sender);
     }
 
+    /// @notice Claims reward tokens, then withdraws liquidity principal from a Ve33 position.
+    /// @param id ERC721 token id representing the position owner.
+    /// @param poolKey Pool containing the position.
+    /// @param tickLower Lower position tick.
+    /// @param tickUpper Upper position tick.
+    /// @param liquidity Amount of liquidity to withdraw.
+    /// @param recipient Account receiving withdrawn pool tokens and claimed reward tokens.
+    /// @return amount0 Token0 withdrawn.
+    /// @return amount1 Token1 withdrawn.
+    /// @return rewardAmount Claimed reward-token amount.
+    function withdrawAndClaimRewards(
+        uint256 id,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 liquidity,
+        address recipient
+    ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1, uint256 rewardAmount) {
+        (amount0, amount1, rewardAmount) = abi.decode(
+            lock(
+                abi.encode(
+                    CALL_TYPE_WITHDRAW_AND_CLAIM_REWARDS, id, poolKey, tickLower, tickUpper, liquidity, recipient
+                )
+            ),
+            (uint128, uint128, uint256)
+        );
+    }
+
+    /// @notice Claims reward tokens, then withdraws liquidity principal to the caller.
+    function withdrawAndClaimRewards(
+        uint256 id,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 liquidity
+    ) external payable returns (uint128 amount0, uint128 amount1, uint256 rewardAmount) {
+        (amount0, amount1, rewardAmount) =
+            withdrawAndClaimRewards(id, poolKey, tickLower, tickUpper, liquidity, msg.sender);
+    }
+
     /// @notice Claims Ve33 LP reward tokens for a position.
     /// @param id ERC721 token id representing the position owner.
     /// @param poolKey Pool containing the position.
@@ -310,6 +351,31 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
 
             ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
             result = abi.encode(amount0, amount1);
+        } else if (callType == CALL_TYPE_WITHDRAW_AND_CLAIM_REWARDS) {
+            (
+                ,
+                uint256 id,
+                PoolKey memory poolKey,
+                int32 tickLower,
+                int32 tickUpper,
+                uint128 liquidity,
+                address recipient
+            ) = abi.decode(data, (uint256, uint256, PoolKey, int32, int32, uint128, address));
+
+            _validateVe33Pool(poolKey);
+            if (liquidity > uint128(type(int128).max)) revert WithdrawOverflow();
+
+            PositionId positionId_ = positionId(id, tickLower, tickUpper);
+            uint256 rewardAmount = Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_, recipient);
+            uint128 rewardAmountUint128 = uint128(rewardAmount);
+            if (rewardAmountUint128 != 0) ACCOUNTANT.withdraw(stakeToken, recipient, rewardAmountUint128);
+
+            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, -int128(liquidity));
+            uint128 amount0 = uint128(-balanceUpdate.delta0());
+            uint128 amount1 = uint128(-balanceUpdate.delta1());
+
+            ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
+            result = abi.encode(amount0, amount1, rewardAmount);
         } else if (callType == CALL_TYPE_CLAIM_REWARDS) {
             (, PoolKey memory poolKey, PositionId positionId_, address recipient) =
                 abi.decode(data, (uint256, PoolKey, PositionId, address));

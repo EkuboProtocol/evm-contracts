@@ -356,7 +356,7 @@ contract Ve33Test is FullTest {
         _routerSwap(poolKey, false, 100_000, address(this));
 
         coolAllContracts();
-        veToken.claimPoolFees(veId, poolKey);
+        veToken.claimPoolFeesToSelf(veId, poolKey);
         vm.snapshotGasLastCall("VeToken#claimPoolFees");
     }
 
@@ -575,7 +575,7 @@ contract Ve33Test is FullTest {
         (uint128 emptyClaim0, uint128 emptyClaim1) = forwarder.claimPoolFees(_stakeId(veId), poolKey);
         assertEq(emptyClaim0, 0);
         assertEq(emptyClaim1, 0);
-        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
         assertApproxEqAbs(claimed0, expectedFee, 2);
         assertEq(claimed1, 0);
         assertEq(token0.balanceOf(address(this)), balanceBefore + claimed0);
@@ -584,6 +584,46 @@ contract Ve33Test is FullTest {
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
         assertEq(saved0, expectedFee - claimed0);
         assertEq(saved1, 0);
+    }
+
+    function test_veTokenClaimPoolFees_requiresAuthorizationAndSupportsRecipient() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+
+        uint64 swapFee = uint64(1 << 62);
+        uint256 veId = _fundAndVote(poolKey, swapFee);
+        address operator = address(0x1234);
+        address recipient = address(0xBEEF);
+        address unauthorized = address(0xBAD);
+
+        _routerSwap(poolKey, false, 100_000, address(this));
+
+        vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, unauthorized, veId));
+        vm.prank(unauthorized);
+        veToken.claimPoolFees(veId, poolKey, recipient);
+
+        vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, unauthorized, veId));
+        vm.prank(unauthorized);
+        veToken.claimPoolFeesToSelf(veId, poolKey);
+
+        veToken.approve(operator, veId);
+
+        uint256 recipientBalanceBefore = token0.balanceOf(recipient);
+        vm.prank(operator);
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey, recipient);
+        assertGt(claimed0, 0);
+        assertEq(claimed1, 0);
+        assertEq(token0.balanceOf(recipient), recipientBalanceBefore + claimed0);
+        assertEq(token0.balanceOf(operator), 0);
+
+        _routerSwap(poolKey, false, 100_000, address(this));
+
+        uint256 operatorBalanceBefore = token0.balanceOf(operator);
+        vm.prank(operator);
+        (claimed0, claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
+        assertGt(claimed0, 0);
+        assertEq(claimed1, 0);
+        assertEq(token0.balanceOf(operator), operatorBalanceBefore + claimed0);
     }
 
     function test_forwardedExactInputPartialToken0SwapAccountsExecutedInputFee() public {
@@ -667,7 +707,7 @@ contract Ve33Test is FullTest {
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
         assertEq(saved0, 0);
         assertEq(saved1, 0);
-        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
         assertEq(claimed0, 0);
         assertEq(claimed1, 0);
 
@@ -744,7 +784,7 @@ contract Ve33Test is FullTest {
         assertEq(swapFee, votedFee);
         assertEq(ve.totalVoteWeight(), sourcePower);
 
-        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFees(veId, poolKey);
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
         assertApproxEqAbs(claimed0, expectedFee, 2);
         assertEq(claimed1, 0);
     }
@@ -802,8 +842,8 @@ contract Ve33Test is FullTest {
             core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
         assertEq(saved0, computeFee(100_000, swapFee));
 
-        (uint128 claimed0A, uint128 claimed1A) = veToken.claimPoolFees(veId0, poolKey);
-        (uint128 claimed0B, uint128 claimed1B) = veToken.claimPoolFees(veId1, poolKey);
+        (uint128 claimed0A, uint128 claimed1A) = veToken.claimPoolFeesToSelf(veId0, poolKey);
+        (uint128 claimed0B, uint128 claimed1B) = veToken.claimPoolFeesToSelf(veId1, poolKey);
         assertEq(claimed1A, 0);
         assertEq(claimed1B, 0);
         assertApproxEqAbs(claimed0A, (uint256(saved0) * weight0) / totalWeight, 1);
@@ -955,6 +995,38 @@ contract Ve33Test is FullTest {
         uint256 claimed = _claimRewards(poolKey, positionId, address(this));
         assertGt(claimed, 0);
         assertEq(stakeToken.balanceOf(address(this)), balanceBefore + claimed);
+    }
+
+    function test_vePositionsWithdrawAndClaimRewards() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        uint256 id = _positionNftId(positionId);
+        int32 tickLower = positionId.tickLower();
+        int32 tickUpper = positionId.tickUpper();
+
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        uint128 liquidity = _positionLiquidity(poolKey, positionId);
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(10_000, _defaultEmissionEnd());
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+
+        address recipient = address(0xBEEF);
+        uint256 token0BalanceBefore = token0.balanceOf(recipient);
+        uint256 token1BalanceBefore = token1.balanceOf(recipient);
+        uint256 rewardBalanceBefore = stakeToken.balanceOf(recipient);
+
+        (uint128 amount0, uint128 amount1, uint256 rewardAmount) =
+            vePositions.withdrawAndClaimRewards(id, poolKey, tickLower, tickUpper, liquidity, recipient);
+
+        assertGt(amount0, 0);
+        assertGt(amount1, 0);
+        assertGt(rewardAmount, 0);
+        assertEq(token0.balanceOf(recipient), token0BalanceBefore + amount0);
+        assertEq(token1.balanceOf(recipient), token1BalanceBefore + amount1);
+        assertEq(stakeToken.balanceOf(recipient), rewardBalanceBefore + rewardAmount);
+        assertEq(_positionLiquidity(poolKey, positionId), 0);
+        assertEq(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 
     function test_peripherySettlesEmissionPaymentsAfterRouterSwap() public {

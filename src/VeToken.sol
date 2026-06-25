@@ -45,6 +45,9 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id.
     error StakeSaltOverflow(uint256 veId);
 
+    /// @notice Thrown when the Ve33 stake token is the native token sentinel.
+    error InvalidStakeToken();
+
     /// @notice Thrown when a caller is not the ERC721 owner or approved account for a represented stake.
     /// @param caller The unauthorized caller.
     /// @param id The ERC721 token id.
@@ -56,6 +59,7 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     constructor(ICore core, Ve33 _ve33) BaseLocker(core) UsesCore(core) {
         ve33 = _ve33;
         stakeToken = _ve33.stakeToken();
+        if (stakeToken == address(0)) revert InvalidStakeToken();
         _stakeTokenName = IERC20(stakeToken).name();
         _stakeTokenSymbol = IERC20(stakeToken).symbol();
         _stakeTokenDecimals = IERC20(stakeToken).decimals();
@@ -248,16 +252,34 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
         ve33.clearVote(stakeId(veId));
     }
 
-    /// @notice Claims pool fees earned by a represented stake to its current ERC721 owner.
-    /// @dev Permissionless; the recipient is always `ownerOf(veId)`.
+    /// @notice Claims pool fees earned by a represented stake.
+    /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param poolKey The pool whose voter fees should be claimed.
-    /// @return amount0 The amount of token0 withdrawn to the owner.
-    /// @return amount1 The amount of token1 withdrawn to the owner.
-    function claimPoolFees(uint256 veId, PoolKey calldata poolKey) external returns (uint128 amount0, uint128 amount1) {
-        address owner = ownerOf(veId);
-        (amount0, amount1) =
-            abi.decode(lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, owner, poolKey)), (uint128, uint128));
+    /// @param recipient Account receiving the claimed fees.
+    /// @return amount0 The amount of token0 withdrawn to `recipient`.
+    /// @return amount1 The amount of token1 withdrawn to `recipient`.
+    function claimPoolFees(uint256 veId, PoolKey calldata poolKey, address recipient)
+        public
+        authorizedForStake(veId)
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = abi.decode(
+            lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, recipient, poolKey)), (uint128, uint128)
+        );
+    }
+
+    /// @notice Claims pool fees earned by a represented stake to the caller.
+    /// @dev The caller must own or be approved for `veId`.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    /// @param poolKey The pool whose voter fees should be claimed.
+    /// @return amount0 The amount of token0 withdrawn to the caller.
+    /// @return amount1 The amount of token1 withdrawn to the caller.
+    function claimPoolFeesToSelf(uint256 veId, PoolKey calldata poolKey)
+        external
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = claimPoolFees(veId, poolKey, msg.sender);
     }
 
     /// @notice Settles token-moving wrapper actions inside the Core lock.

@@ -5,9 +5,9 @@
   "Ve33#emissionAccrualOnPoolTouch": "84146",
   "Ve33#vote one pool": "139250",
   "Ve33Periphery#scheduleEmissions": "125567",
-  "Ve33Positions#claimAccruedEmissions": "143855",
-  "Ve33Positions#claimRewards": "71672",
-  "Ve33Positions#deposit": "348545",
-  "VeToken#claimPoolFees": "59492",
+  "Ve33Positions#claimAccruedEmissions": "144039",
+  "Ve33Positions#claimRewards": "71856",
+  "Ve33Positions#deposit": "348594",
+  "VeToken#claimPoolFees": "59558",
   "VeToken#vote": "139250"
 }

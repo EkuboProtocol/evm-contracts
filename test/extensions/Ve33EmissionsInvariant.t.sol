@@ -168,7 +168,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     function claimPoolFees(uint256 stakeIndex) external {
         _syncModel();
         TrackedStake memory stake = stakes[bound(stakeIndex, 0, stakes.length - 1)];
-        veToken.claimPoolFees(stake.veId, pools[stake.poolIndex].poolKey);
+        veToken.claimPoolFeesToSelf(stake.veId, pools[stake.poolIndex].poolKey);
         _assertAllVoterFeesSolvent();
     }
 
@@ -424,6 +424,8 @@ contract Ve33EmissionsInvariantTest is FullTest {
         handler = new Ve33EmissionsInvariantHandler(
             core, ve33, veToken, ve33Positions, router, token0, token1, vm, pool0, pool1, veId0, veId1, emissionEnd
         );
+        veToken.approve(address(handler), veId0);
+        veToken.approve(address(handler), veId1);
         token0.transfer(address(handler), type(uint128).max);
         token1.transfer(address(handler), type(uint128).max);
         handler.initializePositions();

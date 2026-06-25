@@ -107,8 +107,6 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     error FeeMustBeZero();
     /// @notice Thrown when a concentrated Ve33 pool tick spacing is not a power of four.
     error TickSpacingMustBePowerOfFour();
-    /// @notice Thrown when a global emission schedule amount is zero.
-    error EmissionAmountTooSmall();
     /// @notice Thrown when emission schedule timestamps are invalid.
     error InvalidTimestamps();
     /// @notice Thrown when a reward amount cannot fit in the supported token accounting width.
@@ -775,15 +773,16 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
             revert InvalidTimestamps();
         }
 
-        _accrueEmissions();
-
         unchecked {
             uint256 realDuration = realEndTime - FixedPointMathLib.max(currentTime, realStartTime);
             amount = uint224(((realDuration * rewardRate) + type(uint32).max) >> 32);
         }
 
-        if (amount == 0) revert EmissionAmountTooSmall();
+        if (amount == 0) return 0;
         if (amount > type(uint128).max) revert RewardAmountOverflow();
+
+        _accrueEmissions();
+
         CORE.updateSavedBalances(
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
         );

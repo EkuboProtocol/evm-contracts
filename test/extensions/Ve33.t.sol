@@ -1125,8 +1125,11 @@ contract Ve33Test is FullTest {
 
     function test_scheduleEmissionsAccruesMultipleEventsAtSameTime() public {
         uint32 end = _defaultEmissionEnd();
-        vm.expectRevert(Ve33.EmissionAmountTooSmall.selector);
-        forwarder.scheduleEmissions(0, end, 0);
+        assertEq(forwarder.scheduleEmissions(0, end, 0), 0);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), 0);
+        assertEq(ve.emissionRate(), 0);
+        assertEq(ve.emissionRateDeltaAtTime(end), 0);
+        _assertEmissionTimeInitialized(end, false);
 
         vm.expectRevert(Ve33.InvalidTimestamps.selector);
         forwarder.scheduleEmissions(0, uint32(vm.getBlockTimestamp()), uint224(1 << 32));

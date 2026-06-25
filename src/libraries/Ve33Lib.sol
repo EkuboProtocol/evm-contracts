@@ -22,6 +22,7 @@ import {StakeId} from "../types/stakeId.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
+import {Ve33GlobalEmissionState} from "../types/ve33GlobalEmissionState.sol";
 import {VePoolFeeState} from "../types/vePoolFeeState.sol";
 import {VePoolVote} from "../types/vePoolVote.sol";
 import {ExposedStorageLib} from "./ExposedStorageLib.sol";
@@ -141,7 +142,7 @@ library Ve33Lib {
     }
 
     /// @notice Encodes a Ve33 global-emission schedule call.
-    function encodeScheduleEmissions(uint64 startTime, uint64 endTime, uint224 rewardRate)
+    function encodeScheduleEmissions(uint64 startTime, uint64 endTime, uint160 rewardRate)
         internal
         pure
         returns (bytes memory)
@@ -150,14 +151,14 @@ library Ve33Lib {
     }
 
     /// @notice Decodes a Ve33 global-emission schedule result.
-    function decodeScheduleEmissionsResult(bytes memory data) internal pure returns (uint224 amount) {
-        amount = abi.decode(data, (uint224));
+    function decodeScheduleEmissionsResult(bytes memory data) internal pure returns (uint128 amount) {
+        amount = abi.decode(data, (uint128));
     }
 
     /// @notice Schedules global Ve33 emissions through Core.
-    function scheduleEmissions(ICore core, Ve33 ve33, uint64 startTime, uint64 endTime, uint224 rewardRate)
+    function scheduleEmissions(ICore core, Ve33 ve33, uint64 startTime, uint64 endTime, uint160 rewardRate)
         internal
-        returns (uint224 amount)
+        returns (uint128 amount)
     {
         amount = decodeScheduleEmissionsResult(
             core.forward(address(ve33), encodeScheduleEmissions(startTime, endTime, rewardRate))
@@ -257,14 +258,19 @@ library Ve33Lib {
         return uint256(ve33.sload(Ve33StorageLayout.emissionGrowthGlobalX128Slot()));
     }
 
+    /// @notice Returns the packed global emission rate and last-accrued timestamp.
+    function globalEmissionState(Ve33 ve33) internal view returns (Ve33GlobalEmissionState) {
+        return Ve33GlobalEmissionState.wrap(ve33.sload(Ve33StorageLayout.emissionRateAndLastAccruedSlot()));
+    }
+
     /// @notice Returns the current global Q32 emission rate.
-    function emissionRate(Ve33 ve33) internal view returns (uint192) {
-        return uint192(uint256(ve33.sload(Ve33StorageLayout.emissionRateAndLastAccruedSlot())));
+    function emissionRate(Ve33 ve33) internal view returns (uint160) {
+        return globalEmissionState(ve33).emissionRate();
     }
 
     /// @notice Returns the last timestamp when global emissions were accrued.
     function emissionsLastAccrued(Ve33 ve33) internal view returns (uint32) {
-        return uint32(uint256(ve33.sload(Ve33StorageLayout.emissionRateAndLastAccruedSlot())) >> 192);
+        return globalEmissionState(ve33).lastAccrued();
     }
 
     /// @notice Returns one global emission initialized-time bitmap word.

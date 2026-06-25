@@ -42,7 +42,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     using CoreLib for *;
     using Ve33Lib for Ve33;
 
-    uint224 private constant EMISSION_RATE_Q32 = uint224(uint256(1e12) << 32);
+    uint160 private constant EMISSION_RATE_Q32 = uint160(uint256(1e12) << 32);
     uint256 private constant POSITION_AMOUNT = 1e21;
     uint256 private constant REWARD_TOLERANCE = 32;
 
@@ -419,7 +419,7 @@ contract Ve33EmissionsInvariantTest is FullTest {
         veToken.vote(veId1, pool1, uint64(1 << 62));
 
         uint256 emissionEnd = nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 365 days);
-        periphery.scheduleEmissions(0, uint64(emissionEnd), uint224(uint256(1e12) << 32));
+        periphery.scheduleEmissions(0, uint64(emissionEnd), uint160(uint256(1e12) << 32));
 
         handler = new Ve33EmissionsInvariantHandler(
             core, ve33, veToken, ve33Positions, router, token0, token1, vm, pool0, pool1, veId0, veId1, emissionEnd

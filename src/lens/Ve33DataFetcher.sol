@@ -11,20 +11,18 @@ import {MAX_NUM_VALID_TIMES, nextValidTime} from "../math/time.sol";
 struct Ve33EmissionRateChange {
     uint64 time;
     int256 emissionRateDelta;
-    uint192 emissionRateAfter;
+    uint160 emissionRateAfter;
 }
 
 struct Ve33EmissionState {
     uint64 currentTimestamp;
-    uint192 currentEmissionRate;
+    uint160 currentEmissionRate;
     uint256 totalRemainingEmissions;
     Ve33EmissionRateChange[] futureEmissionRateChanges;
 }
 
 contract Ve33DataFetcher {
     using Ve33Lib for Ve33;
-
-    error InvalidEmissionRate();
 
     Ve33 public immutable VE33_EXTENSION;
 
@@ -38,7 +36,7 @@ contract Ve33DataFetcher {
             uint256 currentTimestamp = block.timestamp;
             uint32 lastAccrued = ve33.emissionsLastAccrued();
             uint256 lastAccruedReal = _realEmissionTimeAtOrBefore(currentTimestamp, lastAccrued);
-            uint192 runningEmissionRate = ve33.emissionRate();
+            uint160 runningEmissionRate = ve33.emissionRate();
 
             uint64[] memory allValidTimes = _getAllValidFutureTimes(lastAccruedReal);
             StorageSlot[] memory rateDeltaSlots = new StorageSlot[](allValidTimes.length);
@@ -47,16 +45,16 @@ contract Ve33DataFetcher {
                 rateDeltaSlots[i] = Ve33StorageLayout.emissionRateDeltaAtTimeSlot(allValidTimes[i]);
             }
 
-            (bool success, bytes memory result) =
+            // forge-lint: disable-next-line(unchecked-call)
+            (, bytes memory result) =
                 address(ve33).staticcall(abi.encodePacked(IExposedStorage.sload.selector, rateDeltaSlots));
-            assert(success);
 
             Ve33EmissionRateChange[] memory futureEmissionRateChanges =
                 new Ve33EmissionRateChange[](allValidTimes.length);
             uint256 futureChangeCount = 0;
             uint256 totalRemainingEmissions = 0;
             uint256 lastEmissionRateChangeTime = currentTimestamp;
-            uint192 currentEmissionRate;
+            uint160 currentEmissionRate;
             bool currentEmissionRateSet;
 
             for (uint256 i = 0; i < allValidTimes.length; i++) {
@@ -69,7 +67,7 @@ contract Ve33DataFetcher {
 
                 if (emissionRateDelta != 0) {
                     if (realTime <= currentTimestamp) {
-                        runningEmissionRate = _addEmissionRate(runningEmissionRate, emissionRateDelta);
+                        runningEmissionRate = uint160(uint256(int256(uint256(runningEmissionRate)) + emissionRateDelta));
                     } else {
                         if (!currentEmissionRateSet) {
                             currentEmissionRate = runningEmissionRate;
@@ -77,7 +75,7 @@ contract Ve33DataFetcher {
                         }
                         totalRemainingEmissions += (uint256(runningEmissionRate)
                                         * (realTime - lastEmissionRateChangeTime)) >> 32;
-                        runningEmissionRate = _addEmissionRate(runningEmissionRate, emissionRateDelta);
+                        runningEmissionRate = uint160(uint256(int256(uint256(runningEmissionRate)) + emissionRateDelta));
                         futureEmissionRateChanges[futureChangeCount++] = Ve33EmissionRateChange({
                             time: time, emissionRateDelta: emissionRateDelta, emissionRateAfter: runningEmissionRate
                         });
@@ -99,12 +97,6 @@ contract Ve33DataFetcher {
                 futureEmissionRateChanges: futureEmissionRateChanges
             });
         }
-    }
-
-    function _addEmissionRate(uint192 emissionRate, int256 delta) private pure returns (uint192 next) {
-        int256 nextSigned = int256(uint256(emissionRate)) + delta;
-        if (nextSigned < 0 || uint256(nextSigned) > type(uint192).max) revert InvalidEmissionRate();
-        next = uint192(uint256(nextSigned));
     }
 
     function _getAllValidFutureTimes(uint256 currentTime) private pure returns (uint64[] memory times) {

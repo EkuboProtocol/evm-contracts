@@ -35,9 +35,9 @@ contract Ve33Periphery is BaseLocker {
     /// @param endTime Valid real timestamp when the emission stream ends.
     /// @param rewardRate Q32 global emission rate in stake tokens per second.
     /// @return amount Amount of stake token required by the schedule.
-    function scheduleEmissions(uint64 startTime, uint64 endTime, uint224 rewardRate) external returns (uint224 amount) {
+    function scheduleEmissions(uint64 startTime, uint64 endTime, uint160 rewardRate) external returns (uint128 amount) {
         amount = abi.decode(
-            lock(abi.encode(CALL_TYPE_SCHEDULE_EMISSIONS, msg.sender, startTime, endTime, rewardRate)), (uint224)
+            lock(abi.encode(CALL_TYPE_SCHEDULE_EMISSIONS, msg.sender, startTime, endTime, rewardRate)), (uint128)
         );
     }
 
@@ -46,9 +46,9 @@ contract Ve33Periphery is BaseLocker {
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == CALL_TYPE_SCHEDULE_EMISSIONS) {
-            (, address payer, uint64 startTime, uint64 endTime, uint224 rewardRate) =
-                abi.decode(data, (uint256, address, uint64, uint64, uint224));
-            uint224 amount = Ve33Lib.scheduleEmissions(CORE_REF, ve33, startTime, endTime, rewardRate);
+            (, address payer, uint64 startTime, uint64 endTime, uint160 rewardRate) =
+                abi.decode(data, (uint256, address, uint64, uint64, uint160));
+            uint128 amount = Ve33Lib.scheduleEmissions(CORE_REF, ve33, startTime, endTime, rewardRate);
             result = abi.encode(amount);
             if (amount != 0) ACCOUNTANT.payFrom(payer, stakeToken, amount);
         } else {

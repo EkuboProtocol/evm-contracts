@@ -1,13 +1,13 @@
 {
-  "Router#ve33Stableswap": "98257",
-  "Router#ve33Swap": "104104",
-  "Router#ve33SwapVe33Position": "104104",
-  "Ve33#emissionAccrualOnPoolTouch": "84170",
-  "Ve33#vote one pool": "139578",
-  "Ve33Periphery#scheduleEmissions": "125694",
-  "Ve33Positions#claimAccruedEmissions": "144063",
-  "Ve33Positions#claimRewards": "71903",
-  "Ve33Positions#deposit": "348641",
-  "VeToken#claimPoolFees": "59204",
-  "VeToken#vote": "139578"
+  "Router#ve33Stableswap": "98235",
+  "Router#ve33Swap": "104082",
+  "Router#ve33SwapVe33Position": "104082",
+  "Ve33#emissionAccrualOnPoolTouch": "84128",
+  "Ve33#vote one pool": "139554",
+  "Ve33Periphery#scheduleEmissions": "125471",
+  "Ve33Positions#claimAccruedEmissions": "139245",
+  "Ve33Positions#claimRewards": "67105",
+  "Ve33Positions#deposit": "347023",
+  "VeToken#claimPoolFees": "59201",
+  "VeToken#vote": "139554"
 }

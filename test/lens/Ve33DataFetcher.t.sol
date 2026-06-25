@@ -53,7 +53,7 @@ contract Ve33DataFetcherTest is FullTest {
         vm.warp(1);
 
         uint64 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
-        uint224 rate = uint224(3 << 32);
+        uint160 rate = uint160(3 << 32);
         periphery.scheduleEmissions(0, endTime, rate);
 
         Ve33EmissionState memory state = dataFetcher.getEmissionState();
@@ -73,8 +73,8 @@ contract Ve33DataFetcherTest is FullTest {
         vm.warp(1);
 
         uint64 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
-        uint224 rate0 = uint224(2 << 32);
-        uint224 rate1 = uint224(5 << 32);
+        uint160 rate0 = uint160(2 << 32);
+        uint160 rate1 = uint160(5 << 32);
         uint256 totalRate = uint256(rate0) + uint256(rate1);
         periphery.scheduleEmissions(0, endTime, rate0);
         periphery.scheduleEmissions(0, endTime, rate1);
@@ -96,7 +96,7 @@ contract Ve33DataFetcherTest is FullTest {
         uint64 endTime = _nextValidEmissionTime(startTime);
         uint256 realStartTime = startTime;
         uint256 realEndTime = endTime;
-        uint224 rate = uint224(7 << 32);
+        uint160 rate = uint160(7 << 32);
         periphery.scheduleEmissions(startTime, endTime, rate);
 
         Ve33EmissionState memory beforeStart = dataFetcher.getEmissionState();

@@ -9,6 +9,8 @@ import {Ve33} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
+import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
+import {ExposedStorageLib} from "./libraries/ExposedStorageLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {liquidityDeltaToAmountDelta, maxLiquidity} from "./math/liquidity.sol";
@@ -16,7 +18,6 @@ import {tickToSqrtRatio} from "./math/ticks.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {PoolId} from "./types/poolId.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {Position} from "./types/position.sol";
 import {PositionId, createPositionId} from "./types/positionId.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -26,6 +27,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// @dev Ve33 LPs do not earn Core swap fees. This contract only manages liquidity principal and Ve33 reward claims.
 contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using CoreLib for *;
+    using ExposedStorageLib for *;
     using FlashAccountantLib for *;
 
     uint256 private constant CALL_TYPE_DEPOSIT = 0;
@@ -93,11 +95,10 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
         _validateVe33Pool(poolKey);
         PoolId poolId = poolKey.toPoolId();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
-        Position memory position = CORE.poolPositions(poolId, address(this), positionId(id, tickLower, tickUpper));
-        liquidity = position.liquidity;
+        liquidity = _poolPositionLiquidity(poolId, positionId(id, tickLower, tickUpper));
 
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
-            sqrtRatio, -SafeCastLib.toInt128(position.liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
+            sqrtRatio, -SafeCastLib.toInt128(liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
         );
         principal0 = uint128(-delta0);
         principal1 = uint128(-delta1);
@@ -313,7 +314,7 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
 
             PoolId poolId = poolKey.toPoolId();
             PositionId positionId_ = positionId(id, tickLower, tickUpper);
-            uint128 existingLiquidity = CORE.poolPositions(poolId, address(this), positionId_).liquidity;
+            uint128 existingLiquidity = _poolPositionLiquidity(poolId, positionId_);
             if (existingLiquidity > uint128(type(int128).max) - liquidity) revert DepositOverflow();
 
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, int128(liquidity));
@@ -392,5 +393,12 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
 
     function _validateVe33Pool(PoolKey memory poolKey) private view {
         if (poolKey.config.extension() != address(ve33)) revert InvalidPoolExtension();
+    }
+
+    function _poolPositionLiquidity(PoolId poolId, PositionId positionId_) private view returns (uint128 liquidity) {
+        bytes32 data = CORE.sload(CoreStorageLayout.poolPositionsSlot(poolId, address(this), positionId_));
+        assembly ("memory-safe") {
+            liquidity := shr(128, data)
+        }
     }
 }

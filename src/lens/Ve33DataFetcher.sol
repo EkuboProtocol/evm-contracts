@@ -9,13 +9,13 @@ import {StorageSlot} from "../types/storageSlot.sol";
 import {MAX_NUM_VALID_TIMES, nextValidTime} from "../math/time.sol";
 
 struct Ve33EmissionRateChange {
-    uint32 time;
+    uint64 time;
     int256 emissionRateDelta;
     uint192 emissionRateAfter;
 }
 
 struct Ve33EmissionState {
-    uint32 currentTimestamp;
+    uint64 currentTimestamp;
     uint192 currentEmissionRate;
     uint256 totalRemainingEmissions;
     Ve33EmissionRateChange[] futureEmissionRateChanges;
@@ -36,12 +36,11 @@ contract Ve33DataFetcher {
         unchecked {
             Ve33 ve33 = VE33_EXTENSION;
             uint256 currentTimestamp = block.timestamp;
-            uint32 currentTimestampPacked = uint32(currentTimestamp);
             uint32 lastAccrued = ve33.emissionsLastAccrued();
             uint256 lastAccruedReal = _realEmissionTimeAtOrBefore(currentTimestamp, lastAccrued);
             uint192 runningEmissionRate = ve33.emissionRate();
 
-            uint32[] memory allValidTimes = _getAllValidFutureTimes(lastAccruedReal);
+            uint64[] memory allValidTimes = _getAllValidFutureTimes(lastAccruedReal);
             StorageSlot[] memory rateDeltaSlots = new StorageSlot[](allValidTimes.length);
 
             for (uint256 i = 0; i < rateDeltaSlots.length; i++) {
@@ -61,8 +60,8 @@ contract Ve33DataFetcher {
             bool currentEmissionRateSet;
 
             for (uint256 i = 0; i < allValidTimes.length; i++) {
-                uint32 time = allValidTimes[i];
-                uint256 realTime = _realEmissionTimeAtOrAfter(lastAccruedReal, time);
+                uint64 time = allValidTimes[i];
+                uint256 realTime = time;
                 int256 emissionRateDelta;
                 assembly ("memory-safe") {
                     emissionRateDelta := mload(add(result, mul(add(i, 1), 32)))
@@ -94,7 +93,7 @@ contract Ve33DataFetcher {
             }
 
             state = Ve33EmissionState({
-                currentTimestamp: currentTimestampPacked,
+                currentTimestamp: uint64(currentTimestamp),
                 currentEmissionRate: currentEmissionRate,
                 totalRemainingEmissions: totalRemainingEmissions,
                 futureEmissionRateChanges: futureEmissionRateChanges
@@ -108,9 +107,9 @@ contract Ve33DataFetcher {
         next = uint192(uint256(nextSigned));
     }
 
-    function _getAllValidFutureTimes(uint256 currentTime) private pure returns (uint32[] memory times) {
+    function _getAllValidFutureTimes(uint256 currentTime) private pure returns (uint64[] memory times) {
         unchecked {
-            times = new uint32[](MAX_NUM_VALID_TIMES);
+            times = new uint64[](MAX_NUM_VALID_TIMES);
             uint256 count = 0;
             uint256 t = currentTime;
 
@@ -119,7 +118,7 @@ contract Ve33DataFetcher {
                 if (nextTime == 0) break;
 
                 t = nextTime;
-                times[count++] = uint32(t);
+                times[count++] = uint64(t);
             }
 
             assembly ("memory-safe") {
@@ -131,12 +130,6 @@ contract Ve33DataFetcher {
     function _realEmissionTimeAtOrBefore(uint256 referenceTime, uint32 time) private pure returns (uint256 realTime) {
         unchecked {
             realTime = referenceTime - (uint32(referenceTime) - time);
-        }
-    }
-
-    function _realEmissionTimeAtOrAfter(uint256 referenceTime, uint32 time) private pure returns (uint256 realTime) {
-        unchecked {
-            realTime = referenceTime + (time - uint32(referenceTime));
         }
     }
 }

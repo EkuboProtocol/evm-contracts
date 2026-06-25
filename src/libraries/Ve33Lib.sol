@@ -141,7 +141,7 @@ library Ve33Lib {
     }
 
     /// @notice Encodes a Ve33 global-emission schedule call.
-    function encodeScheduleEmissions(uint32 startTime, uint32 endTime, uint224 rewardRate)
+    function encodeScheduleEmissions(uint64 startTime, uint64 endTime, uint224 rewardRate)
         internal
         pure
         returns (bytes memory)
@@ -155,7 +155,7 @@ library Ve33Lib {
     }
 
     /// @notice Schedules global Ve33 emissions through Core.
-    function scheduleEmissions(ICore core, Ve33 ve33, uint32 startTime, uint32 endTime, uint224 rewardRate)
+    function scheduleEmissions(ICore core, Ve33 ve33, uint64 startTime, uint64 endTime, uint224 rewardRate)
         internal
         returns (uint224 amount)
     {
@@ -273,7 +273,7 @@ library Ve33Lib {
     }
 
     /// @notice Returns the scheduled global emission-rate delta at `time`.
-    function emissionRateDeltaAtTime(Ve33 ve33, uint32 time) internal view returns (int256) {
+    function emissionRateDeltaAtTime(Ve33 ve33, uint256 time) internal view returns (int256) {
         return int256(uint256(ve33.sload(Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time))));
     }
 }

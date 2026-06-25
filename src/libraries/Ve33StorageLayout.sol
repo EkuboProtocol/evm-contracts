@@ -159,7 +159,7 @@ library Ve33StorageLayout {
     }
 
     /// @notice Computes the storage slot for the scheduled emission-rate delta at a time.
-    function emissionRateDeltaAtTimeSlot(uint32 time) internal pure returns (StorageSlot slot) {
-        slot = StorageSlot.wrap(EfficientHashLib.hash(uint256(time), uint256(EMISSION_RATE_DELTA_AT_TIME_OFFSET)));
+    function emissionRateDeltaAtTimeSlot(uint256 time) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(EfficientHashLib.hash(time, uint256(EMISSION_RATE_DELTA_AT_TIME_OFFSET)));
     }
 }

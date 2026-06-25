@@ -419,7 +419,7 @@ contract Ve33EmissionsInvariantTest is FullTest {
         veToken.vote(veId1, pool1, uint64(1 << 62));
 
         uint256 emissionEnd = nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 365 days);
-        periphery.scheduleEmissions(0, uint32(emissionEnd), uint224(uint256(1e12) << 32));
+        periphery.scheduleEmissions(0, uint64(emissionEnd), uint224(uint256(1e12) << 32));
 
         handler = new Ve33EmissionsInvariantHandler(
             core, ve33, veToken, ve33Positions, router, token0, token1, vm, pool0, pool1, veId0, veId1, emissionEnd

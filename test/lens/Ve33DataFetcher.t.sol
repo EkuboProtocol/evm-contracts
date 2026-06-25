@@ -30,18 +30,12 @@ contract Ve33DataFetcherTest is FullTest {
         stakeToken.approve(address(periphery), type(uint256).max);
     }
 
-    function _nextValidEmissionTime(uint256 afterTime) internal view returns (uint32) {
-        return uint32(nextValidTime(vm.getBlockTimestamp(), afterTime));
+    function _nextValidEmissionTime(uint256 afterTime) internal view returns (uint64) {
+        return uint64(nextValidTime(vm.getBlockTimestamp(), afterTime));
     }
 
     function _expectedEmissions(uint256 rate, uint256 startTime, uint256 endTime) internal pure returns (uint256) {
         return (rate * (endTime - startTime)) >> 32;
-    }
-
-    function _realEmissionTimeAtOrAfter(uint256 referenceTime, uint32 time) internal pure returns (uint256 realTime) {
-        unchecked {
-            realTime = referenceTime + (time - uint32(referenceTime));
-        }
     }
 
     function test_getEmissionState_empty() public {
@@ -58,7 +52,7 @@ contract Ve33DataFetcherTest is FullTest {
     function test_getEmissionState_immediateSchedule() public {
         vm.warp(1);
 
-        uint32 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
+        uint64 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
         uint224 rate = uint224(3 << 32);
         periphery.scheduleEmissions(0, endTime, rate);
 
@@ -78,7 +72,7 @@ contract Ve33DataFetcherTest is FullTest {
     function test_getEmissionState_aggregatesSameTimeChanges() public {
         vm.warp(1);
 
-        uint32 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
+        uint64 endTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1 weeks - 1);
         uint224 rate0 = uint224(2 << 32);
         uint224 rate1 = uint224(5 << 32);
         uint256 totalRate = uint256(rate0) + uint256(rate1);
@@ -98,10 +92,10 @@ contract Ve33DataFetcherTest is FullTest {
     function test_getEmissionState_appliesElapsedChangesWithoutMutatingVe33() public {
         vm.warp(1);
 
-        uint32 startTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1_000);
-        uint32 endTime = _nextValidEmissionTime(startTime);
-        uint256 realStartTime = _realEmissionTimeAtOrAfter(vm.getBlockTimestamp(), startTime);
-        uint256 realEndTime = _realEmissionTimeAtOrAfter(realStartTime, endTime);
+        uint64 startTime = _nextValidEmissionTime(vm.getBlockTimestamp() + 1_000);
+        uint64 endTime = _nextValidEmissionTime(startTime);
+        uint256 realStartTime = startTime;
+        uint256 realEndTime = endTime;
         uint224 rate = uint224(7 << 32);
         periphery.scheduleEmissions(startTime, endTime, rate);
 

@@ -1,9 +1,9 @@
 {
   "VeToken#createStake": "153779",
-  "VeToken#extendStake": "38258",
+  "VeToken#extendStake": "38255",
   "VeToken#increaseStakeAmount": "34527",
-  "VeToken#mergeStakes": "28036",
-  "VeToken#splitStake": "70411",
+  "VeToken#mergeStakes": "28033",
+  "VeToken#splitStake": "70408",
   "VeToken#stakeId": "2961",
   "VeToken#stakes": "6500",
   "VeToken#tokenURI gas": "409896",

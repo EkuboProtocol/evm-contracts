@@ -141,6 +141,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         override(BaseExtension)
         onlyCore
     {
+        checkValidPoolKey(poolKey);
+
         PoolId poolId = poolKey.toPoolId();
         _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
     }
@@ -380,10 +382,10 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param poolKey Pool receiving the stake's full active voting power.
     /// @param swapFee Explicit swap fee vote for the pool.
     function vote(StakeId stakeId, PoolKey calldata poolKey, uint64 swapFee) external {
+        checkValidPoolKey(poolKey);
+
         uint128 power = _votingPower(msg.sender, stakeId);
         if (power == 0) revert InvalidVote();
-
-        checkValidPoolKey(poolKey);
 
         _clearVote(msg.sender, stakeId);
 
@@ -422,7 +424,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param amount Amount of stake to move.
     /// @return nextAmount Destination stake amount after the move.
     function moveStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
-        _validateNewStake(toStakeId, amount);
+        if (amount == 0) return _stakeAmount(msg.sender, toStakeId);
+
+        _validateNewStake(toStakeId);
         uint64 moveDuration;
         unchecked {
             moveDuration = toStakeId.endTime() - fromStakeId.endTime();
@@ -450,7 +454,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param amount Amount of stake to split into the destination key.
     /// @return nextAmount Destination stake amount after the split.
     function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
-        _validateNewStake(toStakeId, amount);
+        if (amount == 0) return _stakeAmount(msg.sender, toStakeId);
+
+        _validateNewStake(toStakeId);
         if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId)) revert InvalidStake();
 
         uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
@@ -470,9 +476,10 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @dev If the pool has no liquidity, accrued emissions are not assigned to LPs.
     /// @param poolKey Pool whose reward state is being accumulated.
     function maybeAccumulateRewards(PoolKey memory poolKey) public {
+        checkValidPoolKey(poolKey);
+
         PoolId poolId = poolKey.toPoolId();
         PoolState coreState = CORE.poolState(poolId);
-        checkValidPoolKey(poolKey);
 
         _accumulatePoolRewards(poolId, coreState.liquidity());
     }
@@ -533,8 +540,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     {
         unchecked {
             PoolId poolId = poolKey.toPoolId();
-            PoolState stateBefore = CORE.poolState(poolId);
             checkValidPoolKey(poolKey);
+            PoolState stateBefore = CORE.poolState(poolId);
             _accumulatePoolRewards(poolId, stateBefore.liquidity());
 
             bool isConcentrated = poolKey.config.isConcentrated();
@@ -641,13 +648,12 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         }
     }
 
-    /// @notice Validates that a new or moved-to stake is active and nonzero.
+    /// @notice Validates that a new or moved-to stake is active.
     /// @param stakeId Proposed stake id.
-    /// @param amount Amount being staked or moved.
-    function _validateNewStake(StakeId stakeId, uint128 amount) private view {
+    function _validateNewStake(StakeId stakeId) private view {
         uint64 endTime = stakeId.endTime();
         uint64 secondsUntilEnd = _secondsUntilStakeEnd(endTime);
-        if (amount == 0 || secondsUntilEnd == 0 || secondsUntilEnd > VE33_MAX_STAKE_DURATION) {
+        if (secondsUntilEnd == 0 || secondsUntilEnd > VE33_MAX_STAKE_DURATION) {
             revert InvalidStake();
         }
     }
@@ -659,7 +665,9 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
     /// @param amount Amount of stake to add.
     /// @return nextAmount Stake amount after the increase.
     function _stake(address owner, StakeId stakeId, uint128 amount) private returns (uint128 nextAmount) {
-        _validateNewStake(stakeId, amount);
+        if (amount == 0) return _stakeAmount(owner, stakeId);
+
+        _validateNewStake(stakeId);
 
         _clearVote(owner, stakeId);
         nextAmount = _stakeAmount(owner, stakeId) + amount;
@@ -725,6 +733,8 @@ contract Ve33 is BaseExtension, BaseForwardee, ExposedStorage {
         private
         returns (uint128 amount0, uint128 amount1)
     {
+        checkValidPoolKey(poolKey);
+
         PoolId poolId = poolKey.toPoolId();
         VePoolVote veVote = _vePoolVote(owner, stakeId);
         if (veVote.weight() == 0 || PoolId.unwrap(_votedPoolId(owner, stakeId)) != PoolId.unwrap(poolId)) {

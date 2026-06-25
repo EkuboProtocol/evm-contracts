@@ -866,18 +866,20 @@ contract Ve33Test is FullTest {
         StakeId stakeId = createStakeId(salt, endTime);
         StakeId toStakeId = createStakeId(toSalt, toEndTime);
 
+        assertEq(forwarder.stake(stakeId, 0), 0);
         assertEq(forwarder.stake(stakeId, 100), 100);
         assertEq(forwarder.stake(stakeId, 50), 150);
+        assertEq(forwarder.stake(stakeId, 0), 150);
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 150);
 
         assertEq(forwarder.moveStake(stakeId, toStakeId, 40), 40);
         assertEq(forwarder.moveStake(stakeId, toStakeId, 10), 50);
+        assertEq(forwarder.moveStake(stakeId, toStakeId, 0), 50);
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 100);
         assertEq(ve.stakeAmount(address(forwarder), toStakeId), 50);
 
         StakeId splitStakeId = createStakeId(bytes24("split"), endTime);
-        vm.expectRevert(Ve33.InvalidStake.selector);
-        forwarder.splitStake(stakeId, splitStakeId, 0);
+        assertEq(forwarder.splitStake(stakeId, splitStakeId, 0), 0);
         vm.expectRevert(Ve33.InvalidStake.selector);
         forwarder.splitStake(stakeId, splitStakeId, 100);
         vm.expectRevert(Ve33.InvalidStake.selector);
@@ -887,6 +889,7 @@ contract Ve33Test is FullTest {
         assertEq(ve.stakeAmount(address(forwarder), splitStakeId), 40);
 
         StakeId shorterStakeId = createStakeId(bytes24("shorter"), uint64(vm.getBlockTimestamp() + 3 days));
+        assertEq(forwarder.moveStake(stakeId, shorterStakeId, 0), 0);
         vm.expectRevert(Ve33.InvalidStake.selector);
         forwarder.moveStake(stakeId, shorterStakeId, 1);
 

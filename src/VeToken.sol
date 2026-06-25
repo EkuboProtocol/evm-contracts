@@ -48,6 +48,9 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     /// @notice Thrown when the Ve33 stake token is the native token sentinel.
     error InvalidStakeToken();
 
+    /// @notice Thrown when a VeToken operation cannot be represented as a no-op with zero stake.
+    error InvalidStakeAmount();
+
     /// @notice Thrown when a caller is not the ERC721 owner or approved account for a represented stake.
     /// @param caller The unauthorized caller.
     /// @param id The ERC721 token id.
@@ -136,6 +139,8 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     /// @param end The stake end timestamp.
     /// @return veId The minted ERC721 token id.
     function createStake(uint128 amount, uint64 end) external returns (uint256 veId) {
+        if (amount == 0) revert InvalidStakeAmount();
+
         veId = nextVeId;
         unchecked {
             nextVeId = veId + 1;
@@ -150,6 +155,8 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param amount The amount of stake token to add.
     function increaseStakeAmount(uint256 veId, uint128 amount) external authorizedForStake(veId) {
+        if (amount == 0) return;
+
         lock(abi.encode(CALL_TYPE_STAKE, msg.sender, stakeId(veId), amount));
     }
 
@@ -172,6 +179,8 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     /// @param amount The amount of stake token to move into the new ERC721.
     /// @return splitVeId The newly minted ERC721 token id.
     function splitStake(uint256 veId, uint128 amount) external authorizedForStake(veId) returns (uint256 splitVeId) {
+        if (amount == 0) revert InvalidStakeAmount();
+
         uint64 end = _stakeEndTime(veId);
         StakeId fromStakeId = createStakeId(_stakeSalt(veId), end);
 

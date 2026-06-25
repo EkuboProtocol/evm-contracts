@@ -237,7 +237,7 @@ contract VeTokenTest is FullTest {
     function test_stakeLifecycleAndInvalidStakePaths() public {
         uint256 maxStakeDuration = veToken.MAX_STAKE_DURATION();
 
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(VeToken.InvalidStakeAmount.selector);
         veToken.createStake(0, uint64(vm.getBlockTimestamp() + 1));
         vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.createStake(1, uint64(vm.getBlockTimestamp()));
@@ -257,8 +257,10 @@ contract VeTokenTest is FullTest {
         assertEq(stakeEndTime, end);
         assertEq(veToken.votingPower(veId), 1e18);
 
-        vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.increaseStakeAmount(veId, 0);
+        (amount, stakeEndTime) = veToken.stakes(veId);
+        assertEq(amount, 1e18);
+        assertEq(stakeEndTime, end);
         veToken.increaseStakeAmount(veId, 2e18);
 
         (amount, stakeEndTime) = veToken.stakes(veId);
@@ -296,7 +298,7 @@ contract VeTokenTest is FullTest {
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         uint256 veId = veToken.createStake(4e18, end);
 
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(VeToken.InvalidStakeAmount.selector);
         veToken.splitStake(veId, 0);
         vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.splitStake(veId, 4e18);

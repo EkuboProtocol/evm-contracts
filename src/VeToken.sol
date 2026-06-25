@@ -3,9 +3,7 @@ pragma solidity =0.8.33;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {Base64} from "solady/utils/Base64.sol";
-import {DateTimeLib} from "solady/utils/DateTimeLib.sol";
-import {LibString} from "solady/utils/LibString.sol";
+import {Multicallable} from "solady/utils/Multicallable.sol";
 
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
@@ -13,12 +11,13 @@ import {Ve33, VE33_MAX_STAKE_DURATION} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
+import {VeTokenMetadata} from "./libraries/VeTokenMetadata.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {StakeId, createStakeId} from "./types/stakeId.sol";
 
 /// @notice ERC721 representation over Ve33 stake accounting.
 /// @dev The canonical stake is owned by this wrapper in Ve33. ERC721 ownership controls the wrapper.
-contract VeToken is ERC721, BaseLocker, UsesCore {
+contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     using FlashAccountantLib for *;
     using Ve33Lib for Ve33;
 
@@ -81,41 +80,17 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
     ///      The image is an embedded SVG generated from the current Ve33 stake amount, stake end, and stake token.
     function tokenURI(uint256 id) public view override returns (string memory) {
         (uint128 amount, uint64 endTime) = stakes(id);
-        string memory idString = LibString.toString(id);
-        string memory tokenName = string.concat(_symbol, " #", idString);
-        string memory amountString = _formatTokenAmount(amount);
-        string memory unlockDate = _formatDate(endTime);
-        string memory description = string.concat(
-            "Vote-escrowed ",
-            _stakeTokenName,
-            " stake. Amount: ",
-            amountString,
-            " ",
-            _stakeTokenSymbol,
-            ". Unlock date: ",
-            unlockDate,
-            ". Stake token: ",
-            LibString.toHexStringChecksummed(stakeToken),
-            "."
-        );
-        string memory image =
-            string.concat("data:image/svg+xml;base64,", Base64.encode(bytes(_tokenSvg(id, amountString, unlockDate))));
-
-        return string.concat(
-            "data:application/json;base64,",
-            Base64.encode(
-                bytes(
-                    string.concat(
-                        "{\"name\":",
-                        LibString.escapeJSON(tokenName, true),
-                        ",\"description\":",
-                        LibString.escapeJSON(description, true),
-                        ",\"image\":",
-                        LibString.escapeJSON(image, true),
-                        "}"
-                    )
-                )
-            )
+        return VeTokenMetadata.tokenURI(
+            VeTokenMetadata.Params({
+                id: id,
+                amount: amount,
+                unlockTime: endTime,
+                veSymbol: _symbol,
+                stakeTokenName: _stakeTokenName,
+                stakeTokenSymbol: _stakeTokenSymbol,
+                stakeTokenDecimals: _stakeTokenDecimals,
+                stakeToken: stakeToken
+            })
         );
     }
 
@@ -328,133 +303,5 @@ contract VeToken is ERC721, BaseLocker, UsesCore {
         assembly ("memory-safe") {
             salt := shl(64, veId)
         }
-    }
-
-    /// @notice Builds the SVG image embedded in ERC721 metadata.
-    /// @param id The ERC721 token id.
-    /// @param amountString The current staked token amount formatted with stake-token decimals.
-    /// @param unlockDate The stake end timestamp formatted as an English date.
-    /// @return The raw SVG string.
-    function _tokenSvg(uint256 id, string memory amountString, string memory unlockDate)
-        private
-        view
-        returns (string memory)
-    {
-        string memory tokenAddress = LibString.toHexStringChecksummed(stakeToken);
-        return string.concat(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 480 480\">",
-            "<rect width=\"480\" height=\"480\" fill=\"#101114\"/>",
-            "<rect x=\"32\" y=\"32\" width=\"416\" height=\"416\" rx=\"18\" fill=\"#f6f1e8\"/>",
-            "<text x=\"56\" y=\"96\" fill=\"#101114\" font-family=\"monospace\" font-size=\"28\" font-weight=\"700\">",
-            LibString.escapeHTML(_symbol),
-            " #",
-            LibString.toString(id),
-            "</text>",
-            "<text x=\"56\" y=\"148\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Stake token</text>",
-            "<text x=\"56\" y=\"176\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\">",
-            LibString.escapeHTML(_stakeTokenSymbol),
-            "</text>",
-            "<text x=\"56\" y=\"226\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Amount</text>",
-            "<text x=\"56\" y=\"254\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
-            LibString.escapeHTML(amountString),
-            "</text>",
-            "<text x=\"56\" y=\"304\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Unlock date</text>",
-            "<text x=\"56\" y=\"332\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
-            LibString.escapeHTML(unlockDate),
-            "</text>",
-            "<text x=\"56\" y=\"390\" fill=\"#101114\" font-family=\"monospace\" font-size=\"14\">",
-            LibString.escapeHTML(tokenAddress),
-            "</text>",
-            "</svg>"
-        );
-    }
-
-    /// @notice Formats a stake-token amount using token decimals, trimming trailing fractional zeros.
-    /// @param amount Raw stake-token amount.
-    /// @return Decimal-adjusted amount string.
-    function _formatTokenAmount(uint256 amount) private view returns (string memory) {
-        uint256 decimals = _stakeTokenDecimals;
-        string memory digitsString = LibString.toString(amount);
-        if (decimals == 0) return digitsString;
-
-        bytes memory digits = bytes(digitsString);
-        if (amount == 0) return "0";
-
-        if (digits.length > decimals) {
-            uint256 wholeLength = digits.length - decimals;
-            uint256 wholeFractionalLength = decimals;
-            while (wholeFractionalLength != 0 && digits[wholeLength + wholeFractionalLength - 1] == bytes1("0")) {
-                unchecked {
-                    --wholeFractionalLength;
-                }
-            }
-            if (wholeFractionalLength == 0) return LibString.slice(digitsString, 0, wholeLength);
-
-            bytes memory wholeResult = new bytes(wholeLength + 1 + wholeFractionalLength);
-            for (uint256 i; i < wholeLength;) {
-                wholeResult[i] = digits[i];
-                unchecked {
-                    ++i;
-                }
-            }
-            wholeResult[wholeLength] = bytes1(".");
-            for (uint256 i; i < wholeFractionalLength;) {
-                wholeResult[wholeLength + 1 + i] = digits[wholeLength + i];
-                unchecked {
-                    ++i;
-                }
-            }
-            return string(wholeResult);
-        }
-
-        uint256 leadingZeros = decimals - digits.length;
-        uint256 fractionalLength = digits.length;
-        while (fractionalLength != 0 && digits[fractionalLength - 1] == bytes1("0")) {
-            unchecked {
-                --fractionalLength;
-            }
-        }
-        bytes memory result = new bytes(2 + leadingZeros + fractionalLength);
-        result[0] = bytes1("0");
-        result[1] = bytes1(".");
-        for (uint256 i; i < leadingZeros;) {
-            result[2 + i] = bytes1("0");
-            unchecked {
-                ++i;
-            }
-        }
-        for (uint256 i; i < fractionalLength;) {
-            result[2 + leadingZeros + i] = digits[i];
-            unchecked {
-                ++i;
-            }
-        }
-        return string(result);
-    }
-
-    /// @notice Formats a timestamp as an English UTC date.
-    /// @param timestamp Unix timestamp.
-    /// @return Date string like "Jan 1, 2030".
-    function _formatDate(uint256 timestamp) private pure returns (string memory) {
-        (uint256 year, uint256 month, uint256 day) = DateTimeLib.timestampToDate(timestamp);
-        return string.concat(_monthName(month), " ", LibString.toString(day), ", ", LibString.toString(year));
-    }
-
-    /// @notice Returns the English abbreviated month name for a 1-indexed month.
-    /// @param month Month number.
-    /// @return Month abbreviation.
-    function _monthName(uint256 month) private pure returns (string memory) {
-        if (month == 1) return "Jan";
-        if (month == 2) return "Feb";
-        if (month == 3) return "Mar";
-        if (month == 4) return "Apr";
-        if (month == 5) return "May";
-        if (month == 6) return "Jun";
-        if (month == 7) return "Jul";
-        if (month == 8) return "Aug";
-        if (month == 9) return "Sep";
-        if (month == 10) return "Oct";
-        if (month == 11) return "Nov";
-        return "Dec";
     }
 }

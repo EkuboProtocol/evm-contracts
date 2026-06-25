@@ -172,6 +172,31 @@ contract VeTokenTest is FullTest {
         assertTrue(veToken.supportsInterface(0x5b5e139f));
     }
 
+    function test_multicall_batchesStakeActionsAndReads() public {
+        uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = abi.encodeCall(veToken.createStake, (1e18, end));
+        calls[1] = abi.encodeCall(veToken.increaseStakeAmount, (1, 2e18));
+        calls[2] = abi.encodeCall(veToken.stakes, (1));
+
+        bytes[] memory results = veToken.multicall(calls);
+        assertEq(results.length, 3);
+        assertEq(abi.decode(results[0], (uint256)), 1);
+        assertEq(results[1].length, 0);
+
+        (uint128 amount, uint64 stakeEnd) = abi.decode(results[2], (uint128, uint64));
+        assertEq(amount, 3e18);
+        assertEq(stakeEnd, end);
+        assertEq(veToken.ownerOf(1), address(this));
+        assertEq(_stakeTokenSavedBalance(), 3e18);
+    }
+
+    function test_multicall_revertsWithValue() public {
+        bytes[] memory calls = new bytes[](0);
+        vm.expectRevert();
+        veToken.multicall{value: 1}(calls);
+    }
+
     function test_tokenURI_returnsErc721JsonMetadata() public {
         vm.warp(1);
         uint256 veId = veToken.createStake(15e17, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));

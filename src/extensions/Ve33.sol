@@ -141,7 +141,22 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         onlyCore
     {
         PoolId poolId = poolKey.toPoolId();
-        _maybeAccumulatePoolRewards({poolId: poolId, liquidity: 0});
+        accrueEmissions();
+
+        uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
+        uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
+        _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
+
+        uint256 emissionRewardsAccrued;
+        if (snapshot != emissionGrowthGlobalX128_) {
+            uint128 weight = _poolTotalWeight(poolId);
+            if (weight != 0) {
+                emissionRewardsAccrued =
+                    FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);
+            }
+        }
+
+        emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
     }
 
     /// @notice Rejects direct Core swaps.

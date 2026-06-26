@@ -1123,12 +1123,22 @@ contract Ve33Test is FullTest {
         PositionId positionId = _mintPosition(-64, 64);
         _fundAndVote(poolKey, uint64(1 << 62));
 
-        _scheduleEmissions(1e18, _defaultEmissionEnd());
+        uint64 end = _defaultEmissionEnd();
+        uint160 rewardRate = _emissionRateForAmount(1e18, end);
+        _scheduleEmissions(1e18, end);
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
+        uint128 weight = ve.poolTotalWeight(poolId);
+        uint256 rawEmissionsAccrued = (uint256(rewardRate) * 1 days) >> 32;
+        uint256 expectedEmissionGrowthGlobalX128 = (rawEmissionsAccrued << 128) / weight;
+        uint256 expectedPoolEmissionsAccrued = (expectedEmissionGrowthGlobalX128 * weight) >> 128;
+
+        vm.expectEmit(address(ve));
+        emit IVe33.PoolEmissionsAccrued(poolId, expectedPoolEmissionsAccrued);
         core.initializePool(poolKey, 0);
         assertEq(ve.rewardsGlobalPerLiquidity(poolId), 0);
-        assertEq(ve.poolEmissionGrowthGlobalX128Snapshot(poolId), ve.emissionGrowthGlobalX128());
+        assertEq(ve.emissionGrowthGlobalX128(), expectedEmissionGrowthGlobalX128);
+        assertEq(ve.poolEmissionGrowthGlobalX128Snapshot(poolId), expectedEmissionGrowthGlobalX128);
 
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         assertEq(_claimRewards(poolKey, positionId, address(this)), 0);

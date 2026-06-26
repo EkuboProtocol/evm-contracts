@@ -98,13 +98,18 @@ Any conversion from raw storage to a narrower integer must be performed through 
 
 ### V33-POOL-001: Ve33 Pool Key Validation
 
-All user-callable paths that accept a `PoolKey` and mutate Ve33 pool state must reject invalid pool keys before state-dependent mutation, except pool-fee claims that verify `poolKey.toPoolId() == votedPoolId(owner, stakeId)`:
+User-callable paths that accept untrusted `PoolKey` input and mutate Ve33 pool state must reject invalid pool keys before state-dependent mutation unless the operation will otherwise fail safely before mutation:
 
 - `poolKey.config.extension() == address(ve33)`.
 - `poolKey.config.fee() == 0` for `Ve33` pool accounting.
 - concentrated pool tick spacing is a power of four.
 
-`Ve33Positions` only validates `extension == address(ve33)` because Core and the Ve33 extension own the remaining pool validation.
+Important boundaries:
+
+- `vote`, forwarded swaps, public reward accumulation, and forwarded LP reward claims validate the full Ve33 pool configuration because they accept untrusted pool keys.
+- Pool-fee claims verify `poolKey.toPoolId() == votedPoolId(owner, stakeId)` instead of revalidating the pool key, because the voted pool id was only written by a validated vote.
+- Trusted Core hooks for initialized pools, including `afterInitializePool` and `beforeUpdatePosition`, must not perform redundant full validation. `afterInitializePool` relies on `beforeInitializePool`, and `beforeUpdatePosition` relies on Core dispatch for an initialized pool using this extension.
+- `Ve33Positions` validates `extension == address(ve33)` on untrusted user input before managing positions; Core and Ve33 own the remaining pool validation.
 
 ### V33-POOL-002: Direct Core Swaps Are Forbidden
 
@@ -286,6 +291,12 @@ If total active vote weight is zero, prepaid emissions remain unassigned and mus
 When `_maybeAccumulatePoolRewards(poolId, liquidity)` observes new global emission growth, it must advance `poolEmissionGrowthGlobalX128Snapshot[poolId]` even if `poolTotalWeight[poolId] == 0` or `liquidity == 0`.
 If pool weight is nonzero and liquidity is zero, the realized pool emission amount is intentionally not added to `rewardsGlobalPerLiquidity`.
 
+### V33-EMIT-007: Unassigned Emissions Are Not Retroactive
+
+Emission intervals with zero total active vote weight must not increase global emission growth. Those prepaid tokens remain unassigned in the stake-balance bucket and must not be distributed retroactively when votes appear later.
+
+Voting for an uninitialized pool may give that pool active weight for future intervals. If its share is realized before the pool is initialized or before nonzero liquidity exists, that share is economically burned and must not become claimable by later LPs.
+
 ## LP Reward Invariants
 
 ### V33-LP-001: Position Snapshots Update Before Liquidity Changes
@@ -320,6 +331,24 @@ The set of crossed ticks must match Core's initialized tick traversal for the sa
 
 If an LP reward claim amount is zero, it must not emit `RewardsClaimed`.
 If nonzero, the position snapshot must advance to current inside growth, the stake-balance bucket must decrease by exactly `uint128(amount)`, and `RewardsClaimed` must be emitted.
+
+### V33-LP-005: Full Exit Discards Unclaimed LP Rewards
+
+If `beforeUpdatePosition` observes `liquidityNext == 0`, it must clear the position reward snapshot. Any unclaimed LP rewards represented only by that snapshot are intentionally discarded unless the caller claimed first, for example through `Ve33Positions.withdrawAndClaimRewards`.
+
+## Burn And Discard Invariants
+
+### V33-BURN-001: Vote Clearing Discards Voter Fees
+
+Clearing, replacing, or resizing an active vote to zero must delete the stake's voted pool, packed vote, and fee-growth snapshots. Any unclaimed voter fees under that vote become unclaimable. This includes expired unstake and moving an entire source stake.
+
+### V33-BURN-002: Nonzero Vote Resizing Preserves Voter Fees
+
+When a stake operation changes an active vote to another nonzero weight, it must preserve fees already accrued under the old weight by adjusting the fee-growth snapshot backward for the new weight. Increasing stake amount, partial moves, and partial splits should not discard voter fees unless the resulting current vote weight is zero.
+
+### V33-BURN-003: Rounding Dust Can Remain Unassigned
+
+Fixed-point divisions in voter fee growth, global emission growth, and reward-per-liquidity accounting may leave dust in Core saved balances. The system must never over-distribute to eliminate dust.
 
 ## VeToken Wrapper Invariants
 

@@ -23,6 +23,7 @@ import {
 } from "../../src/extensions/Ve33.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {Ve33StorageLayout} from "../../src/libraries/Ve33StorageLayout.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
 import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../../src/math/delta.sol";
@@ -34,8 +35,10 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {StakeId} from "../../src/types/stakeId.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
+import {VePoolFeeState} from "../../src/types/vePoolFeeState.sol";
 import {VePoolVote} from "../../src/types/vePoolVote.sol";
 
 contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
@@ -216,6 +219,98 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         _assertStakeTokenSolvent();
     }
 
+    function checkVoteAccountingConsistent() external view {
+        uint256 totalWeight;
+
+        for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
+            PoolId poolId = pools[poolIndex].poolId;
+            uint128 expectedPoolWeight;
+            uint192 expectedFeeWeightSum;
+
+            for (uint256 stakeIndex = 0; stakeIndex < stakes.length; stakeIndex++) {
+                TrackedStake memory stake = stakes[stakeIndex];
+                PoolId votedPoolId = ve33.votedPool(address(veToken), stake.stakeId);
+                VePoolVote vote = ve33.vePoolVote(address(veToken), stake.stakeId);
+
+                if (PoolId.unwrap(votedPoolId) == bytes32(0)) {
+                    FeesPerLiquidity memory snapshot = ve33.vePoolFeeGrowthSnapshot(address(veToken), stake.stakeId);
+                    assertEq(vote.weight(), 0);
+                    assertEq(snapshot.value0, 0);
+                    assertEq(snapshot.value1, 0);
+                    continue;
+                }
+
+                assertGt(vote.weight(), 0);
+                if (PoolId.unwrap(votedPoolId) != PoolId.unwrap(poolId)) continue;
+
+                unchecked {
+                    expectedPoolWeight += vote.weight();
+                    expectedFeeWeightSum += uint192(uint256(vote.weight()) * vote.swapFee());
+                }
+            }
+
+            VePoolFeeState feeState = ve33.poolFeeState(poolId);
+            assertEq(ve33.poolTotalWeight(poolId), expectedPoolWeight);
+            assertEq(feeState.feeWeightSum(), expectedFeeWeightSum);
+            assertEq(
+                feeState.swapFee(), expectedPoolWeight == 0 ? 0 : uint64(expectedFeeWeightSum / expectedPoolWeight)
+            );
+            totalWeight += expectedPoolWeight;
+        }
+
+        assertEq(ve33.totalVoteWeight(), totalWeight);
+    }
+
+    function checkPoolEmissionSnapshotsNeverAheadOfGlobal() external view {
+        uint256 emissionGrowthGlobalX128 = ve33.emissionGrowthGlobalX128();
+        for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
+            assertLe(ve33.poolEmissionGrowthGlobalX128Snapshot(pools[poolIndex].poolId), emissionGrowthGlobalX128);
+        }
+    }
+
+    function checkTrackedVe33StorageSlotsDoNotUseFixedSlots() external view {
+        for (uint256 stakeIndex = 0; stakeIndex < stakes.length; stakeIndex++) {
+            TrackedStake memory stake = stakes[stakeIndex];
+            _assertNotFixedSlot(Ve33StorageLayout.stakeAmountSlot(address(veToken), stake.stakeId));
+            _assertNotFixedSlot(Ve33StorageLayout.votedPoolIdSlot(address(veToken), stake.stakeId));
+            _assertNotFixedSlot(Ve33StorageLayout.vePoolVoteSlot(address(veToken), stake.stakeId));
+            StorageSlot feeGrowthSnapshotSlot =
+                Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(address(veToken), stake.stakeId);
+            _assertNotFixedSlot(feeGrowthSnapshotSlot);
+            _assertNotFixedSlot(feeGrowthSnapshotSlot.next());
+        }
+
+        for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
+            PoolId poolId = pools[poolIndex].poolId;
+            _assertNotFixedSlot(Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId));
+            _assertNotFixedSlot(Ve33StorageLayout.poolFeeStateSlot(poolId));
+            _assertNotFixedSlot(Ve33StorageLayout.poolTotalWeightSlot(poolId));
+            StorageSlot poolFeeGrowthSlot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
+            _assertNotFixedSlot(poolFeeGrowthSlot);
+            _assertNotFixedSlot(poolFeeGrowthSlot.next());
+            _assertNotFixedSlot(Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId));
+        }
+
+        for (uint256 positionIndex = 0; positionIndex < positions.length; positionIndex++) {
+            TrackedPosition memory position = positions[positionIndex];
+            PoolId poolId = pools[position.poolIndex].poolId;
+            _assertNotFixedSlot(
+                Ve33StorageLayout.positionRewardsSnapshotPerLiquiditySlot(
+                    poolId, address(ve33Positions), position.positionId
+                )
+            );
+            _assertNotFixedSlot(
+                Ve33StorageLayout.tickRewardsOutsidePerLiquiditySlot(poolId, position.positionId.tickLower())
+            );
+            _assertNotFixedSlot(
+                Ve33StorageLayout.tickRewardsOutsidePerLiquiditySlot(poolId, position.positionId.tickUpper())
+            );
+        }
+
+        _assertNotFixedSlot(Ve33StorageLayout.emissionInitializedTimeBitmapSlot(0));
+        _assertNotFixedSlot(Ve33StorageLayout.emissionRateDeltaAtTimeSlot(emissionEnd));
+    }
+
     function _mintPosition(uint256 poolIndex, int32 tickLower, int32 tickUpper) private {
         TrackedPool memory trackedPool = pools[poolIndex];
         (uint256 nftId, uint128 liquidity,,) = ve33Positions.mintAndDeposit(
@@ -380,6 +475,13 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         }
     }
 
+    function _assertNotFixedSlot(StorageSlot slot) private pure {
+        bytes32 rawSlot = StorageSlot.unwrap(slot);
+        assertTrue(rawSlot != bytes32(uint256(0)));
+        assertTrue(rawSlot != bytes32(uint256(1)));
+        assertTrue(rawSlot != bytes32(uint256(2)));
+    }
+
     function _mulDivUp(uint256 x, uint256 y, uint256 denominator) private pure returns (uint256 result) {
         result = FixedPointMathLib.fullMulDiv(x, y, denominator);
         if (mulmod(x, y, denominator) != 0) result++;
@@ -432,11 +534,14 @@ contract Ve33EmissionsInvariantTest is FullTest {
 
         targetContract(address(handler));
 
-        bytes4[] memory excluded = new bytes4[](4);
+        bytes4[] memory excluded = new bytes4[](7);
         excluded[0] = Ve33EmissionsInvariantHandler.initializePositions.selector;
         excluded[1] = Ve33EmissionsInvariantHandler.checkNoPositionOverclaimed.selector;
         excluded[2] = Ve33EmissionsInvariantHandler.checkAllVoterFeesSolvent.selector;
         excluded[3] = Ve33EmissionsInvariantHandler.checkStakeTokenSolvent.selector;
+        excluded[4] = Ve33EmissionsInvariantHandler.checkVoteAccountingConsistent.selector;
+        excluded[5] = Ve33EmissionsInvariantHandler.checkPoolEmissionSnapshotsNeverAheadOfGlobal.selector;
+        excluded[6] = Ve33EmissionsInvariantHandler.checkTrackedVe33StorageSlotsDoNotUseFixedSlots.selector;
         excludeSelector(FuzzSelector(address(handler), excluded));
     }
 
@@ -450,5 +555,17 @@ contract Ve33EmissionsInvariantTest is FullTest {
 
     function invariant_stakeTokenBackingIsAlwaysSolvent() public {
         handler.checkStakeTokenSolvent();
+    }
+
+    function invariant_voteAccountingIsConsistent() public view {
+        handler.checkVoteAccountingConsistent();
+    }
+
+    function invariant_poolEmissionSnapshotsNeverExceedGlobalGrowth() public view {
+        handler.checkPoolEmissionSnapshotsNeverAheadOfGlobal();
+    }
+
+    function invariant_trackedVe33StorageSlotsDoNotUseFixedSlots() public view {
+        handler.checkTrackedVe33StorageSlotsDoNotUseFixedSlots();
     }
 }

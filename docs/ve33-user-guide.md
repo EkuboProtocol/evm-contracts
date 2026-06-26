@@ -79,7 +79,7 @@ LPs should remember:
 - Stableswap positions use global pool reward growth and can earn while the pool price is outside the stableswap active-liquidity range.
 - `claimRewards(tokenId, poolKey, tickLower, tickUpper, recipient)` claims accrued reward tokens.
 - Before liquidity changes, Ve33 snapshots earned rewards. If a position fully exits, any unclaimed reward dust left in the snapshot is discarded.
-- If emissions are realized before a pool is initialized or while pool liquidity is zero, those rewards are burned rather than assigned to LP positions.
+- If emissions are realized before a pool is initialized or while pool liquidity is zero, those rewards are economically burned rather than assigned to LP positions.
 
 ## Swappers And Routers
 
@@ -104,6 +104,15 @@ Scheduling emissions does not choose pools by itself. As global emissions accrue
 - Pool fees are not meant to be predictable across long time windows. Swappers should quote the fee for the swap they are about to execute.
 - Integrators should use `Ve33Lib` against `Ve33` exposed storage for views such as stake amount, voting power, pool vote state, reward globals, and emission growth. Voter fees share the aggregate Ve33 pool-fee saved-balance salt per token pair, while staked balances and funded LP reward backing share the aggregate Ve33 stake-token saved-balance salt.
 - Ve33 uses Core saved balances as its ledger. `Ve33` itself does not perform ERC20 transfers; wrappers and peripheries settle token movement inside Core locks.
+
+## Known Burn And Discard Cases
+
+- Clearing or replacing a vote discards unclaimed voter fees for the previous vote.
+- Withdrawing an expired stake clears its vote. Claim voter fees first if the stake has pending fees.
+- Moving an entire stake clears the source stake's vote. Claim source-stake voter fees first if they should be preserved.
+- Fully withdrawing LP liquidity without first claiming rewards clears the position reward snapshot and discards unclaimed LP rewards; use `withdrawAndClaimRewards` to bundle both actions.
+- Voting for an uninitialized pool can direct future emissions to that pool, but emissions realized before the pool has liquidity are not claimable by later LPs.
+- Emissions accrued while total active vote weight is zero, plus normal fixed-point rounding dust, can remain unassigned in Core saved balances and are not retroactively distributed.
 
 ## Deployment
 

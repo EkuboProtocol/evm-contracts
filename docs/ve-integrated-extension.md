@@ -52,6 +52,8 @@ Pool initialization validates `poolKey.config.fee() == 0` and concentrated power
 
 Direct Core swaps are rejected in `beforeSwap`. Swaps must be made through `Core.forward` to the extension with `VE33_SWAP`.
 
+Pool-key validation is only repeated where the call receives untrusted input and the operation would not otherwise fail safely before mutating Ve33 state. `vote`, forwarded swaps, public reward accumulation, and forwarded LP reward claims validate Ve33 pool configuration. Pool-fee claims instead require `poolKey.toPoolId()` to match the stake's current voted pool, which was validated when the vote was set. Trusted Core hooks for initialized pools, such as `afterInitializePool` and `beforeUpdatePosition`, rely on Core dispatch and do not re-run full pool-key validation.
+
 ## Stake Accounting
 
 Stakes are stored in:
@@ -175,7 +177,18 @@ poolEmissionAmount =
   (emissionGrowthGlobalX128 - poolSnapshot) * pool active vote weight
 ```
 
-That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has current Core liquidity. There is no separate trigger call and no keeper-chosen pool distribution step. A newly voted pool snapshots current global emission growth before its weight is added, so it starts earning from the new vote timestamp rather than receiving past emissions. If the pool is not initialized yet or has no liquidity when its emission share is realized, the realized amount is burned.
+That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has current Core liquidity. There is no separate trigger call and no keeper-chosen pool distribution step. A newly voted pool snapshots current global emission growth before its weight is added, so it starts earning from the new vote timestamp rather than receiving past emissions. If the pool is not initialized yet or has no liquidity when its emission share is realized, the realized amount is economically burned.
+
+## Known Burn And Discard Cases
+
+The extension intentionally favors simple, local accounting over retroactive reassignment. These cases can leave tokens or accounting dust unclaimable:
+
+- Replacing or clearing a vote discards unclaimed voter fees under the previous vote.
+- Withdrawing an expired stake clears its vote and discards pending voter fees if they were not claimed first.
+- Moving an entire stake clears the source stake's vote and discards source-stake voter fees if they were not claimed first; bundled claim-and-merge helpers preserve those fees.
+- Fully withdrawing an LP position without first claiming rewards clears the reward snapshot and discards unclaimed LP rewards; `Ve33Positions.withdrawAndClaimRewards` avoids this.
+- Voting for an uninitialized pool can direct future emissions to that pool, but any pool emission share realized before initialization or before nonzero liquidity exists is not assigned to later LPs.
+- Emission intervals with zero total active vote weight do not increase global emission growth, and fixed-point divisions can leave rounding dust in saved balances. These amounts are not retroactively redistributed.
 
 ## Settlement Model
 

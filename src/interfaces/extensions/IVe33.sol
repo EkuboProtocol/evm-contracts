@@ -8,11 +8,39 @@ import {PoolId} from "../../types/poolId.sol";
 import {PoolKey} from "../../types/poolKey.sol";
 import {PositionId} from "../../types/positionId.sol";
 import {StakeId} from "../../types/stakeId.sol";
-import {Ve33GlobalEmissionState} from "../../types/ve33GlobalEmissionState.sol";
 
 /// @title Ve33 Interface
 /// @notice Interface for the Ekubo ve(3,3) pool extension.
 interface IVe33 is IExposedStorage, IExtension, IForwardee {
+    /// @notice Thrown when a swap attempts to bypass the forward-only swap path.
+    error SwapMustHappenThroughForward();
+    /// @notice Thrown when a pool key is not configured for this extension.
+    error IncorrectPoolExtension();
+    /// @notice Thrown when claiming voter fees for a pool the stake did not vote for.
+    error PoolNotVoted();
+    /// @notice Thrown when a Ve33 pool uses a nonzero Core fee.
+    error FeeMustBeZero();
+    /// @notice Thrown when a concentrated Ve33 pool tick spacing is not a power of four.
+    error TickSpacingMustBePowerOfFour();
+    /// @notice Thrown when emission schedule timestamps are invalid.
+    error InvalidTimestamps();
+    /// @notice Thrown when an emission-rate delta exceeds the allowed bound.
+    error MaxRateDeltaPerTime();
+    /// @notice Thrown when a new stake end timestamp is not in the future.
+    error StakeEndNotInFuture();
+    /// @notice Thrown when a new stake end timestamp is farther than the max stake duration.
+    error StakeDurationTooLong();
+    /// @notice Thrown when unstaking before a stake has expired.
+    error StakeNotExpired();
+    /// @notice Thrown when moving more stake than the source stake contains.
+    error StakeAmountExceedsBalance();
+    /// @notice Thrown when splitting a stake into the same stake id.
+    error CannotSplitStakeIntoItself();
+    /// @notice Thrown when splitting an amount that would leave no source stake.
+    error SplitAmountMustBeLessThanStakeAmount();
+    /// @notice Thrown when moving stake to a stake id that ends before or at the source stake id.
+    error MoveStakeToEarlierEndTime();
+
     /// @notice Emitted when a stake amount changes.
     /// @dev Positive deltas add stake, negative deltas remove stake.
     event StakeChanged(address owner, StakeId stakeId, int256 delta);
@@ -64,9 +92,7 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount);
 
     /// @notice Accumulates global emissions into global emission growth.
-    function accrueEmissions()
-        external
-        returns (uint256 emissionGrowthGlobalX128, Ve33GlobalEmissionState globalEmissionState);
+    function accrueEmissions() external;
 
     /// @notice Accumulates global emissions into the pool reward-per-liquidity global value.
     /// @param poolKey Pool whose reward state is being accumulated.

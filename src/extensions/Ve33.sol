@@ -82,35 +82,6 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     /// @notice Token used for ve staking, global emissions, and LP rewards.
     address public immutable stakeToken;
 
-    /// @notice Thrown when a swap attempts to bypass the forward-only swap path.
-    error SwapMustHappenThroughForward();
-    /// @notice Thrown when a pool key is not configured for this extension.
-    error IncorrectPoolExtension();
-    /// @notice Thrown when claiming voter fees for a pool the stake did not vote for.
-    error PoolNotVoted();
-    /// @notice Thrown when a Ve33 pool uses a nonzero Core fee.
-    error FeeMustBeZero();
-    /// @notice Thrown when a concentrated Ve33 pool tick spacing is not a power of four.
-    error TickSpacingMustBePowerOfFour();
-    /// @notice Thrown when emission schedule timestamps are invalid.
-    error InvalidTimestamps();
-    /// @notice Thrown when an emission-rate delta exceeds the allowed bound.
-    error MaxRateDeltaPerTime();
-    /// @notice Thrown when a new stake end timestamp is not in the future.
-    error StakeEndNotInFuture();
-    /// @notice Thrown when a new stake end timestamp is farther than the max stake duration.
-    error StakeDurationTooLong();
-    /// @notice Thrown when unstaking before a stake has expired.
-    error StakeNotExpired();
-    /// @notice Thrown when moving more stake than the source stake contains.
-    error StakeAmountExceedsBalance();
-    /// @notice Thrown when splitting a stake into the same stake id.
-    error CannotSplitStakeIntoItself();
-    /// @notice Thrown when splitting an amount that would leave no source stake.
-    error SplitAmountMustBeLessThanStakeAmount();
-    /// @notice Thrown when moving stake to a stake id that ends before or at the source stake id.
-    error MoveStakeToEarlierEndTime();
-
     /// @notice Initializes the extension with Core and the immutable reward/stake token.
     /// @param core Ekubo Core contract.
     /// @param _stakeToken Token used for ve stakes and LP rewards.
@@ -752,7 +723,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
             amount = uint128(((realDuration * rewardRate) + type(uint32).max) >> 32);
         }
 
-        (, Ve33GlobalEmissionState globalEmissionState) = accrueEmissions();
+        accrueEmissions();
 
         CORE.updateSavedBalances(
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
@@ -762,7 +733,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         if (startTime > block.timestamp) {
             _updateEmissionTime(startTime, rewardRateDelta);
         } else {
-            (uint160 rate, uint32 lastAccrued) = globalEmissionState.parse();
+            (uint160 rate, uint32 lastAccrued) = _globalEmissionState().parse();
             unchecked {
                 rate += rewardRate;
             }
@@ -905,8 +876,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     /// @param liquidity Current Core pool liquidity.
     function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity) private {
         unchecked {
-            (uint256 emissionGrowthGlobalX128_,) = accrueEmissions();
+            accrueEmissions();
 
+            uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
             uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
             if (snapshot != emissionGrowthGlobalX128_) {
                 _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
@@ -932,17 +904,14 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     }
 
     /// @notice Accrues global emissions into global emission growth.
-    function accrueEmissions()
-        public
-        returns (uint256 emissionGrowthGlobalX128_, Ve33GlobalEmissionState globalEmissionState)
-    {
-        globalEmissionState = _globalEmissionState();
+    function accrueEmissions() public {
+        Ve33GlobalEmissionState globalEmissionState = _globalEmissionState();
         uint160 rate = globalEmissionState.emissionRate();
         uint256 lastAccruedTime = globalEmissionState.realEmissionTimeAtOrBeforeNow();
-        emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
-        if (lastAccruedTime == block.timestamp) return (emissionGrowthGlobalX128_, globalEmissionState);
+        if (lastAccruedTime == block.timestamp) return;
 
         uint256 time = lastAccruedTime;
+        uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
 
         while (time != block.timestamp) {
             (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccruedTime, time, block.timestamp);
@@ -966,8 +935,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         }
 
         _setEmissionGrowthGlobalX128(emissionGrowthGlobalX128_);
-        globalEmissionState = createVe33GlobalEmissionState(rate, uint32(block.timestamp));
-        _setGlobalEmissionState(globalEmissionState);
+        _setGlobalEmissionState(createVe33GlobalEmissionState(rate, uint32(block.timestamp)));
     }
 
     /// @notice Updates tick reward snapshots for ticks crossed by a forwarded swap.

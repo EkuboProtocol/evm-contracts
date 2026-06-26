@@ -464,13 +464,13 @@ contract Ve33Test is FullTest {
     }
 
     function test_poolInitializationRejectsInvalidConfig() public {
-        vm.expectRevert(Ve33.FeeMustBeZero.selector);
+        vm.expectRevert(IVe33.FeeMustBeZero.selector);
         createPool({tick: 0, fee: 1, tickSpacing: 64, extension: address(ve)});
 
-        vm.expectRevert(Ve33.TickSpacingMustBePowerOfFour.selector);
+        vm.expectRevert(IVe33.TickSpacingMustBePowerOfFour.selector);
         createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(ve)});
 
-        vm.expectRevert(Ve33.TickSpacingMustBePowerOfFour.selector);
+        vm.expectRevert(IVe33.TickSpacingMustBePowerOfFour.selector);
         createPool({tick: 0, fee: 0, tickSpacing: 2, extension: address(ve)});
 
         PoolConfig config = createConcentratedPoolConfig(0, 64, address(ve));
@@ -540,7 +540,7 @@ contract Ve33Test is FullTest {
             _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(1), _isToken1: false, _skipAhead: 0
         });
 
-        vm.expectRevert(Ve33.SwapMustHappenThroughForward.selector);
+        vm.expectRevert(IVe33.SwapMustHappenThroughForward.selector);
         ve.beforeSwap(Locker.wrap(bytes32(0)), poolKey, params);
 
         vm.expectRevert();
@@ -556,19 +556,19 @@ contract Ve33Test is FullTest {
         uint256 veId = _createStake();
 
         PoolKey memory wrongExtensionPool = createPool({tick: 0, fee: 0, tickSpacing: 64, extension: address(0)});
-        vm.expectRevert(Ve33.IncorrectPoolExtension.selector);
+        vm.expectRevert(IVe33.IncorrectPoolExtension.selector);
         veToken.vote(veId, wrongExtensionPool, 1);
 
         PoolConfig wrongFeeConfig = createConcentratedPoolConfig(1, 64, address(ve));
         PoolKey memory wrongFeePool =
             PoolKey({token0: address(token0), token1: address(token1), config: wrongFeeConfig});
-        vm.expectRevert(Ve33.FeeMustBeZero.selector);
+        vm.expectRevert(IVe33.FeeMustBeZero.selector);
         veToken.vote(veId, wrongFeePool, 1);
 
         PoolConfig invalidTickSpacingConfig = createConcentratedPoolConfig(0, 100, address(ve));
         PoolKey memory invalidTickSpacingPool =
             PoolKey({token0: address(token0), token1: address(token1), config: invalidTickSpacingConfig});
-        vm.expectRevert(Ve33.TickSpacingMustBePowerOfFour.selector);
+        vm.expectRevert(IVe33.TickSpacingMustBePowerOfFour.selector);
         veToken.vote(veId, invalidTickSpacingPool, 1);
 
         veToken.vote(veId, poolKey, type(uint64).max);
@@ -628,7 +628,7 @@ contract Ve33Test is FullTest {
 
         uint256 balanceBefore = token1.balanceOf(address(this));
         StakeId stakeId = _stakeId(veId);
-        vm.expectRevert(Ve33.PoolNotVoted.selector);
+        vm.expectRevert(IVe33.PoolNotVoted.selector);
         forwarder.claimPoolFees(stakeId, poolKey);
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
         assertEq(claimed0, 0);
@@ -681,7 +681,7 @@ contract Ve33Test is FullTest {
         veToken.approve(operator, veId);
 
         (PoolKey memory otherPoolKey,) = _createConcentratedPool(256, bytes24("other-pool"));
-        vm.expectRevert(Ve33.PoolNotVoted.selector);
+        vm.expectRevert(IVe33.PoolNotVoted.selector);
         vm.prank(operator);
         veToken.claimPoolFees(veId, otherPoolKey, recipient);
 
@@ -1068,7 +1068,7 @@ contract Ve33Test is FullTest {
 
         assertEq(forwarder.moveStake(stakeId, stakeId, 40), 150);
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 150);
-        vm.expectRevert(Ve33.StakeAmountExceedsBalance.selector);
+        vm.expectRevert(IVe33.StakeAmountExceedsBalance.selector);
         forwarder.moveStake(stakeId, stakeId, 151);
 
         assertEq(forwarder.moveStake(stakeId, toStakeId, 40), 40);
@@ -1079,11 +1079,11 @@ contract Ve33Test is FullTest {
 
         StakeId splitStakeId = createStakeId(bytes24("split"), endTime);
         assertEq(forwarder.splitStake(stakeId, splitStakeId, 0), 0);
-        vm.expectRevert(Ve33.CannotSplitStakeIntoItself.selector);
+        vm.expectRevert(IVe33.CannotSplitStakeIntoItself.selector);
         forwarder.splitStake(stakeId, stakeId, 1);
-        vm.expectRevert(Ve33.SplitAmountMustBeLessThanStakeAmount.selector);
+        vm.expectRevert(IVe33.SplitAmountMustBeLessThanStakeAmount.selector);
         forwarder.splitStake(stakeId, splitStakeId, 100);
-        vm.expectRevert(Ve33.SplitAmountMustBeLessThanStakeAmount.selector);
+        vm.expectRevert(IVe33.SplitAmountMustBeLessThanStakeAmount.selector);
         forwarder.splitStake(stakeId, splitStakeId, 101);
         assertEq(forwarder.splitStake(stakeId, splitStakeId, 40), 40);
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 60);
@@ -1091,7 +1091,7 @@ contract Ve33Test is FullTest {
 
         StakeId shorterStakeId = createStakeId(bytes24("shorter"), uint64(vm.getBlockTimestamp() + 3 days));
         assertEq(forwarder.moveStake(stakeId, shorterStakeId, 0), 0);
-        vm.expectRevert(Ve33.MoveStakeToEarlierEndTime.selector);
+        vm.expectRevert(IVe33.MoveStakeToEarlierEndTime.selector);
         forwarder.moveStake(stakeId, shorterStakeId, 1);
 
         vm.warp(endTime);
@@ -1106,7 +1106,7 @@ contract Ve33Test is FullTest {
     function test_maybeAccumulateRewardsValidationAndOutOfRangeStableswap() public {
         PoolConfig wrongConfig = createConcentratedPoolConfig(0, 64, address(0));
         PoolKey memory wrongPool = PoolKey({token0: address(token0), token1: address(token1), config: wrongConfig});
-        vm.expectRevert(Ve33.IncorrectPoolExtension.selector);
+        vm.expectRevert(IVe33.IncorrectPoolExtension.selector);
         ve.maybeAccumulateRewards(wrongPool);
 
         (PoolKey memory initializedPool,) = _createConcentratedPool(256, bytes24(uint192(2)));
@@ -1409,7 +1409,7 @@ contract Ve33Test is FullTest {
         assertEq(ve.emissionRateDeltaAtTime(end), 0);
         _assertEmissionTimeInitialized(end, false);
 
-        vm.expectRevert(Ve33.InvalidTimestamps.selector);
+        vm.expectRevert(IVe33.InvalidTimestamps.selector);
         forwarder.scheduleEmissions(0, uint64(vm.getBlockTimestamp()), uint160(1 << 32));
 
         forwarder.scheduleEmissions(0, end, _emissionRateForAmount(1_000, end));

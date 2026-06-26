@@ -134,7 +134,7 @@ contract Ve33Test is FullTest {
         deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33(payable(deployAddress));
         router = new Router(core, address(0), address(ve));
-        veToken = new VeToken(core, ve);
+        veToken = new VeToken(core, ve, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
         vePositions = new Ve33Positions(core, ve, owner);
         forwarder = new Ve33Forwarder(core, ve, address(stakeToken));
         periphery = new Ve33Periphery(core, ve);

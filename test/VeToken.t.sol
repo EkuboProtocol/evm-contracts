@@ -34,7 +34,7 @@ contract VeTokenTest is FullTest {
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
         deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
         ve33 = Ve33(payable(deployAddress));
-        veToken = new VeToken(core, ve33);
+        veToken = new VeToken(core, ve33, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
         stakeToken.approve(address(veToken), type(uint256).max);
     }
 
@@ -182,8 +182,10 @@ contract VeTokenTest is FullTest {
 
     function test_constructor_acceptsNativeTokenAsStakeToken() public {
         ZeroStakeTokenVe33 zeroStakeTokenVe33 = new ZeroStakeTokenVe33();
-        VeToken nativeVeToken = new VeToken(core, Ve33(payable(address(zeroStakeTokenVe33))));
+        VeToken nativeVeToken = new VeToken(core, Ve33(payable(address(zeroStakeTokenVe33))), "Vote Escrow ETH", "veETH", "Ether", "ETH", 18);
         assertEq(nativeVeToken.stakeToken(), address(0));
+        assertEq(nativeVeToken.name(), "Vote Escrow ETH");
+        assertEq(nativeVeToken.symbol(), "veETH");
     }
 
     function test_multicall_batchesStakeActionsAndReads() public {

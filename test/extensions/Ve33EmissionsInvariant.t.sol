@@ -497,7 +497,7 @@ contract Ve33EmissionsInvariantTest is FullTest {
         deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
         ve33 = Ve33(payable(deployAddress));
         router = new Router(core, address(0), address(ve33));
-        veToken = new VeToken(core, ve33);
+        veToken = new VeToken(core, ve33, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
         ve33Positions = new Ve33Positions(core, ve33, owner);
         periphery = new Ve33Periphery(core, ve33);
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
@@ -61,18 +60,27 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Creates the ERC721 stake wrapper.
     /// @param core The Ekubo Core contract used for lock and token settlement.
     /// @param _ve33 The Ve33 extension containing canonical vote-escrow accounting.
-    constructor(ICore core, Ve33 _ve33) BaseLocker(core) UsesCore(core) {
+    /// @param name_ The ERC721 collection name (e.g. "Vote Escrow ETH").
+    /// @param symbol_ The ERC721 collection symbol (e.g. "veETH").
+    /// @param stakeTokenName_ The display name of the staked token used in token metadata.
+    /// @param stakeTokenSymbol_ The display symbol of the staked token used in token metadata.
+    /// @param stakeTokenDecimals_ The decimals of the staked token used for amount formatting in metadata.
+    constructor(
+        ICore core,
+        Ve33 _ve33,
+        string memory name_,
+        string memory symbol_,
+        string memory stakeTokenName_,
+        string memory stakeTokenSymbol_,
+        uint8 stakeTokenDecimals_
+    ) BaseLocker(core) UsesCore(core) {
         ve33 = _ve33;
         stakeToken = _ve33.stakeToken();
-        if (stakeToken != NATIVE_TOKEN_ADDRESS) {
-            _stakeTokenName = IERC20(stakeToken).name();
-            _stakeTokenSymbol = IERC20(stakeToken).symbol();
-            _stakeTokenDecimals = IERC20(stakeToken).decimals();
-        } else {
-            _stakeTokenDecimals = 18;
-        }
-        _name = string.concat("Vote Escrow ", _stakeTokenName);
-        _symbol = string.concat("ve", _stakeTokenSymbol);
+        _name = name_;
+        _symbol = symbol_;
+        _stakeTokenName = stakeTokenName_;
+        _stakeTokenSymbol = stakeTokenSymbol_;
+        _stakeTokenDecimals = stakeTokenDecimals_;
     }
 
     receive() external payable {}

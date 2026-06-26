@@ -165,12 +165,34 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param end The new stake end timestamp.
     function extendStake(uint256 veId, uint64 end) external authorizedForStake(veId) {
-        uint64 currentEnd = _stakeEndTime(veId);
+        _extendStake(veId, end);
+    }
 
-        StakeId currentStakeId = createStakeId(_stakeSalt(veId), currentEnd);
-        uint128 amount = ve33.stakeAmount(address(this), currentStakeId);
-        ve33.moveStake(currentStakeId, createStakeId(_stakeSalt(veId), end), amount);
-        _setExtraData(veId, end);
+    /// @notice Claims pending voter fees, then moves a represented stake to a later end timestamp.
+    /// @dev Useful before a vote-clearing extension because pending fees are discarded when votes are cleared.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    /// @param end The new stake end timestamp.
+    /// @param poolKey The currently voted pool whose fees should be claimed before extending.
+    /// @param recipient Account receiving the claimed fees.
+    /// @return amount0 The amount of token0 withdrawn to `recipient`.
+    /// @return amount1 The amount of token1 withdrawn to `recipient`.
+    function claimPoolFeesAndExtendStake(uint256 veId, uint64 end, PoolKey calldata poolKey, address recipient)
+        external
+        authorizedForStake(veId)
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = _claimPoolFees(veId, poolKey, recipient);
+        _extendStake(veId, end);
+    }
+
+    /// @notice Claims pending voter fees to the caller, then moves a represented stake to a later end timestamp.
+    function claimPoolFeesAndExtendStakeToSelf(uint256 veId, uint64 end, PoolKey calldata poolKey)
+        external
+        returns (uint128 amount0, uint128 amount1)
+    {
+        if (!isAuthorizedForNft(msg.sender, veId)) revert NotAuthorizedForToken(msg.sender, veId);
+        (amount0, amount1) = _claimPoolFees(veId, poolKey, msg.sender);
+        _extendStake(veId, end);
     }
 
     /// @notice Splits part of a represented stake into a newly minted ERC721 with the same end timestamp.
@@ -205,20 +227,37 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
         authorizedForStake(toVeId)
         returns (uint128 nextAmount)
     {
-        if (fromVeId == toVeId) return ve33.stakeAmount(address(this), stakeId(toVeId));
+        nextAmount = _mergeStakes(fromVeId, toVeId);
+    }
 
-        uint64 fromEnd = _stakeEndTime(fromVeId);
-        uint64 toEnd = _stakeEndTime(toVeId);
+    /// @notice Claims pending voter fees for the source stake, then merges it into another represented stake.
+    /// @dev `fromVeId` is burned after its stake is moved, so claiming first preserves source-stake fees.
+    /// @param fromVeId The ERC721 token id whose entire stake is moved and then burned.
+    /// @param toVeId The ERC721 token id receiving the stake.
+    /// @param poolKey The currently voted pool whose fees should be claimed before merging.
+    /// @param recipient Account receiving the claimed fees.
+    /// @return amount0 The amount of token0 withdrawn to `recipient`.
+    /// @return amount1 The amount of token1 withdrawn to `recipient`.
+    /// @return nextAmount Destination stake amount after the merge.
+    function claimPoolFeesAndMergeStakes(uint256 fromVeId, uint256 toVeId, PoolKey calldata poolKey, address recipient)
+        external
+        authorizedForStake(fromVeId)
+        authorizedForStake(toVeId)
+        returns (uint128 amount0, uint128 amount1, uint128 nextAmount)
+    {
+        (amount0, amount1) = _claimPoolFees(fromVeId, poolKey, recipient);
+        nextAmount = _mergeStakes(fromVeId, toVeId);
+    }
 
-        StakeId fromStakeId = createStakeId(_stakeSalt(fromVeId), fromEnd);
-        StakeId toStakeId = createStakeId(_stakeSalt(toVeId), toEnd);
-        uint128 amount = ve33.stakeAmount(address(this), fromStakeId);
-        if (amount == 0) return ve33.stakeAmount(address(this), toStakeId);
-
-        nextAmount = ve33.moveStake(fromStakeId, toStakeId, amount);
-
-        _burn(fromVeId);
-        _setExtraData(fromVeId, 0);
+    /// @notice Claims pending source-stake voter fees to the caller, then merges into another represented stake.
+    function claimPoolFeesAndMergeStakesToSelf(uint256 fromVeId, uint256 toVeId, PoolKey calldata poolKey)
+        external
+        returns (uint128 amount0, uint128 amount1, uint128 nextAmount)
+    {
+        if (!isAuthorizedForNft(msg.sender, fromVeId)) revert NotAuthorizedForToken(msg.sender, fromVeId);
+        if (!isAuthorizedForNft(msg.sender, toVeId)) revert NotAuthorizedForToken(msg.sender, toVeId);
+        (amount0, amount1) = _claimPoolFees(fromVeId, poolKey, msg.sender);
+        nextAmount = _mergeStakes(fromVeId, toVeId);
     }
 
     /// @notice Unstakes an expired represented stake and burns its ERC721 token.
@@ -275,9 +314,7 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
         authorizedForStake(veId)
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = abi.decode(
-            lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, recipient, poolKey)), (uint128, uint128)
-        );
+        (amount0, amount1) = _claimPoolFees(veId, poolKey, recipient);
     }
 
     /// @notice Claims pool fees earned by a represented stake to the caller.
@@ -336,5 +373,43 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
         assembly ("memory-safe") {
             salt := shl(64, veId)
         }
+    }
+
+    /// @notice Claims pending voter fees through the Core lock.
+    function _claimPoolFees(uint256 veId, PoolKey calldata poolKey, address recipient)
+        private
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = abi.decode(
+            lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, recipient, poolKey)), (uint128, uint128)
+        );
+    }
+
+    /// @notice Shared implementation for stake extension.
+    function _extendStake(uint256 veId, uint64 end) private {
+        uint64 currentEnd = _stakeEndTime(veId);
+
+        StakeId currentStakeId = createStakeId(_stakeSalt(veId), currentEnd);
+        uint128 amount = ve33.stakeAmount(address(this), currentStakeId);
+        ve33.moveStake(currentStakeId, createStakeId(_stakeSalt(veId), end), amount);
+        _setExtraData(veId, end);
+    }
+
+    /// @notice Shared implementation for stake merge.
+    function _mergeStakes(uint256 fromVeId, uint256 toVeId) private returns (uint128 nextAmount) {
+        if (fromVeId == toVeId) return ve33.stakeAmount(address(this), stakeId(toVeId));
+
+        uint64 fromEnd = _stakeEndTime(fromVeId);
+        uint64 toEnd = _stakeEndTime(toVeId);
+
+        StakeId fromStakeId = createStakeId(_stakeSalt(fromVeId), fromEnd);
+        StakeId toStakeId = createStakeId(_stakeSalt(toVeId), toEnd);
+        uint128 amount = ve33.stakeAmount(address(this), fromStakeId);
+        if (amount == 0) return ve33.stakeAmount(address(this), toStakeId);
+
+        nextAmount = ve33.moveStake(fromStakeId, toStakeId, amount);
+
+        _burn(fromVeId);
+        _setExtraData(fromVeId, 0);
     }
 }

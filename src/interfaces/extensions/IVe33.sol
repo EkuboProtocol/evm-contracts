@@ -33,7 +33,7 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     event PoolEmissionsAccrued(PoolId poolId, uint256 amount);
 
     /// @notice Emitted when an LP position claims reward tokens.
-    event RewardsClaimed(PoolId poolId, address owner, PositionId positionId, address recipient, uint256 amount);
+    event RewardsClaimed(PoolId poolId, address owner, PositionId positionId, uint256 amount);
 
     /// @notice Token used for ve staking, global emissions, and LP rewards.
     function stakeToken() external view returns (address);

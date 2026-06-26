@@ -240,9 +240,9 @@ contract VeTokenTest is FullTest {
 
         vm.expectRevert(VeToken.InvalidStakeAmount.selector);
         veToken.createStake(0, uint64(vm.getBlockTimestamp() + 1));
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(Ve33.StakeEndNotInFuture.selector);
         veToken.createStake(1, uint64(vm.getBlockTimestamp()));
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(Ve33.StakeDurationTooLong.selector);
         veToken.createStake(1, uint64(vm.getBlockTimestamp() + maxStakeDuration + 1));
 
         uint64 end = uint64(vm.getBlockTimestamp() + maxStakeDuration);
@@ -285,7 +285,7 @@ contract VeTokenTest is FullTest {
         assertEq(stakeEndTime, extendedEnd);
         assertEq(_stakeTokenSavedBalance(), 3e18);
 
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(Ve33.StakeNotExpired.selector);
         veToken.withdrawStake(veId);
         vm.warp(extendedEnd);
         assertEq(veToken.votingPower(veId), 0);
@@ -307,7 +307,7 @@ contract VeTokenTest is FullTest {
 
         vm.expectRevert(VeToken.InvalidStakeAmount.selector);
         veToken.splitStake(veId, 0);
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(Ve33.SplitAmountMustBeLessThanStakeAmount.selector);
         veToken.splitStake(veId, 4e18);
         assertEq(veToken.nextVeId(), 2);
         vm.expectRevert(ERC721.TokenDoesNotExist.selector);

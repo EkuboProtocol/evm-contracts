@@ -261,13 +261,6 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         assertEq(ve33.totalVoteWeight(), totalWeight);
     }
 
-    function checkPoolEmissionSnapshotsNeverAheadOfGlobal() external view {
-        uint256 emissionGrowthGlobalX128 = ve33.emissionGrowthGlobalX128();
-        for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
-            assertLe(ve33.poolEmissionGrowthGlobalX128Snapshot(pools[poolIndex].poolId), emissionGrowthGlobalX128);
-        }
-    }
-
     function checkTrackedVe33StorageSlotsDoNotUseFixedSlots() external view {
         for (uint256 stakeIndex = 0; stakeIndex < stakes.length; stakeIndex++) {
             TrackedStake memory stake = stakes[stakeIndex];
@@ -534,14 +527,13 @@ contract Ve33EmissionsInvariantTest is FullTest {
 
         targetContract(address(handler));
 
-        bytes4[] memory excluded = new bytes4[](7);
+        bytes4[] memory excluded = new bytes4[](6);
         excluded[0] = Ve33EmissionsInvariantHandler.initializePositions.selector;
         excluded[1] = Ve33EmissionsInvariantHandler.checkNoPositionOverclaimed.selector;
         excluded[2] = Ve33EmissionsInvariantHandler.checkAllVoterFeesSolvent.selector;
         excluded[3] = Ve33EmissionsInvariantHandler.checkStakeTokenSolvent.selector;
         excluded[4] = Ve33EmissionsInvariantHandler.checkVoteAccountingConsistent.selector;
-        excluded[5] = Ve33EmissionsInvariantHandler.checkPoolEmissionSnapshotsNeverAheadOfGlobal.selector;
-        excluded[6] = Ve33EmissionsInvariantHandler.checkTrackedVe33StorageSlotsDoNotUseFixedSlots.selector;
+        excluded[5] = Ve33EmissionsInvariantHandler.checkTrackedVe33StorageSlotsDoNotUseFixedSlots.selector;
         excludeSelector(FuzzSelector(address(handler), excluded));
     }
 
@@ -559,10 +551,6 @@ contract Ve33EmissionsInvariantTest is FullTest {
 
     function invariant_voteAccountingIsConsistent() public view {
         handler.checkVoteAccountingConsistent();
-    }
-
-    function invariant_poolEmissionSnapshotsNeverExceedGlobalGrowth() public view {
-        handler.checkPoolEmissionSnapshotsNeverAheadOfGlobal();
     }
 
     function invariant_trackedVe33StorageSlotsDoNotUseFixedSlots() public view {

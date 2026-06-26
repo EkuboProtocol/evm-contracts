@@ -179,6 +179,8 @@ poolEmissionAmount =
 
 That amount immediately increases `rewardsGlobalPerLiquidity` when the pool has current Core liquidity. There is no separate trigger call and no keeper-chosen pool distribution step. A newly voted pool snapshots current global emission growth before its weight is added, so it starts earning from the new vote timestamp rather than receiving past emissions. If the pool is not initialized yet or has no liquidity when its emission share is realized, the realized amount is economically burned.
 
+Global emission growth and pool snapshots use unchecked `uint256` modular arithmetic, like Core fee-growth accumulators. A snapshot can be numerically greater than the current global accumulator after wraparound; only the modular difference is meaningful.
+
 ## Known Burn And Discard Cases
 
 The extension intentionally favors simple, local accounting over retroactive reassignment. These cases can leave tokens or accounting dust unclaimable:

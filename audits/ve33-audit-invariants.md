@@ -290,6 +290,7 @@ If total active vote weight is zero, prepaid emissions remain unassigned and mus
 
 When `_maybeAccumulatePoolRewards(poolId, liquidity)` observes new global emission growth, it must advance `poolEmissionGrowthGlobalX128Snapshot[poolId]` even if `poolTotalWeight[poolId] == 0` or `liquidity == 0`.
 If pool weight is nonzero and liquidity is zero, the realized pool emission amount is intentionally not added to `rewardsGlobalPerLiquidity`.
+The difference between `emissionGrowthGlobalX128` and the pool snapshot is computed with unchecked `uint256` modular arithmetic. A snapshot may numerically exceed the global accumulator after wraparound, and that is valid.
 
 ### V33-EMIT-007: Unassigned Emissions Are Not Retroactive
 

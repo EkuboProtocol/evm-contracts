@@ -8,6 +8,7 @@ import {PoolId} from "../../types/poolId.sol";
 import {PoolKey} from "../../types/poolKey.sol";
 import {PositionId} from "../../types/positionId.sol";
 import {StakeId} from "../../types/stakeId.sol";
+import {Ve33GlobalEmissionState} from "../../types/ve33GlobalEmissionState.sol";
 
 /// @title Ve33 Interface
 /// @notice Interface for the Ekubo ve(3,3) pool extension.
@@ -63,7 +64,9 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount);
 
     /// @notice Accumulates global emissions into global emission growth.
-    function accrueEmissions() external;
+    function accrueEmissions()
+        external
+        returns (uint256 emissionGrowthGlobalX128, Ve33GlobalEmissionState globalEmissionState);
 
     /// @notice Accumulates global emissions into the pool reward-per-liquidity global value.
     /// @param poolKey Pool whose reward state is being accumulated.

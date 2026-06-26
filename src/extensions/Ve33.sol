@@ -141,22 +141,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         onlyCore
     {
         PoolId poolId = poolKey.toPoolId();
-        accrueEmissions();
-
-        uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
-        uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
-        _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
-
-        uint256 emissionRewardsAccrued;
-        if (snapshot != emissionGrowthGlobalX128_) {
-            uint128 weight = _poolTotalWeight(poolId);
-            if (weight != 0) {
-                emissionRewardsAccrued =
-                    FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);
-            }
-        }
-
-        emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
+        _maybeAccumulatePoolRewards({poolId: poolId, liquidity: 0});
     }
 
     /// @notice Rejects direct Core swaps.
@@ -767,7 +752,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
             amount = uint128(((realDuration * rewardRate) + type(uint32).max) >> 32);
         }
 
-        accrueEmissions();
+        (, Ve33GlobalEmissionState globalEmissionState) = accrueEmissions();
 
         CORE.updateSavedBalances(
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
@@ -777,7 +762,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         if (startTime > block.timestamp) {
             _updateEmissionTime(startTime, rewardRateDelta);
         } else {
-            (uint160 rate, uint32 lastAccrued) = _globalEmissionState().parse();
+            (uint160 rate, uint32 lastAccrued) = globalEmissionState.parse();
             unchecked {
                 rate += rewardRate;
             }
@@ -920,9 +905,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     /// @param liquidity Current Core pool liquidity.
     function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity) private {
         unchecked {
-            accrueEmissions();
+            (uint256 emissionGrowthGlobalX128_,) = accrueEmissions();
 
-            uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
             uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
             if (snapshot != emissionGrowthGlobalX128_) {
                 _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
@@ -948,14 +932,17 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     }
 
     /// @notice Accrues global emissions into global emission growth.
-    function accrueEmissions() public {
-        Ve33GlobalEmissionState globalEmissionState = _globalEmissionState();
+    function accrueEmissions()
+        public
+        returns (uint256 emissionGrowthGlobalX128_, Ve33GlobalEmissionState globalEmissionState)
+    {
+        globalEmissionState = _globalEmissionState();
         uint160 rate = globalEmissionState.emissionRate();
         uint256 lastAccruedTime = globalEmissionState.realEmissionTimeAtOrBeforeNow();
-        if (lastAccruedTime == block.timestamp) return;
+        emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
+        if (lastAccruedTime == block.timestamp) return (emissionGrowthGlobalX128_, globalEmissionState);
 
         uint256 time = lastAccruedTime;
-        uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
 
         while (time != block.timestamp) {
             (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccruedTime, time, block.timestamp);
@@ -979,7 +966,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         }
 
         _setEmissionGrowthGlobalX128(emissionGrowthGlobalX128_);
-        _setGlobalEmissionState(createVe33GlobalEmissionState(rate, uint32(block.timestamp)));
+        globalEmissionState = createVe33GlobalEmissionState(rate, uint32(block.timestamp));
+        _setGlobalEmissionState(globalEmissionState);
     }
 
     /// @notice Updates tick reward snapshots for ticks crossed by a forwarded swap.

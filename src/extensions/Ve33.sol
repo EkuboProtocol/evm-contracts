@@ -476,10 +476,13 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
         if (amount > currentAmount) revert StakeAmountExceedsBalance();
 
+        PoolId fromPoolId = _votedPoolId(msg.sender, fromStakeId);
+        PoolId toPoolId = _votedPoolId(msg.sender, toStakeId);
         _setStakeAmount(msg.sender, fromStakeId, currentAmount - amount);
         nextAmount = _stakeAmount(msg.sender, toStakeId) + amount;
         _setStakeAmount(msg.sender, toStakeId, nextAmount);
-        _pokeVote(msg.sender, fromStakeId);
+        _adjustVoteWeight(msg.sender, fromStakeId, fromPoolId, _votingPower(msg.sender, fromStakeId));
+        _adjustVoteWeight(msg.sender, toStakeId, toPoolId, _votingPower(msg.sender, toStakeId));
 
         emit StakeChanged(msg.sender, fromStakeId, -int256(uint256(amount)));
         emit StakeChanged(msg.sender, toStakeId, int256(uint256(amount)));
@@ -500,11 +503,13 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
         if (amount >= currentAmount) revert SplitAmountMustBeLessThanStakeAmount();
 
-        _clearVote(msg.sender, toStakeId);
+        PoolId fromPoolId = _votedPoolId(msg.sender, fromStakeId);
+        PoolId toPoolId = _votedPoolId(msg.sender, toStakeId);
         _setStakeAmount(msg.sender, fromStakeId, currentAmount - amount);
         nextAmount = _stakeAmount(msg.sender, toStakeId) + amount;
         _setStakeAmount(msg.sender, toStakeId, nextAmount);
-        _pokeVote(msg.sender, fromStakeId);
+        _adjustVoteWeight(msg.sender, fromStakeId, fromPoolId, _votingPower(msg.sender, fromStakeId));
+        _adjustVoteWeight(msg.sender, toStakeId, toPoolId, _votingPower(msg.sender, toStakeId));
 
         emit StakeChanged(msg.sender, fromStakeId, -int256(uint256(amount)));
         emit StakeChanged(msg.sender, toStakeId, int256(uint256(amount)));
@@ -668,7 +673,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
 
         nextAmount = _stakeAmount(owner, stakeId) + amount;
         _setStakeAmount(owner, stakeId, nextAmount);
-        _pokeVote(owner, stakeId);
+        _adjustVoteWeight(owner, stakeId, _votedPoolId(owner, stakeId), _votingPower(owner, stakeId));
         CORE.updateSavedBalances(
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
         );
@@ -830,93 +835,52 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     /// @param owner Locker representation that owns the stake.
     /// @param stakeId Stake id whose votes are cleared.
     function _clearVote(address owner, StakeId stakeId) private {
-        PoolId poolId = _votedPoolId(owner, stakeId);
+        _adjustVoteWeight(owner, stakeId, _votedPoolId(owner, stakeId), 0);
+    }
+
+    /// @notice Adjusts a stake's active vote weight for one pool.
+    /// @dev Accrues reward and voter-fee accounting before changing future weights. If `nextWeight` is zero, the vote
+    ///      is fully cleared and pending voter fees are discarded.
+    /// @param owner Locker representation that owns the stake.
+    /// @param stakeId Stake id whose vote is adjusted.
+    /// @param poolId Pool whose vote totals contain the stake.
+    /// @param nextWeight New vote weight for the stake.
+    function _adjustVoteWeight(address owner, StakeId stakeId, PoolId poolId, uint128 nextWeight) private {
         VePoolVote veVote = _vePoolVote(owner, stakeId);
-        uint128 weight = veVote.weight();
-        if (weight == 0) return;
+        uint128 previousWeight = veVote.weight();
+        if (previousWeight == nextWeight) return;
+        if (previousWeight == 0) return;
 
         _maybeAccumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
-        (veVote,) = _setVePoolVoteWeight(
-            _poolFeeGrowth(poolId), _vePoolFeeGrowthSnapshot(owner, stakeId), veVote, 0, uint64(block.timestamp)
-        );
         uint128 totalWeight = _poolTotalWeight(poolId);
         uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
+        FeesPerLiquidity memory feeGrowthSnapshot;
+        (veVote, feeGrowthSnapshot) = _setVePoolVoteWeight(
+            _poolFeeGrowth(poolId),
+            _vePoolFeeGrowthSnapshot(owner, stakeId),
+            veVote,
+            nextWeight,
+            uint64(block.timestamp)
+        );
         unchecked {
-            totalWeight -= weight;
-            feeWeightSum -= uint192(uint256(weight) * veVote.swapFee());
-            _setTotalVoteWeight(_totalVoteWeight() - weight);
+            totalWeight = totalWeight - previousWeight + nextWeight;
+            feeWeightSum = feeWeightSum - uint192(uint256(previousWeight) * veVote.swapFee())
+                + uint192(uint256(nextWeight) * veVote.swapFee());
+            _setTotalVoteWeight(_totalVoteWeight() - previousWeight + nextWeight);
         }
         _setPoolTotalWeight(poolId, totalWeight);
         uint64 currentSwapFee = _setPoolFeeState(poolId, feeWeightSum, totalWeight);
 
-        _setVotedPoolId(owner, stakeId, PoolId.wrap(bytes32(0)));
-        _deleteVePoolVote(owner, stakeId);
-        _deleteVePoolFeeGrowthSnapshot(owner, stakeId);
-        emit VoteWeightApplied(owner, stakeId, poolId, 0, currentSwapFee);
-    }
-
-    /// @notice Reduces a stake's active vote weight to current decayed voting power.
-    /// @dev Accrues reward and voter-fee accounting before changing future weights.
-    /// @param owner Locker representation that owns the stake.
-    /// @param stakeId Stake id whose votes are refreshed.
-    /// @return previousWeight Total active vote weight before refresh.
-    /// @return nextWeight Total active vote weight after refresh.
-    function _pokeVote(address owner, StakeId stakeId) private returns (uint256 previousWeight, uint256 nextWeight) {
-        PoolId poolId = _votedPoolId(owner, stakeId);
-        VePoolVote veVote = _vePoolVote(owner, stakeId);
-        previousWeight = veVote.weight();
-        // A zero previous weight means there is no active vote to resize.
-        // Stake increases must not create a vote; callers can vote explicitly after increasing.
-        if (previousWeight == 0) return (0, 0);
-
-        _maybeAccumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
-
-        uint256 targetWeight = _votingPower(owner, stakeId);
-        if (targetWeight >= previousWeight) return (previousWeight, previousWeight);
-        nextWeight = targetWeight;
-
-        if (targetWeight == 0) {
-            (veVote,) = _setVePoolVoteWeight(
-                _poolFeeGrowth(poolId), _vePoolFeeGrowthSnapshot(owner, stakeId), veVote, 0, uint64(block.timestamp)
-            );
-            uint128 totalWeight = _poolTotalWeight(poolId);
-            uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
-            unchecked {
-                totalWeight -= uint128(previousWeight);
-                feeWeightSum -= uint192(previousWeight * veVote.swapFee());
-                _setTotalVoteWeight(_totalVoteWeight() - uint128(previousWeight));
-            }
-            _setPoolTotalWeight(poolId, totalWeight);
-            uint64 currentSwapFee = _setPoolFeeState(poolId, feeWeightSum, totalWeight);
+        if (nextWeight == 0) {
             _setVotedPoolId(owner, stakeId, PoolId.wrap(bytes32(0)));
             _deleteVePoolVote(owner, stakeId);
             _deleteVePoolFeeGrowthSnapshot(owner, stakeId);
             emit VoteWeightApplied(owner, stakeId, poolId, 0, currentSwapFee);
         } else {
-            uint128 oldWeight = uint128(previousWeight);
-            uint128 newWeight = uint128(targetWeight);
-            uint128 totalWeight = _poolTotalWeight(poolId);
-            uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
-            FeesPerLiquidity memory feeGrowthSnapshot;
-            (veVote, feeGrowthSnapshot) = _setVePoolVoteWeight(
-                _poolFeeGrowth(poolId),
-                _vePoolFeeGrowthSnapshot(owner, stakeId),
-                veVote,
-                newWeight,
-                uint64(block.timestamp)
-            );
-            unchecked {
-                totalWeight = totalWeight - oldWeight + newWeight;
-                feeWeightSum = feeWeightSum - uint192(uint256(oldWeight) * veVote.swapFee())
-                    + uint192(uint256(newWeight) * veVote.swapFee());
-                _setTotalVoteWeight(_totalVoteWeight() - oldWeight + newWeight);
-            }
-            _setPoolTotalWeight(poolId, totalWeight);
-            uint64 currentSwapFee = _setPoolFeeState(poolId, feeWeightSum, totalWeight);
             _setVePoolVote(owner, stakeId, veVote);
             _setVePoolFeeGrowthSnapshot(owner, stakeId, feeGrowthSnapshot);
-            emit VoteWeightApplied(owner, stakeId, poolId, newWeight, currentSwapFee);
+            emit VoteWeightApplied(owner, stakeId, poolId, nextWeight, currentSwapFee);
         }
     }
 

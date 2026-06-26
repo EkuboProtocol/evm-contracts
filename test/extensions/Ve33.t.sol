@@ -882,7 +882,7 @@ contract Ve33Test is FullTest {
         assertEq(saved1, 0);
     }
 
-    function test_stakeIncreasePreservesVoteButMovingOrRemovingClearsVote() public {
+    function test_stakeIncreaseAdjustsVoteButMovingOrRemovingClearsVote() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         uint256 veId = _fundAndVote(poolKey, 0);
         (uint256 initialWeight,, uint64 swapFee) = _poolVoteTotals(poolKey.toPoolId());
@@ -891,7 +891,8 @@ contract Ve33Test is FullTest {
 
         veToken.increaseStakeAmount(veId, 1);
         (uint256 weight, uint256 feeWeightSum, uint64 swapFeeAfterIncrease) = _poolVoteTotals(poolKey.toPoolId());
-        assertEq(weight, initialWeight);
+        assertGt(weight, initialWeight);
+        assertEq(weight, ve.votingPower(address(veToken), _stakeId(veId)));
         assertEq(feeWeightSum, 0);
         assertEq(swapFeeAfterIncrease, 0);
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(veId))), PoolId.unwrap(poolKey.toPoolId()));
@@ -912,6 +913,39 @@ contract Ve33Test is FullTest {
         assertEq(weightAfterWithdraw, 0);
         assertEq(feeWeightSumAfterWithdraw, 0);
         assertEq(swapFeeAfterWithdraw, 0);
+    }
+
+    function test_moveStakeAdjustsSourceAndDestinationVotes() public {
+        (PoolKey memory fromPool,) = _createConcentratedPool();
+        (PoolKey memory toPool,) = _createConcentratedPool(256, bytes24("move-to-vote"));
+        uint64 fromFee = 100;
+        uint64 toFee = 300;
+        StakeId fromStakeId = createStakeId(bytes24("move-from"), uint64(vm.getBlockTimestamp() + 2 weeks));
+        StakeId toStakeId = createStakeId(bytes24("move-to"), uint64(vm.getBlockTimestamp() + 3 weeks));
+
+        forwarder.stake(fromStakeId, 3e18);
+        forwarder.stake(toStakeId, 2e18);
+        vm.prank(address(forwarder));
+        ve.vote(fromStakeId, fromPool, fromFee);
+        vm.prank(address(forwarder));
+        ve.vote(toStakeId, toPool, toFee);
+
+        forwarder.moveStake(fromStakeId, toStakeId, 1e18);
+
+        uint128 fromPower = ve.votingPower(address(forwarder), fromStakeId);
+        uint128 toPower = ve.votingPower(address(forwarder), toStakeId);
+        assertEq(ve.vePoolVote(address(forwarder), fromStakeId).weight(), fromPower);
+        assertEq(ve.vePoolVote(address(forwarder), toStakeId).weight(), toPower);
+
+        (uint256 fromWeight, uint256 fromFeeWeightSum, uint64 fromSwapFee) = _poolVoteTotals(fromPool.toPoolId());
+        assertEq(fromWeight, fromPower);
+        assertEq(fromFeeWeightSum, uint256(fromPower) * fromFee);
+        assertEq(fromSwapFee, fromFee);
+
+        (uint256 toWeight, uint256 toFeeWeightSum, uint64 toSwapFee) = _poolVoteTotals(toPool.toPoolId());
+        assertEq(toWeight, toPower);
+        assertEq(toFeeWeightSum, uint256(toPower) * toFee);
+        assertEq(toSwapFee, toFee);
     }
 
     function test_splitStakePreservesSourceVoteAndAccruedFees() public {

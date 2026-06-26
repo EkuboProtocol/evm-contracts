@@ -85,7 +85,7 @@ Forward stake call types:
 CORE.updateSavedBalances(stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, delta, 0)
 ```
 
-It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, but unstaked tokens and claimed pool fees settle to the current NFT owner. Extending and merging call `Ve33.moveStake` directly, which moves stake accounting between stake ids without touching Core saved balances. `moveStake` resizes the source stake vote to the source's remaining voting power and leaves any destination vote unchanged. Splitting calls `Ve33.splitStake` directly, which keeps the source stake voted and resizes the source vote weight to the reduced current voting power; the newly split stake starts unvoted.
+It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, and pool-fee claims can be sent to an authorized caller-selected recipient. Extending and merging call `Ve33.moveStake` directly, which moves stake accounting between stake ids without touching Core saved balances. `moveStake` requires the destination stake id to end after the source stake id, resizes the source vote to the source's remaining voting power, and resizes any existing destination vote to the destination's new voting power. Splitting calls `Ve33.splitStake` directly, which keeps the source stake voted and resizes the source vote weight to the reduced current voting power; the newly split `VeToken` stake starts unvoted.
 
 ## Voting
 
@@ -102,9 +102,9 @@ stakeAmount * (endTime - block.timestamp) / VE33_MAX_STAKE_DURATION
 
 That current power is written into the pool's total weight slot and the stake's packed `VePoolVote` record for the selected pool, together with the voted fee and last vote-accounting timestamp. Stored pool weights do not continuously decay on their own. They change when the stake votes again or when a stake operation updates or clears the vote. Emission allocation uses these stored active weights when global emission growth accrues.
 
-Increasing stake amount or withdrawing an expired stake clears affected votes before the amount changes. Extending and merging move stake accounting to the later destination stake id and clear or resize affected votes as part of the owner-authorized operation. Splitting preserves the source vote with reduced current voting power and leaves the new stake id unvoted. Multi-pool allocation is represented by multiple stake ids: `VeToken.splitStake` can split one NFT into another NFT with the same end time while preserving the source vote, and `VeToken.mergeStakes` can merge two NFTs with the destination end time set to the greater of the two merged stake end times.
+Increasing stake amount resizes any existing vote to the stake's new current voting power. Withdrawing an expired stake clears the affected vote before removing the amount. Extending and merging move stake accounting to the caller-selected destination stake id, which must end after the source stake id, and resize or clear affected votes as part of the owner-authorized operation. Splitting preserves the source vote with reduced current voting power and leaves the new stake id unvoted. Multi-pool allocation is represented by multiple stake ids: `VeToken.splitStake` can split one NFT into another NFT with the same end time while preserving the source vote, and `VeToken.mergeStakes(fromVeId, toVeId)` moves `fromVeId` into `toVeId` without changing `toVeId`'s end time.
 
-There is no external permissionless stale-vote poke. If a stake owner wants to keep voter fees accrued under the old vote snapshot, it should claim those pool fees through the lock/forward path before voting for a new pool, clearing a vote, increasing stake, extending, merging, splitting, or withdrawing. This keeps token settlement in the wrapper/periphery layer because fee claims require the pool tokens from `PoolKey`.
+There is no external permissionless stale-vote poke. If a stake owner wants to keep voter fees that would otherwise be discarded, it should claim those pool fees through the lock/forward path before voting for a new pool, clearing a vote, or running a stake operation that clears the active vote. Nonzero vote-weight resizing preserves fees already accrued under the previous weight. This keeps token settlement in the wrapper/periphery layer because fee claims require the pool tokens from `PoolKey`.
 
 `vote` is not a forwarded action because it does not require token settlement. It must be called by the `Ve33` stake owner for the `StakeId`; for the ERC721 wrapper that means `VeToken` authorizes the user or approved operator, then calls `Ve33.vote` as the stake owner.
 
@@ -112,9 +112,7 @@ There is no external permissionless stale-vote poke. If a stake owner wants to k
 
 The forwarded swap handler uses the supplied `SwapParameters` as-is. Routers and callers are responsible for setting default sqrt-ratio limits before forwarding.
 
-For exact-input swaps, the extension computes the maximum voter fee from `params.amount()`, calls Core with `amount - fee`, then computes the actual charged fee from the executed input delta returned by Core. If the swap executes partially, for example because it hits `sqrtRatioLimit`, the charged fee is capped to the maximum fee removed before the Core swap. The fee is added back to the returned input delta, saved under the extension and shared pool-fee salt for the token pair, and accounted to voter fee growth.
-
-For exact-output swaps, the extension calls Core with the zero-config-fee exact-output parameters, grosses up the Core-computed input with `amountBeforeFee`, saves the extra input as voter fees, and increases voter fee growth.
+The extension accounts voter fees in the unspecified token. For exact-input swaps, the fee is taken from the output token. For exact-output swaps, the fee is taken from the input token. The nonzero fee is added to the returned balance delta, saved under the extension and shared pool-fee salt for the token pair, and accounted to voter fee growth.
 
 Swap fees are stored with:
 
@@ -130,7 +128,7 @@ Voter fees use fee-growth accounting over each pool's active vote weight. Each s
 
 `VE33_CLAIM_POOL_FEES` is a forwarded action. It subtracts the claimed amount from the extension's saved balance and returns the claimed token amounts to the forwarding locker.
 
-For wrapper-owned stakes, the `Ve33` stake owner is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey)` enters a Core lock, forwards the claim to `Ve33`, and withdraws token0/token1 directly to the local stake owner.
+For wrapper-owned stakes, the `Ve33` stake owner is `address(veToken)`. `VeToken.claimPoolFees(veId, poolKey, recipient)` enters a Core lock, forwards the claim to `Ve33`, and withdraws token0/token1 directly to the authorized caller-selected recipient. `claimPoolFeesToSelf` uses `msg.sender` as the recipient.
 
 ## LP Reward Token
 

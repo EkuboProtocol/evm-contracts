@@ -31,22 +31,22 @@ Using `VeToken`, the common flow is:
 1. Approve the stake token to `VeToken`.
 2. Call `createStake(amount, end)` to mint a ve NFT.
 3. Vote with `vote(veId, poolKey, swapFee)`.
-4. Claim voter swap fees with `claimPoolFees(veId, poolKey)`.
+4. Claim voter swap fees with `claimPoolFees(veId, poolKey, recipient)` or `claimPoolFeesToSelf(veId, poolKey)`.
 5. Extend by calling `extendStake(veId, newEnd)`, split with `splitStake(veId, amount)`, merge stakes with `mergeStakes(fromVeId, toVeId)`, or add amount with `increaseStakeAmount(veId, amount)`.
 6. After expiry, call `withdrawStake(veId)` to burn the NFT and withdraw the stake token to the current NFT owner.
 
 Important details:
 
 - The ve NFT owner, or an approved NFT operator, can manage the stake.
-- Claimed pool fees and withdrawn stake tokens go to the current NFT owner.
+- Claimed pool fees can be sent to an authorized caller-selected recipient, and withdrawn stake tokens go to the current NFT owner.
 - Increasing, extending, merging, or withdrawing a stake updates or clears the affected stake votes.
 - Splitting preserves the source stake vote with reduced weight; the newly split stake starts unvoted.
 - Voting power is sampled when voting or when the stake owner changes the stake in a way that refreshes the stored vote. Stored pool votes do not decay continuously.
-- Claim pool fees before changing a stake's vote, extending, merging, splitting, increasing, or withdrawing if you want to keep fees accrued under the previous stored vote.
+- Claim pool fees before changing, clearing, or replacing a stake's vote, or before a stake operation that clears a vote whose pending fees you want to keep. Nonzero vote-weight resizing preserves fees already accrued under the previous weight.
 
 ## Voting And Fees
 
-Each stake id votes for one pool with one selected swap fee. Ve33 converts the stake's current voting power into active pool weight. Users who want to allocate voting power across multiple pools split their stake into multiple stake ids, vote each stake id on one pool, and can later merge stake ids back together. A merge sets the destination stake end time to the greater end time of the two merged stakes.
+Each stake id votes for one pool with one selected swap fee. Ve33 converts the stake's current voting power into active pool weight. Users who want to allocate voting power across multiple pools split their stake into multiple stake ids, vote each stake id on one pool, and can later merge stake ids back together. A merge moves the source stake into the destination stake id selected by the caller; the destination stake id must end after the source stake id and keeps its existing end time.
 
 For each pool:
 
@@ -87,9 +87,7 @@ Swappers should use a router configured for Ve33 pools. The router forwards swap
 
 Routers must set the intended `sqrtRatioLimit` before forwarding. Ve33 does not apply default sqrt-ratio limits internally.
 
-For exact-input swaps, Ve33 removes the maximum voter fee up front, executes the Core swap with the net input, then charges the fee from actual executed input. If the swap only partially executes, the charged fee is capped to the amount removed up front.
-
-For exact-output swaps, Ve33 lets Core compute the required input, grosses that input up by the active Ve33 fee, and accounts the extra input as voter fees.
+Ve33 accounts voter fees in the unspecified token. For exact-input swaps, the fee is taken from the output token. For exact-output swaps, the fee is taken from the input token.
 
 ## Reward Funders
 

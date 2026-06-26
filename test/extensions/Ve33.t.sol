@@ -1585,4 +1585,46 @@ contract Ve33Test is FullTest {
         assertEq(feeWeightSum, 0);
         assertEq(swapFee, 0);
     }
+
+    function test_moveStakeAllowsSameEndTime() public {
+        uint64 sameEnd = uint64(vm.getBlockTimestamp() + 2 weeks);
+        StakeId fromStakeId = createStakeId(bytes24("same-end-from"), sameEnd);
+        StakeId toStakeId = createStakeId(bytes24("same-end-to"), sameEnd);
+
+        forwarder.stake(fromStakeId, 2e18);
+        forwarder.moveStake(fromStakeId, toStakeId, 1e18);
+
+        assertEq(ve.stakeAmount(address(forwarder), fromStakeId), 1e18);
+        assertEq(ve.stakeAmount(address(forwarder), toStakeId), 1e18);
+    }
+
+    function test_moveStakeRevertsForEarlierEndTime() public {
+        uint64 later = uint64(vm.getBlockTimestamp() + 3 weeks);
+        uint64 earlier = uint64(vm.getBlockTimestamp() + 2 weeks);
+        StakeId fromStakeId = createStakeId(bytes24("from-later"), later);
+        StakeId toStakeId = createStakeId(bytes24("to-earlier"), earlier);
+
+        forwarder.stake(fromStakeId, 2e18);
+        vm.expectRevert(IVe33.MoveStakeToEarlierEndTime.selector);
+        forwarder.moveStake(fromStakeId, toStakeId, 1e18);
+    }
+
+    function test_voteClearsExistingVoteWhenPowerIsZero() public {
+        (PoolKey memory poolKey,) = _createConcentratedPool();
+        uint64 end = uint64(vm.getBlockTimestamp() + 1);
+        uint256 veId = veToken.createStake(1e18, end);
+        _vote(veId, poolKey, uint64(1 << 62));
+
+        PoolId poolId = poolKey.toPoolId();
+        (uint256 weightBefore,,) = _poolVoteTotals(poolId);
+        assertGt(weightBefore, 0);
+
+        vm.warp(end);
+
+        veToken.vote(veId, poolKey, uint64(1 << 62));
+
+        (uint256 weightAfter,,) = _poolVoteTotals(poolId);
+        assertEq(weightAfter, 0);
+        assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(veId))), bytes32(0));
+    }
 }

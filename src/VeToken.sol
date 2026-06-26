@@ -3,21 +3,23 @@ pragma solidity =0.8.33;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {Multicallable} from "solady/utils/Multicallable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {BaseLocker} from "./base/BaseLocker.sol";
+import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {Ve33, VE33_MAX_STAKE_DURATION} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {VeTokenMetadata} from "./libraries/VeTokenMetadata.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {StakeId, createStakeId} from "./types/stakeId.sol";
 
 /// @notice ERC721 representation over Ve33 stake accounting.
 /// @dev The canonical stake is owned by this wrapper in Ve33. ERC721 ownership controls the wrapper.
-contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
+contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     using FlashAccountantLib for *;
     using Ve33Lib for Ve33;
 
@@ -45,9 +47,6 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id.
     error StakeSaltOverflow(uint256 veId);
 
-    /// @notice Thrown when the Ve33 stake token is the native token sentinel.
-    error InvalidStakeToken();
-
     /// @notice Thrown when a VeToken operation cannot be represented as a no-op with zero stake.
     error InvalidStakeAmount();
 
@@ -62,10 +61,13 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
     constructor(ICore core, Ve33 _ve33) BaseLocker(core) UsesCore(core) {
         ve33 = _ve33;
         stakeToken = _ve33.stakeToken();
-        if (stakeToken == address(0)) revert InvalidStakeToken();
-        _stakeTokenName = IERC20(stakeToken).name();
-        _stakeTokenSymbol = IERC20(stakeToken).symbol();
-        _stakeTokenDecimals = IERC20(stakeToken).decimals();
+        if (stakeToken != NATIVE_TOKEN_ADDRESS) {
+            _stakeTokenName = IERC20(stakeToken).name();
+            _stakeTokenSymbol = IERC20(stakeToken).symbol();
+            _stakeTokenDecimals = IERC20(stakeToken).decimals();
+        } else {
+            _stakeTokenDecimals = 18;
+        }
         _name = string.concat("Vote Escrow ", _stakeTokenName);
         _symbol = string.concat("ve", _stakeTokenSymbol);
     }
@@ -342,7 +344,13 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
             (, address owner, StakeId id, uint128 amount) = abi.decode(data, (uint256, address, StakeId, uint128));
             uint128 nextAmount = Ve33Lib.stake(CORE, ve33, id, amount);
             result = abi.encode(nextAmount);
-            if (amount != 0) ACCOUNTANT.payFrom(owner, stakeToken, amount);
+            if (amount != 0) {
+                if (stakeToken != NATIVE_TOKEN_ADDRESS) {
+                    ACCOUNTANT.payFrom(owner, stakeToken, amount);
+                } else {
+                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
+                }
+            }
         } else if (callType == CALL_TYPE_UNSTAKE) {
             (, StakeId id, address recipient) = abi.decode(data, (uint256, StakeId, address));
             uint128 unstaked = Ve33Lib.unstake(CORE, ve33, id);

@@ -151,7 +151,7 @@ Voting power is zero if the stake is expired or its end time is more than `VE33_
 For nonzero `moveStake(fromStakeId, toStakeId, amount)` where `fromStakeId != toStakeId`:
 
 - `amount <= stakeAmount(owner, fromStakeId)`.
-- `toStakeId.endTime() > fromStakeId.endTime()`.
+- `toStakeId.endTime() >= fromStakeId.endTime()`.
 - `toStakeId` is otherwise a valid new stake time.
 - source amount decreases by `amount`.
 - destination amount increases by `amount`.
@@ -161,11 +161,12 @@ Moving to the same stake id is a no-op after checking `amount <= stakeAmount(own
 
 ### V33-STK-005: Split Stake Leaves Source Nonzero
 
-For nonzero `splitStake(fromStakeId, toStakeId, amount)`:
+`splitStake` behaves like `moveStake` with the additional constraint that the source amount must remain nonzero. For nonzero `splitStake(fromStakeId, toStakeId, amount)`:
 
 - `fromStakeId != toStakeId`.
-- `amount < stakeAmount(owner, fromStakeId)`.
-- `toStakeId` is a valid new stake time.
+- `toStakeId.endTime() >= fromStakeId.endTime()`.
+- `toStakeId` is otherwise a valid new stake time.
+- `amount < stakeAmount(owner, fromStakeId)` (source stays nonzero).
 - source amount decreases by `amount`.
 - destination amount increases by `amount`.
 - source and destination votes are resized to their new current voting power if they already had active votes.
@@ -174,9 +175,9 @@ For nonzero `splitStake(fromStakeId, toStakeId, amount)`:
 
 ## Vote And Swap Fee Invariants
 
-### V33-VOTE-001: Vote With Zero Power Is No-Op
+### V33-VOTE-001: Vote With Zero Power Clears Existing Vote
 
-`vote(stakeId, poolKey, swapFee)` with zero current voting power must not revert and must not change vote, pool, fee-growth, or total-weight state.
+`vote(stakeId, poolKey, swapFee)` with zero current voting power must not revert and must not apply new vote weight. If there is an existing vote with nonzero stored weight (e.g. a stake that has since expired), that vote must be cleared, removing it from pool, fee-growth, and total-weight state. No new vote is applied.
 
 ### V33-VOTE-002: Aggregate Vote Weight Consistency
 
@@ -219,10 +220,10 @@ The last event by `(owner, stakeId, poolId)` must reconstruct that stake's curre
 
 ### V33-FEE-001: Fees Are Accounted Only In The Unspecified Token
 
-Forwarded swaps account Ve33 voter fees only in the token opposite `params.isToken1()`:
+Forwarded swaps account Ve33 voter fees only in the token opposite the specified (exact-amount) token:
 
-- exact input: fee is taken from output token delta,
-- exact output: fee is taken from input token delta.
+- exact input: fee is taken from the output token delta,
+- exact output: fee is taken from the input token delta.
 
 Only nonzero fee amounts may increase the pool-fee bucket and pool fee-growth.
 
@@ -304,7 +305,7 @@ Voting for an uninitialized pool may give that pool active weight for future int
 
 `beforeUpdatePosition` must snapshot rewards before any nonzero liquidity change. If `liquidityDelta == 0`, the hook may no-op.
 
-For nonzero next liquidity, the new snapshot must preserve already-earned rewards under the next liquidity amount. For zero next liquidity, the snapshot must be cleared and any unclaimed dust is discarded.
+For nonzero next liquidity, the new snapshot must preserve already-earned rewards under the next liquidity amount. For zero next liquidity, the snapshot must be cleared and any unclaimed rewards are discarded.
 
 ### V33-LP-002: Range-Aware Reward Growth
 
@@ -367,9 +368,9 @@ stakeId(veId) == createStakeId(bytes24(uint192(veId)), uint64(extraData(veId)))
 
 `VeToken` must not store the stake amount. `stakes(veId).amount` must read `ve33.stakeAmount(address(veToken), stakeId(veId))`, and `stakes(veId).endTime` must read ERC721 extra data.
 
-### V33-NFT-003: Stake Token Cannot Be Native Sentinel
+### V33-NFT-003: Native Stake Token Is Supported
 
-`VeToken` construction must revert if `ve33.stakeToken() == address(0)`. Since native staking is unsupported, `VeToken` multicall does not need to be payable for stake-token settlement.
+`VeToken` supports the native token (`address(0)`) as the stake token. When `ve33.stakeToken() == address(0)`, staking requires the caller to forward the native token via `msg.value`, and unstaking withdraws native token to the recipient. `VeToken.multicall` is payable to support native-token stake operations in a single transaction.
 
 ### V33-NFT-004: Authorization Controls Destructive And Claim Actions
 

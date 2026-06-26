@@ -380,7 +380,10 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         checkValidPoolKey(poolKey);
 
         uint128 power = _votingPower(msg.sender, stakeId);
-        if (power == 0) return;
+        if (power == 0) {
+            _clearVote(msg.sender, stakeId);
+            return;
+        }
 
         _clearVote(msg.sender, stakeId);
 
@@ -426,7 +429,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
             return sameStakeAmount;
         }
 
-        if (toStakeId.endTime() <= fromStakeId.endTime()) revert MoveStakeToEarlierEndTime();
+        if (toStakeId.endTime() < fromStakeId.endTime()) revert MoveStakeToEarlierEndTime();
         _validateNewStake(toStakeId);
 
         uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
@@ -453,8 +456,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
         if (amount == 0) return _stakeAmount(msg.sender, toStakeId);
 
-        _validateNewStake(toStakeId);
         if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId)) revert CannotSplitStakeIntoItself();
+        if (toStakeId.endTime() < fromStakeId.endTime()) revert MoveStakeToEarlierEndTime();
+        _validateNewStake(toStakeId);
 
         uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
         if (amount >= currentAmount) revert SplitAmountMustBeLessThanStakeAmount();

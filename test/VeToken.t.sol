@@ -180,10 +180,10 @@ contract VeTokenTest is FullTest {
         assertTrue(veToken.supportsInterface(0x5b5e139f));
     }
 
-    function test_constructor_revertsIfStakeTokenIsNativeTokenSentinel() public {
+    function test_constructor_acceptsNativeTokenAsStakeToken() public {
         ZeroStakeTokenVe33 zeroStakeTokenVe33 = new ZeroStakeTokenVe33();
-        vm.expectRevert(VeToken.InvalidStakeToken.selector);
-        new VeToken(core, Ve33(payable(address(zeroStakeTokenVe33))));
+        VeToken nativeVeToken = new VeToken(core, Ve33(payable(address(zeroStakeTokenVe33))));
+        assertEq(nativeVeToken.stakeToken(), address(0));
     }
 
     function test_multicall_batchesStakeActionsAndReads() public {
@@ -205,9 +205,8 @@ contract VeTokenTest is FullTest {
         assertEq(_stakeTokenSavedBalance(), 3e18);
     }
 
-    function test_multicall_revertsWithValue() public {
+    function test_multicall_acceptsValue() public {
         bytes[] memory calls = new bytes[](0);
-        vm.expectRevert();
         veToken.multicall{value: 1}(calls);
     }
 
@@ -326,10 +325,9 @@ contract VeTokenTest is FullTest {
         assertEq(veToken.mergeStakes(veId, veId), 3e18);
         assertEq(_stakeAmount(veId), 3e18);
 
-        vm.expectRevert(IVe33.MoveStakeToEarlierEndTime.selector);
-        veToken.mergeStakes(splitVeId, veId);
-        assertEq(_stakeAmount(veId), 3e18);
-        assertEq(_stakeAmount(splitVeId), 1e18);
+        // Merging a split stake (same end time) back into the source now succeeds.
+        assertEq(veToken.mergeStakes(splitVeId, veId), 4e18);
+        assertEq(_stakeAmount(veId), 4e18);
         assertEq(_stakeTokenSavedBalance(), 4e18);
 
         uint64 shortEnd = uint64(end - 1);

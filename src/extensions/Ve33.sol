@@ -447,34 +447,6 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         emit StakeChanged(msg.sender, toStakeId, int256(uint256(amount)));
     }
 
-    /// @notice Splits stake into a new stake key owned by the caller while preserving the source vote.
-    /// @dev Does not require a Core lock because no token balance changes.
-    /// @param fromStakeId Source stake id.
-    /// @param toStakeId Destination stake id.
-    /// @param amount Amount of stake to split into the destination key.
-    /// @return nextAmount Destination stake amount after the split.
-    function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
-        if (amount == 0) return _stakeAmount(msg.sender, toStakeId);
-
-        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId)) revert CannotSplitStakeIntoItself();
-        if (toStakeId.endTime() < fromStakeId.endTime()) revert MoveStakeToEarlierEndTime();
-        _validateNewStake(toStakeId);
-
-        uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
-        if (amount >= currentAmount) revert SplitAmountMustBeLessThanStakeAmount();
-
-        PoolId fromPoolId = _votedPoolId(msg.sender, fromStakeId);
-        PoolId toPoolId = _votedPoolId(msg.sender, toStakeId);
-        _setStakeAmount(msg.sender, fromStakeId, currentAmount - amount);
-        nextAmount = _stakeAmount(msg.sender, toStakeId) + amount;
-        _setStakeAmount(msg.sender, toStakeId, nextAmount);
-        _adjustVoteWeight(msg.sender, fromStakeId, fromPoolId, _votingPower(msg.sender, fromStakeId));
-        _adjustVoteWeight(msg.sender, toStakeId, toPoolId, _votingPower(msg.sender, toStakeId));
-
-        emit StakeChanged(msg.sender, fromStakeId, -int256(uint256(amount)));
-        emit StakeChanged(msg.sender, toStakeId, int256(uint256(amount)));
-    }
-
     /// @notice Accumulates global emissions into the pool reward-per-liquidity global value.
     /// @dev If the pool has no liquidity, accrued emissions are not assigned to LPs.
     /// @param poolKey Pool whose reward state is being accumulated.

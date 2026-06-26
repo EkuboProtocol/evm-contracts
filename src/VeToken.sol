@@ -50,6 +50,9 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Thrown when a VeToken operation cannot be represented as a no-op with zero stake.
     error InvalidStakeAmount();
 
+    /// @notice Thrown when splitting an amount that would leave no source stake.
+    error SplitAmountMustBeLessThanStakeAmount();
+
     /// @notice Thrown when a caller is not the ERC721 owner or approved account for a represented stake.
     /// @param caller The unauthorized caller.
     /// @param id The ERC721 token id.
@@ -207,6 +210,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
 
         uint64 end = _stakeEndTime(veId);
         StakeId fromStakeId = createStakeId(_stakeSalt(veId), end);
+        uint128 currentAmount = ve33.stakeAmount(address(this), fromStakeId);
+        if (amount >= currentAmount) revert SplitAmountMustBeLessThanStakeAmount();
 
         splitVeId = nextVeId;
         unchecked {
@@ -214,7 +219,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         }
         _mintAndSetExtraDataUnchecked(ownerOf(veId), splitVeId, end);
 
-        ve33.splitStake(fromStakeId, createStakeId(_stakeSalt(splitVeId), end), amount);
+        ve33.moveStake(fromStakeId, createStakeId(_stakeSalt(splitVeId), end), amount);
     }
 
     /// @notice Merges one represented stake into another represented stake.

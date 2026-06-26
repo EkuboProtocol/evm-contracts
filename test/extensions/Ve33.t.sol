@@ -84,10 +84,6 @@ contract Ve33Forwarder is BaseLocker {
         nextAmount = VE33_REF.moveStake(fromStakeId, toStakeId, amount);
     }
 
-    function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
-        nextAmount = VE33_REF.splitStake(fromStakeId, toStakeId, amount);
-    }
-
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType = abi.decode(data, (uint256));
 
@@ -1077,28 +1073,14 @@ contract Ve33Test is FullTest {
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 100);
         assertEq(ve.stakeAmount(address(forwarder), toStakeId), 50);
 
-        StakeId splitStakeId = createStakeId(bytes24("split"), endTime);
-        assertEq(forwarder.splitStake(stakeId, splitStakeId, 0), 0);
-        vm.expectRevert(IVe33.CannotSplitStakeIntoItself.selector);
-        forwarder.splitStake(stakeId, stakeId, 1);
-        vm.expectRevert(IVe33.SplitAmountMustBeLessThanStakeAmount.selector);
-        forwarder.splitStake(stakeId, splitStakeId, 100);
-        vm.expectRevert(IVe33.SplitAmountMustBeLessThanStakeAmount.selector);
-        forwarder.splitStake(stakeId, splitStakeId, 101);
-        assertEq(forwarder.splitStake(stakeId, splitStakeId, 40), 40);
-        assertEq(ve.stakeAmount(address(forwarder), stakeId), 60);
-        assertEq(ve.stakeAmount(address(forwarder), splitStakeId), 40);
-
         StakeId shorterStakeId = createStakeId(bytes24("shorter"), uint64(vm.getBlockTimestamp() + 3 days));
         assertEq(forwarder.moveStake(stakeId, shorterStakeId, 0), 0);
         vm.expectRevert(IVe33.MoveStakeToEarlierEndTime.selector);
         forwarder.moveStake(stakeId, shorterStakeId, 1);
 
         vm.warp(endTime);
-        assertEq(forwarder.unstake(stakeId), 60);
+        assertEq(forwarder.unstake(stakeId), 100);
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 0);
-        assertEq(forwarder.unstake(splitStakeId), 40);
-        assertEq(ve.stakeAmount(address(forwarder), splitStakeId), 0);
 
         assertEq(forwarder.unstake(stakeId), 0);
     }

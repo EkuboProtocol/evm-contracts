@@ -307,7 +307,7 @@ contract VeTokenTest is FullTest {
 
         vm.expectRevert(VeToken.InvalidStakeAmount.selector);
         veToken.splitStake(veId, 0);
-        vm.expectRevert(IVe33.SplitAmountMustBeLessThanStakeAmount.selector);
+        vm.expectRevert(VeToken.SplitAmountMustBeLessThanStakeAmount.selector);
         veToken.splitStake(veId, 4e18);
         assertEq(veToken.nextVeId(), 2);
         vm.expectRevert(ERC721.TokenDoesNotExist.selector);

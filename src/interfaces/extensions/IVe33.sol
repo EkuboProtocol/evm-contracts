@@ -34,10 +34,6 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     error StakeNotExpired();
     /// @notice Thrown when moving more stake than the source stake contains.
     error StakeAmountExceedsBalance();
-    /// @notice Thrown when splitting a stake into the same stake id.
-    error CannotSplitStakeIntoItself();
-    /// @notice Thrown when splitting an amount that would leave no source stake.
-    error SplitAmountMustBeLessThanStakeAmount();
     /// @notice Thrown when moving stake to a stake id that ends before or at the source stake id.
     error MoveStakeToEarlierEndTime();
 
@@ -83,13 +79,6 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     /// @param amount Amount of stake to move.
     /// @return nextAmount Destination stake amount after the move.
     function moveStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount);
-
-    /// @notice Splits stake into a new stake key owned by the caller while preserving the source vote.
-    /// @param fromStakeId Source stake id.
-    /// @param toStakeId Destination stake id.
-    /// @param amount Amount of stake to split into the destination key.
-    /// @return nextAmount Destination stake amount after the split.
-    function splitStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount);
 
     /// @notice Accumulates global emissions into global emission growth.
     function accrueEmissions() external;

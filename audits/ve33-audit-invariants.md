@@ -125,7 +125,7 @@ Important boundaries:
 
 For every successful `VE33_STAKE`, the stake amount and the stake-balance bucket increase by exactly `amount`.
 For every successful `VE33_UNSTAKE`, the stake amount and the stake-balance bucket decrease by exactly the unstaked amount.
-`moveStake` and `splitStake` must not change Core saved balances.
+`moveStake` must not change Core saved balances.
 
 ### V33-STK-002: Valid New Stake Times
 
@@ -159,19 +159,20 @@ For nonzero `moveStake(fromStakeId, toStakeId, amount)` where `fromStakeId != to
 
 Moving to the same stake id is a no-op after checking `amount <= stakeAmount(owner, fromStakeId)`.
 
-### V33-STK-005: Split Stake Leaves Source Nonzero
+### V33-STK-005: VeToken Split Preserves Source Stake
 
-`splitStake` behaves like `moveStake` with the additional constraint that the source amount must remain nonzero. For nonzero `splitStake(fromStakeId, toStakeId, amount)`:
+`Ve33` exposes only `moveStake`; both `VeToken.splitStake` and `VeToken._mergeStakes` delegate to it. `VeToken.splitStake` enforces that the source amount must remain nonzero before calling `Ve33.moveStake`. For nonzero `VeToken.splitStake(veId, amount)`:
 
-- `fromStakeId != toStakeId`.
-- `toStakeId.endTime() >= fromStakeId.endTime()`.
+- `fromStakeId != toStakeId` (fresh NFT mint guarantees a new salt).
+- `toStakeId.endTime() == fromStakeId.endTime()` (same end time as source).
 - `toStakeId` is otherwise a valid new stake time.
-- `amount < stakeAmount(owner, fromStakeId)` (source stays nonzero).
+- `amount < stakeAmount(VeToken, fromStakeId)` (source stays nonzero, enforced in VeToken before calling `moveStake`).
 - source amount decreases by `amount`.
 - destination amount increases by `amount`.
-- source and destination votes are resized to their new current voting power if they already had active votes.
+- source vote is resized to its new current voting power if it had an active vote.
 
 `VeToken.splitStake` mints a fresh destination NFT, so the new wrapped stake starts unvoted.
+`VeToken._mergeStakes` moves the full source amount into the destination using `moveStake` and burns the source NFT.
 
 ## Vote And Swap Fee Invariants
 

@@ -98,6 +98,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     error MaxRateDeltaPerTime();
     /// @notice Thrown when a stake amount or timestamp is invalid.
     error InvalidStake();
+    /// @notice Thrown when moving stake to a stake id that ends before or at the source stake id.
+    error MoveStakeToEarlierEndTime();
 
     /// @notice Initializes the extension with Core and the immutable reward/stake token.
     /// @param core Ekubo Core contract.
@@ -129,7 +131,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         onlyCore
     {
         PoolId poolId = poolKey.toPoolId();
-        _accumulatePoolRewards({poolId: poolId, liquidity: 0});
+        _maybeAccumulatePoolRewards({poolId: poolId, liquidity: 0});
     }
 
     /// @notice Rejects direct Core swaps.
@@ -163,11 +165,10 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         }
     }
 
-    /// @notice Returns seconds until a uint64 stake timestamp, interpreted modulo 2**64.
+    /// @notice Returns seconds until a real uint64 stake timestamp.
     function _secondsUntilStakeEnd(uint64 endTime) private view returns (uint64) {
-        unchecked {
-            return endTime - uint64(block.timestamp);
-        }
+        if (endTime <= block.timestamp) return 0;
+        return endTime - uint64(block.timestamp);
     }
 
     /// @notice Checks that a pool key is configured for Ve33 accounting.
@@ -371,7 +372,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         _clearVote(msg.sender, stakeId);
 
         PoolId poolId = poolKey.toPoolId();
-        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
+        _maybeAccumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
         uint128 totalWeight = _poolTotalWeight(poolId);
         uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
@@ -406,15 +407,14 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
     /// @return nextAmount Destination stake amount after the move.
     function moveStake(StakeId fromStakeId, StakeId toStakeId, uint128 amount) external returns (uint128 nextAmount) {
         if (amount == 0) return _stakeAmount(msg.sender, toStakeId);
+        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId)) {
+            uint128 sameStakeAmount = _stakeAmount(msg.sender, fromStakeId);
+            if (amount > sameStakeAmount) revert InvalidStake();
+            return sameStakeAmount;
+        }
 
+        if (toStakeId.endTime() <= fromStakeId.endTime()) revert MoveStakeToEarlierEndTime();
         _validateNewStake(toStakeId);
-        uint64 moveDuration;
-        unchecked {
-            moveDuration = toStakeId.endTime() - fromStakeId.endTime();
-        }
-        if (StakeId.unwrap(fromStakeId) == StakeId.unwrap(toStakeId) || moveDuration > VE33_MAX_STAKE_DURATION) {
-            revert InvalidStake();
-        }
 
         uint128 currentAmount = _stakeAmount(msg.sender, fromStakeId);
         if (amount > currentAmount) revert InvalidStake();
@@ -462,7 +462,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         PoolId poolId = poolKey.toPoolId();
         PoolState coreState = CORE.poolState(poolId);
 
-        _accumulatePoolRewards(poolId, coreState.liquidity());
+        _maybeAccumulatePoolRewards(poolId, coreState.liquidity());
     }
 
     /// @notice Handles extension forward calls from Core.
@@ -523,7 +523,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
             checkValidPoolKey(poolKey);
             PoolId poolId = poolKey.toPoolId();
             PoolState stateBefore = CORE.poolState(poolId);
-            _accumulatePoolRewards(poolId, stateBefore.liquidity());
+            _maybeAccumulatePoolRewards(poolId, stateBefore.liquidity());
 
             uint64 swapFee = _poolFeeState(poolId).swapFee();
             uint128 feeAmount;
@@ -824,7 +824,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         uint128 weight = veVote.weight();
         if (weight == 0) return;
 
-        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
+        _maybeAccumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
         (veVote,) = _setVePoolVoteWeight(
             _poolFeeGrowth(poolId), _vePoolFeeGrowthSnapshot(owner, stakeId), veVote, 0, uint64(block.timestamp)
@@ -857,7 +857,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         previousWeight = veVote.weight();
         if (previousWeight == 0) return (0, 0);
 
-        _accumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
+        _maybeAccumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
         uint256 targetWeight = _votingPower(owner, stakeId);
         if (targetWeight >= previousWeight) return (previousWeight, previousWeight);
@@ -938,40 +938,33 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
         }
     }
 
-    /// @notice Accumulates global emissions into one pool's LP reward growth.
+    /// @notice Accumulates global emissions into one pool's LP reward growth if its emission snapshot changed.
     /// @param poolId Pool whose reward state is being accumulated.
     /// @param liquidity Current Core pool liquidity.
-    function _accumulatePoolRewards(PoolId poolId, uint128 liquidity) private {
+    function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity) private {
         unchecked {
             accrueEmissions();
 
-            uint256 emissionRewardsAccrued = _poolEmissionRewardsAccrued(poolId);
+            uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
+            uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
+            if (snapshot != emissionGrowthGlobalX128_) {
+                _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
 
-            if (emissionRewardsAccrued != 0) {
-                if (liquidity != 0) {
-                    _setRewardsGlobalPerLiquidity(
-                        poolId, _rewardsGlobalPerLiquidity(poolId) + ((emissionRewardsAccrued << 128) / liquidity)
-                    );
-                }
+                uint128 weight = _poolTotalWeight(poolId);
+                if (weight != 0) {
+                    uint256 emissionRewardsAccrued =
+                        FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);
 
-                emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
-            }
-        }
-    }
+                    if (emissionRewardsAccrued != 0) {
+                        if (liquidity != 0) {
+                            _setRewardsGlobalPerLiquidity(
+                                poolId,
+                                _rewardsGlobalPerLiquidity(poolId) + ((emissionRewardsAccrued << 128) / liquidity)
+                            );
+                        }
 
-    /// @notice Accrues a pool's share of global emissions since its last pool-emission snapshot.
-    /// @param poolId Pool whose emission share is accrued.
-    /// @return amount Amount of stake-token emissions assigned to the pool.
-    function _poolEmissionRewardsAccrued(PoolId poolId) private returns (uint256 amount) {
-        uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
-        uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
-        if (snapshot != emissionGrowthGlobalX128_) {
-            _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
-
-            uint128 weight = _poolTotalWeight(poolId);
-            if (weight != 0) {
-                unchecked {
-                    amount = FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);
+                        emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
+                    }
                 }
             }
         }
@@ -991,12 +984,12 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
             (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccruedTime, time, block.timestamp);
 
             uint128 weight = _totalVoteWeight();
-            uint256 amount;
+            uint128 amount;
             unchecked {
-                amount = (uint256(rate) * (eventTime - time)) >> 32;
+                amount = uint128((uint256(rate) * (eventTime - time)) >> 32);
             }
             if (weight != 0) {
-                emissionGrowthGlobalX128_ += FixedPointMathLib.fullMulDiv(amount, 1 << 128, weight);
+                emissionGrowthGlobalX128_ += (uint256(amount) << 128) / weight;
             }
             if (initialized) {
                 unchecked {

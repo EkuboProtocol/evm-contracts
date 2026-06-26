@@ -205,6 +205,8 @@ contract VeToken is ERC721, Multicallable, BaseLocker, UsesCore {
         authorizedForStake(toVeId)
         returns (uint128 nextAmount)
     {
+        if (fromVeId == toVeId) return ve33.stakeAmount(address(this), stakeId(toVeId));
+
         uint64 fromEnd = _stakeEndTime(fromVeId);
         uint64 toEnd = _stakeEndTime(toVeId);
 

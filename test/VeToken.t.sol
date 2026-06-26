@@ -142,9 +142,10 @@ contract VeTokenTest is FullTest {
     }
 
     function test_gas_mergeStakes() public {
-        uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        uint256 toVeId = veToken.createStake(1e18, end);
-        uint256 fromVeId = veToken.createStake(1e18, end);
+        uint64 toEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        uint64 fromEnd = toEnd - 1;
+        uint256 toVeId = veToken.createStake(1e18, toEnd);
+        uint256 fromVeId = veToken.createStake(1e18, fromEnd);
 
         coolAllContracts();
         veToken.mergeStakes(fromVeId, toVeId);
@@ -267,8 +268,14 @@ contract VeTokenTest is FullTest {
         assertEq(amount, 3e18);
         assertEq(stakeEndTime, end);
 
-        vm.expectRevert(Ve33.InvalidStake.selector);
         veToken.extendStake(veId, end);
+        (amount, stakeEndTime) = veToken.stakes(veId);
+        assertEq(amount, 3e18);
+        assertEq(stakeEndTime, end);
+
+        vm.expectRevert(Ve33.MoveStakeToEarlierEndTime.selector);
+        veToken.extendStake(veId, end - 1);
+
         vm.warp(10);
         uint64 extendedEnd = uint64(vm.getBlockTimestamp() + maxStakeDuration);
         veToken.extendStake(veId, extendedEnd);
@@ -315,21 +322,21 @@ contract VeTokenTest is FullTest {
 
         assertEq(_stakeTokenSavedBalance(), 4e18);
 
-        vm.expectRevert(Ve33.InvalidStake.selector);
-        veToken.mergeStakes(veId, veId);
+        assertEq(veToken.mergeStakes(veId, veId), 3e18);
+        assertEq(_stakeAmount(veId), 3e18);
 
-        assertEq(veToken.mergeStakes(splitVeId, veId), 4e18);
-        assertEq(_stakeAmount(veId), 4e18);
+        vm.expectRevert(Ve33.MoveStakeToEarlierEndTime.selector);
+        veToken.mergeStakes(splitVeId, veId);
+        assertEq(_stakeAmount(veId), 3e18);
+        assertEq(_stakeAmount(splitVeId), 1e18);
         assertEq(_stakeTokenSavedBalance(), 4e18);
-        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
-        veToken.ownerOf(splitVeId);
 
         uint64 shortEnd = uint64(end - 1);
         uint256 shortVeId = veToken.createStake(1e18, shortEnd);
         uint256 longVeId = veToken.createStake(2e18, end);
         assertEq(_stakeTokenSavedBalance(), 7e18);
 
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(Ve33.MoveStakeToEarlierEndTime.selector);
         veToken.mergeStakes(longVeId, shortVeId);
 
         assertEq(_stakeAmount(shortVeId), 1e18);

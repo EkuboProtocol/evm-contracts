@@ -956,6 +956,11 @@ contract Ve33Test is FullTest {
         assertEq(forwarder.stake(stakeId, 0), 150);
         assertEq(ve.stakeAmount(address(forwarder), stakeId), 150);
 
+        assertEq(forwarder.moveStake(stakeId, stakeId, 40), 150);
+        assertEq(ve.stakeAmount(address(forwarder), stakeId), 150);
+        vm.expectRevert(Ve33.InvalidStake.selector);
+        forwarder.moveStake(stakeId, stakeId, 151);
+
         assertEq(forwarder.moveStake(stakeId, toStakeId, 40), 40);
         assertEq(forwarder.moveStake(stakeId, toStakeId, 10), 50);
         assertEq(forwarder.moveStake(stakeId, toStakeId, 0), 50);
@@ -974,7 +979,7 @@ contract Ve33Test is FullTest {
 
         StakeId shorterStakeId = createStakeId(bytes24("shorter"), uint64(vm.getBlockTimestamp() + 3 days));
         assertEq(forwarder.moveStake(stakeId, shorterStakeId, 0), 0);
-        vm.expectRevert(Ve33.InvalidStake.selector);
+        vm.expectRevert(Ve33.MoveStakeToEarlierEndTime.selector);
         forwarder.moveStake(stakeId, shorterStakeId, 1);
 
         vm.warp(endTime);

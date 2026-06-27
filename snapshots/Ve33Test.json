@@ -1,0 +1,13 @@
+{
+  "FreeVe33Positions#claimAccruedEmissions": "139012",
+  "FreeVe33Positions#claimRewards": "66867",
+  "FreeVe33Positions#deposit": "346081",
+  "Router#ve33Stableswap": "98214",
+  "Router#ve33Swap": "104061",
+  "Router#ve33SwapVe33Position": "104061",
+  "Ve33#emissionAccrualOnPoolTouch": "84090",
+  "Ve33#vote one pool": "139568",
+  "Ve33Periphery#scheduleEmissions": "125496",
+  "VeToken#claimPoolFees": "59404",
+  "VeToken#vote": "139568"
+}

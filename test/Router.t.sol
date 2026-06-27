@@ -10,7 +10,8 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
-import {Router, RouteNode, TokenAmount, Swap} from "../src/Router.sol";
+import {BaseRouter, RouteNode, TokenAmount, Swap} from "../src/base/BaseRouter.sol";
+import {Router} from "../src/Router.sol";
 import {Vm} from "forge-std/Test.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -163,7 +164,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
+        vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: 100}),
@@ -175,7 +176,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
+        vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -100}),
@@ -215,7 +216,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(50), int256(49)));
+        vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(50), int256(49)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 100}),
@@ -227,7 +228,7 @@ contract RouterTest is FullTest {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, int256(-200), int256(-202)));
+        vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(-200), int256(-202)));
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: -100}),
@@ -255,7 +256,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 5000);
 
-        vm.expectRevert(Router.PartialSwapsDisallowed.selector);
+        vm.expectRevert(BaseRouter.PartialSwapsDisallowed.selector);
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token1), amount: 5000}),
@@ -269,7 +270,7 @@ contract RouterTest is FullTest {
 
         token1.approve(address(router), 202);
 
-        vm.expectRevert(Router.PartialSwapsDisallowed.selector);
+        vm.expectRevert(BaseRouter.PartialSwapsDisallowed.selector);
         router.swap(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0}),
             TokenAmount({token: address(token0), amount: -1001}),
@@ -359,7 +360,7 @@ contract RouterTest is FullTest {
         swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
         swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, 49, 48));
+        vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, 49, 48));
         router.multiMultihopSwap(swaps, 49);
         // 48 works
         router.multiMultihopSwap(swaps, 48);
@@ -414,7 +415,7 @@ contract RouterTest is FullTest {
         swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: 100}));
         swaps[1] = Swap(route, TokenAmount({token: address(token1), amount: 100}));
 
-        vm.expectRevert(abi.encodeWithSelector(Router.TokensMismatch.selector, 1));
+        vm.expectRevert(abi.encodeWithSelector(BaseRouter.TokensMismatch.selector, 1));
         router.multiMultihopSwap(swaps, type(int256).min);
     }
 
@@ -433,7 +434,7 @@ contract RouterTest is FullTest {
         swaps[0] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
         swaps[1] = Swap(route, TokenAmount({token: address(token0), amount: -100}));
 
-        vm.expectRevert(abi.encodeWithSelector(Router.SlippageCheckFailed.selector, -807, -808));
+        vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, -807, -808));
         router.multiMultihopSwap(swaps, -807);
         // -808 works
         router.multiMultihopSwap(swaps, -808);

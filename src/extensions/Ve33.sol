@@ -71,11 +71,180 @@ function ve33CallPoints() pure returns (CallPoints memory) {
     });
 }
 
+abstract contract Ve33Storage {
+    using ExposedStorageLib for *;
+
+    function _stakeAmount(address owner, StakeId stakeId) internal view returns (uint128 amount) {
+        amount = uint128(uint256(Ve33StorageLayout.stakeAmountSlot(owner, stakeId).load()));
+    }
+
+    function _setStakeAmount(address owner, StakeId stakeId, uint128 amount) internal {
+        Ve33StorageLayout.stakeAmountSlot(owner, stakeId).store(bytes32(uint256(amount)));
+    }
+
+    function _votedPoolId(address owner, StakeId stakeId) internal view returns (PoolId poolId) {
+        poolId = PoolId.wrap(Ve33StorageLayout.votedPoolIdSlot(owner, stakeId).load());
+    }
+
+    function _setVotedPoolId(address owner, StakeId stakeId, PoolId poolId) internal {
+        Ve33StorageLayout.votedPoolIdSlot(owner, stakeId).store(PoolId.unwrap(poolId));
+    }
+
+    function _vePoolVote(address owner, StakeId stakeId) internal view returns (VePoolVote veVote) {
+        veVote = VePoolVote.wrap(Ve33StorageLayout.vePoolVoteSlot(owner, stakeId).load());
+    }
+
+    function _setVePoolVote(address owner, StakeId stakeId, VePoolVote veVote) internal {
+        Ve33StorageLayout.vePoolVoteSlot(owner, stakeId).store(VePoolVote.unwrap(veVote));
+    }
+
+    function _deleteVePoolVote(address owner, StakeId stakeId) internal {
+        Ve33StorageLayout.vePoolVoteSlot(owner, stakeId).store(bytes32(0));
+    }
+
+    function _vePoolFeeGrowthSnapshot(address owner, StakeId stakeId)
+        internal
+        view
+        returns (FeesPerLiquidity memory feeGrowthSnapshot)
+    {
+        StorageSlot slot = Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(owner, stakeId);
+        (bytes32 value0, bytes32 value1) = slot.loadTwo();
+        feeGrowthSnapshot.value0 = uint256(value0);
+        feeGrowthSnapshot.value1 = uint256(value1);
+    }
+
+    function _setVePoolFeeGrowthSnapshot(address owner, StakeId stakeId, FeesPerLiquidity memory feeGrowthSnapshot)
+        internal
+    {
+        Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(owner, stakeId)
+            .storeTwo(bytes32(feeGrowthSnapshot.value0), bytes32(feeGrowthSnapshot.value1));
+    }
+
+    function _deleteVePoolFeeGrowthSnapshot(address owner, StakeId stakeId) internal {
+        Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(owner, stakeId).storeTwo(bytes32(0), bytes32(0));
+    }
+
+    function _positionRewardsSnapshotPerLiquidity(PoolId poolId, address owner, PositionId positionId)
+        internal
+        view
+        returns (uint256)
+    {
+        return uint256(Ve33StorageLayout.positionRewardsSnapshotPerLiquiditySlot(poolId, owner, positionId).load());
+    }
+
+    function _setPositionRewardsSnapshotPerLiquidity(
+        PoolId poolId,
+        address owner,
+        PositionId positionId,
+        uint256 snapshot
+    ) internal {
+        Ve33StorageLayout.positionRewardsSnapshotPerLiquiditySlot(poolId, owner, positionId).store(bytes32(snapshot));
+    }
+
+    function _tickRewardsOutsidePerLiquidity(PoolId poolId, int32 tick) internal view returns (uint256) {
+        return uint256(Ve33StorageLayout.tickRewardsOutsidePerLiquiditySlot(poolId, tick).load());
+    }
+
+    function _setTickRewardsOutsidePerLiquidity(PoolId poolId, int32 tick, uint256 value) internal {
+        Ve33StorageLayout.tickRewardsOutsidePerLiquiditySlot(poolId, tick).store(bytes32(value));
+    }
+
+    function _poolEmissionGrowthGlobalX128Snapshot(PoolId poolId) internal view returns (uint256) {
+        return uint256(Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId).load());
+    }
+
+    function _setPoolEmissionGrowthGlobalX128Snapshot(PoolId poolId, uint256 value) internal {
+        Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId).store(bytes32(value));
+    }
+
+    function _poolFeeState(PoolId poolId) internal view returns (VePoolFeeState) {
+        return VePoolFeeState.wrap(Ve33StorageLayout.poolFeeStateSlot(poolId).load());
+    }
+
+    function _setPoolFeeState(PoolId poolId, uint192 feeWeightSum, uint128 totalWeight)
+        internal
+        returns (uint64 swapFee)
+    {
+        assembly ("memory-safe") {
+            swapFee := div(feeWeightSum, totalWeight)
+        }
+        Ve33StorageLayout.poolFeeStateSlot(poolId)
+            .store(VePoolFeeState.unwrap(createVePoolFeeState(feeWeightSum, swapFee)));
+    }
+
+    function _poolTotalWeight(PoolId poolId) internal view returns (uint128) {
+        return uint128(uint256(Ve33StorageLayout.poolTotalWeightSlot(poolId).load()));
+    }
+
+    function _setPoolTotalWeight(PoolId poolId, uint128 totalWeight) internal {
+        Ve33StorageLayout.poolTotalWeightSlot(poolId).store(bytes32(uint256(totalWeight)));
+    }
+
+    function _poolFeeGrowth(PoolId poolId) internal view returns (FeesPerLiquidity memory feeGrowth) {
+        StorageSlot slot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
+        (bytes32 value0, bytes32 value1) = slot.loadTwo();
+        feeGrowth.value0 = uint256(value0);
+        feeGrowth.value1 = uint256(value1);
+    }
+
+    function _setPoolFeeGrowth(PoolId poolId, FeesPerLiquidity memory feeGrowth) internal {
+        Ve33StorageLayout.poolFeeGrowthSlot(poolId).storeTwo(bytes32(feeGrowth.value0), bytes32(feeGrowth.value1));
+    }
+
+    function _rewardsGlobalPerLiquidity(PoolId poolId) internal view returns (uint256) {
+        return uint256(Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId).load());
+    }
+
+    function _setRewardsGlobalPerLiquidity(PoolId poolId, uint256 value) internal {
+        Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId).store(bytes32(value));
+    }
+
+    function _emissionRateDeltaAtTime(uint256 time) internal view returns (int256) {
+        return int256(uint256(Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time).load()));
+    }
+
+    function _setEmissionRateDeltaAtTime(uint256 time, int256 value) internal {
+        Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time).store(bytes32(uint256(value)));
+    }
+
+    function _emissionInitializedTimeBitmap(uint256 word) internal view returns (Bitmap) {
+        return Bitmap.wrap(uint256(Ve33StorageLayout.emissionInitializedTimeBitmapSlot(word).load()));
+    }
+
+    function _setEmissionInitializedTimeBitmap(uint256 word, Bitmap bitmap) internal {
+        Ve33StorageLayout.emissionInitializedTimeBitmapSlot(word).store(bytes32(Bitmap.unwrap(bitmap)));
+    }
+
+    function _totalVoteWeight() internal view returns (uint128) {
+        return uint128(uint256(Ve33StorageLayout.totalVoteWeightSlot().load()));
+    }
+
+    function _setTotalVoteWeight(uint128 weight) internal {
+        Ve33StorageLayout.totalVoteWeightSlot().store(bytes32(uint256(weight)));
+    }
+
+    function _emissionGrowthGlobalX128() internal view returns (uint256) {
+        return uint256(Ve33StorageLayout.emissionGrowthGlobalX128Slot().load());
+    }
+
+    function _setEmissionGrowthGlobalX128(uint256 value) internal {
+        Ve33StorageLayout.emissionGrowthGlobalX128Slot().store(bytes32(value));
+    }
+
+    function _globalEmissionState() internal view returns (Ve33GlobalEmissionState state) {
+        state = Ve33GlobalEmissionState.wrap(Ve33StorageLayout.emissionRateAndLastAccruedSlot().load());
+    }
+
+    function _setGlobalEmissionState(Ve33GlobalEmissionState state) internal {
+        Ve33StorageLayout.emissionRateAndLastAccruedSlot().store(Ve33GlobalEmissionState.unwrap(state));
+    }
+}
+
 /// @title Ve33
 /// @notice Forward-only ve(3,3) pool extension with dynamic voter fees and single-token LP rewards.
 /// @dev Pools using this extension must have zero Core pool fees. Swap fees are accounted by the extension and
 /// distributed to ve stakers, while LPs earn the immutable `stakeToken` as rewards.
-contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
+contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storage {
     using CoreLib for *;
     using ExposedStorageLib for *;
 
@@ -193,171 +362,6 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage {
             if (!isPowerOfFour(tickSpacing)) revert TickSpacingMustBePowerOfFour();
         }
         if (poolKey.config.extension() != address(this)) revert IncorrectPoolExtension();
-    }
-
-    function _stakeAmount(address owner, StakeId stakeId) private view returns (uint128 amount) {
-        amount = uint128(uint256(Ve33StorageLayout.stakeAmountSlot(owner, stakeId).load()));
-    }
-
-    function _setStakeAmount(address owner, StakeId stakeId, uint128 amount) private {
-        Ve33StorageLayout.stakeAmountSlot(owner, stakeId).store(bytes32(uint256(amount)));
-    }
-
-    function _votedPoolId(address owner, StakeId stakeId) private view returns (PoolId poolId) {
-        poolId = PoolId.wrap(Ve33StorageLayout.votedPoolIdSlot(owner, stakeId).load());
-    }
-
-    function _setVotedPoolId(address owner, StakeId stakeId, PoolId poolId) private {
-        Ve33StorageLayout.votedPoolIdSlot(owner, stakeId).store(PoolId.unwrap(poolId));
-    }
-
-    function _vePoolVote(address owner, StakeId stakeId) private view returns (VePoolVote veVote) {
-        veVote = VePoolVote.wrap(Ve33StorageLayout.vePoolVoteSlot(owner, stakeId).load());
-    }
-
-    function _setVePoolVote(address owner, StakeId stakeId, VePoolVote veVote) private {
-        Ve33StorageLayout.vePoolVoteSlot(owner, stakeId).store(VePoolVote.unwrap(veVote));
-    }
-
-    function _deleteVePoolVote(address owner, StakeId stakeId) private {
-        Ve33StorageLayout.vePoolVoteSlot(owner, stakeId).store(bytes32(0));
-    }
-
-    function _vePoolFeeGrowthSnapshot(address owner, StakeId stakeId)
-        private
-        view
-        returns (FeesPerLiquidity memory feeGrowthSnapshot)
-    {
-        StorageSlot slot = Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(owner, stakeId);
-        (bytes32 value0, bytes32 value1) = slot.loadTwo();
-        feeGrowthSnapshot.value0 = uint256(value0);
-        feeGrowthSnapshot.value1 = uint256(value1);
-    }
-
-    function _setVePoolFeeGrowthSnapshot(address owner, StakeId stakeId, FeesPerLiquidity memory feeGrowthSnapshot)
-        private
-    {
-        Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(owner, stakeId)
-            .storeTwo(bytes32(feeGrowthSnapshot.value0), bytes32(feeGrowthSnapshot.value1));
-    }
-
-    function _deleteVePoolFeeGrowthSnapshot(address owner, StakeId stakeId) private {
-        Ve33StorageLayout.vePoolFeeGrowthSnapshotSlot(owner, stakeId).storeTwo(bytes32(0), bytes32(0));
-    }
-
-    function _positionRewardsSnapshotPerLiquidity(PoolId poolId, address owner, PositionId positionId)
-        private
-        view
-        returns (uint256)
-    {
-        return uint256(Ve33StorageLayout.positionRewardsSnapshotPerLiquiditySlot(poolId, owner, positionId).load());
-    }
-
-    function _setPositionRewardsSnapshotPerLiquidity(
-        PoolId poolId,
-        address owner,
-        PositionId positionId,
-        uint256 snapshot
-    ) private {
-        Ve33StorageLayout.positionRewardsSnapshotPerLiquiditySlot(poolId, owner, positionId).store(bytes32(snapshot));
-    }
-
-    function _tickRewardsOutsidePerLiquidity(PoolId poolId, int32 tick) private view returns (uint256) {
-        return uint256(Ve33StorageLayout.tickRewardsOutsidePerLiquiditySlot(poolId, tick).load());
-    }
-
-    function _setTickRewardsOutsidePerLiquidity(PoolId poolId, int32 tick, uint256 value) private {
-        Ve33StorageLayout.tickRewardsOutsidePerLiquiditySlot(poolId, tick).store(bytes32(value));
-    }
-
-    function _poolEmissionGrowthGlobalX128Snapshot(PoolId poolId) private view returns (uint256) {
-        return uint256(Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId).load());
-    }
-
-    function _setPoolEmissionGrowthGlobalX128Snapshot(PoolId poolId, uint256 value) private {
-        Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId).store(bytes32(value));
-    }
-
-    function _poolFeeState(PoolId poolId) private view returns (VePoolFeeState) {
-        return VePoolFeeState.wrap(Ve33StorageLayout.poolFeeStateSlot(poolId).load());
-    }
-
-    function _setPoolFeeState(PoolId poolId, uint192 feeWeightSum, uint128 totalWeight)
-        private
-        returns (uint64 swapFee)
-    {
-        assembly ("memory-safe") {
-            swapFee := div(feeWeightSum, totalWeight)
-        }
-        Ve33StorageLayout.poolFeeStateSlot(poolId)
-            .store(VePoolFeeState.unwrap(createVePoolFeeState(feeWeightSum, swapFee)));
-    }
-
-    function _poolTotalWeight(PoolId poolId) private view returns (uint128) {
-        return uint128(uint256(Ve33StorageLayout.poolTotalWeightSlot(poolId).load()));
-    }
-
-    function _setPoolTotalWeight(PoolId poolId, uint128 totalWeight) private {
-        Ve33StorageLayout.poolTotalWeightSlot(poolId).store(bytes32(uint256(totalWeight)));
-    }
-
-    function _poolFeeGrowth(PoolId poolId) private view returns (FeesPerLiquidity memory feeGrowth) {
-        StorageSlot slot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
-        (bytes32 value0, bytes32 value1) = slot.loadTwo();
-        feeGrowth.value0 = uint256(value0);
-        feeGrowth.value1 = uint256(value1);
-    }
-
-    function _setPoolFeeGrowth(PoolId poolId, FeesPerLiquidity memory feeGrowth) private {
-        Ve33StorageLayout.poolFeeGrowthSlot(poolId).storeTwo(bytes32(feeGrowth.value0), bytes32(feeGrowth.value1));
-    }
-
-    function _rewardsGlobalPerLiquidity(PoolId poolId) private view returns (uint256) {
-        return uint256(Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId).load());
-    }
-
-    function _setRewardsGlobalPerLiquidity(PoolId poolId, uint256 value) private {
-        Ve33StorageLayout.rewardsGlobalPerLiquiditySlot(poolId).store(bytes32(value));
-    }
-
-    function _emissionRateDeltaAtTime(uint256 time) private view returns (int256) {
-        return int256(uint256(Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time).load()));
-    }
-
-    function _setEmissionRateDeltaAtTime(uint256 time, int256 value) private {
-        Ve33StorageLayout.emissionRateDeltaAtTimeSlot(time).store(bytes32(uint256(value)));
-    }
-
-    function _emissionInitializedTimeBitmap(uint256 word) private view returns (Bitmap) {
-        return Bitmap.wrap(uint256(Ve33StorageLayout.emissionInitializedTimeBitmapSlot(word).load()));
-    }
-
-    function _setEmissionInitializedTimeBitmap(uint256 word, Bitmap bitmap) private {
-        Ve33StorageLayout.emissionInitializedTimeBitmapSlot(word).store(bytes32(Bitmap.unwrap(bitmap)));
-    }
-
-    function _totalVoteWeight() private view returns (uint128) {
-        return uint128(uint256(Ve33StorageLayout.totalVoteWeightSlot().load()));
-    }
-
-    function _setTotalVoteWeight(uint128 weight) private {
-        Ve33StorageLayout.totalVoteWeightSlot().store(bytes32(uint256(weight)));
-    }
-
-    function _emissionGrowthGlobalX128() private view returns (uint256) {
-        return uint256(Ve33StorageLayout.emissionGrowthGlobalX128Slot().load());
-    }
-
-    function _setEmissionGrowthGlobalX128(uint256 value) private {
-        Ve33StorageLayout.emissionGrowthGlobalX128Slot().store(bytes32(value));
-    }
-
-    function _globalEmissionState() private view returns (Ve33GlobalEmissionState state) {
-        state = Ve33GlobalEmissionState.wrap(Ve33StorageLayout.emissionRateAndLastAccruedSlot().load());
-    }
-
-    function _setGlobalEmissionState(Ve33GlobalEmissionState state) private {
-        Ve33StorageLayout.emissionRateAndLastAccruedSlot().store(Ve33GlobalEmissionState.unwrap(state));
     }
 
     function _poolPositionLiquidity(PoolId poolId, address owner, PositionId positionId)

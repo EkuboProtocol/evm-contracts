@@ -32,7 +32,7 @@ contract VeTokenTest is FullTest {
 
         stakeToken = new TestToken(address(this));
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
-        deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
+        deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve33 = Ve33(payable(deployAddress));
         veToken = new VeToken(core, ve33, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
         stakeToken.approve(address(veToken), type(uint256).max);

@@ -22,7 +22,7 @@ contract Ve33DataFetcherTest is FullTest {
 
         stakeToken = new TestToken(address(this));
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
-        deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
+        deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33(payable(deployAddress));
         periphery = new Ve33Periphery(core, ve);
         dataFetcher = new Ve33DataFetcher(ve);

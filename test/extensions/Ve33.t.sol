@@ -131,7 +131,7 @@ contract Ve33Test is FullTest {
 
         stakeToken = new TestToken(address(this));
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
-        deployCodeTo("Ve33.sol", abi.encode(core, address(stakeToken)), deployAddress);
+        deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33(payable(deployAddress));
         router = new Router(core, address(0), address(ve));
         veToken = new VeToken(core, ve, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);

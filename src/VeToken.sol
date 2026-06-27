@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
+import {LibString} from "solady/utils/LibString.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {BaseLocker} from "./base/BaseLocker.sol";
@@ -32,10 +33,10 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice The token staked for voting power.
     address public immutable stakeToken;
 
-    string private _name;
-    string private _symbol;
-    string private _stakeTokenName;
-    string private _stakeTokenSymbol;
+    bytes32 private immutable _name;
+    bytes32 private immutable _symbol;
+    bytes32 private immutable _stakeTokenName;
+    bytes32 private immutable _stakeTokenSymbol;
     uint8 private immutable _stakeTokenDecimals;
 
     /// @notice The next ERC721 token id to mint.
@@ -57,6 +58,9 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param id The ERC721 token id.
     error NotAuthorizedForToken(address caller, uint256 id);
 
+    /// @notice Thrown when a constructor string cannot be packed into one bytes32 word.
+    error PackedStringTooLong();
+
     /// @notice Creates the ERC721 stake wrapper.
     /// @param core The Ekubo Core contract used for lock and token settlement.
     /// @param _ve33 The Ve33 extension containing canonical vote-escrow accounting.
@@ -76,10 +80,10 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     ) BaseLocker(core) UsesCore(core) {
         ve33 = _ve33;
         stakeToken = _ve33.stakeToken();
-        _name = name_;
-        _symbol = symbol_;
-        _stakeTokenName = stakeTokenName_;
-        _stakeTokenSymbol = stakeTokenSymbol_;
+        _name = _packConstructorString(name_);
+        _symbol = _packConstructorString(symbol_);
+        _stakeTokenName = _packConstructorString(stakeTokenName_);
+        _stakeTokenSymbol = _packConstructorString(stakeTokenSymbol_);
         _stakeTokenDecimals = stakeTokenDecimals_;
     }
 
@@ -87,12 +91,12 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
 
     /// @inheritdoc ERC721
     function name() public view override returns (string memory) {
-        return _name;
+        return LibString.unpackOne(_name);
     }
 
     /// @inheritdoc ERC721
     function symbol() public view override returns (string memory) {
-        return _symbol;
+        return LibString.unpackOne(_symbol);
     }
 
     /// @inheritdoc ERC721
@@ -105,13 +109,18 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
                 id: id,
                 amount: amount,
                 unlockTime: endTime,
-                veSymbol: _symbol,
-                stakeTokenName: _stakeTokenName,
-                stakeTokenSymbol: _stakeTokenSymbol,
+                veSymbol: LibString.unpackOne(_symbol),
+                stakeTokenName: LibString.unpackOne(_stakeTokenName),
+                stakeTokenSymbol: LibString.unpackOne(_stakeTokenSymbol),
                 stakeTokenDecimals: _stakeTokenDecimals,
                 stakeToken: stakeToken
             })
         );
+    }
+
+    function _packConstructorString(string memory value) private pure returns (bytes32 packed) {
+        packed = LibString.packOne(value);
+        if (packed == bytes32(0) && bytes(value).length != 0) revert PackedStringTooLong();
     }
 
     /// @notice Returns the maximum stake duration accepted by Ve33.

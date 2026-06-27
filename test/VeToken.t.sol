@@ -180,9 +180,16 @@ contract VeTokenTest is FullTest {
         assertTrue(veToken.supportsInterface(0x5b5e139f));
     }
 
+    function test_constructor_revertsIfPackedStringTooLong() public {
+        vm.expectRevert(VeToken.PackedStringTooLong.selector);
+        new VeToken(core, ve33, "12345678901234567890123456789012", "veTT", "TestToken", "TT", 18);
+    }
+
     function test_constructor_acceptsNativeTokenAsStakeToken() public {
         ZeroStakeTokenVe33 zeroStakeTokenVe33 = new ZeroStakeTokenVe33();
-        VeToken nativeVeToken = new VeToken(core, Ve33(payable(address(zeroStakeTokenVe33))), "Vote Escrow ETH", "veETH", "Ether", "ETH", 18);
+        VeToken nativeVeToken = new VeToken(
+            core, Ve33(payable(address(zeroStakeTokenVe33))), "Vote Escrow ETH", "veETH", "Ether", "ETH", 18
+        );
         assertEq(nativeVeToken.stakeToken(), address(0));
         assertEq(nativeVeToken.name(), "Vote Escrow ETH");
         assertEq(nativeVeToken.symbol(), "veETH");

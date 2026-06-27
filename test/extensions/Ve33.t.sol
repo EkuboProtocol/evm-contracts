@@ -27,7 +27,7 @@ import {nextValidTime} from "../../src/math/time.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {timeToBitmapWordAndIndex} from "../../src/math/timeBitmap.sol";
-import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
@@ -1661,5 +1661,43 @@ contract Ve33Test is FullTest {
         (uint256 weightAfter,,) = _poolVoteTotals(poolId);
         assertEq(weightAfter, 0);
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(veId))), bytes32(0));
+    }
+}
+
+contract Ve33NativePeripheryTest is FullTest {
+    using CoreLib for *;
+
+    Ve33 internal nativeVe;
+    Ve33Periphery internal nativePeriphery;
+
+    function setUp() public override {
+        super.setUp();
+
+        address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
+        deployCodeTo("Ve33.sol:Ve33", abi.encode(core, NATIVE_TOKEN_ADDRESS), deployAddress);
+        nativeVe = Ve33(payable(deployAddress));
+        nativePeriphery = new Ve33Periphery(core, nativeVe);
+    }
+
+    function test_peripherySchedulesNativeEmissions() public {
+        uint64 end = uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 1 days));
+        uint160 rewardRate = uint160(1 << 32);
+        uint128 expectedAmount = uint128(end - vm.getBlockTimestamp());
+
+        uint128 amount = nativePeriphery.scheduleEmissions{value: expectedAmount}(0, end, rewardRate);
+
+        (uint128 saved,) = core.savedBalances(
+            address(nativeVe), NATIVE_TOKEN_ADDRESS, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
+        );
+        assertEq(amount, expectedAmount);
+        assertEq(saved, expectedAmount);
+        assertEq(address(nativePeriphery).balance, 0);
+    }
+
+    function test_peripheryNativeEmissionScheduleRequiresPayment() public {
+        uint64 end = uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 1 days));
+
+        vm.expectRevert();
+        nativePeriphery.scheduleEmissions(0, end, uint160(1 << 32));
     }
 }

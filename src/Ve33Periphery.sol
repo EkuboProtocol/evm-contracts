@@ -2,14 +2,17 @@
 pragma solidity =0.8.33;
 
 import {BaseLocker} from "./base/BaseLocker.sol";
+import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {Ve33} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @notice Token-settling periphery for Ve33 forwarded actions.
 /// @dev Ve33 accounts saved balances during `forward`; this contract pays or withdraws the corresponding tokens.
-contract Ve33Periphery is BaseLocker {
+contract Ve33Periphery is PayableMulticallable, BaseLocker {
     using FlashAccountantLib for *;
 
     uint256 private constant CALL_TYPE_SCHEDULE_EMISSIONS = 0;
@@ -35,7 +38,11 @@ contract Ve33Periphery is BaseLocker {
     /// @param endTime Valid real timestamp when the emission stream ends.
     /// @param rewardRate Q32 global emission rate in stake tokens per second.
     /// @return amount Amount of stake token required by the schedule.
-    function scheduleEmissions(uint64 startTime, uint64 endTime, uint160 rewardRate) external returns (uint128 amount) {
+    function scheduleEmissions(uint64 startTime, uint64 endTime, uint160 rewardRate)
+        external
+        payable
+        returns (uint128 amount)
+    {
         amount = abi.decode(
             lock(abi.encode(CALL_TYPE_SCHEDULE_EMISSIONS, msg.sender, startTime, endTime, rewardRate)), (uint128)
         );
@@ -50,7 +57,13 @@ contract Ve33Periphery is BaseLocker {
                 abi.decode(data, (uint256, address, uint64, uint64, uint160));
             uint128 amount = Ve33Lib.scheduleEmissions(CORE_REF, ve33, startTime, endTime, rewardRate);
             result = abi.encode(amount);
-            if (amount != 0) ACCOUNTANT.payFrom(payer, stakeToken, amount);
+            if (amount != 0) {
+                if (stakeToken == NATIVE_TOKEN_ADDRESS) {
+                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
+                } else {
+                    ACCOUNTANT.payFrom(payer, stakeToken, amount);
+                }
+            }
         } else {
             revert();
         }

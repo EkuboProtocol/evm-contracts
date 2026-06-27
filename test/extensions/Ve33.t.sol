@@ -6,7 +6,9 @@ import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
-import {BaseVe33Positions, Ve33Positions} from "../../src/Ve33Positions.sol";
+import {BaseVe33Positions} from "../../src/base/BaseVe33Positions.sol";
+import {FreeVe33Positions} from "../../src/FreeVe33Positions.sol";
+import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
 import {
     Ve33,
@@ -119,7 +121,7 @@ contract Ve33Test is FullTest {
 
     Ve33 internal ve;
     VeToken internal veToken;
-    Ve33Positions internal vePositions;
+    FreeVe33Positions internal vePositions;
     Ve33Forwarder internal forwarder;
     Ve33Periphery internal periphery;
     TestToken internal stakeToken;
@@ -135,7 +137,7 @@ contract Ve33Test is FullTest {
         ve = Ve33(payable(deployAddress));
         router = new Router(core, address(0), address(ve));
         veToken = new VeToken(core, ve, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
-        vePositions = new Ve33Positions(core, ve, owner, 0);
+        vePositions = new FreeVe33Positions(core, ve, owner);
         forwarder = new Ve33Forwarder(core, ve, address(stakeToken));
         periphery = new Ve33Periphery(core, ve);
 
@@ -393,7 +395,7 @@ contract Ve33Test is FullTest {
 
         coolAllContracts();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
-        vm.snapshotGasLastCall("Ve33Positions#deposit");
+        vm.snapshotGasLastCall("FreeVe33Positions#deposit");
     }
 
     function test_gas_routerSwapVe33Position() public {
@@ -422,7 +424,7 @@ contract Ve33Test is FullTest {
 
         coolAllContracts();
         _claimRewards(poolKey, positionId, address(this));
-        vm.snapshotGasLastCall("Ve33Positions#claimRewards");
+        vm.snapshotGasLastCall("FreeVe33Positions#claimRewards");
     }
 
     function test_gas_peripheryScheduleEmissions() public {
@@ -443,7 +445,7 @@ contract Ve33Test is FullTest {
 
         coolAllContracts();
         _claimRewards(poolKey, positionId, address(this));
-        vm.snapshotGasLastCall("Ve33Positions#claimAccruedEmissions");
+        vm.snapshotGasLastCall("FreeVe33Positions#claimAccruedEmissions");
     }
 
     function test_registrationAndCallPoints() public view {

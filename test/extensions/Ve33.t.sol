@@ -1694,6 +1694,29 @@ contract Ve33NativePeripheryTest is FullTest {
         assertEq(address(nativePeriphery).balance, 0);
     }
 
+    function test_peripherySchedulesNativeEmissionsAndRefundsOverpaymentInMulticall() public {
+        uint64 end = uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 1 days));
+        uint160 rewardRate = uint160(1 << 32);
+        uint128 expectedAmount = uint128(end - vm.getBlockTimestamp());
+        uint256 overpayment = 1 ether;
+        uint256 startingBalance = expectedAmount + overpayment;
+        vm.deal(address(this), startingBalance);
+
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(nativePeriphery.scheduleEmissions, (0, end, rewardRate));
+        calls[1] = abi.encodeCall(nativePeriphery.refundNativeToken, ());
+
+        bytes[] memory results = nativePeriphery.multicall{value: startingBalance}(calls);
+
+        (uint128 saved,) = core.savedBalances(
+            address(nativeVe), NATIVE_TOKEN_ADDRESS, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
+        );
+        assertEq(abi.decode(results[0], (uint128)), expectedAmount);
+        assertEq(saved, expectedAmount);
+        assertEq(address(nativePeriphery).balance, 0);
+        assertEq(address(this).balance, overpayment);
+    }
+
     function test_peripheryNativeEmissionScheduleRequiresPayment() public {
         uint64 end = uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 1 days));
 

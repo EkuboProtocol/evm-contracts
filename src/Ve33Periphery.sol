@@ -34,6 +34,8 @@ contract Ve33Periphery is PayableMulticallable, BaseLocker {
     receive() external payable {}
 
     /// @notice Schedules global Ve33 emissions.
+    /// @dev If `stakeToken` is the native token address, callers must send enough ETH to this contract before or during
+    ///      the call. Excess ETH can be returned by batching `refundNativeToken()` in the same payable multicall.
     /// @param startTime Real emission schedule start time, or zero for immediate start.
     /// @param endTime Valid real timestamp when the emission stream ends.
     /// @param rewardRate Q32 global emission rate in stake tokens per second.
@@ -57,15 +59,19 @@ contract Ve33Periphery is PayableMulticallable, BaseLocker {
                 abi.decode(data, (uint256, address, uint64, uint64, uint160));
             uint128 amount = Ve33Lib.scheduleEmissions(CORE_REF, ve33, startTime, endTime, rewardRate);
             result = abi.encode(amount);
-            if (amount != 0) {
-                if (stakeToken == NATIVE_TOKEN_ADDRESS) {
-                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
-                } else {
-                    ACCOUNTANT.payFrom(payer, stakeToken, amount);
-                }
-            }
+            _payStakeToken(payer, amount);
         } else {
             revert();
+        }
+    }
+
+    function _payStakeToken(address payer, uint128 amount) private {
+        if (amount == 0) return;
+
+        if (stakeToken == NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
+        } else {
+            ACCOUNTANT.payFrom(payer, stakeToken, amount);
         }
     }
 }

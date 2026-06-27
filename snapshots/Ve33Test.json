@@ -7,7 +7,7 @@
   "Router#ve33SwapVe33Position": "104061",
   "Ve33#emissionAccrualOnPoolTouch": "84090",
   "Ve33#vote one pool": "139568",
-  "Ve33Periphery#scheduleEmissions": "125519",
+  "Ve33Periphery#scheduleEmissions": "125496",
   "VeToken#claimPoolFees": "59404",
   "VeToken#vote": "139568"
 }

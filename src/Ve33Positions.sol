@@ -13,6 +13,7 @@ import {CoreStorageLayout} from "./libraries/CoreStorageLayout.sol";
 import {ExposedStorageLib} from "./libraries/ExposedStorageLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {computeFee} from "./math/fee.sol";
 import {liquidityDeltaToAmountDelta, maxLiquidity} from "./math/liquidity.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
@@ -25,7 +26,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @notice ERC721 position manager for Ve33 liquidity positions.
 /// @dev Ve33 LPs do not earn Core swap fees. This contract only manages liquidity principal and Ve33 reward claims.
-contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
+abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using CoreLib for *;
     using ExposedStorageLib for *;
     using FlashAccountantLib for *;
@@ -34,6 +35,7 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_CLAIM_REWARDS = 2;
     uint256 private constant CALL_TYPE_WITHDRAW_AND_CLAIM_REWARDS = 3;
+    uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 4;
 
     /// @notice The Ve33 extension whose pools this position manager supports.
     Ve33 public immutable ve33;
@@ -58,7 +60,7 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
     /// @notice Thrown when a pool is not managed by this contract's Ve33 extension.
     error InvalidPoolExtension();
 
-    /// @notice Creates the Ve33 position NFT manager.
+    /// @notice Creates the base Ve33 position NFT manager.
     /// @param core Ekubo Core contract used for locks and position updates.
     /// @param _ve33 Ve33 extension whose pools are supported.
     /// @param owner Owner allowed to set collection metadata.
@@ -260,6 +262,19 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
         }
     }
 
+    /// @notice Withdraws accumulated reward-token protocol fees.
+    /// @param amount Amount of `stakeToken` protocol fees to withdraw.
+    /// @param recipient Account receiving the protocol fees.
+    function withdrawProtocolFees(uint128 amount, address recipient) external payable onlyOwner {
+        lock(abi.encode(CALL_TYPE_WITHDRAW_PROTOCOL_FEES, amount, recipient));
+    }
+
+    /// @notice Returns accumulated reward-token protocol fees.
+    /// @return amount Amount of `stakeToken` saved for the owner.
+    function getProtocolFees() external view returns (uint128 amount) {
+        (amount,) = CORE.savedBalances(address(this), stakeToken, address(type(uint160).max), bytes32(0));
+    }
+
     /// @notice Mints a new NFT and deposits liquidity.
     function mintAndDeposit(
         PoolKey memory poolKey,
@@ -286,6 +301,16 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
         id = mint(salt);
         (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
     }
+
+    /// @notice Computes the protocol fee taken from a Ve33 reward claim.
+    /// @param poolKey Pool containing the position.
+    /// @param amount Claimed reward amount before protocol-fee deduction.
+    /// @return protocolFee Reward-token amount saved for the owner.
+    function _computeClaimRewardsProtocolFee(PoolKey memory poolKey, uint128 amount)
+        internal
+        view
+        virtual
+        returns (uint128 protocolFee);
 
     /// @inheritdoc BaseLocker
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
@@ -367,9 +392,7 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
             if (liquidity > uint128(type(int128).max)) revert WithdrawOverflow();
 
             PositionId positionId_ = positionId(id, tickLower, tickUpper);
-            uint256 rewardAmount = Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_, recipient);
-            uint128 rewardAmountUint128 = uint128(rewardAmount);
-            if (rewardAmountUint128 != 0) ACCOUNTANT.withdraw(stakeToken, recipient, rewardAmountUint128);
+            uint128 rewardAmount = _claimRewards(poolKey, positionId_, recipient);
 
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, -int128(liquidity));
             uint128 amount0 = uint128(-balanceUpdate.delta0());
@@ -382,12 +405,31 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
 
             _validateVe33Pool(poolKey);
-            uint256 amount256 = Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_, recipient);
-            result = abi.encode(amount256);
-            uint128 amount = uint128(amount256);
-            if (amount != 0) ACCOUNTANT.withdraw(stakeToken, recipient, amount);
+            result = abi.encode(_claimRewards(poolKey, positionId_, recipient));
+        } else if (callType == CALL_TYPE_WITHDRAW_PROTOCOL_FEES) {
+            (, uint128 amount, address recipient) = abi.decode(data, (uint256, uint128, address));
+
+            CORE.updateSavedBalances(stakeToken, address(type(uint160).max), bytes32(0), -int256(uint256(amount)), 0);
+            ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         } else {
             revert();
+        }
+    }
+
+    function _claimRewards(PoolKey memory poolKey, PositionId positionId_, address recipient)
+        private
+        returns (uint128 amount)
+    {
+        amount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_, recipient));
+        if (amount != 0) {
+            uint128 protocolFee = _computeClaimRewardsProtocolFee(poolKey, amount);
+            if (protocolFee != 0) {
+                CORE.updateSavedBalances(
+                    stakeToken, address(type(uint160).max), bytes32(0), int256(uint256(protocolFee)), 0
+                );
+                amount -= protocolFee;
+            }
+            if (amount != 0) ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         }
     }
 
@@ -400,5 +442,32 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
         assembly ("memory-safe") {
             liquidity := shr(128, data)
         }
+    }
+}
+
+/// @notice ERC721 position manager for Ve33 liquidity positions.
+contract Ve33Positions is BaseVe33Positions {
+    /// @notice Protocol fee rate for claimed rewards, as a fraction of 2^64.
+    uint64 public immutable REWARD_PROTOCOL_FEE_X64;
+
+    /// @notice Creates the Ve33 position NFT manager.
+    /// @param core Ekubo Core contract used for locks and position updates.
+    /// @param ve33 Ve33 extension whose pools are supported.
+    /// @param owner Owner allowed to set collection metadata and withdraw protocol fees.
+    /// @param rewardProtocolFeeX64 Protocol fee rate for claimed rewards, as a fraction of 2^64.
+    constructor(ICore core, Ve33 ve33, address owner, uint64 rewardProtocolFeeX64)
+        BaseVe33Positions(core, ve33, owner)
+    {
+        REWARD_PROTOCOL_FEE_X64 = rewardProtocolFeeX64;
+    }
+
+    /// @inheritdoc BaseVe33Positions
+    function _computeClaimRewardsProtocolFee(PoolKey memory, uint128 amount)
+        internal
+        view
+        override
+        returns (uint128 protocolFee)
+    {
+        if (REWARD_PROTOCOL_FEE_X64 != 0) protocolFee = computeFee(amount, REWARD_PROTOCOL_FEE_X64);
     }
 }

@@ -21,6 +21,7 @@ contract DeployVe33 is Script {
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         address stakeToken = vm.envAddress("STAKE_TOKEN");
         address positionsOwner = vm.envOr("VE33_POSITIONS_OWNER", msg.sender);
+        uint64 rewardProtocolFeeX64 = uint64(vm.envOr("VE33_POSITIONS_REWARD_PROTOCOL_FEE_X64", uint256(0)));
         address expectedVe33 = vm.envOr("VE33_ADDRESS", address(0));
         address expectedVeToken = vm.envOr("VE_TOKEN_ADDRESS", address(0));
         address expectedPositions = vm.envOr("VE33_POSITIONS_ADDRESS", address(0));
@@ -42,7 +43,9 @@ contract DeployVe33 is Script {
             abi.encodePacked(type(VeToken).creationCode, abi.encode(core, ve33)), salt, expectedVeToken, "VeToken"
         );
         deployIfNeeded(
-            abi.encodePacked(type(Ve33Positions).creationCode, abi.encode(core, ve33, positionsOwner)),
+            abi.encodePacked(
+                type(Ve33Positions).creationCode, abi.encode(core, ve33, positionsOwner, rewardProtocolFeeX64)
+            ),
             salt,
             expectedPositions,
             "Ve33Positions"

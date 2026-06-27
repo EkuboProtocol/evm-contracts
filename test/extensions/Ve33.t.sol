@@ -6,7 +6,7 @@ import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
-import {Ve33Positions} from "../../src/Ve33Positions.sol";
+import {BaseVe33Positions, Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
 import {
     Ve33,
@@ -135,7 +135,7 @@ contract Ve33Test is FullTest {
         ve = Ve33(payable(deployAddress));
         router = new Router(core, address(0), address(ve));
         veToken = new VeToken(core, ve, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
-        vePositions = new Ve33Positions(core, ve, owner);
+        vePositions = new Ve33Positions(core, ve, owner, 0);
         forwarder = new Ve33Forwarder(core, ve, address(stakeToken));
         periphery = new Ve33Periphery(core, ve);
 
@@ -1298,6 +1298,55 @@ contract Ve33Test is FullTest {
         assertEq(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 
+    function test_vePositionsTakesProtocolFeeFromClaimedRewards() public {
+        uint64 rewardProtocolFeeX64 = uint64(1 << 63);
+        Ve33Positions feePositions = new Ve33Positions(core, ve, owner, rewardProtocolFeeX64);
+        token0.approve(address(feePositions), type(uint256).max);
+        token1.approve(address(feePositions), type(uint256).max);
+
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 64, extension: address(ve)});
+        int32 tickLower = -64;
+        int32 tickUpper = 64;
+        uint256 id = feePositions.mint(bytes32(uint256(123)));
+        PositionId positionId = feePositions.positionId(id, tickLower, tickUpper);
+        int128 liquidityDelta = int128(uint128(1e18));
+        (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
+            core.poolState(poolKey.toPoolId()).sqrtRatio(),
+            liquidityDelta,
+            tickToSqrtRatio(tickLower),
+            tickToSqrtRatio(tickUpper)
+        );
+        feePositions.deposit(
+            id, poolKey, tickLower, tickUpper, uint128(delta0), uint128(delta1), uint128(liquidityDelta)
+        );
+
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(10_000, _defaultEmissionEnd());
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+
+        address recipient = address(0xBEEF);
+        uint256 recipientBalanceBefore = stakeToken.balanceOf(recipient);
+        uint256 netRewardAmount = feePositions.claimRewards(id, poolKey, tickLower, tickUpper, recipient);
+        uint128 protocolFeeAmount = feePositions.getProtocolFees();
+        uint128 grossRewardAmount = uint128(netRewardAmount + protocolFeeAmount);
+
+        assertGt(netRewardAmount, 0);
+        assertEq(stakeToken.balanceOf(recipient), recipientBalanceBefore + netRewardAmount);
+        assertEq(protocolFeeAmount, computeFee(grossRewardAmount, rewardProtocolFeeX64));
+
+        vm.prank(address(1234));
+        vm.expectRevert();
+        feePositions.withdrawProtocolFees(protocolFeeAmount, address(1234));
+
+        uint256 ownerBalanceBefore = stakeToken.balanceOf(owner);
+        vm.prank(owner);
+        feePositions.withdrawProtocolFees(protocolFeeAmount, owner);
+
+        assertEq(stakeToken.balanceOf(owner), ownerBalanceBefore + protocolFeeAmount);
+        assertEq(feePositions.getProtocolFees(), 0);
+    }
+
     function test_peripherySettlesEmissionPaymentsAfterRouterSwap() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
@@ -1381,7 +1430,7 @@ contract Ve33Test is FullTest {
         (uint128 liquidity,,) = vePositions.getPositionLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(liquidity, uint128(type(int128).max));
 
-        vm.expectRevert(Ve33Positions.DepositOverflow.selector);
+        vm.expectRevert(BaseVe33Positions.DepositOverflow.selector);
         vePositions.deposit(id, poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 1);
     }
 

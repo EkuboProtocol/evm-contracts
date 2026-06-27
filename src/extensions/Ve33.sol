@@ -266,11 +266,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
     /// @notice Validates extension-specific pool configuration before Core initializes a new pool.
     /// @dev Pools must use zero Core fee because the active fee is stored in Ve33 pool vote state.
-    function beforeInitializePool(address, PoolKey memory poolKey, int32)
-        external
-        override(BaseExtension, IExtension)
-        onlyCore
-    {
+    function beforeInitializePool(address, PoolKey memory poolKey, int32) external override(BaseExtension, IExtension) {
         checkValidPoolKey(poolKey);
     }
 

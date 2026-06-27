@@ -536,6 +536,8 @@ contract Ve33Test is FullTest {
             _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(1), _isToken1: false, _skipAhead: 0
         });
 
+        ve.beforeInitializePool(address(0), poolKey, 0);
+
         vm.expectRevert(IVe33.SwapMustHappenThroughForward.selector);
         ve.beforeSwap(Locker.wrap(bytes32(0)), poolKey, params);
 

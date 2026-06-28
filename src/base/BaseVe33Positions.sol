@@ -9,7 +9,6 @@ import {Ve33} from "../extensions/Ve33.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
-import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
 import {Ve33Lib} from "../libraries/Ve33Lib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
@@ -97,7 +96,7 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
         _validateVe33Pool(poolKey);
         PoolId poolId = poolKey.toPoolId();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
-        liquidity = _poolPositionLiquidity(poolId, positionId(id, tickLower, tickUpper));
+        liquidity = Ve33Lib.positionLiquidity(CORE, poolId, address(this), positionId(id, tickLower, tickUpper));
 
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
             sqrtRatio, -SafeCastLib.toInt128(liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
@@ -125,7 +124,7 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
         PoolId poolId = poolKey.toPoolId();
         SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
         PositionId positionId_ = positionId(id, tickLower, tickUpper);
-        liquidity = _poolPositionLiquidity(poolId, positionId_);
+        liquidity = Ve33Lib.positionLiquidity(CORE, poolId, address(this), positionId_);
 
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
             sqrtRatio, -SafeCastLib.toInt128(liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
@@ -368,7 +367,7 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
 
             PoolId poolId = poolKey.toPoolId();
             PositionId positionId_ = positionId(id, tickLower, tickUpper);
-            uint128 existingLiquidity = _poolPositionLiquidity(poolId, positionId_);
+            uint128 existingLiquidity = Ve33Lib.positionLiquidity(CORE, poolId, address(this), positionId_);
             if (existingLiquidity > uint128(type(int128).max) - liquidity) revert DepositOverflow();
 
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, int128(liquidity));
@@ -483,13 +482,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
                 amount = uint128(FixedPointMathLib.fullMulDivN(rewardsInsidePerLiquidity - snapshot, liquidity, 128));
             }
             amount -= _computeClaimRewardsProtocolFee(poolKey, uint128(amount));
-        }
-    }
-
-    function _poolPositionLiquidity(PoolId poolId, PositionId positionId_) private view returns (uint128 liquidity) {
-        bytes32 data = CORE.sload(CoreStorageLayout.poolPositionsSlot(poolId, address(this), positionId_));
-        assembly ("memory-safe") {
-            liquidity := shr(128, data)
         }
     }
 }

@@ -12,7 +12,6 @@ import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
 import {Ve33StorageLayout} from "../libraries/Ve33StorageLayout.sol";
 import {ICore, IExtension} from "../interfaces/ICore.sol";
-import {IVe33} from "../interfaces/extensions/IVe33.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {isPowerOfFour} from "../math/isPowerOfFour.sol";
@@ -34,24 +33,19 @@ import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "../types/feesPerLiq
 import {Ve33GlobalEmissionState, createVe33GlobalEmissionState} from "../types/ve33GlobalEmissionState.sol";
 import {VePoolFeeState, createVePoolFeeState} from "../types/vePoolFeeState.sol";
 import {VePoolVote, createVePoolVote} from "../types/vePoolVote.sol";
-
-// Forward call type for extension-mediated swaps.
-uint256 constant VE33_SWAP = 0;
-// Forward call type for claiming LP reward-token emissions.
-uint256 constant VE33_CLAIM_REWARDS = 1;
-// Forward call type for increasing a ve stake.
-uint256 constant VE33_STAKE = 2;
-// Forward call type for decreasing an expired ve stake.
-uint256 constant VE33_UNSTAKE = 3;
-// Forward call type for claiming voter pool fees.
-uint256 constant VE33_CLAIM_POOL_FEES = 4;
-// Forward call type for scheduling global emissions.
-uint256 constant VE33_SCHEDULE_EMISSIONS = 5;
+import {
+    IVe33,
+    VE33_CLAIM_POOL_FEES,
+    VE33_CLAIM_REWARDS,
+    VE33_MAX_STAKE_DURATION,
+    VE33_SCHEDULE_EMISSIONS,
+    VE33_STAKE,
+    VE33_SWAP,
+    VE33_UNSTAKE
+} from "../interfaces/extensions/IVe33.sol";
 
 // Maximum absolute scheduled emission-rate delta allowed at one valid time.
 uint256 constant VE33_MAX_ABS_VALUE_EMISSION_RATE_DELTA = type(uint160).max / MAX_NUM_VALID_TIMES;
-// Maximum ve stake duration.
-uint256 constant VE33_MAX_STAKE_DURATION = 4 * 365 days;
 // Saved-balance salt for all stake-token balances, including staked balances and scheduled emissions.
 bytes32 constant VE33_STAKE_TOKEN_SAVED_BALANCE_ID = bytes32(0);
 // Saved-balance salt for all voter pool fees, shared by token pair.

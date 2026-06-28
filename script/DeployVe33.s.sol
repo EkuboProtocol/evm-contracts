@@ -4,6 +4,7 @@ pragma solidity =0.8.33;
 import {Script} from "forge-std/Script.sol";
 import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
+import {FreeVe33Positions} from "../src/FreeVe33Positions.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
@@ -58,14 +59,23 @@ contract DeployVe33 is Script {
             expectedVeToken,
             "VeToken"
         );
-        deployIfNeeded(
-            abi.encodePacked(
-                type(Ve33Positions).creationCode, abi.encode(core, ve33, positionsOwner, rewardProtocolFeeX64)
-            ),
-            salt,
-            expectedPositions,
-            "Ve33Positions"
-        );
+        if (rewardProtocolFeeX64 == 0) {
+            deployIfNeeded(
+                abi.encodePacked(type(FreeVe33Positions).creationCode, abi.encode(core, ve33, positionsOwner)),
+                salt,
+                expectedPositions,
+                "FreeVe33Positions"
+            );
+        } else {
+            deployIfNeeded(
+                abi.encodePacked(
+                    type(Ve33Positions).creationCode, abi.encode(core, ve33, positionsOwner, rewardProtocolFeeX64)
+                ),
+                salt,
+                expectedPositions,
+                "Ve33Positions"
+            );
+        }
         deployIfNeeded(
             abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)),
             salt,

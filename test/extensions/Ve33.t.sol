@@ -1282,6 +1282,16 @@ contract Ve33Test is FullTest {
         vm.warp(vm.getBlockTimestamp() + 1 days);
         ve.maybeAccumulateRewards(poolKey);
 
+        (uint128 viewLiquidity, uint128 principal0, uint128 principal1, uint256 claimableRewardAmount) =
+            vePositions.getPositionRewardsAndLiquidity(id, poolKey, tickLower, tickUpper);
+        (uint128 liquidityOnly, uint128 principal0Only, uint128 principal1Only) =
+            vePositions.getPositionLiquidity(id, poolKey, tickLower, tickUpper);
+
+        assertEq(viewLiquidity, liquidityOnly);
+        assertEq(principal0, principal0Only);
+        assertEq(principal1, principal1Only);
+        assertGt(claimableRewardAmount, 0);
+
         address recipient = address(0xBEEF);
         uint256 token0BalanceBefore = token0.balanceOf(recipient);
         uint256 token1BalanceBefore = token1.balanceOf(recipient);
@@ -1292,7 +1302,7 @@ contract Ve33Test is FullTest {
 
         assertGt(amount0, 0);
         assertGt(amount1, 0);
-        assertGt(rewardAmount, 0);
+        assertEq(rewardAmount, claimableRewardAmount);
         assertEq(token0.balanceOf(recipient), token0BalanceBefore + amount0);
         assertEq(token1.balanceOf(recipient), token1BalanceBefore + amount1);
         assertEq(stakeToken.balanceOf(recipient), rewardBalanceBefore + rewardAmount);
@@ -1327,13 +1337,18 @@ contract Ve33Test is FullTest {
         vm.warp(vm.getBlockTimestamp() + 1 days);
         ve.maybeAccumulateRewards(poolKey);
 
+        (uint128 viewLiquidity,,, uint256 claimableRewardAmount) =
+            feePositions.getPositionRewardsAndLiquidity(id, poolKey, tickLower, tickUpper);
+        assertEq(viewLiquidity, core.poolPositions(poolKey.toPoolId(), address(feePositions), positionId).liquidity);
+        assertGt(claimableRewardAmount, 0);
+
         address recipient = address(0xBEEF);
         uint256 recipientBalanceBefore = stakeToken.balanceOf(recipient);
         uint256 netRewardAmount = feePositions.claimRewards(id, poolKey, tickLower, tickUpper, recipient);
         uint128 protocolFeeAmount = feePositions.getProtocolFees();
         uint128 grossRewardAmount = uint128(netRewardAmount + protocolFeeAmount);
 
-        assertGt(netRewardAmount, 0);
+        assertEq(netRewardAmount, claimableRewardAmount);
         assertEq(stakeToken.balanceOf(recipient), recipientBalanceBefore + netRewardAmount);
         assertEq(protocolFeeAmount, computeFee(grossRewardAmount, rewardProtocolFeeX64));
 
@@ -1517,6 +1532,7 @@ contract Ve33Test is FullTest {
         ve.maybeAccumulateRewards(poolKey);
         uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
         assertGt(global, 0);
+        assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, positionId.tickLower(), positionId.tickUpper()), global);
 
         SwapParameters upToUpper = createSwapParameters({
             _sqrtRatioLimit: tickToSqrtRatio(65), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
@@ -1561,7 +1577,12 @@ contract Ve33Test is FullTest {
         vm.warp(vm.getBlockTimestamp() + 1 hours);
         ve.maybeAccumulateRewards(stablePool);
         assertGt(ve.rewardsGlobalPerLiquidity(stablePoolId), global);
-        assertGt(_claimRewards(stablePool, stablePosition, address(this)), 0);
+        (uint128 stableLiquidity,,, uint256 stableClaimableRewardAmount) = vePositions.getPositionRewardsAndLiquidity(
+            _positionNftId(stablePosition), stablePool, stablePosition.tickLower(), stablePosition.tickUpper()
+        );
+        assertEq(stableLiquidity, _positionLiquidity(stablePool, stablePosition));
+        assertGt(stableClaimableRewardAmount, 0);
+        assertEq(_claimRewards(stablePool, stablePosition, address(this)), stableClaimableRewardAmount);
 
         _updatePosition(stablePool, stablePosition, -int128(_positionLiquidity(stablePool, stablePosition)));
         assertEq(ve.tickRewardsOutsidePerLiquidity(stablePoolId, upper), 0);

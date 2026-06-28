@@ -20,6 +20,7 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionId, createPositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
@@ -103,6 +104,35 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
         );
         principal0 = uint128(-delta0);
         principal1 = uint128(-delta1);
+    }
+
+    /// @notice Gets position liquidity, principal amounts, and currently claimable Ve33 reward tokens.
+    /// @dev Reward amount reflects already-accumulated Ve33 state and is net of this manager's reward protocol fee.
+    /// @param id ERC721 token id representing the position owner.
+    /// @param poolKey Pool containing the position.
+    /// @param tickLower Lower position tick.
+    /// @param tickUpper Upper position tick.
+    /// @return liquidity Current position liquidity.
+    /// @return principal0 Current token0 principal.
+    /// @return principal1 Current token1 principal.
+    /// @return rewardAmount Current reward-token amount claimable through this manager.
+    function getPositionRewardsAndLiquidity(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
+        external
+        view
+        returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint256 rewardAmount)
+    {
+        _validateVe33Pool(poolKey);
+        PoolId poolId = poolKey.toPoolId();
+        SqrtRatio sqrtRatio = CORE.poolState(poolId).sqrtRatio();
+        PositionId positionId_ = positionId(id, tickLower, tickUpper);
+        liquidity = _poolPositionLiquidity(poolId, positionId_);
+
+        (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
+            sqrtRatio, -SafeCastLib.toInt128(liquidity), tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper)
+        );
+        principal0 = uint128(-delta0);
+        principal1 = uint128(-delta1);
+        rewardAmount = _positionRewardAmount(poolKey, poolId, positionId_, tickLower, tickUpper, liquidity);
     }
 
     /// @notice Deposits tokens into a Ve33 liquidity position.
@@ -434,6 +464,26 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
 
     function _validateVe33Pool(PoolKey memory poolKey) private view {
         if (poolKey.config.extension() != address(ve33)) revert InvalidPoolExtension();
+    }
+
+    function _positionRewardAmount(
+        PoolKey memory poolKey,
+        PoolId poolId,
+        PositionId positionId_,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 liquidity
+    ) private view returns (uint256 amount) {
+        if (liquidity != 0) {
+            uint256 rewardsInsidePerLiquidity = poolKey.config.isStableswap()
+                ? Ve33Lib.rewardsGlobalPerLiquidity(ve33, poolId)
+                : ve33.getPoolRewardsPerLiquidityInside(poolId, tickLower, tickUpper);
+            uint256 snapshot = Ve33Lib.positionRewardsSnapshotPerLiquidity(ve33, poolId, address(this), positionId_);
+            unchecked {
+                amount = uint128(FixedPointMathLib.fullMulDivN(rewardsInsidePerLiquidity - snapshot, liquidity, 128));
+            }
+            amount -= _computeClaimRewardsProtocolFee(poolKey, uint128(amount));
+        }
     }
 
     function _poolPositionLiquidity(PoolId poolId, PositionId positionId_) private view returns (uint128 liquidity) {

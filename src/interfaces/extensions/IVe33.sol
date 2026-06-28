@@ -86,4 +86,15 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     /// @notice Accumulates global emissions into the pool reward-per-liquidity global value.
     /// @param poolKey Pool whose reward state is being accumulated.
     function maybeAccumulateRewards(PoolKey memory poolKey) external;
+
+    /// @notice Returns the accumulated rewards per liquidity inside a concentrated range.
+    /// @dev Mirrors Core's inside-growth getter for Ve33 LP rewards. Stableswap positions use global reward growth.
+    /// @param poolId The ID of the pool to fetch the rewards per liquidity inside.
+    /// @param tickLower Lower bound of the price range to get the snapshot.
+    /// @param tickUpper Upper bound of the price range to get the snapshot.
+    /// @return rewardsPerLiquidity Accumulated rewards per liquidity inside the bounds.
+    function getPoolRewardsPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper)
+        external
+        view
+        returns (uint256 rewardsPerLiquidity);
 }

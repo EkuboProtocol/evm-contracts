@@ -328,6 +328,15 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         }
     }
 
+    /// @inheritdoc IVe33
+    function getPoolRewardsPerLiquidityInside(PoolId poolId, int32 tickLower, int32 tickUpper)
+        external
+        view
+        returns (uint256)
+    {
+        return _getRewardsInsidePerLiquidity(poolId, CORE.poolState(poolId).tick(), tickLower, tickUpper);
+    }
+
     /// @notice Computes the current voting power for a stake.
     /// @dev Voting power decays linearly to zero at `stakeId.endTime()`.
     /// @param owner Locker representation that owns the stake.

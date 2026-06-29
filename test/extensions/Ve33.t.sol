@@ -348,6 +348,38 @@ contract Ve33Test is FullTest {
         vm.snapshotGasLastCall("Router#ve33Swap");
     }
 
+    function test_gas_forwardedSwapInitializedFeeSlots() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _routerSwap(poolKey, false, 100_000, address(this));
+
+        coolAllContracts();
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#ve33SwapInitializedFeeSlots");
+    }
+
+    function test_gas_forwardedSwapSameTransactionWarm() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+
+        coolAllContracts();
+        _routerSwap(poolKey, false, 100_000, address(this));
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#ve33SwapSameTransactionWarm");
+    }
+
+    function test_gas_forwardedSwapZeroFeeVote() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, 0);
+
+        coolAllContracts();
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#ve33SwapZeroFeeVote");
+    }
+
     function test_gas_claimPoolFees() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));

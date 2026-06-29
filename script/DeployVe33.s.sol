@@ -2,8 +2,10 @@
 pragma solidity =0.8.33;
 
 import {Script} from "forge-std/Script.sol";
+import {console2} from "forge-std/console2.sol";
 import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
+import {BaseVe33Positions} from "../src/base/BaseVe33Positions.sol";
 import {FreeVe33Positions} from "../src/FreeVe33Positions.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
@@ -49,6 +51,10 @@ contract DeployVe33 is Script {
         uint8 stakeTokenDecimals = _stakeTokenDecimals(stakeToken);
         string memory veTokenName = _envStringOr("VE_TOKEN_NAME", string.concat("Vote-Escrow ", stakeTokenName));
         string memory veTokenSymbol = _envStringOr("VE_TOKEN_SYMBOL", string.concat("ve", stakeTokenSymbol));
+        string memory positionsName = _envStringOr("VE33_POSITIONS_NAME", "Ekubo Ve33 Positions");
+        string memory positionsSymbol = _envStringOr("VE33_POSITIONS_SYMBOL", "ekuVe33Po");
+        string memory positionsBaseUrl =
+            _envStringOr("VE33_POSITIONS_BASE_URL", "https://prod-api.ekubo.org/ve33/positions/");
 
         deployIfNeeded(
             abi.encodePacked(
@@ -59,15 +65,18 @@ contract DeployVe33 is Script {
             expectedVeToken,
             "VeToken"
         );
+
+        address positionsAddress;
+        bool deployedPositions;
         if (rewardProtocolFeeX64 == 0) {
-            deployIfNeeded(
+            (positionsAddress, deployedPositions) = deployIfNeeded(
                 abi.encodePacked(type(FreeVe33Positions).creationCode, abi.encode(core, ve33, positionsOwner)),
                 salt,
                 expectedPositions,
                 "FreeVe33Positions"
             );
         } else {
-            deployIfNeeded(
+            (positionsAddress, deployedPositions) = deployIfNeeded(
                 abi.encodePacked(
                     type(Ve33Positions).creationCode, abi.encode(core, ve33, positionsOwner, rewardProtocolFeeX64)
                 ),
@@ -76,6 +85,13 @@ contract DeployVe33 is Script {
                 "Ve33Positions"
             );
         }
+
+        if (deployedPositions) {
+            BaseVe33Positions(payable(positionsAddress))
+                .setMetadata({newName: positionsName, newSymbol: positionsSymbol, newBaseUrl: positionsBaseUrl});
+            console2.log("Set Ve33 positions metadata");
+        }
+
         deployIfNeeded(
             abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)),
             salt,

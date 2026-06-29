@@ -27,7 +27,7 @@ contract DeployVe33 is Script {
         bytes32 salt = vm.envOr("SALT", DEFAULT_DEPLOYMENT_SALT);
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         address stakeToken = vm.envAddress("STAKE_TOKEN");
-        address positionsOwner = vm.envOr("VE33_POSITIONS_OWNER", msg.sender);
+        address deployer = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
         uint64 rewardProtocolFeeX64 = uint64(vm.envOr("VE33_POSITIONS_REWARD_PROTOCOL_FEE_X64", uint256(0)));
         address expectedVe33 = vm.envOr("VE33_ADDRESS", address(0));
         address expectedVeToken = vm.envOr("VE_TOKEN_ADDRESS", address(0));
@@ -54,7 +54,7 @@ contract DeployVe33 is Script {
         string memory positionsName = _envStringOr("VE33_POSITIONS_NAME", "Ekubo Ve33 Positions");
         string memory positionsSymbol = _envStringOr("VE33_POSITIONS_SYMBOL", "ekuVe33Po");
         string memory positionsBaseUrl =
-            _envStringOr("VE33_POSITIONS_BASE_URL", "https://prod-api.ekubo.org/ve33/positions/");
+            _envStringOr("VE33_POSITIONS_BASE_URL", "https://prod-api.ekubo.org/positions/");
 
         deployIfNeeded(
             abi.encodePacked(
@@ -70,7 +70,7 @@ contract DeployVe33 is Script {
         bool deployedPositions;
         if (rewardProtocolFeeX64 == 0) {
             (positionsAddress, deployedPositions) = deployIfNeeded(
-                abi.encodePacked(type(FreeVe33Positions).creationCode, abi.encode(core, ve33, positionsOwner)),
+                abi.encodePacked(type(FreeVe33Positions).creationCode, abi.encode(core, ve33, deployer)),
                 salt,
                 expectedPositions,
                 "FreeVe33Positions"
@@ -78,7 +78,7 @@ contract DeployVe33 is Script {
         } else {
             (positionsAddress, deployedPositions) = deployIfNeeded(
                 abi.encodePacked(
-                    type(Ve33Positions).creationCode, abi.encode(core, ve33, positionsOwner, rewardProtocolFeeX64)
+                    type(Ve33Positions).creationCode, abi.encode(core, ve33, deployer, rewardProtocolFeeX64)
                 ),
                 salt,
                 expectedPositions,

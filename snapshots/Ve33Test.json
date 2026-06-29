@@ -5,6 +5,8 @@
   "Router#ve33Stableswap": "98214",
   "Router#ve33Swap": "104061",
   "Router#ve33SwapInitializedFeeSlots": "60724",
+  "Router#ve33SwapInitializedFeeSlotsAndAccruedEmissions": "132869",
+  "Router#ve33SwapInitializedFeeSlotsAndAccruedEmissionsCrossingScheduleEnd": "141332",
   "Router#ve33SwapSameTransactionWarm": "32724",
   "Router#ve33SwapVe33Position": "104061",
   "Router#ve33SwapZeroFeeVote": "53371",

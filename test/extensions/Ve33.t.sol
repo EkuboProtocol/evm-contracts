@@ -359,6 +359,33 @@ contract Ve33Test is FullTest {
         vm.snapshotGasLastCall("Router#ve33SwapInitializedFeeSlots");
     }
 
+    function test_gas_forwardedSwapInitializedFeeSlotsAndAccruedEmissions() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(10_000, _defaultEmissionEnd());
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+
+        coolAllContracts();
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#ve33SwapInitializedFeeSlotsAndAccruedEmissions");
+    }
+
+    function test_gas_forwardedSwapInitializedFeeSlotsAndAccruedEmissionsCrossingScheduleEnd() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        uint64 end = _nextValidRewardTime(vm.getBlockTimestamp() + 1 days - 1);
+        _scheduleEmissions(10_000, end);
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.warp(uint256(end) + 1);
+
+        coolAllContracts();
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#ve33SwapInitializedFeeSlotsAndAccruedEmissionsCrossingScheduleEnd");
+    }
+
     function test_gas_forwardedSwapSameTransactionWarm() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));

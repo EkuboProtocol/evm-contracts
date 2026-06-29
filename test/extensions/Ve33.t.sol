@@ -320,6 +320,22 @@ contract Ve33Test is FullTest {
         scheduledAmount = forwarder.scheduleEmissions(0, endTime, _emissionRateForAmount(amount, endTime));
     }
 
+    function _assertTypicalSwapAccountingSlotsInitialized(PoolKey memory poolKey) internal view {
+        PoolId poolId = poolKey.toPoolId();
+        FeesPerLiquidity memory feeGrowth = ve.poolFeeGrowth(poolId);
+        (uint128 saved0, uint128 saved1) =
+            core.savedBalances(address(ve), poolKey.token0, poolKey.token1, VE33_POOL_FEES_SAVED_BALANCE_ID);
+
+        assertGt(ve.emissionRate(), 0);
+        assertGt(ve.emissionGrowthGlobalX128(), 0);
+        assertGt(ve.poolEmissionGrowthGlobalX128Snapshot(poolId), 0);
+        assertGt(ve.rewardsGlobalPerLiquidity(poolId), 0);
+        assertEq(feeGrowth.value0, 0);
+        assertGt(feeGrowth.value1, 0);
+        assertEq(saved0, 0);
+        assertGt(saved1, 0);
+    }
+
     function _rewardSavedBalance(bytes32 salt) internal view returns (uint128 saved) {
         (saved,) = core.savedBalances(address(ve), address(stakeToken), address(type(uint160).max), salt);
     }
@@ -359,12 +375,26 @@ contract Ve33Test is FullTest {
         vm.snapshotGasLastCall("Router#ve33SwapInitializedFeeSlots");
     }
 
+    function test_gas_coreSwapMatchingVe33SteadyState() public {
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 64});
+        createPosition(poolKey, -64, 64, uint128(1e18), uint128(1e18));
+        _routerSwap(poolKey, false, 100_000, address(this));
+        _routerSwap(poolKey, false, 100_000, address(this));
+
+        coolAllContracts();
+        _routerSwap(poolKey, false, 100_000, address(this));
+        vm.snapshotGasLastCall("Router#coreSwapMatchingVe33SteadyState");
+    }
+
     function test_gas_forwardedSwapInitializedFeeSlotsAndAccruedEmissions() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));
         _scheduleEmissions(10_000, _defaultEmissionEnd());
         _routerSwap(poolKey, false, 100_000, address(this));
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        _routerSwap(poolKey, false, 100_000, address(this));
+        _assertTypicalSwapAccountingSlotsInitialized(poolKey);
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
         coolAllContracts();
@@ -376,9 +406,13 @@ contract Ve33Test is FullTest {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         _fundAndVote(poolKey, uint64(1 << 62));
-        uint64 end = _nextValidRewardTime(vm.getBlockTimestamp() + 1 days - 1);
+        uint64 end = _nextValidRewardTime(vm.getBlockTimestamp() + 2 days - 1);
         _scheduleEmissions(10_000, end);
         _routerSwap(poolKey, false, 100_000, address(this));
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        _routerSwap(poolKey, false, 100_000, address(this));
+        _assertTypicalSwapAccountingSlotsInitialized(poolKey);
+        assertTrue(ve.emissionRateDeltaAtTime(end) != 0);
         vm.warp(uint256(end) + 1);
 
         coolAllContracts();

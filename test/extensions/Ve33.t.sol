@@ -1568,6 +1568,23 @@ contract Ve33Test is FullTest {
         assertGt(amount1, 0);
     }
 
+    function test_vePositionsDepositToTargetPriceAllowsPartialTargetSwap() public {
+        (PoolKey memory poolKey, PositionId seedPositionId) = _createConcentratedPool();
+        _updatePosition(poolKey, seedPositionId, int128(uint128(1e18)));
+
+        uint256 id = vePositions.mint(bytes32("partial-target"));
+        int32 tickLower = 1024;
+        int32 tickUpper = 2048;
+        PositionId positionId = vePositions.positionId(id, tickLower, tickUpper);
+        SqrtRatio targetSqrtRatio = tickToSqrtRatio(4096);
+
+        (uint128 liquidity,,) = vePositions.deposit(id, poolKey, tickLower, tickUpper, 1e18, 1e9, targetSqrtRatio);
+
+        assertNotEq(SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()), SqrtRatio.unwrap(targetSqrtRatio));
+        assertEq(core.poolPositions(poolKey.toPoolId(), address(vePositions), positionId).liquidity, liquidity);
+        assertGt(liquidity, 0);
+    }
+
     function test_vePositionsRejectsDepositsThatOverflowQueryableLiquidity() public {
         PoolKey memory poolKey = createFullRangePool(0, 0, address(ve));
         PositionId positionId = _mintPosition(MIN_TICK, MAX_TICK);

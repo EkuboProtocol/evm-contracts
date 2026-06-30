@@ -56,9 +56,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
     /// @notice Thrown when deposit liquidity cannot fit in the Core position update type.
     error DepositOverflow();
 
-    /// @notice Thrown when the caller's input limits cannot move the pool to the requested target price.
-    error TargetPriceNotReached(SqrtRatio actualSqrtRatio, SqrtRatio targetSqrtRatio);
-
     /// @notice Thrown when withdrawn liquidity cannot fit in the Core position update type.
     error WithdrawOverflow();
 
@@ -471,14 +468,14 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
             if (!targetSqrtRatio.isZero() && SqrtRatio.unwrap(targetSqrtRatio) != SqrtRatio.unwrap(state.sqrtRatio())) {
                 bool priceIncreasing = targetSqrtRatio > state.sqrtRatio();
                 uint128 maxInput = priceIncreasing ? maxAmount1 : maxAmount0;
-                if (maxInput == 0) revert TargetPriceNotReached(state.sqrtRatio(), targetSqrtRatio);
-
-                uint128 swapAmount = maxInput > uint128(type(int128).max) ? uint128(type(int128).max) : maxInput;
-                (swapBalanceUpdate, state) = Ve33Lib.swap(
-                    CORE, ve33, poolKey, createSwapParameters(targetSqrtRatio, int128(swapAmount), priceIncreasing, 0)
-                );
-                if (SqrtRatio.unwrap(state.sqrtRatio()) != SqrtRatio.unwrap(targetSqrtRatio)) {
-                    revert TargetPriceNotReached(state.sqrtRatio(), targetSqrtRatio);
+                if (maxInput != 0) {
+                    uint128 swapAmount = maxInput > uint128(type(int128).max) ? uint128(type(int128).max) : maxInput;
+                    (swapBalanceUpdate, state) = Ve33Lib.swap(
+                        CORE,
+                        ve33,
+                        poolKey,
+                        createSwapParameters(targetSqrtRatio, int128(swapAmount), priceIncreasing, 0)
+                    );
                 }
             }
 

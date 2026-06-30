@@ -677,11 +677,20 @@ contract Ve33Test is FullTest {
         vm.expectRevert(IVe33.PoolNotInitialized.selector);
         veToken.vote(veId, uninitializedPool, 1);
 
+        veToken.vote(veId, poolKey, 100);
+        PoolId initializedPoolId = poolKey.toPoolId();
+        uint128 weightBeforeRejectedVote = ve.poolTotalWeight(initializedPoolId);
+        vm.expectRevert(IVe33.PoolNotInitialized.selector);
+        veToken.vote(veId, uninitializedPool, 1);
+        assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(veId))), PoolId.unwrap(initializedPoolId));
+        assertEq(ve.poolTotalWeight(initializedPoolId), weightBeforeRejectedVote);
+
         uint256 expiredNoOpVeId = veToken.createStake(1, uint64(vm.getBlockTimestamp() + 1));
         vm.warp(vm.getBlockTimestamp() + 1);
         veToken.vote(expiredNoOpVeId, uninitializedPool, 1);
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(expiredNoOpVeId))), 0);
 
+        veToken.clearVote(veId);
         veToken.vote(veId, poolKey, type(uint64).max);
         VePoolVote vote = ve.vePoolVote(address(veToken), _stakeId(veId));
         (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolKey.toPoolId());

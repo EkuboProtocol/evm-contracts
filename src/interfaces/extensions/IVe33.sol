@@ -38,6 +38,8 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     error SwapMustHappenThroughForward();
     /// @notice Thrown when a pool key is not configured for this extension.
     error IncorrectPoolExtension();
+    /// @notice Thrown when voting for a pool that has not been initialized in Core.
+    error PoolNotInitialized();
     /// @notice Thrown when claiming voter fees for a pool the stake did not vote for.
     error PoolNotVoted();
     /// @notice Thrown when a Ve33 pool uses a nonzero Core fee.

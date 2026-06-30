@@ -10,17 +10,22 @@ import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {UsesCore} from "./base/UsesCore.sol";
 import {Ve33} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
-import {VE33_MAX_STAKE_DURATION} from "./interfaces/extensions/IVe33.sol";
+import {IVe33, VE33_MAX_STAKE_DURATION} from "./interfaces/extensions/IVe33.sol";
+import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {VeTokenMetadata} from "./libraries/VeTokenMetadata.sol";
+import {isPowerOfFour} from "./math/isPowerOfFour.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {PoolKey} from "./types/poolKey.sol";
+import {PoolState} from "./types/poolState.sol";
+import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {StakeId, createStakeId} from "./types/stakeId.sol";
 
 /// @notice ERC721 representation over Ve33 stake accounting.
 /// @dev The canonical stake is owned by this wrapper in Ve33. ERC721 ownership controls the wrapper.
 contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
+    using CoreLib for *;
     using FlashAccountantLib for *;
     using Ve33Lib for Ve33;
 
@@ -161,7 +166,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param amount The amount of stake token to stake.
     /// @param end The stake end timestamp.
     /// @return veId The minted ERC721 token id.
-    function createStake(uint128 amount, uint64 end) external returns (uint256 veId) {
+    function createStake(uint128 amount, uint64 end) external payable returns (uint256 veId) {
         if (amount == 0) revert InvalidStakeAmount();
 
         veId = nextVeId;
@@ -177,7 +182,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @dev The caller must own or be approved for `veId`. Stake token settlement happens in the Core lock.
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param amount The amount of stake token to add.
-    function increaseStakeAmount(uint256 veId, uint128 amount) external authorizedForStake(veId) {
+    function increaseStakeAmount(uint256 veId, uint128 amount) external payable authorizedForStake(veId) {
         if (amount == 0) return;
 
         lock(abi.encode(CALL_TYPE_STAKE, msg.sender, stakeId(veId), amount));
@@ -187,7 +192,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @dev The caller must own or be approved for `veId`. Extending clears votes in Ve33.
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param end The new stake end timestamp.
-    function extendStake(uint256 veId, uint64 end) external authorizedForStake(veId) {
+    function extendStake(uint256 veId, uint64 end) external payable authorizedForStake(veId) {
         _extendStake(veId, end);
     }
 
@@ -201,6 +206,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return amount1 The amount of token1 withdrawn to `recipient`.
     function claimPoolFeesAndExtendStake(uint256 veId, uint64 end, PoolKey calldata poolKey, address recipient)
         external
+        payable
         authorizedForStake(veId)
         returns (uint128 amount0, uint128 amount1)
     {
@@ -211,6 +217,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Claims pending voter fees to the caller, then moves a represented stake to a later end timestamp.
     function claimPoolFeesAndExtendStakeToSelf(uint256 veId, uint64 end, PoolKey calldata poolKey)
         external
+        payable
         returns (uint128 amount0, uint128 amount1)
     {
         if (!isAuthorizedForNft(msg.sender, veId)) revert NotAuthorizedForToken(msg.sender, veId);
@@ -223,7 +230,12 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and source Ve33 stake salt.
     /// @param amount The amount of stake token to move into the new ERC721.
     /// @return splitVeId The newly minted ERC721 token id.
-    function splitStake(uint256 veId, uint128 amount) external authorizedForStake(veId) returns (uint256 splitVeId) {
+    function splitStake(uint256 veId, uint128 amount)
+        external
+        payable
+        authorizedForStake(veId)
+        returns (uint256 splitVeId)
+    {
         if (amount == 0) revert InvalidStakeAmount();
 
         uint64 end = _stakeEndTime(veId);
@@ -248,6 +260,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return nextAmount Destination stake amount after the merge.
     function mergeStakes(uint256 fromVeId, uint256 toVeId)
         external
+        payable
         authorizedForStake(fromVeId)
         authorizedForStake(toVeId)
         returns (uint128 nextAmount)
@@ -266,6 +279,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return nextAmount Destination stake amount after the merge.
     function claimPoolFeesAndMergeStakes(uint256 fromVeId, uint256 toVeId, PoolKey calldata poolKey, address recipient)
         external
+        payable
         authorizedForStake(fromVeId)
         authorizedForStake(toVeId)
         returns (uint128 amount0, uint128 amount1, uint128 nextAmount)
@@ -277,6 +291,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Claims pending source-stake voter fees to the caller, then merges into another represented stake.
     function claimPoolFeesAndMergeStakesToSelf(uint256 fromVeId, uint256 toVeId, PoolKey calldata poolKey)
         external
+        payable
         returns (uint128 amount0, uint128 amount1, uint128 nextAmount)
     {
         if (!isAuthorizedForNft(msg.sender, fromVeId)) revert NotAuthorizedForToken(msg.sender, fromVeId);
@@ -288,7 +303,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Unstakes an expired represented stake and burns its ERC721 token.
     /// @dev The caller must own or be approved for `veId`; unstaked tokens are withdrawn to the current ERC721 owner.
     /// @param veId The ERC721 token id and Ve33 stake salt.
-    function withdrawStake(uint256 veId) external authorizedForStake(veId) {
+    function withdrawStake(uint256 veId) external payable authorizedForStake(veId) {
         address owner = ownerOf(veId);
         lock(abi.encode(CALL_TYPE_UNSTAKE, stakeId(veId), owner));
 
@@ -316,14 +331,41 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param poolKey The pool to vote on.
     /// @param swapFee The selected swap fee for the pool.
-    function vote(uint256 veId, PoolKey calldata poolKey, uint64 swapFee) external authorizedForStake(veId) {
+    function vote(uint256 veId, PoolKey calldata poolKey, uint64 swapFee) external payable authorizedForStake(veId) {
         ve33.vote(stakeId(veId), poolKey, swapFee);
+    }
+
+    /// @notice Initializes a Ve33 pool if it has not been initialized yet.
+    /// @dev Intended to be bundled before `vote` in a payable multicall.
+    /// @param poolKey Pool to initialize.
+    /// @param tick Initial tick if initialization is needed.
+    /// @return initialized Whether this call initialized the pool.
+    /// @return sqrtRatio Existing or newly initialized sqrt ratio.
+    function maybeInitializePool(PoolKey memory poolKey, int32 tick)
+        external
+        payable
+        returns (bool initialized, SqrtRatio sqrtRatio)
+    {
+        if (poolKey.config.fee() != 0) revert IVe33.FeeMustBeZero();
+        if (poolKey.config.isConcentrated()) {
+            uint32 tickSpacing = poolKey.config.concentratedTickSpacing();
+            if (!isPowerOfFour(tickSpacing)) revert IVe33.TickSpacingMustBePowerOfFour();
+        }
+        if (poolKey.config.extension() != address(ve33)) revert IVe33.IncorrectPoolExtension();
+
+        PoolState state = CORE.poolState(poolKey.toPoolId());
+        if (state.isInitialized()) {
+            sqrtRatio = state.sqrtRatio();
+        } else {
+            initialized = true;
+            sqrtRatio = CORE.initializePool(poolKey, tick);
+        }
     }
 
     /// @notice Clears a represented stake's active pool vote.
     /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
-    function clearVote(uint256 veId) external authorizedForStake(veId) {
+    function clearVote(uint256 veId) external payable authorizedForStake(veId) {
         ve33.clearVote(stakeId(veId));
     }
 
@@ -336,6 +378,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return amount1 The amount of token1 withdrawn to `recipient`.
     function claimPoolFees(uint256 veId, PoolKey calldata poolKey, address recipient)
         public
+        payable
         authorizedForStake(veId)
         returns (uint128 amount0, uint128 amount1)
     {
@@ -350,6 +393,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return amount1 The amount of token1 withdrawn to the caller.
     function claimPoolFeesToSelf(uint256 veId, PoolKey calldata poolKey)
         external
+        payable
         returns (uint128 amount0, uint128 amount1)
     {
         (amount0, amount1) = claimPoolFees(veId, poolKey, msg.sender);

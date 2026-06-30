@@ -573,26 +573,33 @@ contract Ve33Test is FullTest {
         assertEq(ve.poolFeeState(poolId).feeWeightSum(), 0);
     }
 
-    function test_poolInitialization_preservesPreInitializationVotedFee() public {
+    function test_voteRequiresInitializedPoolAndVeTokenCanInitializeInMulticall() public {
         PoolConfig config = createConcentratedPoolConfig(0, 64, address(ve));
         PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
         PoolId poolId = poolKey.toPoolId();
         uint64 votedFee = uint64(1 << 62);
 
         uint256 veId = _createStake();
+        vm.expectRevert(IVe33.PoolNotInitialized.selector);
         _vote(veId, poolKey, votedFee);
+
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(veToken.maybeInitializePool, (poolKey, 0));
+        calls[1] = abi.encodeCall(veToken.vote, (veId, poolKey, votedFee));
+        bytes[] memory results = veToken.multicall(calls);
+
+        (bool initialized, SqrtRatio sqrtRatio) = abi.decode(results[0], (bool, SqrtRatio));
+        assertTrue(initialized);
+        assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(tickToSqrtRatio(0)));
 
         (uint256 weight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
         assertEq(weight, veToken.votingPower(veId));
         assertEq(feeWeightSum, weight * votedFee);
         assertEq(swapFee, votedFee);
 
-        core.initializePool(poolKey, 0);
-
-        (weight, feeWeightSum, swapFee) = _poolVoteTotals(poolId);
-        assertEq(weight, veToken.votingPower(veId));
-        assertEq(feeWeightSum, weight * votedFee);
-        assertEq(swapFee, votedFee);
+        (initialized, sqrtRatio) = veToken.maybeInitializePool(poolKey, 0);
+        assertFalse(initialized);
+        assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(tickToSqrtRatio(0)));
     }
 
     function test_voteWeightAppliedEventsDescribeCurrentVoteState() public {
@@ -663,6 +670,17 @@ contract Ve33Test is FullTest {
             PoolKey({token0: address(token0), token1: address(token1), config: invalidTickSpacingConfig});
         vm.expectRevert(IVe33.TickSpacingMustBePowerOfFour.selector);
         veToken.vote(veId, invalidTickSpacingPool, 1);
+
+        PoolConfig validUninitializedConfig = createConcentratedPoolConfig(0, 256, address(ve));
+        PoolKey memory uninitializedPool =
+            PoolKey({token0: address(token0), token1: address(token1), config: validUninitializedConfig});
+        vm.expectRevert(IVe33.PoolNotInitialized.selector);
+        veToken.vote(veId, uninitializedPool, 1);
+
+        uint256 expiredNoOpVeId = veToken.createStake(1, uint64(vm.getBlockTimestamp() + 1));
+        vm.warp(vm.getBlockTimestamp() + 1);
+        veToken.vote(expiredNoOpVeId, uninitializedPool, 1);
+        assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(expiredNoOpVeId))), 0);
 
         veToken.vote(veId, poolKey, type(uint64).max);
         VePoolVote vote = ve.vePoolVote(address(veToken), _stakeId(veId));
@@ -1234,28 +1252,19 @@ contract Ve33Test is FullTest {
         PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
         PoolId poolId = poolKey.toPoolId();
         PositionId positionId = _mintPosition(-64, 64);
-        _fundAndVote(poolKey, uint64(1 << 62));
 
-        uint64 end = _defaultEmissionEnd();
-        uint160 rewardRate = _emissionRateForAmount(1e18, end);
-        _scheduleEmissions(1e18, end);
+        _scheduleEmissions(1e18, _defaultEmissionEnd());
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
-        uint128 weight = ve.poolTotalWeight(poolId);
-        uint256 rawEmissionsAccrued = (uint256(rewardRate) * 1 days) >> 32;
-        uint256 expectedEmissionGrowthGlobalX128 = (rawEmissionsAccrued << 128) / weight;
-        uint256 expectedPoolEmissionsAccrued = (expectedEmissionGrowthGlobalX128 * weight) >> 128;
-
-        vm.expectEmit(address(ve));
-        emit IVe33.PoolEmissionsAccrued(poolId, expectedPoolEmissionsAccrued);
-        core.initializePool(poolKey, 0);
+        veToken.maybeInitializePool(poolKey, 0);
         assertEq(ve.rewardsGlobalPerLiquidity(poolId), 0);
-        assertEq(ve.emissionGrowthGlobalX128(), expectedEmissionGrowthGlobalX128);
-        assertEq(ve.poolEmissionGrowthGlobalX128Snapshot(poolId), expectedEmissionGrowthGlobalX128);
+        assertEq(ve.emissionGrowthGlobalX128(), 0);
+        assertEq(ve.poolEmissionGrowthGlobalX128Snapshot(poolId), 0);
 
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
         assertEq(_claimRewards(poolKey, positionId, address(this)), 0);
 
+        _fundAndVote(poolKey, uint64(1 << 62));
         vm.warp(vm.getBlockTimestamp() + 1 days);
         ve.maybeAccumulateRewards(poolKey);
         assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
@@ -1528,6 +1537,26 @@ contract Ve33Test is FullTest {
 
         assertEq(core.poolPositions(poolId, address(vePositions), positionId).liquidity, ownerLiquidity);
         assertGt(core.poolPositions(poolId, address(vePositions), otherPositionId).liquidity, 0);
+    }
+
+    function test_vePositionsCanSwapToTargetPriceBeforeDepositingLiquidity() public {
+        (PoolKey memory poolKey, PositionId seedPositionId) = _createConcentratedPool();
+        _updatePosition(poolKey, seedPositionId, int128(uint128(1e18)));
+
+        uint256 id = vePositions.mint(bytes32("target-price"));
+        int32 tickLower = -64;
+        int32 tickUpper = 64;
+        PositionId positionId = vePositions.positionId(id, tickLower, tickUpper);
+        SqrtRatio targetSqrtRatio = tickToSqrtRatio(32);
+
+        (uint128 liquidity, uint128 amount0, uint128 amount1) =
+            vePositions.deposit(id, poolKey, tickLower, tickUpper, 1e18, 1e18, targetSqrtRatio);
+
+        assertEq(SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()), SqrtRatio.unwrap(targetSqrtRatio));
+        assertEq(core.poolPositions(poolKey.toPoolId(), address(vePositions), positionId).liquidity, liquidity);
+        assertGt(liquidity, 0);
+        assertGt(amount0, 0);
+        assertGt(amount1, 0);
     }
 
     function test_vePositionsRejectsDepositsThatOverflowQueryableLiquidity() public {

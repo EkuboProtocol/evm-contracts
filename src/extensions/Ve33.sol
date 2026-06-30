@@ -391,7 +391,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         _clearVote(msg.sender, stakeId);
 
         PoolId poolId = poolKey.toPoolId();
-        _maybeAccumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
+        PoolState coreState = CORE.poolState(poolId);
+        if (!coreState.isInitialized()) revert PoolNotInitialized();
+        _maybeAccumulatePoolRewards(poolId, coreState.liquidity());
 
         uint128 totalWeight = _poolTotalWeight(poolId);
         uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();

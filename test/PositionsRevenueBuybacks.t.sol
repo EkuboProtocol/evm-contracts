@@ -112,7 +112,6 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
 
         configure(address(token0), 3600, 1800, poolFee);
-        buybacks.approveMax(address(token0));
 
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
@@ -130,6 +129,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         buybacks.withdrawProtocolFees(address(token0), address(token1));
         buybacks.roll(address(token0));
         assertEq(token0.balanceOf(address(buybacks)), 0);
+        assertEq(token0.allowance(address(buybacks), address(orders)), 0);
         assertEq(token1.balanceOf(address(buybacks)), 1e17 - 1);
     }
 
@@ -137,7 +137,6 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         uint64 poolFee = uint64((uint256(1) << 64) / 100);
 
         configure(address(token1), 3600, 1800, poolFee);
-        buybacks.approveMax(address(token1));
 
         PoolKey memory poolKey = PoolKey({
             token0: address(token1),
@@ -154,6 +153,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
 
         buybacks.withdrawProtocolFees(address(token0), address(token1));
         buybacks.roll(address(token1));
+        assertEq(token1.allowance(address(buybacks), address(orders)), 0);
     }
 
     function test_withdraw_protocol_fees_and_roll_with_both_tokens_configured(uint80 donate0, uint80 donate1) public {
@@ -161,8 +161,6 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
 
         configure(address(token0), 3600, 1800, poolFee);
         configure(address(token1), 3600, 1800, poolFee);
-        buybacks.approveMax(address(token0));
-        buybacks.approveMax(address(token1));
 
         PoolKey memory poolKey0 = PoolKey({
             token0: address(token0),
@@ -206,5 +204,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
 
         assertLe(token0.balanceOf(address(buybacks)), 1);
         assertLe(token1.balanceOf(address(buybacks)), 1);
+        assertEq(token0.allowance(address(buybacks), address(orders)), 0);
+        assertEq(token1.allowance(address(buybacks), address(orders)), 0);
     }
 }

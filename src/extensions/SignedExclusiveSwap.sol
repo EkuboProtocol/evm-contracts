@@ -25,7 +25,7 @@ import {Locker} from "../types/locker.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
 import {Bitmap} from "../types/bitmap.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {computeFee} from "../math/fee.sol";
+import {computeFee, amountBeforeFee} from "../math/fee.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
@@ -237,16 +237,14 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             if (metaFeeX64 != 0) {
                 if (params.isExactOut()) {
                     if (balanceUpdate.delta0() > 0) {
-                        int128 feeAmount = SafeCastLib.toInt128(
-                            computeFee(uint128(uint256(int256(balanceUpdate.delta0()))), metaFeeX64)
-                        );
+                        uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
+                        int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
                         saveDelta0 += feeAmount;
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                     } else if (balanceUpdate.delta1() > 0) {
-                        int128 feeAmount = SafeCastLib.toInt128(
-                            computeFee(uint128(uint256(int256(balanceUpdate.delta1()))), metaFeeX64)
-                        );
+                        uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
+                        int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
                         saveDelta1 += feeAmount;
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);

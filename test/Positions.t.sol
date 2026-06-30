@@ -4,7 +4,7 @@ pragma solidity =0.8.33;
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
-import {RouteNode, TokenAmount} from "../src/Router.sol";
+import {RouteNode, TokenAmount} from "../src/base/BaseRouter.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {createSwapParameters} from "../src/types/swapParameters.sol";
 import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";

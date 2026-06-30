@@ -17,10 +17,8 @@ import {tickToSqrtRatio} from "../math/ticks.sol";
 import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
-import {PoolState} from "../types/poolState.sol";
 import {PositionId, createPositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {createSwapParameters} from "../types/swapParameters.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -37,7 +35,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
     uint256 private constant CALL_TYPE_CLAIM_REWARDS = 2;
     uint256 private constant CALL_TYPE_WITHDRAW_AND_CLAIM_REWARDS = 3;
     uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 4;
-    uint256 private constant CALL_TYPE_DEPOSIT_TO_PRICE = 5;
 
     /// @notice The Ve33 extension whose pools this position manager supports.
     Ve33 public immutable ve33;
@@ -169,38 +166,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
                     maxAmount0,
                     maxAmount1,
                     minLiquidity
-                )
-            ),
-            (uint128, uint128, uint128)
-        );
-    }
-
-    /// @notice Swaps to `targetSqrtRatio`, then deposits the maximum liquidity available from caller limits and swap output.
-    /// @dev Passing a zero target skips the price-moving swap.
-    /// @return liquidity Amount of liquidity added.
-    /// @return amount0 Actual token0 deposited into the position.
-    /// @return amount1 Actual token1 deposited into the position.
-    function deposit(
-        uint256 id,
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio targetSqrtRatio
-    ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        (liquidity, amount0, amount1) = abi.decode(
-            lock(
-                abi.encode(
-                    CALL_TYPE_DEPOSIT_TO_PRICE,
-                    msg.sender,
-                    id,
-                    poolKey,
-                    tickLower,
-                    tickUpper,
-                    maxAmount0,
-                    maxAmount1,
-                    targetSqrtRatio
                 )
             ),
             (uint128, uint128, uint128)
@@ -351,20 +316,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
         (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
     }
 
-    /// @notice Mints a new NFT, swaps to `targetSqrtRatio`, then deposits liquidity.
-    function mintAndDeposit(
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio targetSqrtRatio
-    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
-        id = mint();
-        (liquidity, amount0, amount1) =
-            deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, targetSqrtRatio);
-    }
-
     /// @notice Mints a new deterministic NFT and deposits liquidity.
     function mintAndDepositWithSalt(
         bytes32 salt,
@@ -377,21 +328,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint(salt);
         (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
-    }
-
-    /// @notice Mints a new deterministic NFT, swaps to `targetSqrtRatio`, then deposits liquidity.
-    function mintAndDepositWithSalt(
-        bytes32 salt,
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio targetSqrtRatio
-    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
-        id = mint(salt);
-        (liquidity, amount0, amount1) =
-            deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, targetSqrtRatio);
     }
 
     /// @notice Computes the protocol fee taken from a Ve33 reward claim.
@@ -446,65 +382,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
                 if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
                 if (amount1 != 0) ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
             }
-
-            result = abi.encode(liquidity, amount0, amount1);
-        } else if (callType == CALL_TYPE_DEPOSIT_TO_PRICE) {
-            (
-                ,
-                address caller,
-                uint256 id,
-                PoolKey memory poolKey,
-                int32 tickLower,
-                int32 tickUpper,
-                uint128 maxAmount0,
-                uint128 maxAmount1,
-                SqrtRatio targetSqrtRatio
-            ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128, uint128, SqrtRatio));
-
-            _validateVe33Pool(poolKey);
-            PoolId poolId = poolKey.toPoolId();
-            PoolState state = CORE.poolState(poolId);
-            PoolBalanceUpdate swapBalanceUpdate;
-            if (!targetSqrtRatio.isZero() && SqrtRatio.unwrap(targetSqrtRatio) != SqrtRatio.unwrap(state.sqrtRatio())) {
-                bool priceIncreasing = targetSqrtRatio > state.sqrtRatio();
-                uint128 maxInput = priceIncreasing ? maxAmount1 : maxAmount0;
-                if (maxInput != 0) {
-                    uint128 swapAmount = maxInput > uint128(type(int128).max) ? uint128(type(int128).max) : maxInput;
-                    (swapBalanceUpdate, state) = Ve33Lib.swap(
-                        CORE,
-                        ve33,
-                        poolKey,
-                        createSwapParameters(targetSqrtRatio, int128(swapAmount), priceIncreasing, 0)
-                    );
-                }
-            }
-
-            uint128 availableAmount0 = _amountAvailableAfterSwap(maxAmount0, swapBalanceUpdate.delta0());
-            uint128 availableAmount1 = _amountAvailableAfterSwap(maxAmount1, swapBalanceUpdate.delta1());
-            uint128 liquidity = maxLiquidity(
-                state.sqrtRatio(),
-                tickToSqrtRatio(tickLower),
-                tickToSqrtRatio(tickUpper),
-                availableAmount0,
-                availableAmount1
-            );
-            if (liquidity > uint128(type(int128).max)) revert DepositOverflow();
-
-            PositionId positionId_ = positionId(id, tickLower, tickUpper);
-            uint128 existingLiquidity = Ve33Lib.positionLiquidity(CORE, poolId, address(this), positionId_);
-            if (existingLiquidity > uint128(type(int128).max) - liquidity) revert DepositOverflow();
-
-            PoolBalanceUpdate depositBalanceUpdate = CORE.updatePosition(poolKey, positionId_, int128(liquidity));
-            uint128 amount0 = uint128(depositBalanceUpdate.delta0());
-            uint128 amount1 = uint128(depositBalanceUpdate.delta1());
-            if (amount0 > availableAmount0 || amount1 > availableAmount1) revert DepositFailedDueToPriceMovement();
-
-            _settleBalanceUpdate(
-                poolKey,
-                caller,
-                int128(swapBalanceUpdate.delta0() + depositBalanceUpdate.delta0()),
-                int128(swapBalanceUpdate.delta1() + depositBalanceUpdate.delta1())
-            );
 
             result = abi.encode(liquidity, amount0, amount1);
         } else if (callType == CALL_TYPE_WITHDRAW) {
@@ -586,42 +463,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
 
     function _validateVe33Pool(PoolKey memory poolKey) private view {
         if (poolKey.config.extension() != address(ve33)) revert InvalidPoolExtension();
-    }
-
-    function _amountAvailableAfterSwap(uint128 maxAmount, int128 swapDelta) private pure returns (uint128 available) {
-        if (swapDelta > 0) {
-            available = maxAmount - uint128(swapDelta);
-        } else {
-            available = maxAmount + uint128(-swapDelta);
-        }
-    }
-
-    function _settleBalanceUpdate(PoolKey memory poolKey, address caller, int128 delta0, int128 delta1) private {
-        uint128 amount0;
-        uint128 amount1;
-        if (delta0 > 0) amount0 = uint128(delta0);
-        if (delta1 > 0) amount1 = uint128(delta1);
-
-        if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
-            if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
-            if (amount1 != 0) ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
-        } else {
-            if (amount0 != 0 && amount1 != 0) {
-                ACCOUNTANT.payTwoFrom(caller, poolKey.token0, poolKey.token1, amount0, amount1);
-            } else if (amount0 != 0) {
-                ACCOUNTANT.payFrom(caller, poolKey.token0, amount0);
-            } else if (amount1 != 0) {
-                ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
-            }
-        }
-
-        amount0 = 0;
-        amount1 = 0;
-        if (delta0 < 0) amount0 = uint128(-delta0);
-        if (delta1 < 0) amount1 = uint128(-delta1);
-        if (amount0 != 0 || amount1 != 0) {
-            ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, caller, amount0, amount1);
-        }
     }
 
     function _positionRewardAmount(

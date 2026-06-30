@@ -1548,43 +1548,6 @@ contract Ve33Test is FullTest {
         assertGt(core.poolPositions(poolId, address(vePositions), otherPositionId).liquidity, 0);
     }
 
-    function test_vePositionsCanSwapToTargetPriceBeforeDepositingLiquidity() public {
-        (PoolKey memory poolKey, PositionId seedPositionId) = _createConcentratedPool();
-        _updatePosition(poolKey, seedPositionId, int128(uint128(1e18)));
-
-        uint256 id = vePositions.mint(bytes32("target-price"));
-        int32 tickLower = -64;
-        int32 tickUpper = 64;
-        PositionId positionId = vePositions.positionId(id, tickLower, tickUpper);
-        SqrtRatio targetSqrtRatio = tickToSqrtRatio(32);
-
-        (uint128 liquidity, uint128 amount0, uint128 amount1) =
-            vePositions.deposit(id, poolKey, tickLower, tickUpper, 1e18, 1e18, targetSqrtRatio);
-
-        assertEq(SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()), SqrtRatio.unwrap(targetSqrtRatio));
-        assertEq(core.poolPositions(poolKey.toPoolId(), address(vePositions), positionId).liquidity, liquidity);
-        assertGt(liquidity, 0);
-        assertGt(amount0, 0);
-        assertGt(amount1, 0);
-    }
-
-    function test_vePositionsDepositToTargetPriceAllowsPartialTargetSwap() public {
-        (PoolKey memory poolKey, PositionId seedPositionId) = _createConcentratedPool();
-        _updatePosition(poolKey, seedPositionId, int128(uint128(1e18)));
-
-        uint256 id = vePositions.mint(bytes32("partial-target"));
-        int32 tickLower = 1024;
-        int32 tickUpper = 2048;
-        PositionId positionId = vePositions.positionId(id, tickLower, tickUpper);
-        SqrtRatio targetSqrtRatio = tickToSqrtRatio(4096);
-
-        (uint128 liquidity,,) = vePositions.deposit(id, poolKey, tickLower, tickUpper, 1e18, 1e9, targetSqrtRatio);
-
-        assertNotEq(SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()), SqrtRatio.unwrap(targetSqrtRatio));
-        assertEq(core.poolPositions(poolKey.toPoolId(), address(vePositions), positionId).liquidity, liquidity);
-        assertGt(liquidity, 0);
-    }
-
     function test_vePositionsRejectsDepositsThatOverflowQueryableLiquidity() public {
         PoolKey memory poolKey = createFullRangePool(0, 0, address(ve));
         PositionId positionId = _mintPosition(MIN_TICK, MAX_TICK);

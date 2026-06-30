@@ -60,6 +60,9 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     /// @notice Thrown when the signed minimum balance-update constraint is not met.
     error MinBalanceUpdateNotMet(PoolBalanceUpdate minBalanceUpdate, PoolBalanceUpdate actualBalanceUpdate);
 
+    /// @notice Thrown when a controller address is incompatible with the expected EOA/ERC-1271 encoding.
+    error InvalidController();
+
     /// @notice Owner-only pool initialization for this extension.
     /// @param poolKey Pool configuration to initialize. Must point its extension to this contract.
     /// @param tick Initial tick for the pool.

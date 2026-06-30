@@ -51,6 +51,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
     /// @dev Cached for performance
     bytes32 private immutable _DOMAIN_SEPARATOR;
+    uint256 private immutable _CACHED_CHAIN_ID;
 
     uint32 internal constant _MAX_DEADLINE_FUTURE_WINDOW = 30 days;
 
@@ -59,6 +60,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     constructor(ICore core, address owner) BaseExtension(core) BaseForwardee(core) {
         _initializeOwner(owner);
         _DOMAIN_SEPARATOR = this.computeDomainSeparatorHash();
+        _CACHED_CHAIN_ID = block.chainid;
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -73,6 +75,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     {
         if (poolKey.config.extension() != address(this)) revert PoolExtensionMustBeSelf();
         if (poolKey.config.fee() != 0) revert PoolFeeMustBeZero();
+        _validateController(controller);
 
         sqrtRatio = CORE.initializePool(poolKey, tick);
         _setPoolState({
@@ -161,6 +164,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         if (poolKey.config.extension() != address(this) || !CORE.poolState(poolKey.toPoolId()).isInitialized()) {
             revert ICore.PoolNotInitialized();
         }
+        _validateController(controller);
 
         PoolId poolId = poolKey.toPoolId();
         _setPoolState({poolId: poolId, state: _getPoolState(poolId).withController(controller)});
@@ -168,8 +172,11 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
     /// @inheritdoc ISignedExclusiveSwap
     function broadcastSignedSwaps(SignedSwapBroadcast[] calldata signedSwaps) external {
+        uint32 currentTimestamp = uint32(block.timestamp);
         for (uint256 i; i < signedSwaps.length;) {
             SignedSwapBroadcast calldata signedSwap = signedSwaps[i];
+            _validateMetaForUse(signedSwap.meta, currentTimestamp);
+            _validateNonceAvailable(signedSwap.meta.nonce());
             _validateSignature(signedSwap.poolId, signedSwap.meta, signedSwap.minBalanceUpdate, signedSwap.signature);
 
             emit SignedSwapBroadcasted(
@@ -193,8 +200,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             ) = abi.decode(data, (PoolKey, SwapParameters, SignedSwapMeta, PoolBalanceUpdate, bytes));
 
             uint32 currentTimestamp = uint32(block.timestamp);
-            if (meta.isExpired(currentTimestamp)) revert SignatureExpired();
-            if ((meta.deadline() - currentTimestamp) > _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
+            _validateMetaForUse(meta, currentTimestamp);
             if (!meta.isAuthorized(original)) revert UnauthorizedLocker();
 
             PoolId poolId = poolKey.toPoolId();
@@ -294,11 +300,41 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     ) internal view {
         if (!state.controller()
                 .isSignatureValid(
-                    SignedExclusiveSwapLib.hashSignedSwapPayload(_DOMAIN_SEPARATOR, poolId, meta, minBalanceUpdate),
+                    SignedExclusiveSwapLib.hashSignedSwapPayload(_domainSeparator(), poolId, meta, minBalanceUpdate),
                     signature
                 )) {
             revert InvalidSignature();
         }
+    }
+
+    function _domainSeparator() internal view returns (bytes32) {
+        if (block.chainid == _CACHED_CHAIN_ID) return _DOMAIN_SEPARATOR;
+        return this.computeDomainSeparatorHash();
+    }
+
+    function _validateController(ControllerAddress controller) internal view {
+        address controllerAddress = ControllerAddress.unwrap(controller);
+        if (controllerAddress == address(0)) revert InvalidController();
+        if (controller.isEoa()) {
+            if (controllerAddress.code.length != 0) revert InvalidController();
+        } else if (controllerAddress.code.length == 0) {
+            revert InvalidController();
+        }
+    }
+
+    function _validateMetaForUse(SignedSwapMeta meta, uint32 currentTimestamp) internal pure {
+        if (meta.isExpired(currentTimestamp)) revert SignatureExpired();
+        unchecked {
+            if ((meta.deadline() - currentTimestamp) > _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
+        }
+    }
+
+    function _validateNonceAvailable(uint64 nonce) internal view {
+        if (nonce == type(uint64).max) return;
+
+        uint256 word = nonce >> 8;
+        uint8 bit = uint8(nonce & 0xff);
+        if (nonceBitmap[word].isSet(bit)) revert NonceAlreadyUsed();
     }
 
     function _consumeNonce(uint64 nonce) internal {

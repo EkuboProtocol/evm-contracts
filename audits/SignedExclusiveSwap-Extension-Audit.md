@@ -10,11 +10,12 @@ This review covered `src/extensions/SignedExclusiveSwap.sol` and the directly re
 
 The extension implements a forward-only swap path for zero-fee pools, where a per-pool controller signs an EIP-712 payload authorizing a minimum pool balance update, a packed fee, an optional authorized locker, a deadline, and a nonce. Extra signed fees are saved under the extension's Core saved-balance account and donated to LP fee growth no more than once per block.
 
-The most important risks are integration and operations risks rather than direct protocol-loss bugs:
+The original review identified low-severity integration and operations risks rather than direct protocol-loss bugs. The follow-up remediation addressed the actionable items in code and tests:
 
-- `broadcastSignedSwaps` emits events for signatures that may be expired, already consumed, intentionally replayable, or outside the extension's deadline window.
+- `broadcastSignedSwaps` now rejects expired signatures, signatures outside the deadline window, and already-consumed non-sentinel nonces before emitting.
+- Signature validation now recomputes the EIP-712 domain separator if `block.chainid` differs from the deployment chain ID.
+- Controller updates now reject zero addresses and addresses whose high-bit EOA/ERC-1271 encoding conflicts with code existence.
 - The signed payload does not bind swap parameters, recipient, payer, or caller. This appears compatible with the extension's design, but periphery contracts must enforce user-facing price, recipient, and payment constraints.
-- Controller addresses use a non-standard high-bit encoding to choose EOA versus ERC-1271 verification. Misconfiguration can make a pool unable to accept signatures until the owner updates the controller.
 - The owner can set nonce bitmap words directly, including clearing consumed bits, so owner compromise can revive unexpired signatures.
 
 ## Scope
@@ -56,10 +57,22 @@ forge test --offline --match-contract SignedExclusiveSwapTest
 Result:
 
 ```text
-27 passed; 0 failed; 0 skipped
+37 passed; 0 failed; 0 skipped
 ```
 
-The suite covers EIP-712 digest compatibility, owner-only initialization and controller changes, direct Core initialization rejection, direct nonce reuse rejection, the max-nonce replay sentinel, authorized locker rejection, deadline-window rejection, expired signatures, invalid signatures, min-balance-update reverts, event broadcasting, ERC-1271 controller use, and deferred fee donation.
+Full-suite command:
+
+```text
+forge test --offline
+```
+
+Result:
+
+```text
+853 passed; 0 failed; 0 skipped
+```
+
+The focused suite covers EIP-712 digest compatibility, chain-id changes, owner-only initialization and controller changes, invalid controller encodings, direct Core initialization rejection, direct nonce reuse rejection, the max-nonce replay sentinel, authorized locker rejection, deadline-window rejection, expired signatures, invalid signatures, min-balance-update reverts, broadcast validation, ERC-1271 controller use, exact-output meta-fee accounting, and deferred fee donation.
 
 ## Architecture Notes
 
@@ -89,75 +102,86 @@ Signed fees are not immediately added to LP fee growth during the same swap. The
 
 `_loadSavedFees` intentionally donates `savedBalance - 1` for each nonzero token balance. This leaves a one-unit dust balance in each token once fees have ever accrued, matching the existing test expectation.
 
+## Intentional Non-Changes
+
+The remediation deliberately did not add pool-initialization or extension-ownership guards to paths whose invalid-pool result is economically a no-op. In particular, `accumulatePoolFees` can be called for a pool without saved fees and will not donate fees or move saved balances. Adding `_requirePoolInitialized`-style checks to that path, or adding `onlyCore` to no-op/reverting hooks such as `beforeSwap`, would increase gas and complexity without protecting funds.
+
+The swap path also does not pre-check nonce availability before fee accumulation or the Core swap. `_consumeNonce` remains the nonce authority, and its placement after the Core swap and `minBalanceUpdate` check preserves the existing behavior described in the source comment: failed or economically unacceptable swaps do not consume the nonce, and the successful path avoids a duplicate nonce bitmap read.
+
+Duplicate broadcasts of the same still-executable signed payload remain allowed. `broadcastSignedSwaps` now filters expired, too-far, and already-consumed non-sentinel nonces, but it does not add event-level replay storage because the event is a quote-distribution aid rather than the swap execution guard.
+
 ## Findings
 
-### L-01: Broadcast events can represent unusable or replayed signed swaps
+### L-01: Broadcast events could represent unusable signed swaps
 
 Severity: Low
+Status: Resolved
 
-`broadcastSignedSwaps` only validates that each payload is signed by the pool's current controller before emitting `SignedSwapBroadcasted`. It does not check:
+Original issue: `broadcastSignedSwaps` only validated that each payload was signed by the pool's current controller before emitting `SignedSwapBroadcasted`. It did not check:
 
 - Whether `meta.deadline()` is expired.
 - Whether the deadline is more than `_MAX_DEADLINE_FUTURE_WINDOW` from the current timestamp.
 - Whether the nonce was already consumed.
-- Whether the nonce is the reusable max sentinel.
-- Whether the same payload has already been broadcast.
 
-The on-chain swap path performs the expiry and deadline-window checks and consumes non-sentinel nonces only after a successful Core swap. Therefore this is not a direct swap-safety issue. The risk is that indexers, UIs, market makers, or routers that treat `SignedSwapBroadcasted` as an executable-quote source can display stale or unusable quotes, or can be spammed with repeated broadcasts of the same valid signature.
+The on-chain swap path already performed the expiry and deadline-window checks and consumed non-sentinel nonces only after a successful Core swap, so this was not a direct swap-safety issue. The risk was that indexers, UIs, market makers, or routers that treated `SignedSwapBroadcasted` as an executable-quote source could display stale or unusable quotes.
+
+Remediation: `broadcastSignedSwaps` now applies the same timing checks used by swaps and rejects already-consumed non-sentinel nonces before emitting. The reusable max nonce remains intentionally broadcastable and executable until expiry. Duplicate broadcasts of a still-executable payload remain possible by design, so off-chain consumers should still deduplicate events.
 
 Relevant code:
 
-- `broadcastSignedSwaps` validates only `_validateSignature` before emitting: `src/extensions/SignedExclusiveSwap.sol:169-183`.
-- Swap execution separately checks expiry and deadline window: `src/extensions/SignedExclusiveSwap.sol:195-198`.
-- Nonce consumption happens only during successful swap execution: `src/extensions/SignedExclusiveSwap.sol:231-233`.
-- Max nonce is intentionally never consumed: `src/extensions/SignedExclusiveSwap.sol:304-306`.
+- Broadcast validation now calls `_validateMetaForUse` and `_validateNonceAvailable`: `src/extensions/SignedExclusiveSwap.sol:174-180`.
+- Swap execution uses `_validateMetaForUse` before execution and relies on `_consumeNonce` after the Core swap, preserving the existing delayed nonce-consumption behavior: `src/extensions/SignedExclusiveSwap.sol:202-204` and `src/extensions/SignedExclusiveSwap.sol:237-240`.
+- `_validateNonceAvailable` is used for broadcasts, while `_consumeNonce` remains the swap-path nonce authority: `src/extensions/SignedExclusiveSwap.sol:332-351`.
 
 Recommendation:
 
-Either rename/document the event as "signature-valid only", or make `broadcastSignedSwaps` enforce the same non-state-changing validity checks used by swaps: not expired and not too far in the future. If the event is intended to represent currently executable quotes, also consider rejecting already-consumed nonces and adding an event-level replay guard. If replayed broadcasts are desired, document that off-chain consumers must deduplicate by `(poolId, meta, minBalanceUpdate, signature)` and must independently simulate or validate current executability.
+Document that repeated broadcasts of the same still-executable quote are allowed and that off-chain consumers should deduplicate by `(poolId, meta, minBalanceUpdate, signature)` or by signed digest.
 
 ### L-02: Cached domain separator does not adapt to chain-id changes
 
 Severity: Low
+Status: Resolved
 
-The constructor computes `_DOMAIN_SEPARATOR` once and stores it as an immutable. The domain includes `block.chainid` and this contract's address. If a chain changes its chain ID after deployment, the extension will continue validating signatures against the chain ID that existed during deployment.
+Original issue: the constructor computed `_DOMAIN_SEPARATOR` once and stored it as an immutable. The domain includes `block.chainid` and this contract's address. If a chain changed its chain ID after deployment, the extension would have continued validating signatures against the chain ID that existed during deployment.
 
-This is uncommon, but it differs from the defensive EIP-712 pattern that recomputes or invalidates the domain separator when `block.chainid` changes. The practical impact is that signatures made for the old chain ID may remain valid on the same deployed contract after a chain-id migration.
+Remediation: the extension now caches the deployment chain ID and recomputes the domain separator when `block.chainid` differs from the cached value.
 
 Relevant code:
 
-- `_DOMAIN_SEPARATOR` is assigned in the constructor: `src/extensions/SignedExclusiveSwap.sol:52-61`.
+- `_DOMAIN_SEPARATOR` and `_CACHED_CHAIN_ID` are assigned in the constructor: `src/extensions/SignedExclusiveSwap.sol:52-63`.
 - `computeDomainSeparatorHash` includes `block.chainid`: `src/libraries/SignedExclusiveSwapLib.sol:41-52`.
-- `_validateSignature` always hashes with the cached separator: `src/extensions/SignedExclusiveSwap.sol:288-300`.
+- `_validateSignature` hashes with `_domainSeparator()`, which recomputes on chain-id changes: `src/extensions/SignedExclusiveSwap.sol:294-313`.
 
 Recommendation:
 
-If chain-id migration replay resistance is required, store the deployment chain ID and recompute the domain separator when `block.chainid` differs. If the immutable separator is intentional for gas reasons, document that signatures remain bound to the deployment chain ID rather than the current chain ID.
+No further action required for this issue.
 
 ### L-03: Controller address encoding can brick signature validation if misconfigured
 
 Severity: Low
+Status: Resolved
 
-`ControllerAddress.isEoa` classifies controllers by the top bit of the 160-bit address. Addresses with high bit `0` are validated with `ECDSA.recover`; addresses with high bit `1` are validated through ERC-1271. This is a non-standard encoding and is independent of whether code exists at the address.
+Original issue: `ControllerAddress.isEoa` classifies controllers by the top bit of the 160-bit address. Addresses with high bit `0` are validated with `ECDSA.recover`; addresses with high bit `1` are validated through ERC-1271. This is a non-standard encoding and was independent of whether code existed at the address.
 
 Consequences:
 
 - A smart-contract controller whose address has high bit `0` will be treated as an EOA and ERC-1271 signatures will not validate.
 - An EOA controller whose address has high bit `1` will be treated as a contract and ECDSA signatures will not validate.
-- `initializePool` and `setPoolController` do not validate the controller against code existence or zero address, so a mistaken owner update can make a pool unable to accept signatures until the owner corrects it.
+- If accepted, a mistaken owner update could make a pool unable to accept signatures until the owner corrects it.
 
-This is mainly an operational risk because controller changes are owner-only and recoverable by the owner.
+Remediation: `initializePool` and `setPoolController` now reject zero controllers, low-bit controllers with code, and high-bit controllers without code.
 
 Relevant code:
 
 - High-bit controller classification: `src/types/controllerAddress.sol:11-24`.
 - Controller is packed directly into per-pool state: `src/types/signedExclusiveSwapPoolState.sol:25-31`.
-- Owner-set controller paths do not validate address class: `src/extensions/SignedExclusiveSwap.sol:68-80` and `src/extensions/SignedExclusiveSwap.sol:159-167`.
-- Tests intentionally search for low-bit EOA and high-bit contract-controller addresses: `test/extensions/SignedExclusiveSwap.t.sol:545-619`.
+- Owner-set controller paths call `_validateController`: `src/extensions/SignedExclusiveSwap.sol:70-79` and `src/extensions/SignedExclusiveSwap.sol:163-168`.
+- `_validateController` enforces code-existence consistency with the high-bit encoding: `src/extensions/SignedExclusiveSwap.sol:315-323`.
+- Tests cover valid low-bit EOA and high-bit contract-controller addresses, plus invalid controller encodings: `test/extensions/SignedExclusiveSwap.t.sol:548-600` and `test/extensions/SignedExclusiveSwap.t.sol:1002-1030`.
 
 Recommendation:
 
-Document the encoding prominently in deployment and controller-rotation runbooks. Consider adding helper constructors or validation helpers such as `requireEoaController` and `requireContractController` for operational scripts. If gas budget allows, reject `address(0)` and optionally reject obviously mismatched controller classes.
+Document the encoding prominently in deployment and controller-rotation runbooks. For future controller deployments, ensure any intended ERC-1271 controller address satisfies the high-bit encoding before deployment.
 
 ### I-01: Signed payload intentionally does not bind swap parameters, payer, recipient, or caller
 
@@ -182,8 +206,8 @@ This appears aligned with a design where the controller signs pool-side acceptab
 Relevant code:
 
 - Signed type hash omits swap parameters and parties: `src/libraries/SignedExclusiveSwapLib.sol:18-23`.
-- Forwarded calldata includes unsigned `PoolKey` and `SwapParameters`: `src/extensions/SignedExclusiveSwap.sol:185-193`.
-- The signed threshold checks only raw Core `balanceUpdate`: `src/extensions/SignedExclusiveSwap.sol:223-229`.
+- Forwarded calldata includes unsigned `PoolKey` and `SwapParameters`: `src/extensions/SignedExclusiveSwap.sol:192-208`.
+- The signed threshold checks only raw Core `balanceUpdate`: `src/extensions/SignedExclusiveSwap.sol:229-235`.
 - Meta authorization stores and compares only the lower 128 bits of the original locker address, with zero meaning unrestricted: `src/types/signedSwapMeta.sol:6-27`.
 
 Recommendation:
@@ -200,9 +224,9 @@ This is not a vulnerability under the current trust model because the owner alre
 
 Relevant code:
 
-- Owner-controlled bitmap overwrite: `src/extensions/SignedExclusiveSwap.sol:154-157`.
-- Nonce consumption toggles one bit and rejects if the bit was already set: `src/extensions/SignedExclusiveSwap.sol:304-315`.
-- Test confirms owner can set a full word: `test/extensions/SignedExclusiveSwap.t.sol:896-903`.
+- Owner-controlled bitmap overwrite: `src/extensions/SignedExclusiveSwap.sol:157-160`.
+- Nonce consumption toggles one bit and rejects if the bit was already set: `src/extensions/SignedExclusiveSwap.sol:340-351`.
+- Test confirms owner can set a full word: `test/extensions/SignedExclusiveSwap.t.sol:1033-1040`.
 
 Recommendation:
 
@@ -216,8 +240,8 @@ Severity: Informational
 
 Relevant code:
 
-- Max nonce bypass: `src/extensions/SignedExclusiveSwap.sol:304-306`.
-- Replay test: `test/extensions/SignedExclusiveSwap.t.sol:425-468`.
+- Max nonce bypass: `src/extensions/SignedExclusiveSwap.sol:340-342`.
+- Replay test: `test/extensions/SignedExclusiveSwap.t.sol:428-470`.
 
 Recommendation:
 
@@ -240,11 +264,8 @@ The following invariants held under code review and the focused test suite:
 
 ## Additional Test Coverage Recommendations
 
-The current focused suite is strong for the main happy path and common reverts. Recommended additions:
+The focused suite was expanded during remediation. Remaining useful additions:
 
-- Exact-output swaps with nonzero `meta.fee()` for both token directions.
-- `broadcastSignedSwaps` with expired signatures, too-far deadlines, already-consumed nonces, max nonce, and duplicate payloads, documenting whether each behavior is intended.
-- Controller misconfiguration cases: zero address, contract address with high bit `0`, and EOA address with high bit `1`.
 - Official periphery tests, if such periphery exists, proving caller/payer/recipient binding and exact-output max-input protection.
 - Fuzz tests over `meta.fee()` near `0`, small values, and near `type(uint32).max` to document rounding and revert behavior in `amountBeforeFee`.
 - Tests showing `accumulatePoolFees` leaves one unit of saved-balance dust and eventually donates later accumulated fees as expected.

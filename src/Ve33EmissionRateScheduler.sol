@@ -35,8 +35,8 @@ contract Ve33EmissionRateScheduler is BaseLocker, Ownable {
     /// @notice Emitted when the owner updates scheduler config.
     event ConfigSet(uint160 targetRate, uint32 scheduleDuration);
 
-    /// @notice Emitted when a caller mints and schedules a rate shortfall.
-    event EmissionsMintedAndScheduled(address caller, uint64 endTime, uint160 rewardRate, uint128 amount);
+    /// @notice Emitted when tokens are minted and scheduled to cover a rate shortfall.
+    event EmissionsMintedAndScheduled(uint64 endTime, uint160 rewardRate, uint128 amount);
 
     /// @notice Initializes the scheduler.
     /// @param owner Initial owner authorized to configure the target rate and duration.
@@ -64,12 +64,11 @@ contract Ve33EmissionRateScheduler is BaseLocker, Ownable {
     /// @dev Anyone can call this. Returns zero if the current rate is already at or above target.
     /// @return amount Amount of tokens minted and scheduled.
     function mintAndSchedule() external returns (uint128 amount) {
-        amount = abi.decode(lock(abi.encode(msg.sender)), (uint128));
+        amount = abi.decode(lock(""), (uint128));
     }
 
     /// @inheritdoc BaseLocker
-    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        address caller = abi.decode(data, (address));
+    function handleLockData(uint256, bytes memory) internal override returns (bytes memory result) {
         Ve33EmissionRateConfig config_ = config;
         uint160 targetRate = config_.targetRate();
 
@@ -90,7 +89,7 @@ contract Ve33EmissionRateScheduler is BaseLocker, Ownable {
         uint128 amount = Ve33Lib.scheduleEmissions(core, ve33, 0, endTime, rewardRate);
         _mintTokenPayment(amount);
 
-        emit EmissionsMintedAndScheduled(caller, endTime, rewardRate, amount);
+        emit EmissionsMintedAndScheduled(endTime, rewardRate, amount);
 
         result = abi.encode(amount);
     }

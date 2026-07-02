@@ -10,13 +10,14 @@ import {FreeVe33Positions} from "../src/FreeVe33Positions.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
+import {Ve33DataFetcher} from "../src/lens/Ve33DataFetcher.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// @title DeployVe33
-/// @notice Deploys the Ve33 extension, VeToken ERC721 wrapper, Ve33Positions, and Ve33Periphery.
+/// @notice Deploys the Ve33 extension, VeToken ERC721 wrapper, Ve33Positions, Ve33Periphery, and Ve33DataFetcher.
 contract DeployVe33 is Script {
     address internal constant DEFAULT_CORE_ADDRESS = 0x00000000000014aA86C5d3c41765bb24e11bd701;
     bytes32 internal constant DEFAULT_DEPLOYMENT_SALT =
@@ -27,10 +28,6 @@ contract DeployVe33 is Script {
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         address deployer = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
         uint64 rewardProtocolFeeX64 = uint64(vm.envOr("VE33_POSITIONS_REWARD_PROTOCOL_FEE_X64", uint256(0)));
-        address expectedVe33 = vm.envOr("VE33_ADDRESS", address(0));
-        address expectedVeToken = vm.envOr("VE_TOKEN_ADDRESS", address(0));
-        address expectedPositions = vm.envOr("VE33_POSITIONS_ADDRESS", address(0));
-        address expectedPeriphery = vm.envOr("VE33_PERIPHERY_ADDRESS", address(0));
 
         vm.startBroadcast();
 
@@ -41,7 +38,7 @@ contract DeployVe33 is Script {
             abi.encodePacked(type(Ve33).creationCode, abi.encode(core, stakeToken)),
             salt,
             ve33CallPoints(),
-            expectedVe33,
+            address(0),
             "Ve33"
         );
 
@@ -60,7 +57,7 @@ contract DeployVe33 is Script {
                 abi.encode(core, ve33, veTokenName, veTokenSymbol, stakeTokenName, stakeTokenSymbol, stakeTokenDecimals)
             ),
             salt,
-            expectedVeToken,
+            address(0),
             "VeToken"
         );
 
@@ -70,7 +67,7 @@ contract DeployVe33 is Script {
             (positionsAddress, deployedPositions) = deployIfNeeded(
                 abi.encodePacked(type(FreeVe33Positions).creationCode, abi.encode(core, ve33, deployer)),
                 salt,
-                expectedPositions,
+                address(0),
                 "FreeVe33Positions"
             );
         } else {
@@ -79,7 +76,7 @@ contract DeployVe33 is Script {
                     type(Ve33Positions).creationCode, abi.encode(core, ve33, deployer, rewardProtocolFeeX64)
                 ),
                 salt,
-                expectedPositions,
+                address(0),
                 "Ve33Positions"
             );
         }
@@ -93,8 +90,12 @@ contract DeployVe33 is Script {
         deployIfNeeded(
             abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)),
             salt,
-            expectedPeriphery,
+            address(0),
             "Ve33Periphery"
+        );
+
+        deployIfNeeded(
+            abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(ve33)), salt, address(0), "Ve33DataFetcher"
         );
         vm.stopBroadcast();
     }

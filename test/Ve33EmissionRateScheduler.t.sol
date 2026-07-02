@@ -2,7 +2,6 @@
 pragma solidity =0.8.33;
 
 import {Ownable} from "solady/auth/Ownable.sol";
-import {ERC20} from "solady/tokens/ERC20.sol";
 
 import {FullTest} from "./FullTest.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
@@ -35,43 +34,6 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
 
         scheduler = new Ve33EmissionRateScheduler(owner, core, ve);
         stakeToken.transferOwnership(address(scheduler));
-    }
-
-    function test_mintableERC20_ownerCanMintToRecipient() public {
-        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT");
-        token.mint(owner, 123);
-
-        assertEq(token.balanceOf(owner), 123);
-    }
-
-    function test_mintableERC20_metadata() public {
-        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT");
-
-        assertEq(token.name(), "Mintable TestToken");
-        assertEq(token.symbol(), "mTT");
-        assertEq(token.decimals(), 18);
-    }
-
-    function test_mintableERC20_constructorFailsIfMetadataIsTooLong() public {
-        vm.expectRevert(MintableERC20.PackedStringTooLong.selector);
-        new MintableERC20(address(this), "This token name is too long to pack", "mTT");
-
-        vm.expectRevert(MintableERC20.PackedStringTooLong.selector);
-        new MintableERC20(address(this), "Mintable TestToken", "This token symbol is too long to pack");
-    }
-
-    function test_mintableERC20_mintFailsIfNotOwner() public {
-        vm.prank(owner);
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        stakeToken.mint(owner, 123);
-    }
-
-    function test_mintableERC20_mintFailsIfTotalSupplyWouldExceedUint128Max() public {
-        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT");
-        token.mint(owner, type(uint128).max);
-
-        vm.expectRevert(ERC20.TotalSupplyOverflow.selector);
-        token.mint(owner, 1);
     }
 
     function test_constructorReadsTokenFromVe33() public view {

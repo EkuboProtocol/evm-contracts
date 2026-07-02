@@ -7,5 +7,5 @@ interface IMintableERC20 {
     /// @notice Mints `amount` tokens to `recipient`.
     /// @param recipient Account receiving the minted tokens.
     /// @param amount Amount of tokens to mint.
-    function mint(address recipient, uint256 amount) external;
+    function mint(address recipient, uint128 amount) external;
 }

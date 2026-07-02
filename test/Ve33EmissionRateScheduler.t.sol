@@ -8,7 +8,6 @@ import {MintableERC20} from "../src/MintableERC20.sol";
 import {Ve33EmissionRateScheduler} from "../src/Ve33EmissionRateScheduler.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
-import {IMintableERC20} from "../src/interfaces/IMintableERC20.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
 import {nextValidTime} from "../src/math/time.sol";
@@ -33,7 +32,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33(payable(deployAddress));
 
-        scheduler = new Ve33EmissionRateScheduler(owner, core, ve, IMintableERC20(address(stakeToken)));
+        scheduler = new Ve33EmissionRateScheduler(owner, core, ve);
         stakeToken.transferOwnership(address(scheduler));
     }
 
@@ -44,17 +43,30 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertEq(token.balanceOf(owner), 123);
     }
 
+    function test_mintableERC20_metadata() public {
+        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT", 18);
+
+        assertEq(token.name(), "Mintable TestToken");
+        assertEq(token.symbol(), "mTT");
+        assertEq(token.decimals(), 18);
+    }
+
+    function test_mintableERC20_constructorFailsIfMetadataIsTooLong() public {
+        vm.expectRevert(MintableERC20.PackedStringTooLong.selector);
+        new MintableERC20(address(this), "This token name is too long to pack", "mTT", 18);
+
+        vm.expectRevert(MintableERC20.PackedStringTooLong.selector);
+        new MintableERC20(address(this), "Mintable TestToken", "This token symbol is too long to pack", 18);
+    }
+
     function test_mintableERC20_mintFailsIfNotOwner() public {
         vm.prank(owner);
         vm.expectRevert(Ownable.Unauthorized.selector);
         stakeToken.mint(owner, 123);
     }
 
-    function test_constructorFailsIfTokenDoesNotMatchVe33StakeToken() public {
-        MintableERC20 otherToken = new MintableERC20(address(this), "Other", "OTHER", 18);
-
-        vm.expectRevert(Ve33EmissionRateScheduler.TokenMismatch.selector);
-        new Ve33EmissionRateScheduler(owner, core, ve, IMintableERC20(address(otherToken)));
+    function test_constructorReadsTokenFromVe33() public view {
+        assertEq(address(scheduler.token()), address(stakeToken));
     }
 
     function test_setConfigFailsIfNotOwner() public {

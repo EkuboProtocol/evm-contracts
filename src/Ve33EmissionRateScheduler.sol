@@ -19,8 +19,6 @@ contract Ve33EmissionRateScheduler is BaseLocker, Ownable {
 
     /// @notice Thrown when a nonzero target is configured with a zero schedule duration.
     error InvalidScheduleDuration();
-    /// @notice Thrown when the mintable token is not Ve33's stake/reward token.
-    error TokenMismatch();
 
     /// @notice Ekubo Core contract.
     ICore public immutable core;
@@ -44,13 +42,10 @@ contract Ve33EmissionRateScheduler is BaseLocker, Ownable {
     /// @param owner Initial owner authorized to configure the target rate and duration.
     /// @param _core Ekubo Core contract.
     /// @param _ve33 Ve33 extension to schedule.
-    /// @param _token Mintable Ve33 stake/reward token.
-    constructor(address owner, ICore _core, Ve33 _ve33, IMintableERC20 _token) BaseLocker(_core) {
-        if (address(_token) != _ve33.stakeToken()) revert TokenMismatch();
-
+    constructor(address owner, ICore _core, Ve33 _ve33) BaseLocker(_core) {
         core = _core;
         ve33 = _ve33;
-        token = _token;
+        token = IMintableERC20(_ve33.stakeToken());
         _initializeOwner(owner);
     }
 
@@ -103,10 +98,9 @@ contract Ve33EmissionRateScheduler is BaseLocker, Ownable {
     function _mintTokenPayment(uint128 amount) private {
         if (amount == 0) return;
 
-        address tokenAddress = address(token);
-        _callAccountant(abi.encodeWithSelector(IFlashAccountant.startPayments.selector, tokenAddress));
+        _callAccountant(abi.encodeWithSelector(IFlashAccountant.startPayments.selector, token));
         token.mint(address(ACCOUNTANT), amount);
-        _callAccountant(abi.encodeWithSelector(IFlashAccountant.completePayments.selector, tokenAddress));
+        _callAccountant(abi.encodeWithSelector(IFlashAccountant.completePayments.selector, token));
     }
 
     function _callAccountant(bytes memory data) private {

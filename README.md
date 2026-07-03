@@ -16,6 +16,7 @@ Ekubo Protocol is a suite of Smart Contracts providing comprehensive AMM infrast
   - **TWAMM**: Time-Weighted Average Market Maker enabling on-chain dollar cost averaging
   - **Oracle**: Enables tracking historical prices for any token pair
   - **MEVCapture**: Collects additional fee revenue based on trading activity
+  - **Ve33**: Voter-selected pool fees and single-token LP rewards
 - **Flash Accounting**: All operations are settled only when necessary
 - **NFT Positions**: Liquidity positions and DCA Orders are represented as non-fungible tokens
 
@@ -55,6 +56,7 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 - **`extensions/Oracle.sol`**: Price oracle functionality
 - **`extensions/TWAMM.sol`**: Time-Weighted Average Market Maker implementation
 - **`extensions/MEVCapture.sol`**: MEV capture and redistribution mechanism
+- **`extensions/Ve33.sol`**: ve(3,3)-style extension. See [user guide](./docs/ve33-user-guide.md) and [architecture notes](./docs/ve-integrated-extension.md).
 
 ### Utility Contracts
 

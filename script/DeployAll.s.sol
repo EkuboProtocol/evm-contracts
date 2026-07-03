@@ -17,7 +17,6 @@ import {QuoteDataFetcher} from "../src/lens/QuoteDataFetcher.sol";
 import {TWAMMDataFetcher} from "../src/lens/TWAMMDataFetcher.sol";
 import {PriceFetcher} from "../src/lens/PriceFetcher.sol";
 import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
-import {MEVCaptureRouter} from "../src/MEVCaptureRouter.sol";
 import {BoostedFeesDataFetcher} from "../src/lens/BoostedFeesDataFetcher.sol";
 import {ManualPoolBooster} from "../src/ManualPoolBooster.sol";
 import {PoolKeyIndex} from "../src/PoolKeyIndex.sol";
@@ -94,8 +93,6 @@ function deployExtension(
 /// @notice Deploys the Ekubo protocol core contracts
 contract DeployAll is Script {
     bytes32 constant DEPLOYMENT_SALT = 0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
-    bytes32 constant MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT =
-        0x38e2e731c4e6738213b17b239fe56c423f6bdc5b5969897c260d464c35a63982;
 
     function run() public {
         vm.startBroadcast();
@@ -106,14 +103,13 @@ contract DeployAll is Script {
         );
         Core core = Core(payable(coreAddress));
 
-        (address mevCaptureAddress,) = deployExtension(
+        deployExtension(
             abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
             mevCaptureCallPoints(),
             0x5555fF9Ff2757500BF4EE020DcfD0210CFfa41Be,
             "MEVCapture"
         );
-        MEVCapture mevCapture = MEVCapture(mevCaptureAddress);
 
         (address oracleAddress,) = deployExtension(
             abi.encodePacked(type(Oracle).creationCode, abi.encode(core)),
@@ -188,13 +184,6 @@ contract DeployAll is Script {
             0x305Cf9A34dCb265522780D1D64544d3f7C450407,
             "TokenDataFetcher"
         );
-        deployIfNeeded(
-            abi.encodePacked(type(MEVCaptureRouter).creationCode, abi.encode(core, address(mevCapture))),
-            MEV_CAPTURE_ROUTER_DEPLOYMENT_SALT,
-            0xd26f20001a72a18C002b00e6710000d68700ce00,
-            "MEVCaptureRouter"
-        );
-
         deployExtension(
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)),
             DEPLOYMENT_SALT,

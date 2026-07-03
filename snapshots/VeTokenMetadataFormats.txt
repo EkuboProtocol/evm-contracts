@@ -1,0 +1,10 @@
+amount 0 decimals 18: 0
+amount 1 decimals 18: 0.000000000000000001
+amount 10 decimals 2: 0.1
+amount 100 decimals 2: 1
+amount 123456789 decimals 6: 123.456789
+amount 123456789 decimals 0: 123456789
+date 0: Jan 1, 1970
+date 126144000: Dec 31, 1973
+date 1893456000: Jan 1, 2030
+date 4102444799: Dec 31, 2099

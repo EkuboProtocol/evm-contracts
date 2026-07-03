@@ -7,6 +7,7 @@ import {PoolConfig, createStableswapPoolConfig, createConcentratedPoolConfig} fr
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
+import {BaseRouter} from "../src/base/BaseRouter.sol";
 import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
@@ -255,7 +256,7 @@ contract Handler is StdUtils, StdAssertions {
             // 0xffffffff and 0x00000000 are evm errors for out of gas
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != Router.PartialSwapsDisallowed.selector && sig != 0xffffffff && sig != 0x00000000
+                sig != BaseRouter.PartialSwapsDisallowed.selector && sig != 0xffffffff && sig != 0x00000000
                     && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
                     && sig != AmountBeforeFeeOverflow.selector && sig != 0x4e487b71
                     && sig != SafeCastLib.Overflow.selector

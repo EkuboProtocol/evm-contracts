@@ -7,11 +7,17 @@ import {LibString} from "solady/utils/LibString.sol";
 
 import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
+import {Router} from "../src/Router.sol";
 import {VeToken} from "../src/VeToken.sol";
 import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {IVe33} from "../src/interfaces/extensions/IVe33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
+import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolId} from "../src/types/poolId.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {createSwapParameters} from "../src/types/swapParameters.sol";
 
 contract ZeroStakeTokenVe33 {
     function stakeToken() external pure returns (address) {
@@ -34,6 +40,7 @@ contract VeTokenTest is FullTest {
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
         deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve33 = Ve33(payable(deployAddress));
+        router = new Router(core, address(0), address(ve33));
         veToken = new VeToken(core, ve33, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
         stakeToken.approve(address(veToken), type(uint256).max);
     }
@@ -56,6 +63,23 @@ contract VeTokenTest is FullTest {
     function _stakeTokenSavedBalance() internal view returns (uint128 saved) {
         (saved,) = core.savedBalances(
             address(ve33), address(stakeToken), address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
+        );
+    }
+
+    function _createVotedPoolWithFees() internal returns (uint256 veId, PoolKey memory poolKey) {
+        poolKey = createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        createPosition(poolKey, -64, 64, 1e18, 1e18);
+
+        veId = veToken.createStakeForDuration(1e18, 1 weeks);
+        veToken.vote(veId, poolKey, uint64(1 << 62));
+
+        token0.approve(address(router), type(uint256).max);
+        router.swapAllowPartialFill(
+            poolKey,
+            createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
+            }),
+            address(this)
         );
     }
 
@@ -313,6 +337,128 @@ contract VeTokenTest is FullTest {
         veToken.ownerOf(veId);
         vm.expectRevert(ERC721.TokenDoesNotExist.selector);
         veToken.tokenURI(veId);
+    }
+
+    function test_createStakeForDurationUsesRelativeEndTime() public {
+        uint32 duration = 2 weeks;
+        uint64 expectedEnd = uint64(vm.getBlockTimestamp() + duration);
+
+        uint256 veId = veToken.createStakeForDuration(1e18, duration);
+
+        assertEq(veToken.ownerOf(veId), address(this));
+        assertEq(_stakeAmount(veId), 1e18);
+        assertEq(_stakeEnd(veId), expectedEnd);
+        assertEq(_stakeTokenSavedBalance(), 1e18);
+    }
+
+    function test_createStakeForDurationValidatesDuration() public {
+        vm.expectRevert(IVe33.StakeEndNotInFuture.selector);
+        veToken.createStakeForDuration(1, 0);
+
+        uint32 tooLongDuration = uint32(veToken.MAX_STAKE_DURATION() + 1);
+        vm.expectRevert(IVe33.StakeDurationTooLong.selector);
+        veToken.createStakeForDuration(1, tooLongDuration);
+    }
+
+    function test_durationStakeActionsPreventUint64EndTimeOverflow() public {
+        vm.warp(uint256(type(uint64).max) - 1);
+
+        vm.expectRevert(VeToken.StakeEndOverflow.selector);
+        veToken.createStakeForDuration(1, 2);
+
+        vm.expectRevert(VeToken.StakeEndOverflow.selector);
+        veToken.createStakeMaxDuration(1);
+
+        uint256 veId = veToken.createStakeForDuration(1, 1);
+        assertEq(_stakeEnd(veId), type(uint64).max);
+
+        vm.expectRevert(VeToken.StakeEndOverflow.selector);
+        veToken.extendStakeForDuration(veId, 2);
+    }
+
+    function test_extendStakeForDurationUsesRelativeEndTime() public {
+        uint256 veId = veToken.createStakeForDuration(1e18, 1 weeks);
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        uint32 duration = 3 weeks;
+        uint64 expectedEnd = uint64(vm.getBlockTimestamp() + duration);
+
+        veToken.extendStakeForDuration(veId, duration);
+
+        assertEq(_stakeAmount(veId), 1e18);
+        assertEq(_stakeEnd(veId), expectedEnd);
+    }
+
+    function test_maxDurationStakeActionsUseCurrentTimestamp() public {
+        uint256 maxStakeDuration = veToken.MAX_STAKE_DURATION();
+        uint64 createEnd = uint64(vm.getBlockTimestamp() + maxStakeDuration);
+
+        uint256 veId = veToken.createStakeMaxDuration(1e18);
+        assertEq(_stakeEnd(veId), createEnd);
+
+        vm.warp(vm.getBlockTimestamp() + 1 weeks);
+        uint64 extendEnd = uint64(vm.getBlockTimestamp() + maxStakeDuration);
+
+        veToken.extendStakeMaxDuration(veId);
+
+        assertEq(_stakeAmount(veId), 1e18);
+        assertEq(_stakeEnd(veId), extendEnd);
+        assertGt(extendEnd, createEnd);
+    }
+
+    function test_claimPoolFeesAndExtendStakeForDurationClaimsAndUsesRelativeEndTime() public {
+        (uint256 veId, PoolKey memory poolKey) = _createVotedPoolWithFees();
+        address recipient = address(0xBEEF);
+
+        uint256 recipientBalanceBefore = token1.balanceOf(recipient);
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        uint32 duration = 3 weeks;
+        uint64 expectedEnd = uint64(vm.getBlockTimestamp() + duration);
+
+        (uint128 claimed0, uint128 claimed1) =
+            veToken.claimPoolFeesAndExtendStakeForDuration(veId, duration, poolKey, recipient);
+
+        assertEq(claimed0, 0);
+        assertGt(claimed1, 0);
+        assertEq(token1.balanceOf(recipient), recipientBalanceBefore + claimed1);
+        assertEq(_stakeEnd(veId), expectedEnd);
+        assertEq(PoolId.unwrap(ve33.votedPool(address(veToken), veToken.stakeId(veId))), 0);
+        assertEq(ve33.poolTotalWeight(poolKey.toPoolId()), 0);
+    }
+
+    function test_claimPoolFeesAndExtendStakeToSelfMaxDurationClaimsAndUsesCurrentTimestamp() public {
+        (uint256 veId, PoolKey memory poolKey) = _createVotedPoolWithFees();
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        uint64 expectedEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        uint256 balanceBefore = token1.balanceOf(address(this));
+
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesAndExtendStakeToSelfMaxDuration(veId, poolKey);
+
+        assertEq(claimed0, 0);
+        assertGt(claimed1, 0);
+        assertEq(token1.balanceOf(address(this)), balanceBefore + claimed1);
+        assertEq(_stakeEnd(veId), expectedEnd);
+        assertEq(PoolId.unwrap(ve33.votedPool(address(veToken), veToken.stakeId(veId))), 0);
+        assertEq(ve33.poolTotalWeight(poolKey.toPoolId()), 0);
+    }
+
+    function test_claimPoolFeesAndExtendStakeDurationWrappersRevertPaths() public {
+        uint256 veId = veToken.createStakeForDuration(1e18, 1 weeks);
+        PoolKey memory poolKey;
+        address unauthorized = address(0xBAD);
+
+        vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, unauthorized, veId));
+        vm.prank(unauthorized);
+        veToken.claimPoolFeesAndExtendStakeToSelfForDuration(veId, 1 weeks, poolKey);
+
+        uint32 tooLongDuration = uint32(veToken.MAX_STAKE_DURATION() + 1);
+        vm.expectRevert(IVe33.StakeDurationTooLong.selector);
+        veToken.claimPoolFeesAndExtendStakeForDuration(veId, tooLongDuration, poolKey, address(this));
+
+        vm.warp(uint256(type(uint64).max) - 1);
+        vm.expectRevert(VeToken.StakeEndOverflow.selector);
+        veToken.claimPoolFeesAndExtendStakeToSelfForDuration(veId, 2, poolKey);
     }
 
     function test_splitAndMergeStakeLifecycle() public {

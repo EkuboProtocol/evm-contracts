@@ -67,6 +67,9 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Thrown when a constructor string cannot be packed into one bytes32 word.
     error PackedStringTooLong();
 
+    /// @notice Thrown when a duration-based stake end cannot fit in uint64.
+    error StakeEndOverflow();
+
     /// @notice Creates the ERC721 stake wrapper.
     /// @param core The Ekubo Core contract used for lock and token settlement.
     /// @param _ve33 The Ve33 extension containing canonical vote-escrow accounting.
@@ -166,7 +169,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param amount The amount of stake token to stake.
     /// @param end The stake end timestamp.
     /// @return veId The minted ERC721 token id.
-    function createStake(uint128 amount, uint64 end) external payable returns (uint256 veId) {
+    function createStake(uint128 amount, uint64 end) public payable returns (uint256 veId) {
         if (amount == 0) revert InvalidStakeAmount();
 
         veId = nextVeId;
@@ -176,6 +179,23 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         _mintAndSetExtraDataUnchecked(msg.sender, veId, end);
 
         lock(abi.encode(CALL_TYPE_STAKE, msg.sender, stakeId(veId), amount));
+    }
+
+    /// @notice Creates a Ve33 stake ending `duration` seconds from now and mints an ERC721 token that controls it.
+    /// @dev The minted token id is used as the Ve33 stake salt. Stake token settlement happens in the Core lock.
+    /// @param amount The amount of stake token to stake.
+    /// @param duration The stake duration in seconds.
+    /// @return veId The minted ERC721 token id.
+    function createStakeForDuration(uint128 amount, uint32 duration) external payable returns (uint256 veId) {
+        veId = createStake(amount, _stakeEndFromDuration(duration));
+    }
+
+    /// @notice Creates a Ve33 stake ending at the maximum duration from now.
+    /// @dev The minted token id is used as the Ve33 stake salt. Stake token settlement happens in the Core lock.
+    /// @param amount The amount of stake token to stake.
+    /// @return veId The minted ERC721 token id.
+    function createStakeMaxDuration(uint128 amount) external payable returns (uint256 veId) {
+        veId = createStake(amount, _maxStakeEnd());
     }
 
     /// @notice Adds stake token to an existing represented stake.
@@ -192,8 +212,23 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @dev The caller must own or be approved for `veId`. Extending clears votes in Ve33.
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param end The new stake end timestamp.
-    function extendStake(uint256 veId, uint64 end) external payable authorizedForStake(veId) {
+    function extendStake(uint256 veId, uint64 end) public payable authorizedForStake(veId) {
         _extendStake(veId, end);
+    }
+
+    /// @notice Moves an existing represented stake to end `duration` seconds from now.
+    /// @dev The caller must own or be approved for `veId`. Extending clears votes in Ve33.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    /// @param duration The new stake duration in seconds.
+    function extendStakeForDuration(uint256 veId, uint32 duration) external payable {
+        extendStake(veId, _stakeEndFromDuration(duration));
+    }
+
+    /// @notice Moves an existing represented stake to the maximum duration from now.
+    /// @dev The caller must own or be approved for `veId`. Extending clears votes in Ve33.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    function extendStakeMaxDuration(uint256 veId) external payable {
+        extendStake(veId, _maxStakeEnd());
     }
 
     /// @notice Claims pending voter fees, then moves a represented stake to a later end timestamp.
@@ -205,7 +240,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return amount0 The amount of token0 withdrawn to `recipient`.
     /// @return amount1 The amount of token1 withdrawn to `recipient`.
     function claimPoolFeesAndExtendStake(uint256 veId, uint64 end, PoolKey calldata poolKey, address recipient)
-        external
+        public
         payable
         authorizedForStake(veId)
         returns (uint128 amount0, uint128 amount1)
@@ -214,15 +249,65 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         _extendStake(veId, end);
     }
 
+    /// @notice Claims pending voter fees, then moves a represented stake to end `duration` seconds from now.
+    /// @dev Useful before a vote-clearing extension because pending fees are discarded when votes are cleared.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    /// @param duration The new stake duration in seconds.
+    /// @param poolKey The currently voted pool whose fees should be claimed before extending.
+    /// @param recipient Account receiving the claimed fees.
+    /// @return amount0 The amount of token0 withdrawn to `recipient`.
+    /// @return amount1 The amount of token1 withdrawn to `recipient`.
+    function claimPoolFeesAndExtendStakeForDuration(
+        uint256 veId,
+        uint32 duration,
+        PoolKey calldata poolKey,
+        address recipient
+    ) external payable returns (uint128 amount0, uint128 amount1) {
+        (amount0, amount1) = claimPoolFeesAndExtendStake(veId, _stakeEndFromDuration(duration), poolKey, recipient);
+    }
+
+    /// @notice Claims pending voter fees, then moves a represented stake to the maximum duration from now.
+    /// @dev Useful before a vote-clearing extension because pending fees are discarded when votes are cleared.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    /// @param poolKey The currently voted pool whose fees should be claimed before extending.
+    /// @param recipient Account receiving the claimed fees.
+    /// @return amount0 The amount of token0 withdrawn to `recipient`.
+    /// @return amount1 The amount of token1 withdrawn to `recipient`.
+    function claimPoolFeesAndExtendStakeMaxDuration(uint256 veId, PoolKey calldata poolKey, address recipient)
+        external
+        payable
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = claimPoolFeesAndExtendStake(veId, _maxStakeEnd(), poolKey, recipient);
+    }
+
     /// @notice Claims pending voter fees to the caller, then moves a represented stake to a later end timestamp.
     function claimPoolFeesAndExtendStakeToSelf(uint256 veId, uint64 end, PoolKey calldata poolKey)
-        external
+        public
         payable
         returns (uint128 amount0, uint128 amount1)
     {
         if (!isAuthorizedForNft(msg.sender, veId)) revert NotAuthorizedForToken(msg.sender, veId);
         (amount0, amount1) = _claimPoolFees(veId, poolKey, msg.sender);
         _extendStake(veId, end);
+    }
+
+    /// @notice Claims pending voter fees to the caller, then moves a represented stake to end `duration` seconds from now.
+    function claimPoolFeesAndExtendStakeToSelfForDuration(uint256 veId, uint32 duration, PoolKey calldata poolKey)
+        external
+        payable
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = claimPoolFeesAndExtendStakeToSelf(veId, _stakeEndFromDuration(duration), poolKey);
+    }
+
+    /// @notice Claims pending voter fees to the caller, then moves a represented stake to the maximum duration from now.
+    function claimPoolFeesAndExtendStakeToSelfMaxDuration(uint256 veId, PoolKey calldata poolKey)
+        external
+        payable
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = claimPoolFeesAndExtendStakeToSelf(veId, _maxStakeEnd(), poolKey);
     }
 
     /// @notice Splits part of a represented stake into a newly minted ERC721 with the same end timestamp.
@@ -458,6 +543,20 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         (amount0, amount1) = abi.decode(
             lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, recipient, poolKey)), (uint128, uint128)
         );
+    }
+
+    /// @notice Converts a duration into an absolute stake end timestamp.
+    function _stakeEndFromDuration(uint32 duration) private view returns (uint64 end) {
+        if (duration > VE33_MAX_STAKE_DURATION) revert IVe33.StakeDurationTooLong();
+
+        uint256 endTime = block.timestamp + duration;
+        if (endTime > type(uint64).max) revert StakeEndOverflow();
+        end = uint64(endTime);
+    }
+
+    /// @notice Returns the maximum valid stake end timestamp from now.
+    function _maxStakeEnd() private view returns (uint64) {
+        return _stakeEndFromDuration(uint32(VE33_MAX_STAKE_DURATION));
     }
 
     /// @notice Shared implementation for stake extension.

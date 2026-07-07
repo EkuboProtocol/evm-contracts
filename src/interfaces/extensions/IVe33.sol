@@ -121,4 +121,10 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
         external
         view
         returns (uint256 rewardsPerLiquidity);
+
+    /// @notice Finds the next initialized global emission schedule time strictly after `fromTime`.
+    /// @param fromTime Time after which to search.
+    /// @return time Next initialized schedule time, or 0 if none found within the maximum valid range.
+    /// @return delta Scheduled emission-rate delta at `time`, or 0 if none found.
+    function nextEmissionRateChangeTime(uint256 fromTime) external view returns (uint64 time, int256 delta);
 }

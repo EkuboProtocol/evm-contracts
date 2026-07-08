@@ -45,10 +45,6 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     bytes32 private immutable _stakeTokenSymbol;
     uint8 private immutable _stakeTokenDecimals;
 
-    /// @notice The next ERC721 token id to mint.
-    /// @dev Token ids start at 1 and are used directly as Ve33 stake salts.
-    uint256 public nextVeId = 1;
-
     /// @notice Thrown when a token id cannot be represented as a Ve33 stake salt.
     /// @param veId The ERC721 token id.
     error StakeSaltOverflow(uint256 veId);
@@ -164,38 +160,106 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         amount = ve33.stakeAmount(address(this), stakeId(id));
     }
 
+    /// @notice Converts a minter address and salt to a uint192 token id.
+    /// @dev Mirrors the base nonfungible token salt pattern, truncated to fit in the Ve33 stake salt.
+    /// @param minter The address creating the token id.
+    /// @param salt Caller-provided salt for deterministic ID generation.
+    /// @return veId The resulting ERC721 token id and Ve33 stake salt.
+    function saltToId(address minter, bytes32 salt) public view returns (uint192 veId) {
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+            mstore(free, minter)
+            mstore(add(free, 32), salt)
+            mstore(add(free, 64), chainid())
+            mstore(add(free, 96), address())
+
+            veId := and(keccak256(free, 128), 0xffffffffffffffffffffffffffffffffffffffffffffffff)
+        }
+    }
+
     /// @notice Creates a Ve33 stake and mints an ERC721 token that controls it.
-    /// @dev The minted token id is used as the Ve33 stake salt. Stake token settlement happens in the Core lock.
+    /// @dev A pseudorandom uint192 token id is used as the Ve33 stake salt. Stake token settlement happens in the
+    ///      Core lock.
     /// @param amount The amount of stake token to stake.
     /// @param end The stake end timestamp.
     /// @return veId The minted ERC721 token id.
-    function createStake(uint128 amount, uint64 end) public payable returns (uint256 veId) {
+    function createStake(uint128 amount, uint64 end) public payable returns (uint192 veId) {
+        veId = createStake(amount, end, _randomSalt());
+    }
+
+    /// @notice Creates a Ve33 stake with an explicit salt and mints an ERC721 token that controls it.
+    /// @dev The token id is `saltToId(msg.sender, salt)`, which is also used as the Ve33 stake salt. Stake token
+    ///      settlement happens in the Core lock.
+    /// @param amount The amount of stake token to stake.
+    /// @param end The stake end timestamp.
+    /// @param salt The salt for deterministic ID generation.
+    /// @return veId The minted ERC721 token id.
+    function createStake(uint128 amount, uint64 end, bytes32 salt) public payable returns (uint192 veId) {
         if (amount == 0) revert InvalidStakeAmount();
 
-        veId = nextVeId;
-        unchecked {
-            nextVeId = veId + 1;
-        }
-        _mintAndSetExtraDataUnchecked(msg.sender, veId, end);
+        veId = saltToId(msg.sender, salt);
+        _mintAndSetExtraData(msg.sender, veId, end);
 
         lock(abi.encode(CALL_TYPE_STAKE, msg.sender, stakeId(veId), amount));
     }
 
     /// @notice Creates a Ve33 stake ending `duration` seconds from now and mints an ERC721 token that controls it.
-    /// @dev The minted token id is used as the Ve33 stake salt. Stake token settlement happens in the Core lock.
+    /// @dev A pseudorandom uint192 token id is used as the Ve33 stake salt. Stake token settlement happens in the
+    ///      Core lock.
     /// @param amount The amount of stake token to stake.
     /// @param duration The stake duration in seconds.
     /// @return veId The minted ERC721 token id.
-    function createStakeForDuration(uint128 amount, uint32 duration) external payable returns (uint256 veId) {
+    function createStakeForDuration(uint128 amount, uint32 duration) external payable returns (uint192 veId) {
         veId = createStake(amount, _stakeEndFromDuration(duration));
     }
 
+    /// @notice Creates a Ve33 stake with an explicit salt ending `duration` seconds from now.
+    /// @dev The token id is `saltToId(msg.sender, salt)`, which is also used as the Ve33 stake salt.
+    /// @param amount The amount of stake token to stake.
+    /// @param duration The stake duration in seconds.
+    /// @param salt The salt for deterministic ID generation.
+    /// @return veId The minted ERC721 token id.
+    function createStakeForDuration(uint128 amount, uint32 duration, bytes32 salt)
+        external
+        payable
+        returns (uint192 veId)
+    {
+        veId = createStake(amount, _stakeEndFromDuration(duration), salt);
+    }
+
     /// @notice Creates a Ve33 stake ending at the maximum duration from now.
-    /// @dev The minted token id is used as the Ve33 stake salt. Stake token settlement happens in the Core lock.
+    /// @dev A pseudorandom uint192 token id is used as the Ve33 stake salt. Stake token settlement happens in the
+    ///      Core lock.
     /// @param amount The amount of stake token to stake.
     /// @return veId The minted ERC721 token id.
-    function createStakeMaxDuration(uint128 amount) external payable returns (uint256 veId) {
+    function createStakeMaxDuration(uint128 amount) external payable returns (uint192 veId) {
         veId = createStake(amount, _maxStakeEnd());
+    }
+
+    /// @notice Creates a Ve33 stake with an explicit salt ending at the maximum duration from now.
+    /// @dev The token id is `saltToId(msg.sender, salt)`, which is also used as the Ve33 stake salt.
+    /// @param amount The amount of stake token to stake.
+    /// @param salt The salt for deterministic ID generation.
+    /// @return veId The minted ERC721 token id.
+    function createStakeMaxDuration(uint128 amount, bytes32 salt) external payable returns (uint192 veId) {
+        veId = createStake(amount, _maxStakeEnd(), salt);
+    }
+
+    /// @notice Creates a Ve33 stake with an explicit salt and immediately votes it on one pool.
+    /// @dev Useful for multicalls and deterministic integrations that need to know the new ve id before voting.
+    /// @param amount The amount of stake token to stake.
+    /// @param end The stake end timestamp.
+    /// @param salt The salt for deterministic ID generation.
+    /// @param poolKey The pool to vote on.
+    /// @param swapFee The selected swap fee for the pool.
+    /// @return veId The minted ERC721 token id.
+    function createStakeAndVote(uint128 amount, uint64 end, bytes32 salt, PoolKey calldata poolKey, uint64 swapFee)
+        external
+        payable
+        returns (uint192 veId)
+    {
+        veId = createStake(amount, end, salt);
+        ve33.vote(stakeId(veId), poolKey, swapFee);
     }
 
     /// @notice Adds stake token to an existing represented stake.
@@ -319,8 +383,27 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         external
         payable
         authorizedForStake(veId)
-        returns (uint256 splitVeId)
+        returns (uint192 splitVeId)
     {
+        splitVeId = _splitStake(veId, amount, _randomSalt());
+    }
+
+    /// @notice Splits part of a represented stake into a newly minted ERC721 with an explicit salt.
+    /// @dev The new token id is `saltToId(msg.sender, salt)`, which is also used as the new Ve33 stake salt.
+    /// @param veId The ERC721 token id and source Ve33 stake salt.
+    /// @param amount The amount of stake token to move into the new ERC721.
+    /// @param salt The salt for deterministic ID generation.
+    /// @return splitVeId The newly minted ERC721 token id.
+    function splitStake(uint256 veId, uint128 amount, bytes32 salt)
+        external
+        payable
+        authorizedForStake(veId)
+        returns (uint192 splitVeId)
+    {
+        splitVeId = _splitStake(veId, amount, salt);
+    }
+
+    function _splitStake(uint256 veId, uint128 amount, bytes32 salt) private returns (uint192 splitVeId) {
         if (amount == 0) revert InvalidStakeAmount();
 
         uint64 end = _stakeEndTime(veId);
@@ -328,11 +411,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         uint128 currentAmount = ve33.stakeAmount(address(this), fromStakeId);
         if (amount >= currentAmount) revert SplitAmountMustBeLessThanStakeAmount();
 
-        splitVeId = nextVeId;
-        unchecked {
-            nextVeId = splitVeId + 1;
-        }
-        _mintAndSetExtraDataUnchecked(ownerOf(veId), splitVeId, end);
+        splitVeId = saltToId(msg.sender, salt);
+        _mintAndSetExtraData(ownerOf(veId), splitVeId, end);
 
         ve33.moveStake(fromStakeId, createStakeId(_stakeSalt(splitVeId), end), amount);
     }
@@ -525,6 +605,21 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     function _stakeEndTime(uint256 veId) private view returns (uint64) {
         if (!_exists(veId)) revert TokenDoesNotExist();
         return uint64(_getExtraData(veId));
+    }
+
+    /// @notice Mints a token and stores its represented stake end timestamp.
+    function _mintAndSetExtraData(address owner, uint192 veId, uint64 end) private {
+        _mint(owner, veId);
+        _setExtraData(veId, end);
+    }
+
+    /// @notice Generates a pseudorandom salt for token id generation.
+    function _randomSalt() private view returns (bytes32 salt) {
+        assembly ("memory-safe") {
+            mstore(0, prevrandao())
+            mstore(32, gas())
+            salt := keccak256(0, 64)
+        }
     }
 
     /// @notice Converts an ERC721 id into the stake salt used by Ve33.

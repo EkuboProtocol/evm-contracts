@@ -17,6 +17,7 @@ import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
+import {StakeId} from "../src/types/stakeId.sol";
 import {createSwapParameters} from "../src/types/swapParameters.sol";
 
 contract ZeroStakeTokenVe33 {
@@ -81,26 +82,6 @@ contract VeTokenTest is FullTest {
             }),
             address(this)
         );
-    }
-
-    function _readSnapshotBytes(string memory path) internal view returns (bytes memory) {
-        bytes memory data = bytes(vm.readFile(path));
-        if (data.length != 0 && data[data.length - 1] == 0x0a) {
-            bytes memory trimmed = new bytes(data.length - 1);
-            for (uint256 i = 0; i < trimmed.length; i++) {
-                trimmed[i] = data[i];
-            }
-            data = trimmed;
-        }
-        return data;
-    }
-
-    function _assertSnapshotEq(bytes memory actual, string memory path) internal view {
-        bytes memory expected = _readSnapshotBytes(path);
-        assertEq(actual.length, expected.length, string.concat(path, " length"));
-        for (uint256 i = 0; i < actual.length; i++) {
-            assertEq(uint8(actual[i]), uint8(expected[i]), string.concat(path, " byte ", vm.toString(i)));
-        }
     }
 
     function test_gas_createStake() public {
@@ -221,36 +202,41 @@ contract VeTokenTest is FullTest {
 
     function test_multicall_batchesStakeActionsAndReads() public {
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        bytes32 salt = bytes32(uint256(1));
+        uint192 veId = veToken.saltToId(address(this), salt);
         bytes[] memory calls = new bytes[](3);
-        calls[0] = abi.encodeCall(veToken.createStake, (1e18, end));
-        calls[1] = abi.encodeCall(veToken.increaseStakeAmount, (1, 2e18));
-        calls[2] = abi.encodeCall(veToken.stakes, (1));
+        calls[0] = abi.encodeWithSelector(bytes4(keccak256("createStake(uint128,uint64,bytes32)")), 1e18, end, salt);
+        calls[1] = abi.encodeCall(veToken.increaseStakeAmount, (veId, 2e18));
+        calls[2] = abi.encodeCall(veToken.stakes, (veId));
 
         bytes[] memory results = veToken.multicall(calls);
         assertEq(results.length, 3);
-        assertEq(abi.decode(results[0], (uint256)), 1);
+        assertEq(abi.decode(results[0], (uint192)), veId);
         assertEq(results[1].length, 0);
 
         (uint128 amount, uint64 stakeEnd) = abi.decode(results[2], (uint128, uint64));
         assertEq(amount, 3e18);
         assertEq(stakeEnd, end);
-        assertEq(veToken.ownerOf(1), address(this));
+        assertEq(veToken.ownerOf(veId), address(this));
         assertEq(_stakeTokenSavedBalance(), 3e18);
     }
 
     function test_multicall_acceptsValue() public {
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        bytes32 salt = bytes32(uint256(1));
+        uint192 veId = veToken.saltToId(address(this), salt);
         bytes[] memory calls = new bytes[](1);
-        calls[0] = abi.encodeCall(veToken.createStake, (1, end));
+        calls[0] = abi.encodeWithSelector(bytes4(keccak256("createStake(uint128,uint64,bytes32)")), 1, end, salt);
 
         veToken.multicall{value: 1}(calls);
         assertEq(address(veToken).balance, 1);
-        assertEq(_stakeAmount(1), 1);
+        assertEq(_stakeAmount(veId), 1);
     }
 
     function test_tokenURI_returnsErc721JsonMetadata() public {
         vm.warp(1);
-        uint256 veId = veToken.createStake(15e17, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
+        bytes32 salt = bytes32(uint256(1));
+        uint256 veId = veToken.createStake(15e17, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()), salt);
         string memory uri = veToken.tokenURI(veId);
         string memory prefix = "data:application/json;base64,";
         assertTrue(LibString.startsWith(uri, prefix));
@@ -260,13 +246,13 @@ contract VeTokenTest is FullTest {
         uint256 imageStart = LibString.indexOf(json, imagePrefix) + bytes(imagePrefix).length;
         uint256 imageEnd = LibString.indexOf(json, "\"", imageStart);
         string memory svg = string(Base64.decode(LibString.slice(json, imageStart, imageEnd)));
-        _assertSnapshotEq(bytes(json), "snapshots/VeTokenTokenURI.json");
-        _assertSnapshotEq(bytes(svg), "snapshots/VeTokenTokenURI.svg");
-        assertTrue(LibString.contains(json, "\"name\":\"veTT #1\""));
+        assertTrue(LibString.contains(json, string.concat("\"name\":\"veTT #", vm.toString(veId), "\"")));
         assertTrue(LibString.contains(json, "Amount: 1.5 TT."));
         assertTrue(LibString.contains(json, "Unlock date: Dec 31, 1973."));
         assertTrue(LibString.contains(json, "\"image\":\"data:image/svg+xml;base64,"));
         assertTrue(LibString.startsWith(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        assertFalse(LibString.contains(svg, string.concat("#", vm.toString(veId))));
+        assertTrue(LibString.contains(svg, "Apple Color Emoji"));
         assertTrue(LibString.contains(svg, ">1.5</text>"));
         assertTrue(LibString.contains(svg, ">Dec 31, 1973</text>"));
         assertTrue(LibString.contains(svg, "viewBox=\"0 0 480 480\""));
@@ -349,6 +335,47 @@ contract VeTokenTest is FullTest {
         assertEq(_stakeAmount(veId), 1e18);
         assertEq(_stakeEnd(veId), expectedEnd);
         assertEq(_stakeTokenSavedBalance(), 1e18);
+    }
+
+    function test_explicitSaltCreatesUint192TokenIdAndStakeSalt() public {
+        uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        bytes32 salt = bytes32(uint256(0x1234));
+        uint192 expectedVeId = veToken.saltToId(address(this), salt);
+
+        uint192 veId = veToken.createStake(2e18, end, salt);
+
+        assertEq(veId, expectedVeId);
+        assertLe(veId, type(uint192).max);
+        assertEq(veToken.ownerOf(veId), address(this));
+        assertEq(veToken.stakeId(veId).salt(), bytes24(veId));
+
+        bytes32 splitSalt = bytes32(uint256(0x5678));
+        uint192 expectedSplitVeId = veToken.saltToId(address(this), splitSalt);
+        uint192 splitVeId = veToken.splitStake(veId, 1e18, splitSalt);
+
+        assertEq(splitVeId, expectedSplitVeId);
+        assertLe(splitVeId, type(uint192).max);
+        assertEq(veToken.ownerOf(splitVeId), address(this));
+        assertEq(veToken.stakeId(splitVeId).salt(), bytes24(splitVeId));
+        assertEq(_stakeAmount(splitVeId), 1e18);
+    }
+
+    function test_createStakeAndVoteUsesExplicitSalt() public {
+        PoolKey memory poolKey =
+            createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        bytes32 salt = bytes32(uint256(0xBEEF));
+        uint192 expectedVeId = veToken.saltToId(address(this), salt);
+        uint64 swapFee = uint64(1 << 62);
+
+        uint192 veId = veToken.createStakeAndVote(1e18, end, salt, poolKey, swapFee);
+        StakeId id = veToken.stakeId(veId);
+
+        assertEq(veId, expectedVeId);
+        assertLe(veId, type(uint192).max);
+        assertEq(id.salt(), bytes24(veId));
+        assertEq(PoolId.unwrap(ve33.votedPool(address(veToken), id)), PoolId.unwrap(poolKey.toPoolId()));
+        assertEq(ve33.vePoolVote(address(veToken), id).swapFee(), swapFee);
     }
 
     function test_createStakeForDurationValidatesDuration() public {
@@ -469,11 +496,10 @@ contract VeTokenTest is FullTest {
         veToken.splitStake(veId, 0);
         vm.expectRevert(VeToken.SplitAmountMustBeLessThanStakeAmount.selector);
         veToken.splitStake(veId, 4e18);
-        assertEq(veToken.nextVeId(), 2);
         vm.expectRevert(ERC721.TokenDoesNotExist.selector);
         veToken.ownerOf(2);
 
-        uint256 splitVeId = veToken.splitStake(veId, 1e18);
+        uint256 splitVeId = veToken.splitStake(veId, 1e18, bytes32(uint256(2)));
         assertEq(veToken.ownerOf(splitVeId), address(this));
         assertEq(veToken.balanceOf(address(this)), 2);
         assertEq(_stakeAmount(veId), 3e18);

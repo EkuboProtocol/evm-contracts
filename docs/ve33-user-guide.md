@@ -38,6 +38,8 @@ Using `VeToken`, the common flow is:
 Important details:
 
 - The ve NFT owner, or an approved NFT operator, can manage the stake.
+- `VeToken` generates `uint192` token IDs by default. Deterministic overloads such as `createStake(amount, end, salt)` and `splitStake(veId, amount, salt)` accept a `bytes32` salt and derive the token ID with `saltToId(msg.sender, salt)`. The resulting token ID is also the Ve33 stake salt.
+- The NFT SVG shows a 6-emoji fingerprint for large token IDs instead of printing long decimal numbers.
 - Claimed pool fees can be sent to an authorized caller-selected recipient, and withdrawn stake tokens go to the current NFT owner.
 - Increasing, extending, merging, or withdrawing a stake updates or clears the affected stake votes.
 - Splitting preserves the source stake vote with reduced weight; the newly split stake starts unvoted.

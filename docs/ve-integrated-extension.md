@@ -68,7 +68,7 @@ stakeAmounts[owner][stakeId]
 bytes24 salt || uint64 endTime
 ```
 
-For `VeToken`, `salt = bytes24(uint192(veId))`. The current stake amount is fetched from `Ve33Lib.stakeAmount(ve33, address(veToken), stakeId)` whenever the wrapper needs it, so the NFT does not store the amount. The stake end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
+For `VeToken`, token IDs are constrained to `uint192` and `salt = bytes24(uint192(veId))`. Default creation uses a pseudorandom salt, while deterministic creation and split overloads accept a `bytes32 salt` and derive the token ID with `saltToId(msg.sender, salt)`. The resulting token ID becomes the Ve33 stake salt. The NFT SVG renders large token IDs as a 6-emoji fingerprint to avoid displaying long decimal IDs, but this is presentation-only. The current stake amount is fetched from `Ve33Lib.stakeAmount(ve33, address(veToken), stakeId)` whenever the wrapper needs it, so the NFT does not store the amount. The stake end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
 
 All stake-token backing is saved under a single Core saved-balance salt:
 
@@ -87,11 +87,11 @@ Forward stake call types:
 CORE.updateSavedBalances(stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, delta, 0)
 ```
 
-It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, and pool-fee claims can be sent to an authorized caller-selected recipient. Extending and merging call `Ve33.moveStake` directly, which moves stake accounting between stake ids without touching Core saved balances. `moveStake` requires the destination stake id to end after the source stake id, resizes the source vote to the source's remaining voting power, and resizes any existing destination vote to the destination's new voting power. Splitting calls `Ve33.splitStake` directly, which keeps the source stake voted and resizes the source vote weight to the reduced current voting power; the newly split `VeToken` stake starts unvoted.
+It does not transfer stake tokens for these stake operations. The calling representation handles token settlement: `VeToken` pays the stake token into Core after staking, and withdraws expired stake to the current ERC721 owner after unstaking. Approved ERC721 operators can manage a represented stake, and pool-fee claims can be sent to an authorized caller-selected recipient. Extending, merging, and splitting call `Ve33.moveStake` directly, which moves stake accounting between stake ids without touching Core saved balances. `moveStake` requires the destination stake id to end after the source stake id, resizes the source vote to the source's remaining voting power, and resizes any existing destination vote to the destination's new voting power. Splitting preserves the source stake vote with reduced current voting power; the newly split `VeToken` stake starts unvoted.
 
 ## Voting
 
-`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, and `mergeStakes(fromVeId, toVeId)`.
+`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, deterministic salt overloads for stake creation and splitting, `createStakeAndVote(amount, end, salt, poolKey, swapFee)`, and `mergeStakes(fromVeId, toVeId)`.
 
 Each pool tracks active vote weight, voter fee growth, a snapshot of global emission growth, and the weighted fee sum. When votes change, the pool fee is computed as `feeWeightSum / weight`; integer division rounds down. With no active votes, this EVM `div` returns zero, so the pool has no extension swap fee.
 

@@ -148,28 +148,39 @@ library VeTokenMetadata {
         returns (string memory)
     {
         string memory tokenAddress = LibString.toHexStringChecksummed(params.stakeToken);
+        bool largeId = params.id > 999_999;
         return string.concat(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 480 480\">",
             "<rect width=\"480\" height=\"480\" fill=\"#101114\"/>",
             "<rect x=\"32\" y=\"32\" width=\"416\" height=\"416\" rx=\"18\" fill=\"#f6f1e8\"/>",
-            "<text x=\"56\" y=\"96\" fill=\"#101114\" font-family=\"monospace\" font-size=\"28\" font-weight=\"700\">",
-            LibString.escapeHTML(params.veSymbol),
-            " #",
-            LibString.toString(params.id),
-            "</text>",
-            "<text x=\"56\" y=\"148\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Stake token</text>",
-            "<text x=\"56\" y=\"176\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\">",
+            _svgTitle(params.veSymbol, params.id),
+            "<text x=\"56\" y=\"",
+            largeId ? "176" : "148",
+            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Stake token</text>",
+            "<text x=\"56\" y=\"",
+            largeId ? "202" : "176",
+            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\">",
             LibString.escapeHTML(params.stakeTokenSymbol),
             "</text>",
-            "<text x=\"56\" y=\"226\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Amount</text>",
-            "<text x=\"56\" y=\"254\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
+            "<text x=\"56\" y=\"",
+            largeId ? "250" : "226",
+            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Amount</text>",
+            "<text x=\"56\" y=\"",
+            largeId ? "276" : "254",
+            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
             LibString.escapeHTML(amountString),
             "</text>",
-            "<text x=\"56\" y=\"304\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Unlock date</text>",
-            "<text x=\"56\" y=\"332\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
+            "<text x=\"56\" y=\"",
+            largeId ? "324" : "304",
+            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Unlock date</text>",
+            "<text x=\"56\" y=\"",
+            largeId ? "350" : "332",
+            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
             LibString.escapeHTML(unlockDate),
             "</text>",
-            "<text x=\"56\" y=\"390\" fill=\"#101114\" font-family=\"monospace\" font-size=\"14\">",
+            "<text x=\"56\" y=\"",
+            largeId ? "414" : "390",
+            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"14\">",
             LibString.escapeHTML(tokenAddress),
             "</text>",
             "</svg>"
@@ -192,5 +203,110 @@ library VeTokenMetadata {
         if (month == 10) return "Oct";
         if (month == 11) return "Nov";
         return "Dec";
+    }
+
+    function _svgTitle(string memory veSymbol, uint256 id) private pure returns (string memory) {
+        if (id <= 999_999) {
+            return string.concat(
+                "<text x=\"56\" y=\"96\" fill=\"#101114\" font-family=\"monospace\" font-size=\"28\" font-weight=\"700\">",
+                LibString.escapeHTML(veSymbol),
+                " #",
+                LibString.toString(id),
+                "</text>"
+            );
+        }
+
+        return string.concat(
+            "<text x=\"56\" y=\"70\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\" font-weight=\"700\">",
+            LibString.escapeHTML(veSymbol),
+            " #</text>",
+            "<text x=\"56\" y=\"116\" fill=\"#101114\" font-family=\"Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif\" font-size=\"28\">",
+            _emojiCode(id),
+            "</text>"
+        );
+    }
+
+    function _emojiCode(uint256 id) private pure returns (string memory) {
+        uint256 digest;
+        assembly ("memory-safe") {
+            mstore(0, id)
+            digest := keccak256(0, 32)
+        }
+        return string.concat(
+            _emojiSymbol(digest >> 30),
+            _emojiSymbol(digest >> 24),
+            _emojiSymbol(digest >> 18),
+            _emojiSymbol(digest >> 12),
+            _emojiSymbol(digest >> 6),
+            _emojiSymbol(digest)
+        );
+    }
+
+    function _emojiSymbol(uint256 value) private pure returns (string memory) {
+        value &= 0x3f;
+        if (value == 0) return unicode"🌞";
+        if (value == 1) return unicode"🌙";
+        if (value == 2) return unicode"⭐";
+        if (value == 3) return unicode"🔥";
+        if (value == 4) return unicode"💧";
+        if (value == 5) return unicode"🌿";
+        if (value == 6) return unicode"💎";
+        if (value == 7) return unicode"🎲";
+        if (value == 8) return unicode"🎯";
+        if (value == 9) return unicode"🚀";
+        if (value == 10) return unicode"🧭";
+        if (value == 11) return unicode"🔒";
+        if (value == 12) return unicode"🔑";
+        if (value == 13) return unicode"🎵";
+        if (value == 14) return unicode"🌀";
+        if (value == 15) return unicode"🌊";
+        if (value == 16) return unicode"🍀";
+        if (value == 17) return unicode"🌈";
+        if (value == 18) return unicode"⚡";
+        if (value == 19) return unicode"☄️";
+        if (value == 20) return unicode"🌋";
+        if (value == 21) return unicode"🏔️";
+        if (value == 22) return unicode"🏝️";
+        if (value == 23) return unicode"🏜️";
+        if (value == 24) return unicode"🗿";
+        if (value == 25) return unicode"🛡️";
+        if (value == 26) return unicode"⚔️";
+        if (value == 27) return unicode"🏹";
+        if (value == 28) return unicode"🎩";
+        if (value == 29) return unicode"👑";
+        if (value == 30) return unicode"💼";
+        if (value == 31) return unicode"📚";
+        if (value == 32) return unicode"🧪";
+        if (value == 33) return unicode"🔭";
+        if (value == 34) return unicode"🕰️";
+        if (value == 35) return unicode"🧲";
+        if (value == 36) return unicode"🧱";
+        if (value == 37) return unicode"🪙";
+        if (value == 38) return unicode"🪄";
+        if (value == 39) return unicode"🎨";
+        if (value == 40) return unicode"🎻";
+        if (value == 41) return unicode"🎹";
+        if (value == 42) return unicode"🎬";
+        if (value == 43) return unicode"🏆";
+        if (value == 44) return unicode"🎖️";
+        if (value == 45) return unicode"🏅";
+        if (value == 46) return unicode"🏁";
+        if (value == 47) return unicode"🧩";
+        if (value == 48) return unicode"🎮";
+        if (value == 49) return unicode"🕹️";
+        if (value == 50) return unicode"📡";
+        if (value == 51) return unicode"🛰️";
+        if (value == 52) return unicode"🚦";
+        if (value == 53) return unicode"🚧";
+        if (value == 54) return unicode"🛸";
+        if (value == 55) return unicode"🚁";
+        if (value == 56) return unicode"⛵";
+        if (value == 57) return unicode"⚓";
+        if (value == 58) return unicode"🧰";
+        if (value == 59) return unicode"🔧";
+        if (value == 60) return unicode"🔮";
+        if (value == 61) return unicode"🧿";
+        if (value == 62) return unicode"🪬";
+        return unicode"🗝️";
     }
 }

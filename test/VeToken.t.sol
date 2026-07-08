@@ -119,7 +119,9 @@ contract VeTokenTest is FullTest {
 
     function test_gas_tokenURI() public {
         vm.warp(1);
-        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
+        uint256 veId = veToken.createStake(
+            1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()), bytes32("tokenURI gas")
+        );
 
         coolAllContracts();
         veToken.tokenURI(veId);

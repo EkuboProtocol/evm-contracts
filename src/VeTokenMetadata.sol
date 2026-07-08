@@ -208,39 +208,24 @@ contract VeTokenMetadata {
         string memory stakeTokenSymbol_
     ) private view returns (string memory) {
         string memory tokenAddress = LibString.toHexStringChecksummed(stakeToken);
-        bool largeId = id > 999_999;
         return string.concat(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 480 480\">",
             "<rect width=\"480\" height=\"480\" fill=\"#101114\"/>",
             "<rect x=\"32\" y=\"32\" width=\"416\" height=\"416\" rx=\"18\" fill=\"#f6f1e8\"/>",
             _svgTitle(veSymbol, id),
-            "<text x=\"56\" y=\"",
-            largeId ? "176" : "148",
-            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Stake token</text>",
-            "<text x=\"56\" y=\"",
-            largeId ? "202" : "176",
-            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\">",
+            "<text x=\"56\" y=\"148\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Stake token</text>",
+            "<text x=\"56\" y=\"176\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\">",
             LibString.escapeHTML(stakeTokenSymbol_),
             "</text>",
-            "<text x=\"56\" y=\"",
-            largeId ? "250" : "226",
-            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Amount</text>",
-            "<text x=\"56\" y=\"",
-            largeId ? "276" : "254",
-            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
+            "<text x=\"56\" y=\"226\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Amount</text>",
+            "<text x=\"56\" y=\"254\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
             LibString.escapeHTML(amountString),
             "</text>",
-            "<text x=\"56\" y=\"",
-            largeId ? "324" : "304",
-            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Unlock date</text>",
-            "<text x=\"56\" y=\"",
-            largeId ? "350" : "332",
-            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
+            "<text x=\"56\" y=\"304\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Unlock date</text>",
+            "<text x=\"56\" y=\"332\" fill=\"#101114\" font-family=\"monospace\" font-size=\"22\">",
             LibString.escapeHTML(unlockDate),
             "</text>",
-            "<text x=\"56\" y=\"",
-            largeId ? "414" : "390",
-            "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"14\">",
+            "<text x=\"56\" y=\"390\" fill=\"#101114\" font-family=\"monospace\" font-size=\"14\">",
             LibString.escapeHTML(tokenAddress),
             "</text>",
             "</svg>"
@@ -266,21 +251,11 @@ contract VeTokenMetadata {
     }
 
     function _svgTitle(string memory veSymbol, uint256 id) private pure returns (string memory) {
-        if (id <= 999_999) {
-            return string.concat(
-                "<text x=\"56\" y=\"96\" fill=\"#101114\" font-family=\"monospace\" font-size=\"28\" font-weight=\"700\">",
-                LibString.escapeHTML(veSymbol),
-                " #",
-                LibString.toString(id),
-                "</text>"
-            );
-        }
-
         return string.concat(
-            "<text x=\"56\" y=\"70\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\" font-weight=\"700\">",
+            "<text x=\"56\" y=\"96\" fill=\"#101114\" font-family=\"monospace\" font-size=\"28\" font-weight=\"700\">",
             LibString.escapeHTML(veSymbol),
-            " #</text>",
-            "<text x=\"56\" y=\"116\" fill=\"#101114\" font-family=\"Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif\" font-size=\"28\">",
+            "</text>",
+            "<text x=\"424\" y=\"96\" text-anchor=\"end\" fill=\"#101114\" font-family=\"Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif\" font-size=\"28\">",
             _emojiCode(id),
             "</text>"
         );

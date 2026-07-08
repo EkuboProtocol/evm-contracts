@@ -9,6 +9,7 @@ import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
 import {Router} from "../src/Router.sol";
 import {VeToken} from "../src/VeToken.sol";
+import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {IVe33} from "../src/interfaces/extensions/IVe33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -32,6 +33,7 @@ contract VeTokenTest is FullTest {
 
     TestToken internal stakeToken;
     Ve33 internal ve33;
+    VeTokenMetadata internal metadata;
     VeToken internal veToken;
 
     function setUp() public override {
@@ -42,7 +44,8 @@ contract VeTokenTest is FullTest {
         deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve33 = Ve33(payable(deployAddress));
         router = new Router(core, address(0), address(ve33));
-        veToken = new VeToken(core, ve33, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
+        metadata = new VeTokenMetadata("TestToken", "TT", 18, address(stakeToken));
+        veToken = new VeToken(core, ve33, metadata, "Vote Escrow TestToken", "veTT");
         stakeToken.approve(address(veToken), type(uint256).max);
     }
 
@@ -181,20 +184,21 @@ contract VeTokenTest is FullTest {
         assertEq(veToken.symbol(), "veTT");
         assertEq(veToken.stakeToken(), address(stakeToken));
         assertEq(address(veToken.ve33()), address(ve33));
+        assertEq(address(veToken.metadata()), address(metadata));
         assertTrue(veToken.supportsInterface(0x80ac58cd));
         assertTrue(veToken.supportsInterface(0x5b5e139f));
     }
 
     function test_constructor_revertsIfPackedStringTooLong() public {
         vm.expectRevert(VeToken.PackedStringTooLong.selector);
-        new VeToken(core, ve33, "12345678901234567890123456789012", "veTT", "TestToken", "TT", 18);
+        new VeToken(core, ve33, metadata, "12345678901234567890123456789012", "veTT");
     }
 
     function test_constructor_acceptsNativeTokenAsStakeToken() public {
         ZeroStakeTokenVe33 zeroStakeTokenVe33 = new ZeroStakeTokenVe33();
-        VeToken nativeVeToken = new VeToken(
-            core, Ve33(payable(address(zeroStakeTokenVe33))), "Vote Escrow ETH", "veETH", "Ether", "ETH", 18
-        );
+        VeTokenMetadata nativeMetadata = new VeTokenMetadata("Ether", "ETH", 18, address(0));
+        VeToken nativeVeToken =
+            new VeToken(core, Ve33(payable(address(zeroStakeTokenVe33))), nativeMetadata, "Vote Escrow ETH", "veETH");
         assertEq(nativeVeToken.stakeToken(), address(0));
         assertEq(nativeVeToken.name(), "Vote Escrow ETH");
         assertEq(nativeVeToken.symbol(), "veETH");

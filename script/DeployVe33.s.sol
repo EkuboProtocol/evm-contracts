@@ -10,6 +10,7 @@ import {FreeVe33Positions} from "../src/FreeVe33Positions.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
+import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {Ve33DataFetcher} from "../src/lens/Ve33DataFetcher.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
@@ -51,10 +52,20 @@ contract DeployVe33 is Script {
         string memory positionsBaseUrl =
             _envStringOr("VE33_POSITIONS_BASE_URL", "https://prod-api.ekubo.org/positions/");
 
+        (address veTokenMetadata,) = deployIfNeeded(
+            abi.encodePacked(
+                type(VeTokenMetadata).creationCode,
+                abi.encode(stakeTokenName, stakeTokenSymbol, stakeTokenDecimals, stakeToken)
+            ),
+            salt,
+            address(0),
+            "VeTokenMetadata"
+        );
+
         deployIfNeeded(
             abi.encodePacked(
                 type(VeToken).creationCode,
-                abi.encode(core, ve33, veTokenName, veTokenSymbol, stakeTokenName, stakeTokenSymbol, stakeTokenDecimals)
+                abi.encode(core, ve33, VeTokenMetadata(veTokenMetadata), veTokenName, veTokenSymbol)
             ),
             salt,
             address(0),

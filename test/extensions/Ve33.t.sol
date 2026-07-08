@@ -10,6 +10,7 @@ import {BaseVe33Positions} from "../../src/base/BaseVe33Positions.sol";
 import {FreeVe33Positions} from "../../src/FreeVe33Positions.sol";
 import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
+import {VeTokenMetadata} from "../../src/VeTokenMetadata.sol";
 import {
     Ve33,
     VE33_POOL_FEES_SAVED_BALANCE_ID,
@@ -136,7 +137,9 @@ contract Ve33Test is FullTest {
         deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33(payable(deployAddress));
         router = new Router(core, address(0), address(ve));
-        veToken = new VeToken(core, ve, "Vote Escrow TestToken", "veTT", "TestToken", "TT", 18);
+        veToken = new VeToken(
+            core, ve, new VeTokenMetadata("TestToken", "TT", 18, address(stakeToken)), "Vote Escrow TestToken", "veTT"
+        );
         vePositions = new FreeVe33Positions(core, ve, owner);
         forwarder = new Ve33Forwarder(core, ve, address(stakeToken));
         periphery = new Ve33Periphery(core, ve);

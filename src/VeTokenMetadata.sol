@@ -5,49 +5,96 @@ import {Base64} from "solady/utils/Base64.sol";
 import {DateTimeLib} from "solady/utils/DateTimeLib.sol";
 import {LibString} from "solady/utils/LibString.sol";
 
-/// @notice Pure metadata renderer for VeToken ERC721 positions.
-library VeTokenMetadata {
-    struct Params {
-        uint256 id;
-        uint128 amount;
-        uint64 unlockTime;
-        string veSymbol;
-        string stakeTokenName;
-        string stakeTokenSymbol;
-        uint8 stakeTokenDecimals;
-        address stakeToken;
+/// @notice Metadata renderer for VeToken ERC721 positions.
+contract VeTokenMetadata {
+    bytes32 private immutable _stakeTokenName;
+    bytes32 private immutable _stakeTokenSymbol;
+
+    /// @notice The token staked for voting power.
+    address public immutable stakeToken;
+
+    /// @notice The decimals of the staked token used for amount formatting.
+    uint8 public immutable stakeTokenDecimals;
+
+    /// @notice Thrown when a constructor string cannot be packed into one bytes32 word.
+    error PackedStringTooLong();
+
+    /// @notice Creates the VeToken metadata renderer.
+    /// @param stakeTokenName_ The display name of the staked token used in token metadata.
+    /// @param stakeTokenSymbol_ The display symbol of the staked token used in token metadata.
+    /// @param stakeTokenDecimals_ The decimals of the staked token used for amount formatting in metadata.
+    /// @param stakeToken_ The token staked for voting power.
+    constructor(
+        string memory stakeTokenName_,
+        string memory stakeTokenSymbol_,
+        uint8 stakeTokenDecimals_,
+        address stakeToken_
+    ) {
+        _stakeTokenName = _packConstructorString(stakeTokenName_);
+        _stakeTokenSymbol = _packConstructorString(stakeTokenSymbol_);
+        stakeTokenDecimals = stakeTokenDecimals_;
+        stakeToken = stakeToken_;
+    }
+
+    /// @notice Returns the display name of the staked token.
+    function stakeTokenName() public view returns (string memory) {
+        return LibString.unpackOne(_stakeTokenName);
+    }
+
+    /// @notice Returns the display symbol of the staked token.
+    function stakeTokenSymbol() public view returns (string memory) {
+        return LibString.unpackOne(_stakeTokenSymbol);
     }
 
     /// @notice Builds the ERC721 metadata data URI for a VeToken position.
-    /// @param params Metadata fields and current stake state.
+    /// @param id The ERC721 token id.
+    /// @param amount The current staked token amount.
+    /// @param unlockTime The stake unlock timestamp.
+    /// @param veSymbol The VeToken ERC721 collection symbol.
     /// @return Base64 JSON data URI.
-    function tokenURI(Params memory params) internal pure returns (string memory) {
-        return string.concat("data:application/json;base64,", Base64.encode(bytes(tokenJson(params))));
+    function tokenURI(uint256 id, uint128 amount, uint64 unlockTime, string memory veSymbol)
+        external
+        view
+        returns (string memory)
+    {
+        return string.concat(
+            "data:application/json;base64,", Base64.encode(bytes(tokenJson(id, amount, unlockTime, veSymbol)))
+        );
     }
 
     /// @notice Builds the raw ERC721 metadata JSON for a VeToken position.
-    /// @param params Metadata fields and current stake state.
+    /// @param id The ERC721 token id.
+    /// @param amount The current staked token amount.
+    /// @param unlockTime The stake unlock timestamp.
+    /// @param veSymbol The VeToken ERC721 collection symbol.
     /// @return Raw JSON string.
-    function tokenJson(Params memory params) internal pure returns (string memory) {
-        string memory idString = LibString.toString(params.id);
-        string memory tokenName = string.concat(params.veSymbol, " #", idString);
-        string memory amountString = formatTokenAmount(params.amount, params.stakeTokenDecimals);
-        string memory unlockDate = formatDate(params.unlockTime);
+    function tokenJson(uint256 id, uint128 amount, uint64 unlockTime, string memory veSymbol)
+        public
+        view
+        returns (string memory)
+    {
+        string memory idString = LibString.toString(id);
+        string memory tokenName = string.concat(veSymbol, " #", idString);
+        string memory amountString = formatTokenAmount(amount, stakeTokenDecimals);
+        string memory unlockDate = formatDate(unlockTime);
+        string memory stakeTokenName_ = stakeTokenName();
+        string memory stakeTokenSymbol_ = stakeTokenSymbol();
         string memory description = string.concat(
             "Vote-escrowed ",
-            params.stakeTokenName,
+            stakeTokenName_,
             " stake. Amount: ",
             amountString,
             " ",
-            params.stakeTokenSymbol,
+            stakeTokenSymbol_,
             ". Unlock date: ",
             unlockDate,
             ". Stake token: ",
-            LibString.toHexStringChecksummed(params.stakeToken),
+            LibString.toHexStringChecksummed(stakeToken),
             "."
         );
         string memory image = string.concat(
-            "data:image/svg+xml;base64,", Base64.encode(bytes(_tokenSvg(params, amountString, unlockDate)))
+            "data:image/svg+xml;base64,",
+            Base64.encode(bytes(_tokenSvg(id, amountString, unlockDate, veSymbol, stakeTokenSymbol_)))
         );
 
         return string.concat(
@@ -62,20 +109,26 @@ library VeTokenMetadata {
     }
 
     /// @notice Builds the raw SVG image embedded in ERC721 metadata.
-    /// @param params Metadata fields and current stake state.
+    /// @param id The ERC721 token id.
+    /// @param amount The current staked token amount.
+    /// @param unlockTime The stake unlock timestamp.
+    /// @param veSymbol The VeToken ERC721 collection symbol.
     /// @return Raw SVG string.
-    function tokenSvg(Params memory params) internal pure returns (string memory) {
-        return
-            _tokenSvg(
-                params, formatTokenAmount(params.amount, params.stakeTokenDecimals), formatDate(params.unlockTime)
-            );
+    function tokenSvg(uint256 id, uint128 amount, uint64 unlockTime, string memory veSymbol)
+        public
+        view
+        returns (string memory)
+    {
+        return _tokenSvg(
+            id, formatTokenAmount(amount, stakeTokenDecimals), formatDate(unlockTime), veSymbol, stakeTokenSymbol()
+        );
     }
 
     /// @notice Formats a stake-token amount using token decimals, trimming trailing fractional zeros.
     /// @param amount Raw stake-token amount.
     /// @param decimals Stake-token decimals.
     /// @return Decimal-adjusted amount string.
-    function formatTokenAmount(uint256 amount, uint256 decimals) internal pure returns (string memory) {
+    function formatTokenAmount(uint256 amount, uint256 decimals) public pure returns (string memory) {
         string memory digitsString = LibString.toString(amount);
         if (decimals == 0) return digitsString;
 
@@ -137,30 +190,37 @@ library VeTokenMetadata {
     /// @notice Formats a timestamp as an English UTC date.
     /// @param timestamp Unix timestamp.
     /// @return Date string like "Jan 1, 2030".
-    function formatDate(uint256 timestamp) internal pure returns (string memory) {
+    function formatDate(uint256 timestamp) public pure returns (string memory) {
         (uint256 year, uint256 month, uint256 day) = DateTimeLib.timestampToDate(timestamp);
         return string.concat(_monthName(month), " ", LibString.toString(day), ", ", LibString.toString(year));
     }
 
-    function _tokenSvg(Params memory params, string memory amountString, string memory unlockDate)
-        private
-        pure
-        returns (string memory)
-    {
-        string memory tokenAddress = LibString.toHexStringChecksummed(params.stakeToken);
-        bool largeId = params.id > 999_999;
+    function _packConstructorString(string memory value) private pure returns (bytes32 packed) {
+        packed = LibString.packOne(value);
+        if (packed == bytes32(0) && bytes(value).length != 0) revert PackedStringTooLong();
+    }
+
+    function _tokenSvg(
+        uint256 id,
+        string memory amountString,
+        string memory unlockDate,
+        string memory veSymbol,
+        string memory stakeTokenSymbol_
+    ) private view returns (string memory) {
+        string memory tokenAddress = LibString.toHexStringChecksummed(stakeToken);
+        bool largeId = id > 999_999;
         return string.concat(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 480 480\">",
             "<rect width=\"480\" height=\"480\" fill=\"#101114\"/>",
             "<rect x=\"32\" y=\"32\" width=\"416\" height=\"416\" rx=\"18\" fill=\"#f6f1e8\"/>",
-            _svgTitle(params.veSymbol, params.id),
+            _svgTitle(veSymbol, id),
             "<text x=\"56\" y=\"",
             largeId ? "176" : "148",
             "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"18\">Stake token</text>",
             "<text x=\"56\" y=\"",
             largeId ? "202" : "176",
             "\" fill=\"#101114\" font-family=\"monospace\" font-size=\"24\">",
-            LibString.escapeHTML(params.stakeTokenSymbol),
+            LibString.escapeHTML(stakeTokenSymbol_),
             "</text>",
             "<text x=\"56\" y=\"",
             largeId ? "250" : "226",

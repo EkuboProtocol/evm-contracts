@@ -14,9 +14,9 @@ import {IVe33, VE33_MAX_STAKE_DURATION} from "./interfaces/extensions/IVe33.sol"
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
-import {VeTokenMetadata} from "./libraries/VeTokenMetadata.sol";
 import {isPowerOfFour} from "./math/isPowerOfFour.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {VeTokenMetadata} from "./VeTokenMetadata.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {PoolState} from "./types/poolState.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
@@ -39,11 +39,11 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice The token staked for voting power.
     address public immutable stakeToken;
 
+    /// @notice Metadata renderer used for ERC721 tokenURI output.
+    VeTokenMetadata public immutable metadata;
+
     bytes32 private immutable _name;
     bytes32 private immutable _symbol;
-    bytes32 private immutable _stakeTokenName;
-    bytes32 private immutable _stakeTokenSymbol;
-    uint8 private immutable _stakeTokenDecimals;
 
     /// @notice Thrown when a token id cannot be represented as a Ve33 stake salt.
     /// @param veId The ERC721 token id.
@@ -69,27 +69,18 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Creates the ERC721 stake wrapper.
     /// @param core The Ekubo Core contract used for lock and token settlement.
     /// @param _ve33 The Ve33 extension containing canonical vote-escrow accounting.
+    /// @param _metadata The VeToken metadata renderer contract.
     /// @param name_ The ERC721 collection name (e.g. "Vote Escrow ETH").
     /// @param symbol_ The ERC721 collection symbol (e.g. "veETH").
-    /// @param stakeTokenName_ The display name of the staked token used in token metadata.
-    /// @param stakeTokenSymbol_ The display symbol of the staked token used in token metadata.
-    /// @param stakeTokenDecimals_ The decimals of the staked token used for amount formatting in metadata.
-    constructor(
-        ICore core,
-        Ve33 _ve33,
-        string memory name_,
-        string memory symbol_,
-        string memory stakeTokenName_,
-        string memory stakeTokenSymbol_,
-        uint8 stakeTokenDecimals_
-    ) BaseLocker(core) UsesCore(core) {
+    constructor(ICore core, Ve33 _ve33, VeTokenMetadata _metadata, string memory name_, string memory symbol_)
+        BaseLocker(core)
+        UsesCore(core)
+    {
         ve33 = _ve33;
         stakeToken = _ve33.stakeToken();
+        metadata = _metadata;
         _name = _packConstructorString(name_);
         _symbol = _packConstructorString(symbol_);
-        _stakeTokenName = _packConstructorString(stakeTokenName_);
-        _stakeTokenSymbol = _packConstructorString(stakeTokenSymbol_);
-        _stakeTokenDecimals = stakeTokenDecimals_;
     }
 
     receive() external payable {}
@@ -109,18 +100,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     ///      The image is an embedded SVG generated from the current Ve33 stake amount, stake end, and stake token.
     function tokenURI(uint256 id) public view override returns (string memory) {
         (uint128 amount, uint64 endTime) = stakes(id);
-        return VeTokenMetadata.tokenURI(
-            VeTokenMetadata.Params({
-                id: id,
-                amount: amount,
-                unlockTime: endTime,
-                veSymbol: LibString.unpackOne(_symbol),
-                stakeTokenName: LibString.unpackOne(_stakeTokenName),
-                stakeTokenSymbol: LibString.unpackOne(_stakeTokenSymbol),
-                stakeTokenDecimals: _stakeTokenDecimals,
-                stakeToken: stakeToken
-            })
-        );
+        return metadata.tokenURI(id, amount, endTime, LibString.unpackOne(_symbol));
     }
 
     function _packConstructorString(string memory value) private pure returns (bytes32 packed) {

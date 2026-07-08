@@ -1115,11 +1115,12 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @return time Next initialized schedule time, or 0 if none found within the maximum valid range.
     /// @return delta Scheduled emission-rate delta at `time`, or 0 if none found.
     function nextEmissionRateChangeTime(uint256 fromTime) external view returns (uint64 time, int256 delta) {
+        uint256 lastAccruedTime = _globalEmissionState().realEmissionTimeAtOrBeforeNow();
         uint256 untilTime;
         unchecked {
             untilTime = block.timestamp + type(uint32).max;
         }
-        (uint256 nextTime, bool isInitialized) = _searchForNextEmissionTime(block.timestamp, fromTime, untilTime);
+        (uint256 nextTime, bool isInitialized) = _searchForNextEmissionTime(lastAccruedTime, fromTime, untilTime);
         if (isInitialized) {
             time = uint64(nextTime);
             delta = _emissionRateDeltaAtTime(nextTime);

@@ -15,6 +15,7 @@ import {ICore, IExtension} from "../interfaces/ICore.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {isPowerOfFour} from "../math/isPowerOfFour.sol";
+import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
 import {bitmapWordAndIndexToTime, timeToBitmapWordAndIndex} from "../math/timeBitmap.sol";
 import {Bitmap} from "../types/bitmap.sol";
@@ -943,11 +944,15 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             while (true) {
                 bool initialized;
                 (tick, initialized) = CORE.prevInitializedTick(poolId, tick, tickSpacing, skipAhead);
-                if (!initialized || tick <= tickAfter) break;
+                if (tick <= tickAfter) break;
                 unchecked {
-                    _setTickRewardsOutsidePerLiquidity(
-                        poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
-                    );
+                    if (initialized) {
+                        _setTickRewardsOutsidePerLiquidity(
+                            poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
+                        );
+                    } else if (tick == MIN_TICK) {
+                        break;
+                    }
                     tick--;
                 }
             }
@@ -955,11 +960,15 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             while (true) {
                 bool initialized;
                 (tick, initialized) = CORE.nextInitializedTick(poolId, tick, tickSpacing, skipAhead);
-                if (!initialized || tick > tickAfter) break;
+                if (tick > tickAfter) break;
                 unchecked {
-                    _setTickRewardsOutsidePerLiquidity(
-                        poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
-                    );
+                    if (initialized) {
+                        _setTickRewardsOutsidePerLiquidity(
+                            poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
+                        );
+                    } else if (tick == MAX_TICK) {
+                        break;
+                    }
                 }
             }
         }

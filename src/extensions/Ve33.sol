@@ -694,7 +694,6 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         if (
             !isTimeValid({currentTime: block.timestamp, time: startTime})
                 || !isTimeValid({currentTime: block.timestamp, time: endTime}) || endTime <= realStartTime
-                || endTime <= block.timestamp
         ) {
             revert InvalidTimestamps();
         }
@@ -902,11 +901,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccruedTime, time, block.timestamp);
 
             uint128 weight = _totalVoteWeight();
-            uint256 amountUint256 = (uint256(rate) * (eventTime - time)) >> 32;
-            if (amountUint256 > type(uint128).max) revert EmissionAccrualOverflow();
-            uint128 amount = uint128(amountUint256);
-            if (weight != 0) {
-                emissionGrowthGlobalX128_ += (uint256(amount) << 128) / weight;
+            uint256 amount = (uint256(rate) * (eventTime - time)) >> 32;
+            assembly ("memory-safe") {
+                emissionGrowthGlobalX128_ := add(emissionGrowthGlobalX128_, div(shl(128, amount), weight))
             }
             if (initialized) {
                 unchecked {

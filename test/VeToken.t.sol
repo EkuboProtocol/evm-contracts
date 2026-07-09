@@ -614,7 +614,7 @@ contract VeTokenTest is FullTest {
         veToken.claimPoolFeesAndExtendStakeToSelfForDuration(veId, 2, poolKey);
     }
 
-    function test_claimPoolFeesAndExtendStakeFinalizesBeforeNativePayoutCallback() public {
+    function test_claimPoolFeesAndExtendStakeRevertsIfNativePayoutTransfersAuthority() public {
         vm.deal(address(this), 1e18);
         PoolKey memory poolKey =
             createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
@@ -641,25 +641,23 @@ contract VeTokenTest is FullTest {
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
         uint64 newEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, address(owner), veId));
         owner.claimAndExtend(poolKey, newEnd);
 
-        assertTrue(owner.callbackTriggered());
-        assertFalse(owner.tokenMissingDuringCallback());
-        assertEq(owner.stakeEndDuringCallback(), newEnd);
-        assertTrue(owner.transferAttempted());
-        assertTrue(owner.transferSucceeded());
-        assertTrue(buyer.ownedDuringCallback());
-        assertEq(buyer.lastSeller(), address(owner));
-        assertEq(buyer.totalPaid(), salePrice);
+        assertFalse(owner.callbackTriggered());
+        assertFalse(owner.transferAttempted());
+        assertFalse(owner.transferSucceeded());
+        assertFalse(buyer.ownedDuringCallback());
+        assertEq(buyer.totalPaid(), 0);
 
-        assertGt(owner.claimed0(), 0);
+        assertEq(owner.claimed0(), 0);
         assertEq(owner.claimed1(), 0);
-        assertEq(address(owner).balance, salePrice + owner.claimed0());
-        assertEq(veToken.ownerOf(veId), address(buyer));
-        assertEq(_stakeEnd(veId), newEnd);
+        assertEq(address(owner).balance, 0);
+        assertEq(veToken.ownerOf(veId), address(owner));
+        assertEq(_stakeEnd(veId), oldEnd);
     }
 
-    function test_claimPoolFeesAndMergeStakesBurnsBeforeNativePayoutCallback() public {
+    function test_claimPoolFeesAndMergeStakesRevertsIfNativePayoutTransfersSourceAuthority() public {
         vm.deal(address(this), 1e18);
         PoolKey memory poolKey =
             createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
@@ -688,26 +686,28 @@ contract VeTokenTest is FullTest {
         );
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
+        vm.expectRevert(abi.encodeWithSelector(VeToken.NotAuthorizedForToken.selector, address(owner), fromVeId));
         owner.claimAndMerge(poolKey);
 
-        assertTrue(owner.callbackTriggered());
-        assertTrue(owner.tokenMissingDuringCallback());
-        assertTrue(owner.transferAttempted());
+        assertFalse(owner.callbackTriggered());
+        assertFalse(owner.transferAttempted());
         assertFalse(owner.transferSucceeded());
         assertFalse(buyer.ownedDuringCallback());
         assertEq(buyer.totalPaid(), 0);
 
-        assertGt(owner.claimed0(), 0);
+        assertEq(owner.claimed0(), 0);
         assertEq(owner.claimed1(), 0);
-        assertEq(owner.nextAmount(), 3e18);
-        assertEq(address(owner).balance, owner.claimed0());
+        assertEq(owner.nextAmount(), 0);
+        assertEq(address(owner).balance, 0);
+        assertEq(veToken.ownerOf(fromVeId), address(owner));
         assertEq(veToken.ownerOf(toVeId), address(owner));
 
-        (uint128 mergedAmount, uint64 mergedEnd) = veToken.stakes(toVeId);
-        assertEq(mergedAmount, 3e18);
-        assertEq(mergedEnd, toEnd);
-        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
-        veToken.ownerOf(fromVeId);
+        (uint128 fromAmount, uint64 fromStakeEnd) = veToken.stakes(fromVeId);
+        (uint128 toAmount, uint64 toStakeEnd) = veToken.stakes(toVeId);
+        assertEq(fromAmount, 2e18);
+        assertEq(fromStakeEnd, fromEnd);
+        assertEq(toAmount, 1e18);
+        assertEq(toStakeEnd, toEnd);
     }
 
     function test_withdrawStakeBurnsBeforeNativeStakePayoutCallback() public {

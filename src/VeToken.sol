@@ -450,7 +450,12 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param recipient Recipient of the unstaked tokens.
     function withdrawStake(uint256 veId, address recipient) public payable authorizedForStake(veId) {
-        _withdrawStake(veId, recipient);
+        StakeId id = stakeId(veId);
+
+        lock(abi.encode(CALL_TYPE_UNSTAKE, id, recipient));
+
+        _burn(veId);
+        _setExtraData(veId, 0);
     }
 
     /// @notice Unstakes an expired represented stake, burns its ERC721 token, and withdraws stake to the caller.
@@ -622,16 +627,6 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         (amount0, amount1) = abi.decode(
             lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, recipient, poolKey)), (uint128, uint128)
         );
-    }
-
-    /// @notice Shared implementation for unstaking and burning the ERC721 wrapper.
-    function _withdrawStake(uint256 veId, address recipient) private {
-        StakeId id = stakeId(veId);
-
-        lock(abi.encode(CALL_TYPE_UNSTAKE, id, recipient));
-
-        _burn(veId);
-        _setExtraData(veId, 0);
     }
 
     /// @notice Converts a duration into an absolute stake end timestamp.

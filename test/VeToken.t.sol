@@ -7,6 +7,7 @@ import {LibString} from "solady/utils/LibString.sol";
 
 import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
+import {Core} from "../src/Core.sol";
 import {Router} from "../src/Router.sol";
 import {VeToken} from "../src/VeToken.sol";
 import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
@@ -14,6 +15,7 @@ import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/ex
 import {IVe33} from "../src/interfaces/extensions/IVe33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
@@ -24,6 +26,124 @@ import {createSwapParameters} from "../src/types/swapParameters.sol";
 contract ZeroStakeTokenVe33 {
     function stakeToken() external pure returns (address) {
         return address(0);
+    }
+}
+
+contract FixedPriceVeTokenBuyer {
+    VeToken public immutable veToken;
+    uint256 public immutable price;
+
+    uint256 public expectedTokenId;
+    bool public ownedDuringCallback;
+    address public lastSeller;
+    uint256 public totalPaid;
+
+    constructor(VeToken _veToken, uint256 _price) payable {
+        veToken = _veToken;
+        price = _price;
+    }
+
+    function setExpectedTokenId(uint256 tokenId) external {
+        expectedTokenId = tokenId;
+    }
+
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata) external returns (bytes4) {
+        require(msg.sender == address(veToken));
+        require(tokenId == expectedTokenId);
+
+        ownedDuringCallback = veToken.ownerOf(tokenId) == address(this);
+        lastSeller = from;
+        totalPaid += price;
+
+        (bool success,) = from.call{value: price}("");
+        require(success);
+
+        return this.onERC721Received.selector;
+    }
+
+    receive() external payable {}
+}
+
+contract NativePayoutReentrantVeTokenOwner {
+    VeToken public immutable veToken;
+    TestToken public immutable stakeToken;
+    FixedPriceVeTokenBuyer public immutable buyer;
+
+    uint256 public targetVeId;
+    uint256 public fromVeId;
+    uint256 public toVeId;
+
+    bool public callbackTriggered;
+    bool public tokenMissingDuringCallback;
+    bool public transferAttempted;
+    bool public transferSucceeded;
+    uint64 public stakeEndDuringCallback;
+
+    uint128 public claimed0;
+    uint128 public claimed1;
+    uint128 public nextAmount;
+
+    constructor(VeToken _veToken, TestToken _stakeToken, FixedPriceVeTokenBuyer _buyer) {
+        veToken = _veToken;
+        stakeToken = _stakeToken;
+        buyer = _buyer;
+    }
+
+    function createStake(uint128 amount, uint64 end) external returns (uint256 veId) {
+        stakeToken.approve(address(veToken), type(uint256).max);
+        veId = veToken.createStake(amount, end);
+        targetVeId = veId;
+        buyer.setExpectedTokenId(veId);
+    }
+
+    function createNativeStake(uint64 end) external payable returns (uint256 veId) {
+        veId = veToken.createStake{value: msg.value}(uint128(msg.value), end);
+        targetVeId = veId;
+        buyer.setExpectedTokenId(veId);
+    }
+
+    function createStakes(uint128 fromAmount, uint64 fromEnd, uint128 toAmount, uint64 toEnd) external {
+        stakeToken.approve(address(veToken), type(uint256).max);
+        fromVeId = veToken.createStake(fromAmount, fromEnd);
+        toVeId = veToken.createStake(toAmount, toEnd);
+        targetVeId = fromVeId;
+        buyer.setExpectedTokenId(fromVeId);
+    }
+
+    function voteTarget(PoolKey calldata poolKey, uint64 swapFee) external {
+        veToken.vote(targetVeId, poolKey, swapFee);
+    }
+
+    function voteFrom(PoolKey calldata poolKey, uint64 swapFee) external {
+        veToken.vote(fromVeId, poolKey, swapFee);
+    }
+
+    function claimAndExtend(PoolKey calldata poolKey, uint64 end) external {
+        (claimed0, claimed1) = veToken.claimPoolFeesAndExtendStake(targetVeId, end, poolKey, address(this));
+    }
+
+    function claimAndMerge(PoolKey calldata poolKey) external {
+        (claimed0, claimed1, nextAmount) = veToken.claimPoolFeesAndMergeStakes(fromVeId, toVeId, poolKey, address(this));
+    }
+
+    function withdrawTarget() external {
+        veToken.withdrawStake(targetVeId);
+    }
+
+    receive() external payable {
+        if (msg.sender == address(buyer) || callbackTriggered) return;
+
+        callbackTriggered = true;
+        try veToken.stakes(targetVeId) returns (uint128, uint64 end) {
+            stakeEndDuringCallback = end;
+        } catch {
+            tokenMissingDuringCallback = true;
+        }
+
+        transferAttempted = true;
+        try veToken.safeTransferFrom(address(this), address(buyer), targetVeId) {
+            transferSucceeded = true;
+        } catch {}
     }
 }
 
@@ -492,6 +612,135 @@ contract VeTokenTest is FullTest {
         vm.warp(uint256(type(uint64).max) - 1);
         vm.expectRevert(VeToken.StakeEndOverflow.selector);
         veToken.claimPoolFeesAndExtendStakeToSelfForDuration(veId, 2, poolKey);
+    }
+
+    function test_claimPoolFeesAndExtendStakeFinalizesBeforeNativePayoutCallback() public {
+        vm.deal(address(this), 1e18);
+        PoolKey memory poolKey =
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        createPosition(poolKey, -64, 64, 1e18, 1e18);
+
+        uint256 salePrice = 1 ether;
+        FixedPriceVeTokenBuyer buyer = new FixedPriceVeTokenBuyer(veToken, salePrice);
+        vm.deal(address(buyer), salePrice);
+        NativePayoutReentrantVeTokenOwner owner = new NativePayoutReentrantVeTokenOwner(veToken, stakeToken, buyer);
+
+        uint64 oldEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION() - 1 days);
+        stakeToken.transfer(address(owner), 1e18);
+        uint256 veId = owner.createStake(1e18, oldEnd);
+        owner.voteTarget(poolKey, uint64(1 << 62));
+
+        token1.approve(address(router), type(uint256).max);
+        router.swapAllowPartialFill(
+            poolKey,
+            createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0
+            }),
+            address(this)
+        );
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        uint64 newEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        owner.claimAndExtend(poolKey, newEnd);
+
+        assertTrue(owner.callbackTriggered());
+        assertFalse(owner.tokenMissingDuringCallback());
+        assertEq(owner.stakeEndDuringCallback(), newEnd);
+        assertTrue(owner.transferAttempted());
+        assertTrue(owner.transferSucceeded());
+        assertTrue(buyer.ownedDuringCallback());
+        assertEq(buyer.lastSeller(), address(owner));
+        assertEq(buyer.totalPaid(), salePrice);
+
+        assertGt(owner.claimed0(), 0);
+        assertEq(owner.claimed1(), 0);
+        assertEq(address(owner).balance, salePrice + owner.claimed0());
+        assertEq(veToken.ownerOf(veId), address(buyer));
+        assertEq(_stakeEnd(veId), newEnd);
+    }
+
+    function test_claimPoolFeesAndMergeStakesBurnsBeforeNativePayoutCallback() public {
+        vm.deal(address(this), 1e18);
+        PoolKey memory poolKey =
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        createPosition(poolKey, -64, 64, 1e18, 1e18);
+
+        uint256 salePrice = 1 ether;
+        FixedPriceVeTokenBuyer buyer = new FixedPriceVeTokenBuyer(veToken, salePrice);
+        vm.deal(address(buyer), salePrice);
+        NativePayoutReentrantVeTokenOwner owner = new NativePayoutReentrantVeTokenOwner(veToken, stakeToken, buyer);
+
+        uint64 fromEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION() - 1 days);
+        uint64 toEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
+        stakeToken.transfer(address(owner), 3e18);
+        owner.createStakes(2e18, fromEnd, 1e18, toEnd);
+        uint256 fromVeId = owner.fromVeId();
+        uint256 toVeId = owner.toVeId();
+        owner.voteFrom(poolKey, uint64(1 << 62));
+
+        token1.approve(address(router), type(uint256).max);
+        router.swapAllowPartialFill(
+            poolKey,
+            createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0
+            }),
+            address(this)
+        );
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        owner.claimAndMerge(poolKey);
+
+        assertTrue(owner.callbackTriggered());
+        assertTrue(owner.tokenMissingDuringCallback());
+        assertTrue(owner.transferAttempted());
+        assertFalse(owner.transferSucceeded());
+        assertFalse(buyer.ownedDuringCallback());
+        assertEq(buyer.totalPaid(), 0);
+
+        assertGt(owner.claimed0(), 0);
+        assertEq(owner.claimed1(), 0);
+        assertEq(owner.nextAmount(), 3e18);
+        assertEq(address(owner).balance, owner.claimed0());
+        assertEq(veToken.ownerOf(toVeId), address(owner));
+
+        (uint128 mergedAmount, uint64 mergedEnd) = veToken.stakes(toVeId);
+        assertEq(mergedAmount, 3e18);
+        assertEq(mergedEnd, toEnd);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        veToken.ownerOf(fromVeId);
+    }
+
+    function test_withdrawStakeBurnsBeforeNativeStakePayoutCallback() public {
+        Core nativeCore = new Core();
+        address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
+        deployCodeTo("Ve33.sol:Ve33", abi.encode(nativeCore, NATIVE_TOKEN_ADDRESS), deployAddress);
+        Ve33 nativeVe33 = Ve33(payable(deployAddress));
+        VeTokenMetadata nativeMetadata = new VeTokenMetadata("Ether", "ETH", 18, address(0));
+        VeToken nativeVeToken = new VeToken(nativeCore, nativeVe33, nativeMetadata, "Vote Escrow ETH", "veETH");
+
+        uint256 salePrice = 1 ether;
+        FixedPriceVeTokenBuyer buyer = new FixedPriceVeTokenBuyer(nativeVeToken, salePrice);
+        vm.deal(address(buyer), salePrice);
+        NativePayoutReentrantVeTokenOwner owner =
+            new NativePayoutReentrantVeTokenOwner(nativeVeToken, TestToken(address(0)), buyer);
+
+        uint128 stakeAmount = 1e18;
+        uint64 end = uint64(vm.getBlockTimestamp() + 1);
+        uint256 veId = owner.createNativeStake{value: stakeAmount}(end);
+
+        vm.warp(end);
+        owner.withdrawTarget();
+
+        assertTrue(owner.callbackTriggered());
+        assertTrue(owner.tokenMissingDuringCallback());
+        assertTrue(owner.transferAttempted());
+        assertFalse(owner.transferSucceeded());
+        assertFalse(buyer.ownedDuringCallback());
+        assertEq(buyer.totalPaid(), 0);
+        assertEq(address(owner).balance, stakeAmount);
+
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        nativeVeToken.ownerOf(veId);
     }
 
     function test_splitAndMergeStakeLifecycle() public {

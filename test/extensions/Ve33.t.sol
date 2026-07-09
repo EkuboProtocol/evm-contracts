@@ -36,7 +36,7 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
-import {MIN_SQRT_RATIO, SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {StakeId, createStakeId} from "../../src/types/stakeId.sol";
 import {Locker} from "../../src/types/locker.sol";
 import {VePoolVote} from "../../src/types/vePoolVote.sol";
@@ -1819,6 +1819,31 @@ contract Ve33Test is FullTest {
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
         assertEq(tick, MIN_TICK - 1);
         assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MIN_TICK), global);
+        assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
+    }
+
+    function test_concentratedRewardsFlipInitializedMaxTickAtLimitPrice() public {
+        PoolKey memory poolKey = createPool({tick: MAX_TICK - 1, fee: 0, tickSpacing: 1, extension: address(ve)});
+        PositionId positionId = _mintPosition(MIN_TICK, MAX_TICK);
+        PoolId poolId = poolKey.toPoolId();
+
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(10_000, _defaultEmissionEnd());
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+        uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
+        assertGt(global, 0);
+
+        SwapParameters upToMax =
+            createSwapParameters({_sqrtRatioLimit: MAX_SQRT_RATIO, _amount: -1, _isToken1: false, _skipAhead: 0});
+        _routerSwap(poolKey, upToMax, address(this));
+
+        (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolId).parse();
+        assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
+        assertEq(tick, MAX_TICK);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MAX_TICK), global);
         assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 

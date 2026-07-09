@@ -41,6 +41,7 @@ import {StakeId, createStakeId} from "../../src/types/stakeId.sol";
 import {Locker} from "../../src/types/locker.sol";
 import {VePoolVote} from "../../src/types/vePoolVote.sol";
 import {VePoolFeeState} from "../../src/types/vePoolFeeState.sol";
+import {Ve33GlobalEmissionState, createVe33GlobalEmissionState} from "../../src/types/ve33GlobalEmissionState.sol";
 import {Vm} from "forge-std/Test.sol";
 
 contract Ve33Forwarder is BaseLocker {
@@ -1589,6 +1590,58 @@ contract Ve33Test is FullTest {
         _assertEmissionTimeInitialized(end, false);
         assertEq(ve.emissionRate(), 0);
         assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), 3_000);
+    }
+
+    function test_scheduleEmissionsRejectsFundingAboveUint128() public {
+        uint256 alignedTime = (vm.getBlockTimestamp() + 255) & ~uint256(255);
+        vm.warp(alignedTime);
+
+        uint64 end = uint64(vm.getBlockTimestamp() + 256);
+        uint160 rewardRate = uint160(1) << 152;
+
+        vm.expectRevert(IVe33.EmissionFundingOverflow.selector);
+        periphery.scheduleEmissions(0, end, rewardRate);
+
+        assertEq(ve.emissionRate(), 0);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), 0);
+        _assertEmissionTimeInitialized(end, false);
+    }
+
+    function test_scheduleEmissionsAllowsUint128MaxFunding() public {
+        uint256 alignedTime = (vm.getBlockTimestamp() + 255) & ~uint256(255);
+        vm.warp(alignedTime);
+
+        uint64 end = uint64(vm.getBlockTimestamp() + 256);
+        uint160 rewardRate = uint160(uint256(type(uint128).max) << 24);
+        uint256 balanceBefore = stakeToken.balanceOf(address(this));
+
+        uint128 amount = periphery.scheduleEmissions(0, end, rewardRate);
+
+        assertEq(amount, type(uint128).max);
+        assertEq(stakeToken.balanceOf(address(this)), balanceBefore - amount);
+        assertEq(_rewardSavedBalance(VE33_STAKE_TOKEN_SAVED_BALANCE_ID), type(uint128).max);
+        assertEq(ve.emissionRate(), rewardRate);
+        assertEq(ve.emissionRateDeltaAtTime(end), -int256(uint256(rewardRate)));
+        _assertEmissionTimeInitialized(end, true);
+    }
+
+    function test_accrueEmissionsRejectsSliceAboveUint128() public {
+        uint256 alignedTime = (vm.getBlockTimestamp() + 255) & ~uint256(255);
+        vm.warp(alignedTime);
+
+        uint160 rewardRate = uint160(1) << 152;
+        vm.store(
+            address(ve),
+            bytes32(uint256(2)),
+            Ve33GlobalEmissionState.unwrap(createVe33GlobalEmissionState(rewardRate, uint32(vm.getBlockTimestamp())))
+        );
+
+        vm.warp(alignedTime + 256);
+        vm.expectRevert(IVe33.EmissionAccrualOverflow.selector);
+        ve.accrueEmissions();
+
+        assertEq(ve.emissionGrowthGlobalX128(), 0);
+        assertEq(ve.emissionRate(), rewardRate);
     }
 
     function test_scheduleEmissionsAccruesBeforeAddingNewRate() public {

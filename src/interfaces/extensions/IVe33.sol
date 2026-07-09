@@ -48,6 +48,10 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     error TickSpacingMustBePowerOfFour();
     /// @notice Thrown when emission schedule timestamps are invalid.
     error InvalidTimestamps();
+    /// @notice Thrown when an emission schedule requires more backing than Ve33 can account.
+    error EmissionFundingOverflow();
+    /// @notice Thrown when accrued emissions for one slice exceed Ve33's accounting width.
+    error EmissionAccrualOverflow();
     /// @notice Thrown when an emission-rate delta exceeds the allowed bound.
     error MaxRateDeltaPerTime();
     /// @notice Thrown when a new stake end timestamp is not in the future.

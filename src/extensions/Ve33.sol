@@ -702,7 +702,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             // realDuration is less than 2**32 because startTime and endTime are valid and endTime is in the future.
             // The rounded Q32 amount fits the uint128 saved-balance path for any fundable schedule.
             uint256 realDuration = endTime - realStartTime;
-            amount = uint128(((realDuration * rewardRate) + type(uint32).max) >> 32);
+            uint256 requiredAmount = ((realDuration * rewardRate) + type(uint32).max) >> 32;
+            if (requiredAmount > type(uint128).max) revert EmissionFundingOverflow();
+            amount = uint128(requiredAmount);
         }
 
         accrueEmissions();
@@ -899,10 +901,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             (uint256 eventTime, bool initialized) = _searchForNextEmissionTime(lastAccruedTime, time, block.timestamp);
 
             uint128 weight = _totalVoteWeight();
-            uint128 amount;
-            unchecked {
-                amount = uint128((uint256(rate) * (eventTime - time)) >> 32);
-            }
+            uint256 amountUint256 = (uint256(rate) * (eventTime - time)) >> 32;
+            if (amountUint256 > type(uint128).max) revert EmissionAccrualOverflow();
+            uint128 amount = uint128(amountUint256);
             if (weight != 0) {
                 emissionGrowthGlobalX128_ += (uint256(amount) << 128) / weight;
             }

@@ -1625,9 +1625,13 @@ contract Ve33Test is FullTest {
         _assertEmissionTimeInitialized(end, true);
     }
 
-    function test_accrueEmissionsRejectsSliceAboveUint128() public {
+    function test_accrueEmissionsBurnsOverflowingSliceInsteadOfReverting() public {
         uint256 alignedTime = (vm.getBlockTimestamp() + 255) & ~uint256(255);
         vm.warp(alignedTime);
+
+        (PoolKey memory poolKey,) = _createConcentratedPool();
+        _fundAndVote(poolKey, uint64(1 << 62));
+        assertGt(ve.totalVoteWeight(), 0);
 
         uint160 rewardRate = uint160(1) << 152;
         vm.store(
@@ -1637,11 +1641,11 @@ contract Ve33Test is FullTest {
         );
 
         vm.warp(alignedTime + 256);
-        vm.expectRevert(IVe33.EmissionAccrualOverflow.selector);
         ve.accrueEmissions();
 
         assertEq(ve.emissionGrowthGlobalX128(), 0);
         assertEq(ve.emissionRate(), rewardRate);
+        assertEq(ve.emissionsLastAccrued(), uint32(vm.getBlockTimestamp()));
     }
 
     function test_scheduleEmissionsAccruesBeforeAddingNewRate() public {

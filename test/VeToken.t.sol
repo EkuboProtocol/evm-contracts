@@ -169,7 +169,7 @@ contract VeTokenTest is FullTest {
         vm.warp(end);
 
         coolAllContracts();
-        veToken.withdrawStake(veId);
+        veToken.withdrawStake(veId, address(this));
         vm.snapshotGasLastCall("VeToken#withdrawStake");
     }
 
@@ -316,11 +316,11 @@ contract VeTokenTest is FullTest {
         assertEq(_stakeTokenSavedBalance(), 3e18);
 
         vm.expectRevert(IVe33.StakeNotExpired.selector);
-        veToken.withdrawStake(veId);
+        veToken.withdrawStakeToSelf(veId);
         vm.warp(extendedEnd);
         assertEq(veToken.votingPower(veId), 0);
         uint256 balanceBefore = stakeToken.balanceOf(address(this));
-        veToken.withdrawStake(veId);
+        veToken.withdrawStakeToSelf(veId);
 
         assertEq(stakeToken.balanceOf(address(this)), balanceBefore + 3e18);
         assertEq(_stakeTokenSavedBalance(), 0);
@@ -589,7 +589,7 @@ contract VeTokenTest is FullTest {
         assertEq(_stakeAmount(veId), 3e18);
     }
 
-    function test_approvedWithdrawSendsStakeToCurrentOwner() public {
+    function test_approvedWithdrawCanSendStakeToExplicitRecipient() public {
         uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
         address operator = address(1234);
         veToken.approve(operator, veId);
@@ -598,10 +598,27 @@ contract VeTokenTest is FullTest {
         uint256 ownerBalanceBefore = stakeToken.balanceOf(address(this));
         uint256 operatorBalanceBefore = stakeToken.balanceOf(operator);
         vm.prank(operator);
-        veToken.withdrawStake(veId);
+        veToken.withdrawStake(veId, address(this));
 
         assertEq(stakeToken.balanceOf(address(this)), ownerBalanceBefore + 1e18);
         assertEq(stakeToken.balanceOf(operator), operatorBalanceBefore);
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        veToken.ownerOf(veId);
+    }
+
+    function test_approvedWithdrawToSelfSendsStakeToCaller() public {
+        uint256 veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
+        address operator = address(1234);
+        veToken.approve(operator, veId);
+        vm.warp(_stakeEnd(veId));
+
+        uint256 ownerBalanceBefore = stakeToken.balanceOf(address(this));
+        uint256 operatorBalanceBefore = stakeToken.balanceOf(operator);
+        vm.prank(operator);
+        veToken.withdrawStakeToSelf(veId);
+
+        assertEq(stakeToken.balanceOf(address(this)), ownerBalanceBefore);
+        assertEq(stakeToken.balanceOf(operator), operatorBalanceBefore + 1e18);
         vm.expectRevert(ERC721.TokenDoesNotExist.selector);
         veToken.ownerOf(veId);
     }

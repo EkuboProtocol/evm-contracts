@@ -445,15 +445,24 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         nextAmount = _mergeStakes(fromVeId, toVeId);
     }
 
-    /// @notice Unstakes an expired represented stake and burns its ERC721 token.
-    /// @dev The caller must own or be approved for `veId`; unstaked tokens are withdrawn to the current ERC721 owner.
+    /// @notice Unstakes an expired represented stake, burns its ERC721 token, and withdraws stake to `recipient`.
+    /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
-    function withdrawStake(uint256 veId) external payable authorizedForStake(veId) {
-        address owner = ownerOf(veId);
-        lock(abi.encode(CALL_TYPE_UNSTAKE, stakeId(veId), owner));
+    /// @param recipient Recipient of the unstaked tokens.
+    function withdrawStake(uint256 veId, address recipient) public payable authorizedForStake(veId) {
+        StakeId id = stakeId(veId);
+
+        lock(abi.encode(CALL_TYPE_UNSTAKE, id, recipient));
 
         _burn(veId);
         _setExtraData(veId, 0);
+    }
+
+    /// @notice Unstakes an expired represented stake, burns its ERC721 token, and withdraws stake to the caller.
+    /// @dev The caller must own or be approved for `veId`.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    function withdrawStakeToSelf(uint256 veId) external payable {
+        withdrawStake(veId, msg.sender);
     }
 
     /// @notice Returns the current voting power of a represented stake.
@@ -546,7 +555,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
 
     /// @notice Settles token-moving wrapper actions inside the Core lock.
     /// @dev Ve33 only updates saved balances. This handler pays stake on stake, withdraws stake on unstake,
-    ///      and withdraws claimed pool fees to the current ERC721 owner selected before forwarding.
+    ///      and withdraws unstaked tokens or claimed pool fees to the selected recipient.
     /// @param data Encoded wrapper call type and arguments.
     /// @return result Encoded return data from the underlying Ve33 forward call.
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {

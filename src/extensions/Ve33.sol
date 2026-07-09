@@ -951,9 +951,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                         _setTickRewardsOutsidePerLiquidity(
                             poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
                         );
-                    } else if (tick == MIN_TICK) {
-                        break;
                     }
+                    if (tick == MIN_TICK) break;
                     tick--;
                 }
             }
@@ -967,9 +966,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                         _setTickRewardsOutsidePerLiquidity(
                             poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
                         );
-                    } else if (tick == MAX_TICK) {
-                        break;
                     }
+                    if (tick == MAX_TICK) break;
                 }
             }
         }

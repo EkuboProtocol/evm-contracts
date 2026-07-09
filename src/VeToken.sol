@@ -290,7 +290,6 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         returns (uint128 amount0, uint128 amount1)
     {
         (amount0, amount1) = _claimPoolFees(veId, poolKey, recipient);
-        _revalidateAuthorizedForStake(msg.sender, veId);
         _extendStake(veId, end);
     }
 
@@ -334,7 +333,6 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     {
         if (!isAuthorizedForNft(msg.sender, veId)) revert NotAuthorizedForToken(msg.sender, veId);
         (amount0, amount1) = _claimPoolFees(veId, poolKey, msg.sender);
-        _revalidateAuthorizedForStake(msg.sender, veId);
         _extendStake(veId, end);
     }
 
@@ -432,8 +430,6 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         returns (uint128 amount0, uint128 amount1, uint128 nextAmount)
     {
         (amount0, amount1) = _claimPoolFees(fromVeId, poolKey, recipient);
-        _revalidateAuthorizedForStake(msg.sender, fromVeId);
-        _revalidateAuthorizedForStake(msg.sender, toVeId);
         nextAmount = _mergeStakes(fromVeId, toVeId);
     }
 
@@ -446,22 +442,22 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         if (!isAuthorizedForNft(msg.sender, fromVeId)) revert NotAuthorizedForToken(msg.sender, fromVeId);
         if (!isAuthorizedForNft(msg.sender, toVeId)) revert NotAuthorizedForToken(msg.sender, toVeId);
         (amount0, amount1) = _claimPoolFees(fromVeId, poolKey, msg.sender);
-        _revalidateAuthorizedForStake(msg.sender, fromVeId);
-        _revalidateAuthorizedForStake(msg.sender, toVeId);
         nextAmount = _mergeStakes(fromVeId, toVeId);
     }
 
-    /// @notice Unstakes an expired represented stake and burns its ERC721 token.
-    /// @dev The caller must own or be approved for `veId`; unstaked tokens are withdrawn to the current ERC721 owner.
+    /// @notice Unstakes an expired represented stake, burns its ERC721 token, and withdraws stake to `recipient`.
+    /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
-    function withdrawStake(uint256 veId) external payable authorizedForStake(veId) {
-        address owner = ownerOf(veId);
-        StakeId id = stakeId(veId);
+    /// @param recipient Recipient of the unstaked tokens.
+    function withdrawStake(uint256 veId, address recipient) public payable authorizedForStake(veId) {
+        _withdrawStake(veId, recipient);
+    }
 
-        _burn(veId);
-        _setExtraData(veId, 0);
-
-        lock(abi.encode(CALL_TYPE_UNSTAKE, id, owner));
+    /// @notice Unstakes an expired represented stake, burns its ERC721 token, and withdraws stake to the caller.
+    /// @dev The caller must own or be approved for `veId`.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    function withdrawStakeToSelf(uint256 veId) external payable {
+        withdrawStake(veId, msg.sender);
     }
 
     /// @notice Returns the current voting power of a represented stake.
@@ -554,7 +550,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
 
     /// @notice Settles token-moving wrapper actions inside the Core lock.
     /// @dev Ve33 only updates saved balances. This handler pays stake on stake, withdraws stake on unstake,
-    ///      and withdraws claimed pool fees to the current ERC721 owner selected before forwarding.
+    ///      and withdraws unstaked tokens or claimed pool fees to the selected recipient.
     /// @param data Encoded wrapper call type and arguments.
     /// @return result Encoded return data from the underlying Ve33 forward call.
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
@@ -628,6 +624,16 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         );
     }
 
+    /// @notice Shared implementation for unstaking and burning the ERC721 wrapper.
+    function _withdrawStake(uint256 veId, address recipient) private {
+        StakeId id = stakeId(veId);
+
+        lock(abi.encode(CALL_TYPE_UNSTAKE, id, recipient));
+
+        _burn(veId);
+        _setExtraData(veId, 0);
+    }
+
     /// @notice Converts a duration into an absolute stake end timestamp.
     function _stakeEndFromDuration(uint32 duration) private view returns (uint64 end) {
         if (duration > VE33_MAX_STAKE_DURATION) revert IVe33.StakeDurationTooLong();
@@ -640,10 +646,6 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Returns the maximum valid stake end timestamp from now.
     function _maxStakeEnd() private view returns (uint64) {
         return _stakeEndFromDuration(uint32(VE33_MAX_STAKE_DURATION));
-    }
-
-    function _revalidateAuthorizedForStake(address caller, uint256 veId) private view {
-        if (!isAuthorizedForNft(caller, veId)) revert NotAuthorizedForToken(caller, veId);
     }
 
     /// @notice Shared implementation for stake extension.

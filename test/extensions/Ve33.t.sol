@@ -633,7 +633,7 @@ contract Ve33Test is FullTest {
         vm.warp(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         vm.expectEmit(address(ve));
         emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId1), poolId, 0, 0);
-        veToken.withdrawStake(veId1);
+        veToken.withdrawStakeToSelf(veId1);
     }
 
     function test_directHooksAndInvalidCoreLockRevert() public {
@@ -1031,7 +1031,7 @@ contract Ve33Test is FullTest {
 
         _vote(veId, poolKey, 0);
         vm.warp(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        veToken.withdrawStake(veId);
+        veToken.withdrawStakeToSelf(veId);
         (uint256 weightAfterWithdraw, uint256 feeWeightSumAfterWithdraw, uint64 swapFeeAfterWithdraw) =
             _poolVoteTotals(poolKey.toPoolId());
         assertEq(weightAfterWithdraw, 0);

@@ -36,7 +36,7 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {PositionId} from "../../src/types/positionId.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
-import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {StakeId, createStakeId} from "../../src/types/stakeId.sol";
 import {Locker} from "../../src/types/locker.sol";
 import {VePoolVote} from "../../src/types/vePoolVote.sol";
@@ -1795,6 +1795,124 @@ contract Ve33Test is FullTest {
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
         assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
+    }
+
+    function test_concentratedRewardsFlipInitializedMinTickAtLimitPrice() public {
+        PoolKey memory poolKey = createPool({tick: MIN_TICK + 1, fee: 0, tickSpacing: 1, extension: address(ve)});
+        PositionId positionId = _mintPosition(MIN_TICK, MAX_TICK);
+        PoolId poolId = poolKey.toPoolId();
+
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(10_000, _defaultEmissionEnd());
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+        uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
+        assertGt(global, 0);
+
+        SwapParameters downToMin =
+            createSwapParameters({_sqrtRatioLimit: MIN_SQRT_RATIO, _amount: -1, _isToken1: true, _skipAhead: 0});
+        _routerSwap(poolKey, downToMin, address(this));
+
+        (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolId).parse();
+        assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
+        assertEq(tick, MIN_TICK - 1);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MIN_TICK), global);
+        assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
+    }
+
+    function test_concentratedRewardsFlipInitializedMaxTickAtLimitPrice() public {
+        PoolKey memory poolKey = createPool({tick: MAX_TICK - 1, fee: 0, tickSpacing: 1, extension: address(ve)});
+        PositionId positionId = _mintPosition(MIN_TICK, MAX_TICK);
+        PoolId poolId = poolKey.toPoolId();
+
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(10_000, _defaultEmissionEnd());
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+        uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
+        assertGt(global, 0);
+
+        SwapParameters upToMax =
+            createSwapParameters({_sqrtRatioLimit: MAX_SQRT_RATIO, _amount: -1, _isToken1: false, _skipAhead: 0});
+        _routerSwap(poolKey, upToMax, address(this));
+
+        (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolId).parse();
+        assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
+        assertEq(tick, MAX_TICK);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MAX_TICK), global);
+        assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
+    }
+
+    function test_concentratedRewardsSkipEmptyBitmapWordsBeforeFarUpperRange() public {
+        int32 farLower = 24_640;
+        int32 farUpper = 24_704;
+        (PoolKey memory poolKey, PositionId activePositionId) = _createConcentratedPool();
+        PositionId farPositionId = _mintPosition(farLower, farUpper);
+        PoolId poolId = poolKey.toPoolId();
+
+        _updatePosition(poolKey, activePositionId, int128(uint128(1e18)));
+        _updatePosition(poolKey, farPositionId, int128(uint128(2e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(30_000, _defaultEmissionEnd());
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+        uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
+        assertGt(global, 0);
+        assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, farLower, farUpper), 0);
+
+        SwapParameters intoFarRange = createSwapParameters({
+            _sqrtRatioLimit: tickToSqrtRatio(farLower + 1), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
+        });
+        _routerSwap(poolKey, intoFarRange, address(this));
+
+        PoolState stateAfter = core.poolState(poolId);
+        assertGe(stateAfter.tick(), farLower);
+        assertLt(stateAfter.tick(), farUpper);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 64), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farLower), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farUpper), 0);
+        assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, farLower, farUpper), 0);
+        assertEq(_claimRewards(poolKey, farPositionId, address(this)), 0);
+        assertGt(_claimRewards(poolKey, activePositionId, address(this)), 0);
+    }
+
+    function test_concentratedRewardsSkipEmptyBitmapWordsBeforeFarLowerRange() public {
+        int32 farLower = -24_704;
+        int32 farUpper = -24_640;
+        (PoolKey memory poolKey, PositionId activePositionId) = _createConcentratedPool();
+        PositionId farPositionId = _mintPosition(farLower, farUpper);
+        PoolId poolId = poolKey.toPoolId();
+
+        _updatePosition(poolKey, activePositionId, int128(uint128(1e18)));
+        _updatePosition(poolKey, farPositionId, int128(uint128(2e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(30_000, _defaultEmissionEnd());
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+        uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
+        assertGt(global, 0);
+        assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, farLower, farUpper), 0);
+
+        SwapParameters intoFarRange = createSwapParameters({
+            _sqrtRatioLimit: tickToSqrtRatio(farUpper - 1), _amount: int128(1e30), _isToken1: false, _skipAhead: 0
+        });
+        _routerSwap(poolKey, intoFarRange, address(this));
+
+        PoolState stateAfter = core.poolState(poolId);
+        assertGe(stateAfter.tick(), farLower);
+        assertLt(stateAfter.tick(), farUpper);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -64), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farLower), 0);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farUpper), global);
+        assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, farLower, farUpper), 0);
+        assertEq(_claimRewards(poolKey, farPositionId, address(this)), 0);
+        assertGt(_claimRewards(poolKey, activePositionId, address(this)), 0);
     }
 
     function test_stableswapPoolStartsWithZeroDerivedFee() public {

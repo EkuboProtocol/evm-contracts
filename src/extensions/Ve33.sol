@@ -520,9 +520,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             checkValidPoolKey(poolKey);
             PoolId poolId = poolKey.toPoolId();
             PoolState stateBefore = CORE.poolState(poolId);
-            _maybeAccumulatePoolRewards(poolId, stateBefore.liquidity());
 
             VePoolSwapFeeState swapFeeState = _poolSwapFeeState(poolId);
+            _maybeAccumulatePoolRewards(poolId, stateBefore.liquidity(), swapFeeState.totalWeight());
             uint64 swapFee = swapFeeState.swapFee();
             uint128 feeAmount;
             bool feeIsToken1 = !params.isToken1();
@@ -855,6 +855,20 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @param poolId Pool whose reward state is being accumulated.
     /// @param liquidity Current Core pool liquidity.
     function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity) private {
+        _maybeAccumulatePoolRewards(poolId, liquidity, 0, false);
+    }
+
+    /// @notice Accumulates global emissions using a known pool vote weight.
+    /// @param poolId Pool whose reward state is being accumulated.
+    /// @param liquidity Current Core pool liquidity.
+    /// @param weight Current total active vote weight for `poolId`.
+    function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity, uint128 weight) private {
+        _maybeAccumulatePoolRewards(poolId, liquidity, weight, true);
+    }
+
+    function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity, uint128 cachedWeight, bool useCachedWeight)
+        private
+    {
         unchecked {
             accrueEmissions();
 
@@ -863,7 +877,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             if (snapshot != emissionGrowthGlobalX128_) {
                 _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
 
-                uint128 weight = _poolSwapFeeState(poolId).totalWeight();
+                uint128 weight = useCachedWeight ? cachedWeight : _poolSwapFeeState(poolId).totalWeight();
                 if (weight != 0) {
                     uint256 emissionRewardsAccrued =
                         FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);

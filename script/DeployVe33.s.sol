@@ -5,7 +5,6 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
-import {BaseVe33Positions} from "../src/base/BaseVe33Positions.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
@@ -80,7 +79,7 @@ contract DeployVe33 is Script {
         );
 
         if (deployedPositions) {
-            BaseVe33Positions(payable(positionsAddress))
+            Ve33Positions(payable(positionsAddress))
                 .setMetadata({newName: positionsName, newSymbol: positionsSymbol, newBaseUrl: positionsBaseUrl});
             console2.log("Set Ve33 positions metadata");
         }

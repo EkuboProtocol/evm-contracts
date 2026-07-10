@@ -6,7 +6,6 @@ import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
-import {BaseVe33Positions} from "../../src/base/BaseVe33Positions.sol";
 import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
 import {VeTokenMetadata} from "../../src/VeTokenMetadata.sol";
@@ -1507,7 +1506,7 @@ contract Ve33Test is FullTest {
         (uint128 liquidity,,) = vePositions.getPositionLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(liquidity, uint128(type(int128).max));
 
-        vm.expectRevert(BaseVe33Positions.DepositOverflow.selector);
+        vm.expectRevert(Ve33Positions.DepositOverflow.selector);
         vePositions.deposit(id, poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 1);
     }
 

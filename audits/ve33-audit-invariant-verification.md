@@ -28,7 +28,6 @@ The primary implementation evidence is:
 - `src/types/vePoolSwapFeeState.sol`
 - `src/types/ve33GlobalEmissionState.sol`
 - `src/VeToken.sol`
-- `src/base/BaseVe33Positions.sol`
 - `src/Ve33Positions.sol`
 - `src/Ve33Periphery.sol`
 
@@ -48,7 +47,7 @@ The primary implementation evidence is:
 | --- | --- | --- |
 | `V33-POOL-001` Ve33 pool key validation | **Satisfied** | Manual inspection: `beforeInitializePool`, `vote`, `maybeAccumulateRewards`, forwarded `swap`, and forwarded LP reward claims validate untrusted pool keys; `claimPoolFees` checks `poolKey.toPoolId() == votedPoolId`; trusted hooks avoid redundant full validation. Unit/regression: `test_poolInitializationRejectsInvalidConfig`, `test_voteValidation`, and `test_maybeAccumulateRewardsValidationAndOutOfRangeStableswap` in `test/extensions/Ve33.t.sol`. |
 | `V33-POOL-002` direct Core swaps are forbidden | **Satisfied** | Manual inspection: `Ve33.beforeSwap` always reverts with `SwapMustHappenThroughForward`. Unit/regression: `test_directHooksAndInvalidCoreLockRevert` and forwarded swap tests in `test/extensions/Ve33.t.sol`. |
-| `V33-POOL-003` Ve33 does not transfer ERC20s | **Satisfied** | Manual inspection: `src/extensions/Ve33.sol` only mutates Core saved balances. Settlement is in lockers/periphery: `src/VeToken.sol`, `src/base/BaseVe33Positions.sol`, and `src/Ve33Periphery.sol`. No ERC20 transfer helper is imported or called by `Ve33`. |
+| `V33-POOL-003` Ve33 does not transfer ERC20s | **Satisfied** | Manual inspection: `src/extensions/Ve33.sol` only mutates Core saved balances. Settlement is in lockers/periphery: `src/VeToken.sol`, `src/Ve33Positions.sol`, and `src/Ve33Periphery.sol`. No ERC20 transfer helper is imported or called by `Ve33`. |
 
 ## Stake Accounting Invariants
 
@@ -124,10 +123,10 @@ The primary implementation evidence is:
 
 | Invariant | Status | Evidence |
 | --- | --- | --- |
-| `V33-POS-001` position id mapping | **Satisfied** | Manual inspection: `BaseVe33Positions.positionId` uses `createPositionId(bytes24(uint192(id)), tickLower, tickUpper)` and all Core position updates use `address(this)` as owner. Unit/regression: `test_vePositionsAuthorizesByNftAndKeepsIndependentPositions`. |
-| `V33-POS-002` only Ve33 pools are managed | **Satisfied** | Manual inspection: `BaseVe33Positions` validates `poolKey.config.extension() == address(ve33)` before user-driven deposits, withdrawals, claims, and pool initialization. Unit/regression: `test_vePositionsAuthorizesByNftAndKeepsIndependentPositions`. |
+| `V33-POS-001` position id mapping | **Satisfied** | Manual inspection: `Ve33Positions.positionId` uses `createPositionId(bytes24(uint192(id)), tickLower, tickUpper)` and all Core position updates use `address(this)` as owner. Unit/regression: `test_vePositionsAuthorizesByNftAndKeepsIndependentPositions`. |
+| `V33-POS-002` only Ve33 pools are managed | **Satisfied** | Manual inspection: `Ve33Positions` validates `poolKey.config.extension() == address(ve33)` before user-driven deposits, withdrawals, claims, and pool initialization. Unit/regression: `test_vePositionsAuthorizesByNftAndKeepsIndependentPositions`. |
 | `V33-POS-003` NFT authorization controls LP operations | **Satisfied** | Manual inspection: deposit, withdraw, and claim entrypoints use `authorizedForNft`. Unit/regression: `test_vePositionsAuthorizesByNftAndKeepsIndependentPositions`. |
-| `V33-POS-004` deposit slippage and overflow | **Satisfied** | Manual inspection: `BaseVe33Positions.handleLockData` reverts on insufficient computed liquidity, signed-liquidity overflow, existing-position overflow, and price movement over max amounts. Unit/regression: `test_vePositionsRejectsDepositsThatOverflowQueryableLiquidity`. |
+| `V33-POS-004` deposit slippage and overflow | **Satisfied** | Manual inspection: `Ve33Positions.handleLockData` reverts on insufficient computed liquidity, signed-liquidity overflow, existing-position overflow, and price movement over max amounts. Unit/regression: `test_vePositionsRejectsDepositsThatOverflowQueryableLiquidity`. |
 | `V33-POS-005` withdraw and claim can be bundled | **Satisfied** | Manual inspection: `withdrawAndClaimRewards` calls `_claimRewards` before decreasing liquidity and settles reward/principal to the same recipient. Unit/regression: `test_vePositionsWithdrawAndClaimRewards`. |
 
 ## Observable Event Invariants

@@ -59,13 +59,11 @@ library Ve33Lib {
     }
 
     /// @notice Claims LP rewards for a Ve33 position through Core.
-    function claimRewards(ICore core, IVe33 ve33, PoolKey memory poolKey, PositionId positionId, address recipient)
+    function claimRewards(ICore core, IVe33 ve33, PoolKey memory poolKey, PositionId positionId)
         internal
         returns (uint256 amount)
     {
-        amount = abi.decode(
-            core.forward(address(ve33), abi.encode(VE33_CLAIM_REWARDS, poolKey, positionId, recipient)), (uint256)
-        );
+        amount = abi.decode(core.forward(address(ve33), abi.encode(VE33_CLAIM_REWARDS, poolKey, positionId)), (uint256));
     }
 
     /// @notice Stakes tokens into Ve33 through Core.

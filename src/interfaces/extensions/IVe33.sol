@@ -13,7 +13,7 @@ import {StakeId} from "../../types/stakeId.sol";
 // Payload after call type: abi.encode(PoolKey poolKey, SwapParameters params).
 uint256 constant VE33_SWAP = 0;
 // Forward call type for claiming LP reward-token emissions.
-// Payload after call type: abi.encode(PoolKey poolKey, PositionId positionId, address recipient).
+// Payload after call type: abi.encode(PoolKey poolKey, PositionId positionId).
 uint256 constant VE33_CLAIM_REWARDS = 1;
 // Forward call type for increasing a ve stake.
 // Payload after call type: abi.encode(StakeId stakeId, uint128 amount).

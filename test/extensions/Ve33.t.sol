@@ -216,8 +216,8 @@ contract Ve33Test is FullTest {
         return core.poolPositions(poolKey.toPoolId(), address(vePositions), positionId).liquidity;
     }
 
-    function _createStake() internal returns (uint256 veId) {
-        veId = veToken.createStake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
+    function _stake() internal returns (uint256 veId) {
+        veId = veToken.stake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
     }
 
     function _stakeId(uint256 veId) internal view returns (StakeId) {
@@ -304,7 +304,7 @@ contract Ve33Test is FullTest {
     }
 
     function _fundAndVote(PoolKey memory poolKey, uint64 swapFee) internal returns (uint256 veId) {
-        veId = _createStake();
+        veId = _stake();
         _vote(veId, poolKey, swapFee);
     }
 
@@ -351,7 +351,7 @@ contract Ve33Test is FullTest {
 
     function test_gas_veTokenVote() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
-        uint256 veId = _createStake();
+        uint256 veId = _stake();
 
         coolAllContracts();
         _vote(veId, poolKey, uint64(1 << 62));
@@ -480,7 +480,7 @@ contract Ve33Test is FullTest {
 
     function test_gas_vote() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
-        uint256 veId = _createStake();
+        uint256 veId = _stake();
 
         coolAllContracts();
         veToken.vote(veId, poolKey, uint64(1 << 62));
@@ -583,7 +583,7 @@ contract Ve33Test is FullTest {
         PoolId poolId = poolKey.toPoolId();
         uint64 votedFee = uint64(1 << 62);
 
-        uint256 veId = _createStake();
+        uint256 veId = _stake();
         vm.expectRevert(IVe33.PoolNotInitialized.selector);
         _vote(veId, poolKey, votedFee);
 
@@ -612,8 +612,8 @@ contract Ve33Test is FullTest {
         uint64 fee0 = 100;
         uint64 fee1 = 300;
 
-        uint256 veId0 = _createStake();
-        uint256 veId1 = _createStake();
+        uint256 veId0 = _stake();
+        uint256 veId1 = _stake();
         uint128 power0 = uint128(veToken.votingPower(veId0));
         uint128 power1 = uint128(veToken.votingPower(veId1));
 
@@ -657,7 +657,7 @@ contract Ve33Test is FullTest {
 
     function test_voteValidation() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
-        uint256 veId = _createStake();
+        uint256 veId = _stake();
 
         PoolKey memory wrongExtensionPool = createPool({tick: 0, fee: 0, tickSpacing: 64, extension: address(0)});
         vm.expectRevert(IVe33.IncorrectPoolExtension.selector);
@@ -689,7 +689,7 @@ contract Ve33Test is FullTest {
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(veId))), PoolId.unwrap(initializedPoolId));
         assertEq(ve.poolTotalWeight(initializedPoolId), weightBeforeRejectedVote);
 
-        uint256 expiredNoOpVeId = veToken.createStake(1, uint64(vm.getBlockTimestamp() + 1));
+        uint256 expiredNoOpVeId = veToken.stake(1, uint64(vm.getBlockTimestamp() + 1));
         vm.warp(vm.getBlockTimestamp() + 1);
         veToken.vote(expiredNoOpVeId, uninitializedPool, 1);
         assertEq(PoolId.unwrap(ve.votedPool(address(veToken), _stakeId(expiredNoOpVeId))), 0);
@@ -703,7 +703,7 @@ contract Ve33Test is FullTest {
         assertEq(swapFee, type(uint64).max);
 
         vm.warp(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        uint256 expiredVeId = veToken.createStake(1, uint64(vm.getBlockTimestamp() + 1));
+        uint256 expiredVeId = veToken.stake(1, uint64(vm.getBlockTimestamp() + 1));
         vm.warp(vm.getBlockTimestamp() + 1);
         veToken.vote(expiredVeId, poolKey, 1);
         (uint256 weightAfterExpiredVote, uint256 feeWeightSumAfterExpiredVote, uint64 swapFeeAfterExpiredVote) =
@@ -889,8 +889,8 @@ contract Ve33Test is FullTest {
 
         uint64 fromEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION() - 1 days);
         uint64 toEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        uint256 fromVeId = veToken.createStake(2e18, fromEnd);
-        uint256 toVeId = veToken.createStake(1e18, toEnd);
+        uint256 fromVeId = veToken.stake(2e18, fromEnd);
+        uint256 toVeId = veToken.stake(1e18, toEnd);
         _vote(fromVeId, poolKey, uint64(1 << 62));
         _routerSwap(poolKey, false, 100_000, address(this));
 
@@ -1078,7 +1078,7 @@ contract Ve33Test is FullTest {
 
         uint64 votedFee = uint64(1 << 62);
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        uint256 veId = veToken.createStake(4e18, end);
+        uint256 veId = veToken.stake(4e18, end);
         _vote(veId, poolKey, votedFee);
 
         PoolId poolId = poolKey.toPoolId();
@@ -1118,7 +1118,7 @@ contract Ve33Test is FullTest {
         (PoolKey memory pool1,) = _createConcentratedPool(256, bytes24(uint192(2)));
 
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        uint256 veId0 = veToken.createStake(4e18, end);
+        uint256 veId0 = veToken.stake(4e18, end);
         uint256 veId1 = veToken.splitStake(veId0, 3e18);
 
         uint64 fee0 = uint64(1 << 60);
@@ -1151,7 +1151,7 @@ contract Ve33Test is FullTest {
         uint64 fee0 = uint64(1 << 61);
         uint64 fee1 = uint64(1 << 62);
         uint256 veId0 = _fundAndVote(poolKey, fee0);
-        uint256 veId1 = _createStake();
+        uint256 veId1 = _stake();
         _vote(veId1, poolKey, fee1);
 
         (uint256 totalWeight, uint256 feeWeightSum, uint64 swapFee) = _poolVoteTotals(poolId);
@@ -1349,7 +1349,7 @@ contract Ve33Test is FullTest {
         _updatePosition(otherPool, otherPositionId, int128(uint128(1e18)));
 
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        uint256 veId0 = veToken.createStake(4e18, end);
+        uint256 veId0 = veToken.stake(4e18, end);
         uint256 veId1 = veToken.splitStake(veId0, 3e18);
         _vote(veId0, poolKey, 0);
         _vote(veId1, otherPool, 0);
@@ -1957,7 +1957,7 @@ contract Ve33Test is FullTest {
     function test_voteClearsExistingVoteWhenPowerIsZero() public {
         (PoolKey memory poolKey,) = _createConcentratedPool();
         uint64 end = uint64(vm.getBlockTimestamp() + 1);
-        uint256 veId = veToken.createStake(1e18, end);
+        uint256 veId = veToken.stake(1e18, end);
         _vote(veId, poolKey, uint64(1 << 62));
 
         PoolId poolId = poolKey.toPoolId();

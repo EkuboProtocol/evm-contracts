@@ -140,12 +140,12 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         amount = ve33.stakeAmount(address(this), stakeId(id));
     }
 
-    /// @notice Converts a minter address and salt to a uint192 token id.
+    /// @notice Converts a minter address and salt to a token id.
     /// @dev Mirrors the base nonfungible token salt pattern, truncated to fit in the Ve33 stake salt.
     /// @param minter The address creating the token id.
     /// @param salt Caller-provided salt for deterministic ID generation.
     /// @return veId The resulting ERC721 token id and Ve33 stake salt.
-    function saltToId(address minter, bytes32 salt) public view returns (uint192 veId) {
+    function saltToId(address minter, bytes32 salt) public view returns (uint256 veId) {
         assembly ("memory-safe") {
             let free := mload(0x40)
             mstore(free, minter)
@@ -163,8 +163,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param amount The amount of stake token to stake.
     /// @param end The stake end timestamp.
     /// @return veId The minted ERC721 token id.
-    function createStake(uint128 amount, uint64 end) public payable returns (uint192 veId) {
-        veId = createStake(amount, end, _randomSalt());
+    function stake(uint128 amount, uint64 end) public payable returns (uint256 veId) {
+        veId = stake(amount, end, _randomSalt());
     }
 
     /// @notice Creates a Ve33 stake with an explicit salt and mints an ERC721 token that controls it.
@@ -174,7 +174,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param end The stake end timestamp.
     /// @param salt The salt for deterministic ID generation.
     /// @return veId The minted ERC721 token id.
-    function createStake(uint128 amount, uint64 end, bytes32 salt) public payable returns (uint192 veId) {
+    function stake(uint128 amount, uint64 end, bytes32 salt) public payable returns (uint256 veId) {
         if (amount == 0) revert InvalidStakeAmount();
 
         veId = saltToId(msg.sender, salt);
@@ -189,8 +189,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param amount The amount of stake token to stake.
     /// @param duration The stake duration in seconds.
     /// @return veId The minted ERC721 token id.
-    function createStakeForDuration(uint128 amount, uint32 duration) external payable returns (uint192 veId) {
-        veId = createStake(amount, _stakeEndFromDuration(duration));
+    function stakeForDuration(uint128 amount, uint32 duration) external payable returns (uint256 veId) {
+        veId = stake(amount, _stakeEndFromDuration(duration));
     }
 
     /// @notice Creates a Ve33 stake with an explicit salt ending `duration` seconds from now.
@@ -199,12 +199,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param duration The stake duration in seconds.
     /// @param salt The salt for deterministic ID generation.
     /// @return veId The minted ERC721 token id.
-    function createStakeForDuration(uint128 amount, uint32 duration, bytes32 salt)
-        external
-        payable
-        returns (uint192 veId)
-    {
-        veId = createStake(amount, _stakeEndFromDuration(duration), salt);
+    function stakeForDuration(uint128 amount, uint32 duration, bytes32 salt) external payable returns (uint256 veId) {
+        veId = stake(amount, _stakeEndFromDuration(duration), salt);
     }
 
     /// @notice Creates a Ve33 stake ending at the maximum duration from now.
@@ -212,8 +208,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     ///      Core lock.
     /// @param amount The amount of stake token to stake.
     /// @return veId The minted ERC721 token id.
-    function createStakeMaxDuration(uint128 amount) external payable returns (uint192 veId) {
-        veId = createStake(amount, _maxStakeEnd());
+    function stakeMaxDuration(uint128 amount) external payable returns (uint256 veId) {
+        veId = stake(amount, _maxStakeEnd());
     }
 
     /// @notice Creates a Ve33 stake with an explicit salt ending at the maximum duration from now.
@@ -221,8 +217,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param amount The amount of stake token to stake.
     /// @param salt The salt for deterministic ID generation.
     /// @return veId The minted ERC721 token id.
-    function createStakeMaxDuration(uint128 amount, bytes32 salt) external payable returns (uint192 veId) {
-        veId = createStake(amount, _maxStakeEnd(), salt);
+    function stakeMaxDuration(uint128 amount, bytes32 salt) external payable returns (uint256 veId) {
+        veId = stake(amount, _maxStakeEnd(), salt);
     }
 
     /// @notice Creates a Ve33 stake with an explicit salt and immediately votes it on one pool.
@@ -233,13 +229,13 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param poolKey The pool to vote on.
     /// @param swapFee The selected swap fee for the pool.
     /// @return veId The minted ERC721 token id.
-    function createStakeAndVote(uint128 amount, uint64 end, bytes32 salt, PoolKey calldata poolKey, uint64 swapFee)
+    function stakeAndVote(uint128 amount, uint64 end, bytes32 salt, PoolKey calldata poolKey, uint64 swapFee)
         external
         payable
-        returns (uint192 veId)
+        returns (uint256 veId)
     {
-        veId = createStake(amount, end, salt);
-        ve33.vote(stakeId(veId), poolKey, swapFee);
+        veId = stake(amount, end, salt);
+        vote(veId, poolKey, swapFee);
     }
 
     /// @notice Adds stake token to an existing represented stake.
@@ -286,11 +282,10 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     function claimPoolFeesAndExtendStake(uint256 veId, uint64 end, PoolKey calldata poolKey, address recipient)
         public
         payable
-        authorizedForStake(veId)
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = _claimPoolFees(veId, poolKey, recipient);
-        _extendStake(veId, end);
+        (amount0, amount1) = claimPoolFees(veId, poolKey, recipient);
+        extendStake(veId, end);
     }
 
     /// @notice Claims pending voter fees, then moves a represented stake to end `duration` seconds from now.
@@ -331,9 +326,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         payable
         returns (uint128 amount0, uint128 amount1)
     {
-        if (!isAuthorizedForNft(msg.sender, veId)) revert NotAuthorizedForToken(msg.sender, veId);
-        (amount0, amount1) = _claimPoolFees(veId, poolKey, msg.sender);
-        _extendStake(veId, end);
+        (amount0, amount1) = claimPoolFeesToSelf(veId, poolKey);
+        extendStake(veId, end);
     }
 
     /// @notice Claims pending voter fees to the caller, then moves a represented stake to end `duration` seconds from now.
@@ -363,7 +357,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         external
         payable
         authorizedForStake(veId)
-        returns (uint192 splitVeId)
+        returns (uint256 splitVeId)
     {
         splitVeId = _splitStake(veId, amount, _randomSalt());
     }
@@ -378,12 +372,12 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         external
         payable
         authorizedForStake(veId)
-        returns (uint192 splitVeId)
+        returns (uint256 splitVeId)
     {
         splitVeId = _splitStake(veId, amount, salt);
     }
 
-    function _splitStake(uint256 veId, uint128 amount, bytes32 salt) private returns (uint192 splitVeId) {
+    function _splitStake(uint256 veId, uint128 amount, bytes32 salt) private returns (uint256 splitVeId) {
         if (amount == 0) revert InvalidStakeAmount();
 
         uint64 end = _stakeEndTime(veId);
@@ -404,13 +398,26 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param toVeId The ERC721 token id receiving the stake.
     /// @return nextAmount Destination stake amount after the merge.
     function mergeStakes(uint256 fromVeId, uint256 toVeId)
-        external
+        public
         payable
         authorizedForStake(fromVeId)
         authorizedForStake(toVeId)
         returns (uint128 nextAmount)
     {
-        nextAmount = _mergeStakes(fromVeId, toVeId);
+        if (fromVeId == toVeId) return ve33.stakeAmount(address(this), stakeId(toVeId));
+
+        uint64 fromEnd = _stakeEndTime(fromVeId);
+        uint64 toEnd = _stakeEndTime(toVeId);
+
+        StakeId fromStakeId = createStakeId(_stakeSalt(fromVeId), fromEnd);
+        StakeId toStakeId = createStakeId(_stakeSalt(toVeId), toEnd);
+        uint128 amount = ve33.stakeAmount(address(this), fromStakeId);
+        if (amount == 0) return ve33.stakeAmount(address(this), toStakeId);
+
+        nextAmount = ve33.moveStake(fromStakeId, toStakeId, amount);
+
+        _burn(fromVeId);
+        _setExtraData(fromVeId, 0);
     }
 
     /// @notice Claims pending voter fees for the source stake, then merges it into another represented stake.
@@ -425,12 +432,10 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     function claimPoolFeesAndMergeStakes(uint256 fromVeId, uint256 toVeId, PoolKey calldata poolKey, address recipient)
         external
         payable
-        authorizedForStake(fromVeId)
-        authorizedForStake(toVeId)
         returns (uint128 amount0, uint128 amount1, uint128 nextAmount)
     {
-        (amount0, amount1) = _claimPoolFees(fromVeId, poolKey, recipient);
-        nextAmount = _mergeStakes(fromVeId, toVeId);
+        (amount0, amount1) = claimPoolFees(fromVeId, poolKey, recipient);
+        nextAmount = mergeStakes(fromVeId, toVeId);
     }
 
     /// @notice Claims pending source-stake voter fees to the caller, then merges into another represented stake.
@@ -439,13 +444,11 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         payable
         returns (uint128 amount0, uint128 amount1, uint128 nextAmount)
     {
-        if (!isAuthorizedForNft(msg.sender, fromVeId)) revert NotAuthorizedForToken(msg.sender, fromVeId);
-        if (!isAuthorizedForNft(msg.sender, toVeId)) revert NotAuthorizedForToken(msg.sender, toVeId);
-        (amount0, amount1) = _claimPoolFees(fromVeId, poolKey, msg.sender);
-        nextAmount = _mergeStakes(fromVeId, toVeId);
+        (amount0, amount1) = claimPoolFeesToSelf(fromVeId, poolKey);
+        nextAmount = mergeStakes(fromVeId, toVeId);
     }
 
-    /// @notice Unstakes an expired represented stake, burns its ERC721 token, and withdraws stake to `recipient`.
+    /// @notice Unstakes an expired represented stake and withdraws stake to `recipient`.
     /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param recipient Recipient of the unstaked tokens.
@@ -453,16 +456,21 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         StakeId id = stakeId(veId);
 
         lock(abi.encode(CALL_TYPE_UNSTAKE, id, recipient));
-
-        _burn(veId);
-        _setExtraData(veId, 0);
     }
 
-    /// @notice Unstakes an expired represented stake, burns its ERC721 token, and withdraws stake to the caller.
+    /// @notice Unstakes an expired represented stake and withdraws stake to the caller.
     /// @dev The caller must own or be approved for `veId`.
     /// @param veId The ERC721 token id and Ve33 stake salt.
     function withdrawStakeToSelf(uint256 veId) external payable {
         withdrawStake(veId, msg.sender);
+    }
+
+    /// @notice Burns a represented stake token.
+    /// @dev The caller must own or be approved for `veId`.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    function burn(uint256 veId) external payable authorizedForStake(veId) {
+        _burn(veId);
+        _setExtraData(veId, 0);
     }
 
     /// @notice Returns the current voting power of a represented stake.
@@ -473,7 +481,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     }
 
     /// @notice Returns the Ve33 stake id represented by an ERC721 token.
-    /// @dev The Ve33 stake owner is always this contract, and the salt is `bytes24(veId)`.
+    /// @dev The Ve33 stake owner is always this contract, and the salt is `bytes24(uint192(veId))`.
     /// @param veId The ERC721 token id.
     /// @return The canonical Ve33 stake id.
     function stakeId(uint256 veId) public view returns (StakeId) {
@@ -485,7 +493,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param poolKey The pool to vote on.
     /// @param swapFee The selected swap fee for the pool.
-    function vote(uint256 veId, PoolKey calldata poolKey, uint64 swapFee) external payable authorizedForStake(veId) {
+    function vote(uint256 veId, PoolKey calldata poolKey, uint64 swapFee) public payable authorizedForStake(veId) {
         ve33.vote(stakeId(veId), poolKey, swapFee);
     }
 
@@ -546,7 +554,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return amount0 The amount of token0 withdrawn to the caller.
     /// @return amount1 The amount of token1 withdrawn to the caller.
     function claimPoolFeesToSelf(uint256 veId, PoolKey calldata poolKey)
-        external
+        public
         payable
         returns (uint128 amount0, uint128 amount1)
     {
@@ -562,12 +570,12 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == CALL_TYPE_STAKE) {
-            (, address owner, StakeId id, uint128 amount) = abi.decode(data, (uint256, address, StakeId, uint128));
+            (, address payer, StakeId id, uint128 amount) = abi.decode(data, (uint256, address, StakeId, uint128));
             uint128 nextAmount = Ve33Lib.stake(CORE, ve33, id, amount);
             result = abi.encode(nextAmount);
             if (amount != 0) {
                 if (stakeToken != NATIVE_TOKEN_ADDRESS) {
-                    ACCOUNTANT.payFrom(owner, stakeToken, amount);
+                    ACCOUNTANT.payFrom(payer, stakeToken, amount);
                 } else {
                     SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);
                 }
@@ -597,7 +605,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     }
 
     /// @notice Mints a token and stores its represented stake end timestamp.
-    function _mintAndSetExtraData(address owner, uint192 veId, uint64 end) private {
+    function _mintAndSetExtraData(address owner, uint256 veId, uint64 end) private {
         _mint(owner, veId);
         _setExtraData(veId, end);
     }
@@ -651,23 +659,5 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         uint128 amount = ve33.stakeAmount(address(this), currentStakeId);
         ve33.moveStake(currentStakeId, createStakeId(_stakeSalt(veId), end), amount);
         _setExtraData(veId, end);
-    }
-
-    /// @notice Shared implementation for stake merge.
-    function _mergeStakes(uint256 fromVeId, uint256 toVeId) private returns (uint128 nextAmount) {
-        if (fromVeId == toVeId) return ve33.stakeAmount(address(this), stakeId(toVeId));
-
-        uint64 fromEnd = _stakeEndTime(fromVeId);
-        uint64 toEnd = _stakeEndTime(toVeId);
-
-        StakeId fromStakeId = createStakeId(_stakeSalt(fromVeId), fromEnd);
-        StakeId toStakeId = createStakeId(_stakeSalt(toVeId), toEnd);
-        uint128 amount = ve33.stakeAmount(address(this), fromStakeId);
-        if (amount == 0) return ve33.stakeAmount(address(this), toStakeId);
-
-        nextAmount = ve33.moveStake(fromStakeId, toStakeId, amount);
-
-        _burn(fromVeId);
-        _setExtraData(fromVeId, 0);
     }
 }

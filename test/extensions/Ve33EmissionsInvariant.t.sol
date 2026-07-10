@@ -511,8 +511,8 @@ contract Ve33EmissionsInvariantTest is FullTest {
         PoolKey memory pool1 = createPool({tick: 0, fee: 0, tickSpacing: 256, extension: address(ve33)});
 
         uint64 stakeEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
-        uint256 veId0 = veToken.createStake(1e18, stakeEnd);
-        uint256 veId1 = veToken.createStake(1e18, stakeEnd);
+        uint256 veId0 = veToken.stake(1e18, stakeEnd);
+        uint256 veId1 = veToken.stake(1e18, stakeEnd);
         veToken.vote(veId0, pool0, uint64(1 << 62));
         veToken.vote(veId1, pool1, uint64(1 << 62));
 

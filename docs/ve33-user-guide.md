@@ -29,7 +29,7 @@ stake amount * (unlock time - now) / 4 years
 Using `VeToken`, the common flow is:
 
 1. Approve the stake token to `VeToken`.
-2. Call `createStake(amount, end)` to mint a ve NFT.
+2. Call `stake(amount, end)` to mint a ve NFT.
 3. Vote with `vote(veId, poolKey, swapFee)`.
 4. Claim voter swap fees with `claimPoolFees(veId, poolKey, recipient)` or `claimPoolFeesToSelf(veId, poolKey)`.
 5. Extend by calling `extendStake(veId, newEnd)`, split with `splitStake(veId, amount)`, merge stakes with `mergeStakes(fromVeId, toVeId)`, or add amount with `increaseStakeAmount(veId, amount)`.
@@ -38,7 +38,7 @@ Using `VeToken`, the common flow is:
 Important details:
 
 - The ve NFT owner, or an approved NFT operator, can manage the stake.
-- `VeToken` generates `uint192` token IDs by default. Deterministic overloads such as `createStake(amount, end, salt)` and `splitStake(veId, amount, salt)` accept a `bytes32` salt and derive the token ID with `saltToId(msg.sender, salt)`. The resulting token ID is also the Ve33 stake salt.
+- `VeToken` returns token IDs as `uint256`, but generated IDs are constrained to the `uint192` range. Deterministic overloads such as `stake(amount, end, salt)` and `splitStake(veId, amount, salt)` accept a `bytes32` salt and derive the token ID with `saltToId(msg.sender, salt)`. The resulting token ID is also the Ve33 stake salt.
 - The NFT SVG shows a 6-emoji fingerprint for large token IDs instead of printing long decimal numbers.
 - Claimed pool fees can be sent to an authorized caller-selected recipient, and withdrawn stake tokens go to the current NFT owner.
 - Increasing, extending, merging, or withdrawing a stake updates or clears the affected stake votes.

@@ -522,7 +522,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             PoolState stateBefore = CORE.poolState(poolId);
 
             VePoolSwapFeeState swapFeeState = _poolSwapFeeState(poolId);
-            _maybeAccumulatePoolRewards(poolId, stateBefore.liquidity(), swapFeeState.totalWeight());
+            _maybeAccumulatePoolRewardsWithWeight(poolId, stateBefore.liquidity(), swapFeeState.totalWeight());
             uint64 swapFee = swapFeeState.swapFee();
             uint128 feeAmount;
             bool feeIsToken1 = !params.isToken1();
@@ -855,43 +855,57 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @param poolId Pool whose reward state is being accumulated.
     /// @param liquidity Current Core pool liquidity.
     function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity) private {
-        _maybeAccumulatePoolRewards(poolId, liquidity, 0, false);
-    }
-
-    /// @notice Accumulates global emissions using a known pool vote weight.
-    /// @param poolId Pool whose reward state is being accumulated.
-    /// @param liquidity Current Core pool liquidity.
-    /// @param weight Current total active vote weight for `poolId`.
-    function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity, uint128 weight) private {
-        _maybeAccumulatePoolRewards(poolId, liquidity, weight, true);
-    }
-
-    function _maybeAccumulatePoolRewards(PoolId poolId, uint128 liquidity, uint128 cachedWeight, bool useCachedWeight)
-        private
-    {
         unchecked {
             accrueEmissions();
 
             uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
             uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
             if (snapshot != emissionGrowthGlobalX128_) {
-                _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
+                _accumulatePoolRewards(
+                    poolId, liquidity, emissionGrowthGlobalX128_, snapshot, _poolSwapFeeState(poolId).totalWeight()
+                );
+            }
+        }
+    }
 
-                uint128 weight = useCachedWeight ? cachedWeight : _poolSwapFeeState(poolId).totalWeight();
-                if (weight != 0) {
-                    uint256 emissionRewardsAccrued =
-                        FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);
+    /// @notice Accumulates global emissions using a known pool vote weight.
+    /// @param poolId Pool whose reward state is being accumulated.
+    /// @param liquidity Current Core pool liquidity.
+    /// @param weight Current total active vote weight for `poolId`.
+    function _maybeAccumulatePoolRewardsWithWeight(PoolId poolId, uint128 liquidity, uint128 weight) private {
+        unchecked {
+            accrueEmissions();
 
-                    if (emissionRewardsAccrued != 0) {
-                        if (liquidity != 0) {
-                            _setRewardsGlobalPerLiquidity(
-                                poolId,
-                                _rewardsGlobalPerLiquidity(poolId) + ((emissionRewardsAccrued << 128) / liquidity)
-                            );
-                        }
+            uint256 emissionGrowthGlobalX128_ = _emissionGrowthGlobalX128();
+            uint256 snapshot = _poolEmissionGrowthGlobalX128Snapshot(poolId);
+            if (snapshot != emissionGrowthGlobalX128_) {
+                _accumulatePoolRewards(poolId, liquidity, emissionGrowthGlobalX128_, snapshot, weight);
+            }
+        }
+    }
 
-                        emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
+    function _accumulatePoolRewards(
+        PoolId poolId,
+        uint128 liquidity,
+        uint256 emissionGrowthGlobalX128_,
+        uint256 snapshot,
+        uint128 weight
+    ) private {
+        unchecked {
+            _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
+
+            if (weight != 0) {
+                uint256 emissionRewardsAccrued =
+                    FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);
+
+                if (emissionRewardsAccrued != 0) {
+                    if (liquidity != 0) {
+                        _setRewardsGlobalPerLiquidity(
+                            poolId, _rewardsGlobalPerLiquidity(poolId) + ((emissionRewardsAccrued << 128) / liquidity)
+                        );
                     }
+
+                    emit PoolEmissionsAccrued(poolId, emissionRewardsAccrued);
                 }
             }
         }

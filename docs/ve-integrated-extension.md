@@ -2,7 +2,7 @@
 
 `Ve33` is a forward-only pool extension that combines voter-selected swap fees, voter fee distribution, and single-token LP rewards. It also contains the canonical vote-escrow stake accounting.
 
-`VeToken` is an optional ERC721 wrapper around `Ve33` stake accounting. It gives users the familiar `createStake`, `increaseStakeAmount`, `extendStake`, and `withdrawStake` surface, but the important stake state remains in `Ve33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based stake control.
+`VeToken` is an optional ERC721 wrapper around `Ve33` stake accounting. It gives users the familiar `stake`, `increaseStakeAmount`, `extendStake`, and `withdrawStake` surface, but the important stake state remains in `Ve33`. This keeps the core ve logic independent from any particular external representation while still allowing transferable NFT-based stake control.
 
 For role-oriented user documentation, see [Ve33 User Guide](./ve33-user-guide.md).
 
@@ -68,7 +68,7 @@ stakeAmounts[owner][stakeId]
 bytes24 salt || uint64 endTime
 ```
 
-For `VeToken`, token IDs are constrained to `uint192` and `salt = bytes24(uint192(veId))`. Default creation uses a pseudorandom salt, while deterministic creation and split overloads accept a `bytes32 salt` and derive the token ID with `saltToId(msg.sender, salt)`. The resulting token ID becomes the Ve33 stake salt. The NFT SVG renders large token IDs as a 6-emoji fingerprint to avoid displaying long decimal IDs, but this is presentation-only. The current stake amount is fetched from `Ve33Lib.stakeAmount(ve33, address(veToken), stakeId)` whenever the wrapper needs it, so the NFT does not store the amount. The stake end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
+For `VeToken`, token IDs are returned as `uint256`, but generated IDs are constrained to `uint192` and `salt = bytes24(uint192(veId))`. Default creation uses a pseudorandom salt, while deterministic creation and split overloads accept a `bytes32 salt` and derive the token ID with `saltToId(msg.sender, salt)`. The resulting token ID becomes the Ve33 stake salt. The NFT SVG renders large token IDs as a 6-emoji fingerprint to avoid displaying long decimal IDs, but this is presentation-only. The current stake amount is fetched from `Ve33Lib.stakeAmount(ve33, address(veToken), stakeId)` whenever the wrapper needs it, so the NFT does not store the amount. The stake end timestamp is stored in Solady ERC721 `extraData`, which is large enough for the `uint64` end time.
 
 All stake-token backing is saved under a single Core saved-balance salt:
 
@@ -91,7 +91,7 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 ## Voting
 
-`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, deterministic salt overloads for stake creation and splitting, `createStakeAndVote(amount, end, salt, poolKey, swapFee)`, and `mergeStakes(fromVeId, toVeId)`.
+`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, deterministic salt overloads for stake creation and splitting, `stakeAndVote(amount, end, salt, poolKey, swapFee)`, and `mergeStakes(fromVeId, toVeId)`.
 
 Each pool tracks active vote weight, voter fee growth, a snapshot of global emission growth, and the weighted fee sum. When votes change, the pool fee is computed as `feeWeightSum / weight`; integer division rounds down. With no active votes, this EVM `div` returns zero, so the pool has no extension swap fee.
 

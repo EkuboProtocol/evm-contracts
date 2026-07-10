@@ -36,8 +36,11 @@ library Ve33Lib {
     using ExposedStorageLib for *;
     using FlashAccountantLib for *;
 
-    /// @notice Encodes a Ve33 forwarded swap call.
-    function encodeSwap(PoolKey memory poolKey, SwapParameters params) internal pure returns (bytes memory) {
+    /// @notice Executes a Ve33 forwarded swap through Core.
+    function swap(ICore core, IVe33 ve33, PoolKey memory poolKey, SwapParameters params)
+        internal
+        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
+    {
         bytes memory data = new bytes(160);
         assembly ("memory-safe") {
             let ptr := add(data, 0x20)
@@ -47,41 +50,12 @@ library Ve33Lib {
             mstore(add(ptr, 0x60), mload(add(poolKey, 0x40)))
             mstore(add(ptr, 0x80), params)
         }
-        return data;
-    }
 
-    /// @notice Decodes a Ve33 forwarded swap result.
-    function decodeSwapResult(bytes memory data)
-        internal
-        pure
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
+        bytes memory result = core.forward(address(ve33), data);
         assembly ("memory-safe") {
-            balanceUpdate := mload(add(data, 0x20))
-            stateAfter := mload(add(data, 0x40))
+            balanceUpdate := mload(add(result, 0x20))
+            stateAfter := mload(add(result, 0x40))
         }
-    }
-
-    /// @notice Executes a Ve33 forwarded swap through Core.
-    function swap(ICore core, IVe33 ve33, PoolKey memory poolKey, SwapParameters params)
-        internal
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        (balanceUpdate, stateAfter) = decodeSwapResult(core.forward(address(ve33), encodeSwap(poolKey, params)));
-    }
-
-    /// @notice Encodes a Ve33 LP reward claim call.
-    function encodeClaimRewards(PoolKey memory poolKey, PositionId positionId, address recipient)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(VE33_CLAIM_REWARDS, poolKey, positionId, recipient);
-    }
-
-    /// @notice Decodes a Ve33 LP reward claim result.
-    function decodeClaimRewardsResult(bytes memory data) internal pure returns (uint256 amount) {
-        amount = abi.decode(data, (uint256));
     }
 
     /// @notice Claims LP rewards for a Ve33 position through Core.
@@ -89,48 +63,19 @@ library Ve33Lib {
         internal
         returns (uint256 amount)
     {
-        amount =
-            decodeClaimRewardsResult(core.forward(address(ve33), encodeClaimRewards(poolKey, positionId, recipient)));
-    }
-
-    /// @notice Encodes a Ve33 stake call.
-    function encodeStake(StakeId stakeId, uint128 amount) internal pure returns (bytes memory) {
-        return abi.encode(VE33_STAKE, stakeId, amount);
-    }
-
-    /// @notice Decodes a Ve33 stake result.
-    function decodeStakeResult(bytes memory data) internal pure returns (uint128 nextAmount) {
-        nextAmount = abi.decode(data, (uint128));
+        amount = abi.decode(
+            core.forward(address(ve33), abi.encode(VE33_CLAIM_REWARDS, poolKey, positionId, recipient)), (uint256)
+        );
     }
 
     /// @notice Stakes tokens into Ve33 through Core.
     function stake(ICore core, IVe33 ve33, StakeId stakeId, uint128 amount) internal returns (uint128 nextAmount) {
-        nextAmount = decodeStakeResult(core.forward(address(ve33), encodeStake(stakeId, amount)));
-    }
-
-    /// @notice Encodes a Ve33 unstake call.
-    function encodeUnstake(StakeId stakeId) internal pure returns (bytes memory) {
-        return abi.encode(VE33_UNSTAKE, stakeId);
-    }
-
-    /// @notice Decodes a Ve33 unstake result.
-    function decodeUnstakeResult(bytes memory data) internal pure returns (uint128 unstaked) {
-        unstaked = abi.decode(data, (uint128));
+        nextAmount = abi.decode(core.forward(address(ve33), abi.encode(VE33_STAKE, stakeId, amount)), (uint128));
     }
 
     /// @notice Unstakes tokens from Ve33 through Core.
     function unstake(ICore core, IVe33 ve33, StakeId stakeId) internal returns (uint128 unstaked) {
-        unstaked = decodeUnstakeResult(core.forward(address(ve33), encodeUnstake(stakeId)));
-    }
-
-    /// @notice Encodes a Ve33 pool-fee claim call.
-    function encodeClaimPoolFees(StakeId stakeId, PoolKey memory poolKey) internal pure returns (bytes memory) {
-        return abi.encode(VE33_CLAIM_POOL_FEES, stakeId, poolKey);
-    }
-
-    /// @notice Decodes a Ve33 pool-fee claim result.
-    function decodeClaimPoolFeesResult(bytes memory data) internal pure returns (uint128 amount0, uint128 amount1) {
-        (amount0, amount1) = abi.decode(data, (uint128, uint128));
+        unstaked = abi.decode(core.forward(address(ve33), abi.encode(VE33_UNSTAKE, stakeId)), (uint128));
     }
 
     /// @notice Claims pool fees for a Ve33 stake through Core.
@@ -138,22 +83,9 @@ library Ve33Lib {
         internal
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) =
-            decodeClaimPoolFeesResult(core.forward(address(ve33), encodeClaimPoolFees(stakeId, poolKey)));
-    }
-
-    /// @notice Encodes a Ve33 global-emission schedule call.
-    function encodeScheduleEmissions(uint64 startTime, uint64 endTime, uint160 rewardRate)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(VE33_SCHEDULE_EMISSIONS, startTime, endTime, rewardRate);
-    }
-
-    /// @notice Decodes a Ve33 global-emission schedule result.
-    function decodeScheduleEmissionsResult(bytes memory data) internal pure returns (uint128 amount) {
-        amount = abi.decode(data, (uint128));
+        (amount0, amount1) = abi.decode(
+            core.forward(address(ve33), abi.encode(VE33_CLAIM_POOL_FEES, stakeId, poolKey)), (uint128, uint128)
+        );
     }
 
     /// @notice Schedules global Ve33 emissions through Core.
@@ -161,8 +93,8 @@ library Ve33Lib {
         internal
         returns (uint128 amount)
     {
-        amount = decodeScheduleEmissionsResult(
-            core.forward(address(ve33), encodeScheduleEmissions(startTime, endTime, rewardRate))
+        amount = abi.decode(
+            core.forward(address(ve33), abi.encode(VE33_SCHEDULE_EMISSIONS, startTime, endTime, rewardRate)), (uint128)
         );
     }
 

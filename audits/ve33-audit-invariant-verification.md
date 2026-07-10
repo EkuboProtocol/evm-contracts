@@ -25,7 +25,7 @@ The primary implementation evidence is:
 - `src/libraries/Ve33Lib.sol`
 - `src/types/stakeId.sol`
 - `src/types/vePoolVote.sol`
-- `src/types/vePoolFeeState.sol`
+- `src/types/vePoolSwapFeeState.sol`
 - `src/types/ve33GlobalEmissionState.sol`
 - `src/VeToken.sol`
 - `src/base/BaseVe33Positions.sol`
@@ -41,7 +41,7 @@ The primary implementation evidence is:
 | `V33-STOR-002` fixed slots do not collide | **Satisfied** | Manual inspection: fixed slots are `0`, `1`, `2` in `src/libraries/Ve33StorageLayout.sol`. Executable invariant: `invariant_trackedVe33StorageSlotsDoNotUseFixedSlots` in `test/extensions/Ve33EmissionsInvariant.t.sol` checks all tracked dynamic families and adjacent two-word slots against fixed slots. |
 | `V33-STOR-003` dynamic slot families are disjoint | **Satisfied** | Manual inspection: every dynamic family in `src/libraries/Ve33StorageLayout.sol` uses a distinct `cast keccak "Ve33StorageLayout#..."` domain separator, and the slot helpers include that family offset in the hash input. Adjacent two-word values are limited to fee-growth snapshot slots and pool fee-growth slots. Executable invariant coverage checks reachable tracked stake, pool, tick, position, bitmap, and time-delta slots do not hit fixed slots. |
 | `V33-STOR-004` library readers match contract writers | **Satisfied** | Manual inspection: `src/libraries/Ve33Lib.sol` readers use the same `Ve33StorageLayout` helpers as `src/extensions/Ve33.sol` writers for stake amounts, votes, fee growth, pool fee growth, and global emission state. The shared packed parsers are in `src/types/*.sol`. |
-| `V33-STOR-005` packed types mask before assembly use | **Satisfied** | Manual inspection: constructors/parsers in `src/types/stakeId.sol`, `src/types/vePoolVote.sol`, `src/types/vePoolFeeState.sol`, and `src/types/ve33GlobalEmissionState.sol` mask or shift fields to their declared widths before returning narrower values. `Ve33GlobalEmissionState` avoids unsafe raw casts by parsing through the custom type. |
+| `V33-STOR-005` packed types mask before assembly use | **Satisfied** | Manual inspection: constructors/parsers in `src/types/stakeId.sol`, `src/types/vePoolVote.sol`, `src/types/vePoolSwapFeeState.sol`, and `src/types/ve33GlobalEmissionState.sol` mask or shift fields to their declared widths before returning narrower values. `Ve33GlobalEmissionState` avoids unsafe raw casts by parsing through the custom type. |
 
 ## Pool And Forwarding Invariants
 
@@ -66,7 +66,7 @@ The primary implementation evidence is:
 | Invariant | Status | Evidence |
 | --- | --- | --- |
 | `V33-VOTE-001` vote with zero power clears existing vote | **Satisfied** | Manual inspection: `vote` validates the pool key, computes current power, and calls `_adjustVoteWeight` with zero so an existing vote is cleared instead of reverting. Unit/regression: `test_voteClearsExistingVoteWhenPowerIsZero`. |
-| `V33-VOTE-002` aggregate vote weight consistency | **Satisfied** | Manual inspection: `_adjustVoteWeight` updates `totalVoteWeight`, `poolTotalWeight`, `poolFeeState.feeWeightSum`, and cached swap fee together. Executable invariant: `invariant_voteAccountingIsConsistent`. Unit/regression: `test_multipleVotersSetWeightedFeeAndClaimProRataFees`. |
+| `V33-VOTE-002` aggregate vote weight consistency | **Satisfied** | Manual inspection: `_adjustVoteWeight` updates `totalVoteWeight`, packed pool total weight, separate pool fee-weight sum, and cached swap fee together. Executable invariant: `invariant_voteAccountingIsConsistent`. Unit/regression: `test_multipleVotersSetWeightedFeeAndClaimProRataFees`. |
 | `V33-VOTE-003` one active pool per stake | **Satisfied** | Manual inspection: `votedPoolId` is set/cleared with each vote transition; cleared votes zero `VePoolVote` and fee-growth snapshots. Executable invariant: `invariant_voteAccountingIsConsistent` asserts zero vote and zero snapshots when `votedPoolId == 0`. |
 | `V33-VOTE-004` vote changes accrue before mutation | **Satisfied** | Manual inspection: `_adjustVoteWeight` calls `accrueEmissions`, realizes pool rewards, accounts pending voter fees for nonzero resized votes, then mutates weight state. Unit/regression: `test_stakeIncreaseAdjustsVoteButMovingOrRemovingClearsVote`, `test_splitStakePreservesSourceVoteAndAccruedFees`, and `test_claimPoolFeesAndExtendStakeClaimsBeforeClearingVote`. |
 | `V33-VOTE-005` vote events reconstruct current fee | **Satisfied** | Manual inspection: `_adjustVoteWeight` emits `VoteWeightApplied(owner, stakeId, poolId, weight, nextSwapFee)` after mutation, including zero weight on clears. Unit/regression: `test_voteWeightAppliedEventsDescribeCurrentVoteState`. |

@@ -484,8 +484,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 mstore(0x40, add(result, 0x60))
             }
         } else if (callType == VE33_CLAIM_REWARDS) {
-            (, PoolKey memory poolKey, PositionId positionId, address recipient) =
-                abi.decode(data, (uint256, PoolKey, PositionId, address));
+            (, PoolKey memory poolKey, PositionId positionId) = abi.decode(data, (uint256, PoolKey, PositionId));
             result = abi.encode(_claimRewards(poolKey, original.addr(), positionId));
         } else if (callType == VE33_STAKE) {
             (, StakeId stakeId, uint128 amount) = abi.decode(data, (uint256, StakeId, uint128));

@@ -448,7 +448,7 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
         private
         returns (uint128 amount)
     {
-        amount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_, recipient));
+        amount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_));
         if (amount != 0) {
             uint128 protocolFee = _computeClaimRewardsProtocolFee(poolKey, amount);
             if (protocolFee != 0) {

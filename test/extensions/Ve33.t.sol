@@ -40,7 +40,7 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../../src/types/sqrtRat
 import {StakeId, createStakeId} from "../../src/types/stakeId.sol";
 import {Locker} from "../../src/types/locker.sol";
 import {VePoolVote} from "../../src/types/vePoolVote.sol";
-import {VePoolFeeState} from "../../src/types/vePoolFeeState.sol";
+import {VePoolSwapFeeState} from "../../src/types/vePoolSwapFeeState.sol";
 import {Ve33GlobalEmissionState, createVe33GlobalEmissionState} from "../../src/types/ve33GlobalEmissionState.sol";
 import {Vm} from "forge-std/Test.sol";
 
@@ -297,10 +297,10 @@ contract Ve33Test is FullTest {
         view
         returns (uint256 weight, uint256 feeWeightSum, uint64 swapFee)
     {
-        VePoolFeeState feeState = ve.poolFeeState(poolId);
-        weight = ve.poolTotalWeight(poolId);
-        feeWeightSum = feeState.feeWeightSum();
-        swapFee = feeState.swapFee();
+        VePoolSwapFeeState swapFeeState = ve.poolSwapFeeState(poolId);
+        weight = swapFeeState.totalWeight();
+        feeWeightSum = ve.poolFeeWeightSum(poolId);
+        swapFee = swapFeeState.swapFee();
     }
 
     function _fundAndVote(PoolKey memory poolKey, uint64 swapFee) internal returns (uint256 veId) {
@@ -574,7 +574,7 @@ contract Ve33Test is FullTest {
         core.initializePool(poolKey, 0);
 
         assertEq(ve.poolTotalWeight(poolId), 0);
-        assertEq(ve.poolFeeState(poolId).feeWeightSum(), 0);
+        assertEq(ve.poolFeeWeightSum(poolId), 0);
     }
 
     function test_voteRequiresInitializedPoolAndVeTokenCanInitializeInMulticall() public {

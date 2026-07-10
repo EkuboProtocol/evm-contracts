@@ -32,7 +32,7 @@ import {StorageSlot} from "../types/storageSlot.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {FeesPerLiquidity, feesPerLiquidityFromAmounts} from "../types/feesPerLiquidity.sol";
 import {Ve33GlobalEmissionState, createVe33GlobalEmissionState} from "../types/ve33GlobalEmissionState.sol";
-import {VePoolFeeState, createVePoolFeeState} from "../types/vePoolFeeState.sol";
+import {VePoolSwapFeeState, createVePoolSwapFeeState} from "../types/vePoolSwapFeeState.sol";
 import {VePoolVote, createVePoolVote} from "../types/vePoolVote.sol";
 import {
     IVe33,
@@ -152,27 +152,24 @@ abstract contract Ve33Storage {
         Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId).store(bytes32(value));
     }
 
-    function _poolFeeState(PoolId poolId) internal view returns (VePoolFeeState) {
-        return VePoolFeeState.wrap(Ve33StorageLayout.poolFeeStateSlot(poolId).load());
+    function _poolFeeWeightSum(PoolId poolId) internal view returns (uint192) {
+        return uint192(uint256(Ve33StorageLayout.poolFeeWeightSumSlot(poolId).load()));
     }
 
-    function _setPoolFeeState(PoolId poolId, uint192 feeWeightSum, uint128 totalWeight)
+    function _poolSwapFeeState(PoolId poolId) internal view returns (VePoolSwapFeeState) {
+        return VePoolSwapFeeState.wrap(Ve33StorageLayout.poolSwapFeeStateSlot(poolId).load());
+    }
+
+    function _setPoolVoteState(PoolId poolId, uint192 feeWeightSum, uint128 totalWeight)
         internal
         returns (uint64 swapFee)
     {
         assembly ("memory-safe") {
             swapFee := div(feeWeightSum, totalWeight)
         }
-        Ve33StorageLayout.poolFeeStateSlot(poolId)
-            .store(VePoolFeeState.unwrap(createVePoolFeeState(feeWeightSum, swapFee)));
-    }
-
-    function _poolTotalWeight(PoolId poolId) internal view returns (uint128) {
-        return uint128(uint256(Ve33StorageLayout.poolTotalWeightSlot(poolId).load()));
-    }
-
-    function _setPoolTotalWeight(PoolId poolId, uint128 totalWeight) internal {
-        Ve33StorageLayout.poolTotalWeightSlot(poolId).store(bytes32(uint256(totalWeight)));
+        Ve33StorageLayout.poolFeeWeightSumSlot(poolId).store(bytes32(uint256(feeWeightSum)));
+        Ve33StorageLayout.poolSwapFeeStateSlot(poolId)
+            .store(VePoolSwapFeeState.unwrap(createVePoolSwapFeeState(totalWeight, swapFee)));
     }
 
     function _poolFeeGrowth(PoolId poolId) internal view returns (FeesPerLiquidity memory feeGrowth) {
@@ -397,16 +394,15 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
         _maybeAccumulatePoolRewards(poolId, coreState.liquidity());
 
-        uint128 totalWeight = _poolTotalWeight(poolId);
-        uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
+        uint128 totalWeight = _poolSwapFeeState(poolId).totalWeight();
+        uint192 feeWeightSum = _poolFeeWeightSum(poolId);
 
         unchecked {
             totalWeight += power;
             feeWeightSum += uint192(uint256(power) * swapFee);
             _setTotalVoteWeight(_totalVoteWeight() + power);
         }
-        _setPoolTotalWeight(poolId, totalWeight);
-        uint64 currentSwapFee = _setPoolFeeState(poolId, feeWeightSum, totalWeight);
+        uint64 currentSwapFee = _setPoolVoteState(poolId, feeWeightSum, totalWeight);
 
         _setVotedPoolId(msg.sender, stakeId, poolId);
         _setVePoolVote(msg.sender, stakeId, createVePoolVote(power, swapFee, uint64(block.timestamp)));
@@ -526,7 +522,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             PoolState stateBefore = CORE.poolState(poolId);
             _maybeAccumulatePoolRewards(poolId, stateBefore.liquidity());
 
-            uint64 swapFee = _poolFeeState(poolId).swapFee();
+            VePoolSwapFeeState swapFeeState = _poolSwapFeeState(poolId);
+            uint64 swapFee = swapFeeState.swapFee();
             uint128 feeAmount;
             bool feeIsToken1 = !params.isToken1();
             bool exactOut = params.isExactOut();
@@ -565,7 +562,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                         int256(uint256(feeAmount1))
                     );
 
-                    uint128 weight = _poolTotalWeight(poolId);
+                    uint128 weight = swapFeeState.totalWeight();
                     if (weight != 0) {
                         StorageSlot feeGrowthSlot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
                         if (feeIsToken1) feeGrowthSlot = feeGrowthSlot.next();
@@ -793,8 +790,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
         _maybeAccumulatePoolRewards(poolId, CORE.poolState(poolId).liquidity());
 
-        uint128 totalWeight = _poolTotalWeight(poolId);
-        uint192 feeWeightSum = _poolFeeState(poolId).feeWeightSum();
+        uint128 totalWeight = _poolSwapFeeState(poolId).totalWeight();
+        uint192 feeWeightSum = _poolFeeWeightSum(poolId);
         FeesPerLiquidity memory feeGrowthSnapshot;
         (veVote, feeGrowthSnapshot) = _setVePoolVoteWeight(
             _poolFeeGrowth(poolId),
@@ -809,8 +806,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 + uint192(uint256(nextWeight) * veVote.swapFee());
             _setTotalVoteWeight(_totalVoteWeight() - previousWeight + nextWeight);
         }
-        _setPoolTotalWeight(poolId, totalWeight);
-        uint64 currentSwapFee = _setPoolFeeState(poolId, feeWeightSum, totalWeight);
+        uint64 currentSwapFee = _setPoolVoteState(poolId, feeWeightSum, totalWeight);
 
         if (nextWeight == 0) {
             _setVotedPoolId(owner, stakeId, PoolId.wrap(bytes32(0)));
@@ -867,7 +863,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             if (snapshot != emissionGrowthGlobalX128_) {
                 _setPoolEmissionGrowthGlobalX128Snapshot(poolId, emissionGrowthGlobalX128_);
 
-                uint128 weight = _poolTotalWeight(poolId);
+                uint128 weight = _poolSwapFeeState(poolId).totalWeight();
                 if (weight != 0) {
                     uint256 emissionRewardsAccrued =
                         FixedPointMathLib.fullMulDivN(emissionGrowthGlobalX128_ - snapshot, weight, 128);
@@ -935,7 +931,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     ) private {
         if (tickBefore == tickAfter) return;
 
-        uint256 rewardsGlobalPerLiquidity_ = _rewardsGlobalPerLiquidity(poolId);
+        uint256 rewardsGlobalPerLiquidity_;
+        bool rewardsGlobalPerLiquidityLoaded;
 
         int32 tick = tickBefore;
         if (tickAfter < tickBefore) {
@@ -945,6 +942,10 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 if (tick <= tickAfter) break;
                 unchecked {
                     if (initialized) {
+                        if (!rewardsGlobalPerLiquidityLoaded) {
+                            rewardsGlobalPerLiquidity_ = _rewardsGlobalPerLiquidity(poolId);
+                            rewardsGlobalPerLiquidityLoaded = true;
+                        }
                         _setTickRewardsOutsidePerLiquidity(
                             poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
                         );
@@ -960,6 +961,10 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 if (tick > tickAfter) break;
                 unchecked {
                     if (initialized) {
+                        if (!rewardsGlobalPerLiquidityLoaded) {
+                            rewardsGlobalPerLiquidity_ = _rewardsGlobalPerLiquidity(poolId);
+                            rewardsGlobalPerLiquidityLoaded = true;
+                        }
                         _setTickRewardsOutsidePerLiquidity(
                             poolId, tick, rewardsGlobalPerLiquidity_ - _tickRewardsOutsidePerLiquidity(poolId, tick)
                         );

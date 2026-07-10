@@ -29,12 +29,12 @@ library Ve33StorageLayout {
     /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_EMISSION_GROWTH_GLOBAL_X128_SNAPSHOTS"
     bytes32 internal constant POOL_EMISSION_GROWTH_GLOBAL_X128_SNAPSHOTS_OFFSET =
         0x8695bdcbbe8669aa39c45810141041cc083bec67dfefcbff155befe7bc3d5c78;
-    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_FEE_STATES"
-    bytes32 internal constant POOL_FEE_STATES_OFFSET =
-        0x2ddd369911f3df37f381a02a272e932049cecd3447d14d787a8a8fd0418544ce;
-    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_TOTAL_WEIGHTS"
-    bytes32 internal constant POOL_TOTAL_WEIGHTS_OFFSET =
-        0x3a93fa7e86b9b605f8975a2840f6d3e652f72249743bc849ba2127796588c5ff;
+    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_FEE_WEIGHT_SUMS"
+    bytes32 internal constant POOL_FEE_WEIGHT_SUMS_OFFSET =
+        0x923fa74891aef4b298f7e89a52709cdaca2ab65f1fe05b93a6149b79039d3950;
+    /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_SWAP_FEE_STATES"
+    bytes32 internal constant POOL_SWAP_FEE_STATES_OFFSET =
+        0xa4115f536f29d453f0849ee0475d00ef10be195a7ee992641ac2bb89f0ca1706;
     /// @dev Generated using: cast keccak "Ve33StorageLayout#POOL_FEE_GROWTH"
     bytes32 internal constant POOL_FEE_GROWTH_OFFSET =
         0xc961ee626d9b17659189fec087c4e08068c036fe14a263a6d519de462aec1bc1;
@@ -91,14 +91,14 @@ library Ve33StorageLayout {
         );
     }
 
-    /// @notice Computes the storage slot for a pool's fee-weight sum and cached swap fee.
-    function poolFeeStateSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
-        slot = StorageSlot.wrap(EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_FEE_STATES_OFFSET));
+    /// @notice Computes the storage slot for a pool's weighted sum of active fee votes.
+    function poolFeeWeightSumSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_FEE_WEIGHT_SUMS_OFFSET));
     }
 
-    /// @notice Computes the storage slot for a pool's total active vote weight.
-    function poolTotalWeightSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
-        slot = StorageSlot.wrap(EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_TOTAL_WEIGHTS_OFFSET));
+    /// @notice Computes the storage slot for a pool's packed total active vote weight and current swap fee.
+    function poolSwapFeeStateSlot(PoolId poolId) internal pure returns (StorageSlot slot) {
+        slot = StorageSlot.wrap(EfficientHashLib.hash(PoolId.unwrap(poolId), POOL_SWAP_FEE_STATES_OFFSET));
     }
 
     /// @notice Computes the first storage slot for pool fee growth per unit of vote weight.

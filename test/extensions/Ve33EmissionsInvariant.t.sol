@@ -39,7 +39,7 @@ import {StakeId} from "../../src/types/stakeId.sol";
 import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
-import {VePoolFeeState} from "../../src/types/vePoolFeeState.sol";
+import {VePoolSwapFeeState} from "../../src/types/vePoolSwapFeeState.sol";
 import {VePoolVote} from "../../src/types/vePoolVote.sol";
 
 contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
@@ -250,11 +250,11 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
                 }
             }
 
-            VePoolFeeState feeState = ve33.poolFeeState(poolId);
-            assertEq(ve33.poolTotalWeight(poolId), expectedPoolWeight);
-            assertEq(feeState.feeWeightSum(), expectedFeeWeightSum);
+            VePoolSwapFeeState swapFeeState = ve33.poolSwapFeeState(poolId);
+            assertEq(swapFeeState.totalWeight(), expectedPoolWeight);
+            assertEq(ve33.poolFeeWeightSum(poolId), expectedFeeWeightSum);
             assertEq(
-                feeState.swapFee(), expectedPoolWeight == 0 ? 0 : uint64(expectedFeeWeightSum / expectedPoolWeight)
+                swapFeeState.swapFee(), expectedPoolWeight == 0 ? 0 : uint64(expectedFeeWeightSum / expectedPoolWeight)
             );
             totalWeight += expectedPoolWeight;
         }
@@ -277,8 +277,8 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         for (uint256 poolIndex = 0; poolIndex < pools.length; poolIndex++) {
             PoolId poolId = pools[poolIndex].poolId;
             _assertNotFixedSlot(Ve33StorageLayout.poolEmissionGrowthGlobalX128SnapshotSlot(poolId));
-            _assertNotFixedSlot(Ve33StorageLayout.poolFeeStateSlot(poolId));
-            _assertNotFixedSlot(Ve33StorageLayout.poolTotalWeightSlot(poolId));
+            _assertNotFixedSlot(Ve33StorageLayout.poolFeeWeightSumSlot(poolId));
+            _assertNotFixedSlot(Ve33StorageLayout.poolSwapFeeStateSlot(poolId));
             StorageSlot poolFeeGrowthSlot = Ve33StorageLayout.poolFeeGrowthSlot(poolId);
             _assertNotFixedSlot(poolFeeGrowthSlot);
             _assertNotFixedSlot(poolFeeGrowthSlot.next());

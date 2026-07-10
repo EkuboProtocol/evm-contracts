@@ -19,7 +19,7 @@ Treat contract code as authoritative when documentation and implementation diffe
 - `src/types/stakeId.sol`
 - `src/types/ve33GlobalEmissionState.sol`
 - `src/types/vePoolVote.sol`
-- `src/types/vePoolFeeState.sol`
+- `src/types/vePoolSwapFeeState.sol`
 
 ## Notation
 
@@ -62,8 +62,8 @@ The following slot families must be pairwise disjoint, including any adjacent sl
 - `vePoolVoteSlot(owner, stakeId)`
 - `vePoolFeeGrowthSnapshotSlot(owner, stakeId)` and `.next()`
 - `poolEmissionGrowthGlobalX128SnapshotSlot(poolId)`
-- `poolFeeStateSlot(poolId)`
-- `poolTotalWeightSlot(poolId)`
+- `poolFeeWeightSumSlot(poolId)`
+- `poolSwapFeeStateSlot(poolId)`
 - `poolFeeGrowthSlot(poolId)` and `.next()`
 - `rewardsGlobalPerLiquiditySlot(poolId)`
 - `tickRewardsOutsidePerLiquiditySlot(poolId, tick)`
@@ -89,7 +89,7 @@ Packed custom types must preserve field widths and must not allow high bits to l
 
 - `StakeId`: `bytes24 salt`, `uint64 endTime`.
 - `VePoolVote`: `uint64 timestamp`, `uint64 swapFee`, `uint128 weight`.
-- `VePoolFeeState`: `uint64 swapFee`, `uint192 feeWeightSum`.
+- `VePoolSwapFeeState`: `uint64 swapFee`, `uint128 totalWeight`.
 - `Ve33GlobalEmissionState`: `uint32 lastAccrued`, `uint160 emissionRate`.
 
 Any conversion from raw storage to a narrower integer must be performed through the custom type parser or an equivalent masked operation.
@@ -187,8 +187,9 @@ For reachable active votes:
 ```text
 totalVoteWeight == sum(poolTotalWeight[poolId])
 poolTotalWeight[poolId] == sum(active vote weights for poolId)
-poolFeeState[poolId].feeWeightSum == sum(active vote weight * active vote swapFee for poolId)
-poolFeeState[poolId].swapFee == poolFeeState[poolId].feeWeightSum / poolTotalWeight[poolId]
+poolFeeWeightSum[poolId] == sum(active vote weight * active vote swapFee for poolId)
+poolSwapFeeState[poolId].totalWeight == poolTotalWeight[poolId]
+poolSwapFeeState[poolId].swapFee == poolFeeWeightSum[poolId] / poolTotalWeight[poolId]
 ```
 
 If `poolTotalWeight[poolId] == 0`, the effective swap fee must be zero.

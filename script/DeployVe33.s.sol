@@ -6,7 +6,6 @@ import {console2} from "forge-std/console2.sol";
 import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {BaseVe33Positions} from "../src/base/BaseVe33Positions.sol";
-import {FreeVe33Positions} from "../src/FreeVe33Positions.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
@@ -28,7 +27,6 @@ contract DeployVe33 is Script {
         bytes32 salt = vm.envOr("SALT", DEFAULT_DEPLOYMENT_SALT);
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         address deployer = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
-        uint64 rewardProtocolFeeX64 = uint64(vm.envOr("VE33_POSITIONS_REWARD_PROTOCOL_FEE_X64", uint256(0)));
 
         vm.startBroadcast();
 
@@ -74,23 +72,12 @@ contract DeployVe33 is Script {
 
         address positionsAddress;
         bool deployedPositions;
-        if (rewardProtocolFeeX64 == 0) {
-            (positionsAddress, deployedPositions) = deployIfNeeded(
-                abi.encodePacked(type(FreeVe33Positions).creationCode, abi.encode(core, ve33, deployer)),
-                salt,
-                address(0),
-                "FreeVe33Positions"
-            );
-        } else {
-            (positionsAddress, deployedPositions) = deployIfNeeded(
-                abi.encodePacked(
-                    type(Ve33Positions).creationCode, abi.encode(core, ve33, deployer, rewardProtocolFeeX64)
-                ),
-                salt,
-                address(0),
-                "Ve33Positions"
-            );
-        }
+        (positionsAddress, deployedPositions) = deployIfNeeded(
+            abi.encodePacked(type(Ve33Positions).creationCode, abi.encode(core, ve33, deployer)),
+            salt,
+            address(0),
+            "Ve33Positions"
+        );
 
         if (deployedPositions) {
             BaseVe33Positions(payable(positionsAddress))

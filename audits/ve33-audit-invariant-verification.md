@@ -30,7 +30,6 @@ The primary implementation evidence is:
 - `src/VeToken.sol`
 - `src/base/BaseVe33Positions.sol`
 - `src/Ve33Positions.sol`
-- `src/FreeVe33Positions.sol`
 - `src/Ve33Periphery.sol`
 
 ## Storage Layout Invariants

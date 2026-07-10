@@ -13,7 +13,7 @@ import {TestToken} from "../TestToken.sol";
 import {BaseRouter} from "../../src/base/BaseRouter.sol";
 import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
-import {FreeVe33Positions} from "../../src/FreeVe33Positions.sol";
+import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
 import {VeTokenMetadata} from "../../src/VeTokenMetadata.sol";
 import {
@@ -73,7 +73,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     ICore private immutable core;
     Ve33 private immutable ve33;
     VeToken private immutable veToken;
-    FreeVe33Positions private immutable ve33Positions;
+    Ve33Positions private immutable ve33Positions;
     Router private immutable router;
     TestToken private immutable token0;
     TestToken private immutable token1;
@@ -92,7 +92,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         ICore _core,
         Ve33 _ve33,
         VeToken _veToken,
-        FreeVe33Positions _ve33Positions,
+        Ve33Positions _ve33Positions,
         Router _router,
         TestToken _token0,
         TestToken _token1,
@@ -485,7 +485,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
 contract Ve33EmissionsInvariantTest is FullTest {
     Ve33 internal ve33;
     VeToken internal veToken;
-    FreeVe33Positions internal ve33Positions;
+    Ve33Positions internal ve33Positions;
     Ve33Periphery internal periphery;
     TestToken internal stakeToken;
     Ve33EmissionsInvariantHandler internal handler;
@@ -501,7 +501,7 @@ contract Ve33EmissionsInvariantTest is FullTest {
         veToken = new VeToken(
             core, ve33, new VeTokenMetadata("TestToken", "TT", 18, address(stakeToken)), "Vote Escrow TestToken", "veTT"
         );
-        ve33Positions = new FreeVe33Positions(core, ve33, owner);
+        ve33Positions = new Ve33Positions(core, ve33, owner);
         periphery = new Ve33Periphery(core, ve33);
 
         stakeToken.approve(address(veToken), type(uint256).max);

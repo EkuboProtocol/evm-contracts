@@ -7,7 +7,6 @@ import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {Router} from "../../src/Router.sol";
 import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
 import {BaseVe33Positions} from "../../src/base/BaseVe33Positions.sol";
-import {FreeVe33Positions} from "../../src/FreeVe33Positions.sol";
 import {Ve33Positions} from "../../src/Ve33Positions.sol";
 import {VeToken} from "../../src/VeToken.sol";
 import {VeTokenMetadata} from "../../src/VeTokenMetadata.sol";
@@ -123,7 +122,7 @@ contract Ve33Test is FullTest {
 
     Ve33 internal ve;
     VeToken internal veToken;
-    FreeVe33Positions internal vePositions;
+    Ve33Positions internal vePositions;
     Ve33Forwarder internal forwarder;
     Ve33Periphery internal periphery;
     TestToken internal stakeToken;
@@ -141,7 +140,7 @@ contract Ve33Test is FullTest {
         veToken = new VeToken(
             core, ve, new VeTokenMetadata("TestToken", "TT", 18, address(stakeToken)), "Vote Escrow TestToken", "veTT"
         );
-        vePositions = new FreeVe33Positions(core, ve, owner);
+        vePositions = new Ve33Positions(core, ve, owner);
         forwarder = new Ve33Forwarder(core, ve, address(stakeToken));
         periphery = new Ve33Periphery(core, ve);
 
@@ -492,7 +491,7 @@ contract Ve33Test is FullTest {
 
         coolAllContracts();
         _updatePosition(poolKey, positionId, int128(uint128(1e18)));
-        vm.snapshotGasLastCall("FreeVe33Positions#deposit");
+        vm.snapshotGasLastCall("Ve33Positions#deposit");
     }
 
     function test_gas_routerSwapVe33Position() public {
@@ -521,7 +520,7 @@ contract Ve33Test is FullTest {
 
         coolAllContracts();
         _claimRewards(poolKey, positionId, address(this));
-        vm.snapshotGasLastCall("FreeVe33Positions#claimRewards");
+        vm.snapshotGasLastCall("Ve33Positions#claimRewards");
     }
 
     function test_gas_peripheryScheduleEmissions() public {
@@ -542,7 +541,7 @@ contract Ve33Test is FullTest {
 
         coolAllContracts();
         _claimRewards(poolKey, positionId, address(this));
-        vm.snapshotGasLastCall("FreeVe33Positions#claimAccruedEmissions");
+        vm.snapshotGasLastCall("Ve33Positions#claimAccruedEmissions");
     }
 
     function test_registrationAndCallPoints() public view {
@@ -1423,60 +1422,6 @@ contract Ve33Test is FullTest {
         assertEq(stakeToken.balanceOf(recipient), rewardBalanceBefore + rewardAmount);
         assertEq(_positionLiquidity(poolKey, positionId), 0);
         assertEq(_claimRewards(poolKey, positionId, address(this)), 0);
-    }
-
-    function test_vePositionsTakesProtocolFeeFromClaimedRewards() public {
-        uint64 rewardProtocolFeeX64 = uint64(1 << 63);
-        Ve33Positions feePositions = new Ve33Positions(core, ve, owner, rewardProtocolFeeX64);
-        token0.approve(address(feePositions), type(uint256).max);
-        token1.approve(address(feePositions), type(uint256).max);
-
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 64, extension: address(ve)});
-        int32 tickLower = -64;
-        int32 tickUpper = 64;
-        uint256 id = feePositions.mint(bytes32(uint256(123)));
-        PositionId positionId = feePositions.positionId(id, tickLower, tickUpper);
-        int128 liquidityDelta = int128(uint128(1e18));
-        (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
-            core.poolState(poolKey.toPoolId()).sqrtRatio(),
-            liquidityDelta,
-            tickToSqrtRatio(tickLower),
-            tickToSqrtRatio(tickUpper)
-        );
-        feePositions.deposit(
-            id, poolKey, tickLower, tickUpper, uint128(delta0), uint128(delta1), uint128(liquidityDelta)
-        );
-
-        _fundAndVote(poolKey, uint64(1 << 62));
-        _scheduleEmissions(10_000, _defaultEmissionEnd());
-        vm.warp(vm.getBlockTimestamp() + 1 days);
-        ve.maybeAccumulateRewards(poolKey);
-
-        (uint128 viewLiquidity,,, uint256 claimableRewardAmount) =
-            feePositions.getPositionRewardsAndLiquidity(id, poolKey, tickLower, tickUpper);
-        assertEq(viewLiquidity, core.poolPositions(poolKey.toPoolId(), address(feePositions), positionId).liquidity);
-        assertGt(claimableRewardAmount, 0);
-
-        address recipient = address(0xBEEF);
-        uint256 recipientBalanceBefore = stakeToken.balanceOf(recipient);
-        uint256 netRewardAmount = feePositions.claimRewards(id, poolKey, tickLower, tickUpper, recipient);
-        uint128 protocolFeeAmount = feePositions.getProtocolFees();
-        uint128 grossRewardAmount = uint128(netRewardAmount + protocolFeeAmount);
-
-        assertEq(netRewardAmount, claimableRewardAmount);
-        assertEq(stakeToken.balanceOf(recipient), recipientBalanceBefore + netRewardAmount);
-        assertEq(protocolFeeAmount, computeFee(grossRewardAmount, rewardProtocolFeeX64));
-
-        vm.prank(address(1234));
-        vm.expectRevert();
-        feePositions.withdrawProtocolFees(protocolFeeAmount, address(1234));
-
-        uint256 ownerBalanceBefore = stakeToken.balanceOf(owner);
-        vm.prank(owner);
-        feePositions.withdrawProtocolFees(protocolFeeAmount, owner);
-
-        assertEq(stakeToken.balanceOf(owner), ownerBalanceBefore + protocolFeeAmount);
-        assertEq(feePositions.getProtocolFees(), 0);
     }
 
     function test_peripherySettlesEmissionPaymentsAfterRouterSwap() public {

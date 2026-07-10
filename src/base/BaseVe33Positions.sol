@@ -34,7 +34,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_CLAIM_REWARDS = 2;
     uint256 private constant CALL_TYPE_WITHDRAW_AND_CLAIM_REWARDS = 3;
-    uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 4;
 
     /// @notice The Ve33 extension whose pools this position manager supports.
     Ve33 public immutable ve33;
@@ -106,7 +105,7 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
     }
 
     /// @notice Gets position liquidity, principal amounts, and currently claimable Ve33 reward tokens.
-    /// @dev Reward amount reflects already-accumulated Ve33 state and is net of this manager's reward protocol fee.
+    /// @dev Reward amount reflects already-accumulated Ve33 state.
     /// @param id ERC721 token id representing the position owner.
     /// @param poolKey Pool containing the position.
     /// @param tickLower Lower position tick.
@@ -290,19 +289,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
         }
     }
 
-    /// @notice Withdraws accumulated reward-token protocol fees.
-    /// @param amount Amount of `stakeToken` protocol fees to withdraw.
-    /// @param recipient Account receiving the protocol fees.
-    function withdrawProtocolFees(uint128 amount, address recipient) external payable onlyOwner {
-        lock(abi.encode(CALL_TYPE_WITHDRAW_PROTOCOL_FEES, amount, recipient));
-    }
-
-    /// @notice Returns accumulated reward-token protocol fees.
-    /// @return amount Amount of `stakeToken` saved for the owner.
-    function getProtocolFees() external view returns (uint128 amount) {
-        (amount,) = CORE.savedBalances(address(this), stakeToken, address(type(uint160).max), bytes32(0));
-    }
-
     /// @notice Mints a new NFT and deposits liquidity.
     function mintAndDeposit(
         PoolKey memory poolKey,
@@ -329,16 +315,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
         id = mint(salt);
         (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
     }
-
-    /// @notice Computes the protocol fee taken from a Ve33 reward claim.
-    /// @param poolKey Pool containing the position.
-    /// @param amount Claimed reward amount before protocol-fee deduction.
-    /// @return protocolFee Reward-token amount saved for the owner.
-    function _computeClaimRewardsProtocolFee(PoolKey memory poolKey, uint128 amount)
-        internal
-        view
-        virtual
-        returns (uint128 protocolFee);
 
     /// @inheritdoc BaseLocker
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
@@ -434,11 +410,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
 
             _validateVe33Pool(poolKey);
             result = abi.encode(_claimRewards(poolKey, positionId_, recipient));
-        } else if (callType == CALL_TYPE_WITHDRAW_PROTOCOL_FEES) {
-            (, uint128 amount, address recipient) = abi.decode(data, (uint256, uint128, address));
-
-            CORE.updateSavedBalances(stakeToken, address(type(uint160).max), bytes32(0), -int256(uint256(amount)), 0);
-            ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         } else {
             revert();
         }
@@ -450,14 +421,7 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
     {
         amount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_));
         if (amount != 0) {
-            uint128 protocolFee = _computeClaimRewardsProtocolFee(poolKey, amount);
-            if (protocolFee != 0) {
-                CORE.updateSavedBalances(
-                    stakeToken, address(type(uint160).max), bytes32(0), int256(uint256(protocolFee)), 0
-                );
-                amount -= protocolFee;
-            }
-            if (amount != 0) ACCOUNTANT.withdraw(stakeToken, recipient, amount);
+            ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         }
     }
 
@@ -481,7 +445,6 @@ abstract contract BaseVe33Positions is UsesCore, PayableMulticallable, BaseLocke
             unchecked {
                 amount = uint128(FixedPointMathLib.fullMulDivN(rewardsInsidePerLiquidity - snapshot, liquidity, 128));
             }
-            amount -= _computeClaimRewardsProtocolFee(poolKey, uint128(amount));
         }
     }
 }

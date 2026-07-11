@@ -1010,11 +1010,10 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
         uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
         if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
-            _setTickRewardsOutsidePerLiquidity(poolId, tick, 0);
-            if (liquidityNetNext != 0) {
-                _setTickRewardsOutsidePerLiquidity(
-                    poolId, tick, tickCurrent >= tick ? _rewardsGlobalPerLiquidity(poolId) : 0
-                );
+            if (liquidityNetNext == 0) {
+                _setTickRewardsOutsidePerLiquidity(poolId, tick, 0);
+            } else if (tickCurrent >= tick) {
+                _setTickRewardsOutsidePerLiquidity(poolId, tick, _rewardsGlobalPerLiquidity(poolId));
             }
         }
     }

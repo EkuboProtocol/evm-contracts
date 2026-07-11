@@ -735,17 +735,17 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         private
         returns (uint256 amount)
     {
-        maybeAccumulateRewards(poolKey);
-
+        checkValidPoolKey(poolKey);
         PoolId poolId = poolKey.toPoolId();
+        PoolState coreState = CORE.poolState(poolId);
+        _maybeAccumulatePoolRewards(poolId, coreState.liquidity());
+
         uint128 liquidity = _poolPositionLiquidity(poolId, owner, positionId);
         uint256 snapshot = _positionRewardsSnapshotPerLiquidity(poolId, owner, positionId);
 
         uint256 rewardsInsidePerLiquidity = poolKey.config.isStableswap()
             ? _rewardsGlobalPerLiquidity(poolId)
-            : _getRewardsInsidePerLiquidity(
-                poolId, CORE.poolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
-            );
+            : _getRewardsInsidePerLiquidity(poolId, coreState.tick(), positionId.tickLower(), positionId.tickUpper());
         amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
         _setPositionRewardsSnapshotPerLiquidity(

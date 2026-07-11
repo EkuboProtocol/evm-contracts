@@ -485,6 +485,24 @@ contract Ve33Test is FullTest {
         vm.snapshotGasLastCall("VeToken#vote");
     }
 
+    function test_gas_stake() public {
+        StakeId stakeId = createStakeId(bytes24("gas stake"), uint64(vm.getBlockTimestamp() + 1 weeks));
+
+        coolAllContracts();
+        forwarder.stake(stakeId, 100);
+        vm.snapshotGasLastCall("Ve33Forwarder#stake");
+    }
+
+    function test_gas_moveStake() public {
+        StakeId fromStakeId = createStakeId(bytes24("gas from"), uint64(vm.getBlockTimestamp() + 1 weeks));
+        StakeId toStakeId = createStakeId(bytes24("gas to"), uint64(vm.getBlockTimestamp() + 2 weeks));
+        forwarder.stake(fromStakeId, 100);
+
+        coolAllContracts();
+        forwarder.moveStake(fromStakeId, toStakeId, 40);
+        vm.snapshotGasLastCall("Ve33Forwarder#moveStake");
+    }
+
     function test_gas_updatePosition() public {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
 

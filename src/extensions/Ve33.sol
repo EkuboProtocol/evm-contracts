@@ -335,12 +335,16 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @param stakeId Canonical stake id.
     /// @return power Current voting power.
     function _votingPower(address owner, StakeId stakeId) private view returns (uint128 power) {
+        return _votingPower(_stakeAmount(owner, stakeId), stakeId);
+    }
+
+    function _votingPower(uint128 amount, StakeId stakeId) private view returns (uint128 power) {
         uint64 endTime = stakeId.endTime();
         uint64 secondsUntilEnd = _secondsUntilStakeEnd(endTime);
         if (secondsUntilEnd == 0 || secondsUntilEnd > VE33_MAX_STAKE_DURATION) return 0;
 
         unchecked {
-            power = uint128((uint256(_stakeAmount(owner, stakeId)) * secondsUntilEnd) / VE33_MAX_STAKE_DURATION);
+            power = uint128((uint256(amount) * secondsUntilEnd) / VE33_MAX_STAKE_DURATION);
         }
     }
 
@@ -440,11 +444,12 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
         PoolId fromPoolId = _votedPoolId(msg.sender, fromStakeId);
         PoolId toPoolId = _votedPoolId(msg.sender, toStakeId);
-        _setStakeAmount(msg.sender, fromStakeId, currentAmount - amount);
+        uint128 nextFromAmount = currentAmount - amount;
+        _setStakeAmount(msg.sender, fromStakeId, nextFromAmount);
         nextAmount = _stakeAmount(msg.sender, toStakeId) + amount;
         _setStakeAmount(msg.sender, toStakeId, nextAmount);
-        _adjustVoteWeight(msg.sender, fromStakeId, fromPoolId, _votingPower(msg.sender, fromStakeId));
-        _adjustVoteWeight(msg.sender, toStakeId, toPoolId, _votingPower(msg.sender, toStakeId));
+        _adjustVoteWeight(msg.sender, fromStakeId, fromPoolId, _votingPower(nextFromAmount, fromStakeId));
+        _adjustVoteWeight(msg.sender, toStakeId, toPoolId, _votingPower(nextAmount, toStakeId));
 
         emit StakeChanged(msg.sender, fromStakeId, -int256(uint256(amount)));
         emit StakeChanged(msg.sender, toStakeId, int256(uint256(amount)));
@@ -608,7 +613,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
         nextAmount = _stakeAmount(owner, stakeId) + amount;
         _setStakeAmount(owner, stakeId, nextAmount);
-        _adjustVoteWeight(owner, stakeId, _votedPoolId(owner, stakeId), _votingPower(owner, stakeId));
+        _adjustVoteWeight(owner, stakeId, _votedPoolId(owner, stakeId), _votingPower(nextAmount, stakeId));
         CORE.updateSavedBalances(
             stakeToken, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID, int256(uint256(amount)), 0
         );
@@ -735,17 +740,17 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         private
         returns (uint256 amount)
     {
-        maybeAccumulateRewards(poolKey);
-
+        checkValidPoolKey(poolKey);
         PoolId poolId = poolKey.toPoolId();
+        PoolState coreState = CORE.poolState(poolId);
+        _maybeAccumulatePoolRewards(poolId, coreState.liquidity());
+
         uint128 liquidity = _poolPositionLiquidity(poolId, owner, positionId);
         uint256 snapshot = _positionRewardsSnapshotPerLiquidity(poolId, owner, positionId);
 
         uint256 rewardsInsidePerLiquidity = poolKey.config.isStableswap()
             ? _rewardsGlobalPerLiquidity(poolId)
-            : _getRewardsInsidePerLiquidity(
-                poolId, CORE.poolState(poolId).tick(), positionId.tickLower(), positionId.tickUpper()
-            );
+            : _getRewardsInsidePerLiquidity(poolId, coreState.tick(), positionId.tickLower(), positionId.tickUpper());
         amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
         _setPositionRewardsSnapshotPerLiquidity(
@@ -1010,11 +1015,10 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
         uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
         if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
-            _setTickRewardsOutsidePerLiquidity(poolId, tick, 0);
-            if (liquidityNetNext != 0) {
-                _setTickRewardsOutsidePerLiquidity(
-                    poolId, tick, tickCurrent >= tick ? _rewardsGlobalPerLiquidity(poolId) : 0
-                );
+            if (liquidityNetNext == 0) {
+                _setTickRewardsOutsidePerLiquidity(poolId, tick, 0);
+            } else if (tickCurrent >= tick) {
+                _setTickRewardsOutsidePerLiquidity(poolId, tick, _rewardsGlobalPerLiquidity(poolId));
             }
         }
     }

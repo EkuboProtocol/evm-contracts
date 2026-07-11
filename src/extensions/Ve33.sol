@@ -479,7 +479,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         }
 
         if (callType == VE33_SWAP) {
-            (, PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (uint256, PoolKey, SwapParameters));
+            (PoolKey memory poolKey, SwapParameters params) = _decodeSwap(data);
             (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = _swap(poolKey, params);
             assembly ("memory-safe") {
                 result := mload(0x40)
@@ -507,6 +507,19 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             result = abi.encode(_scheduleEmissions(original.addr(), startTime, endTime, rewardRate));
         } else {
             revert();
+        }
+    }
+
+    /// @notice Decodes the fixed-size forwarded swap payload without copying its pool key.
+    /// @dev Preserves the length and canonical address checks performed by `abi.decode`.
+    function _decodeSwap(bytes memory data) private pure returns (PoolKey memory poolKey, SwapParameters params) {
+        assembly ("memory-safe") {
+            if lt(mload(data), 0xa0) { revert(0, 0) }
+
+            poolKey := add(data, 0x40)
+            if or(shr(160, mload(poolKey)), shr(160, mload(add(poolKey, 0x20)))) { revert(0, 0) }
+
+            params := mload(add(poolKey, 0x60))
         }
     }
 

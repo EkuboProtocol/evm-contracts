@@ -16,7 +16,6 @@ import {addLiquidityDelta} from "../math/liquidity.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {isPowerOfFour} from "../math/isPowerOfFour.sol";
 import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
-import {TICK_BITMAP_STORAGE_OFFSET} from "../math/tickBitmap.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "../math/time.sol";
 import {bitmapWordAndIndexToTime, timeToBitmapWordAndIndex} from "../math/timeBitmap.sol";
 import {Bitmap} from "../types/bitmap.sol";
@@ -948,13 +947,6 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         _setGlobalEmissionState(createVe33GlobalEmissionState(rate, uint32(block.timestamp)));
     }
 
-    /// @notice Rounds a tick down to its compressed tick-spacing index.
-    function _compressTick(int32 tick, uint32 tickSpacing) private pure returns (int32 compressed) {
-        assembly ("memory-safe") {
-            compressed := sub(sdiv(tick, tickSpacing), slt(smod(tick, tickSpacing), 0))
-        }
-    }
-
     /// @notice Updates tick reward snapshots for ticks crossed by a forwarded swap.
     /// @dev Mirrors Core fee-outside inversion so reward growth remains range-aware.
     /// @param poolId Id of `poolKey`.
@@ -970,33 +962,6 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         uint256 skipAhead
     ) private {
         if (tickBefore == tickAfter) return;
-
-        int32 compressedBefore = _compressTick(tickBefore, tickSpacing);
-        int32 compressedAfter = _compressTick(tickAfter, tickSpacing);
-        int32 compressedDelta = compressedAfter - compressedBefore;
-
-        if (compressedDelta == 0) return;
-        if (compressedDelta == 1 || compressedDelta == -1) {
-            // Core warmed this bitmap word during the swap, so checking its only crossed bit is cheaper than searching.
-            int32 compressedCrossed = compressedDelta > 0 ? compressedAfter : compressedBefore;
-            int32 crossedTick;
-            uint256 rawIndex;
-            assembly ("memory-safe") {
-                crossedTick := mul(compressedCrossed, tickSpacing)
-                rawIndex := add(compressedCrossed, TICK_BITMAP_STORAGE_OFFSET)
-            }
-            uint256 word = rawIndex >> 8;
-            uint256 index = uint8(rawIndex);
-
-            Bitmap bitmap = Bitmap.wrap(uint256(CORE.sload(CoreStorageLayout.tickBitmapsSlot(poolId).add(word))));
-            if (bitmap.isSet(uint8(index))) {
-                uint256 rewardsGlobal = _rewardsGlobalPerLiquidity(poolId);
-                _setTickRewardsOutsidePerLiquidity(
-                    poolId, crossedTick, rewardsGlobal - _tickRewardsOutsidePerLiquidity(poolId, crossedTick)
-                );
-            }
-            return;
-        }
 
         uint256 rewardsGlobalPerLiquidity_;
         bool rewardsGlobalPerLiquidityLoaded;

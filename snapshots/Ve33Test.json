@@ -2,6 +2,7 @@
   "Router#coreSwapMatchingVe33SteadyState": "37353",
   "Router#ve33Stableswap": "96092",
   "Router#ve33Swap": "99761",
+  "Router#ve33SwapCrossingInitializedTick": "119275",
   "Router#ve33SwapInitializedFeeSlots": "58596",
   "Router#ve33SwapInitializedFeeSlotsAndAccruedEmissions": "71034",
   "Router#ve33SwapInitializedFeeSlotsAndAccruedEmissionsCrossingScheduleEnd": "79495",
@@ -13,9 +14,9 @@
   "Ve33Forwarder#moveStake": "39263",
   "Ve33Forwarder#stake": "101672",
   "Ve33Periphery#scheduleEmissions": "125500",
-  "Ve33Positions#claimAccruedEmissions": "138132",
-  "Ve33Positions#claimRewards": "65994",
-  "Ve33Positions#deposit": "345436",
+  "Ve33Positions#claimAccruedEmissions": "118232",
+  "Ve33Positions#claimRewards": "46094",
+  "Ve33Positions#deposit": "404962",
   "VeToken#claimPoolFees": "59804",
   "VeToken#vote": "139601"
 }

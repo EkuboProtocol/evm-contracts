@@ -302,8 +302,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         uint256 amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
         if (poolKey.config.isConcentrated()) {
-            _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickLower(), liquidityDelta);
-            _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickUpper(), liquidityDelta);
+            _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickLower(), liquidityDelta);
+            _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickUpper(), liquidityDelta);
         }
 
         if (liquidityNext == 0) {
@@ -1006,20 +1006,19 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
     /// @notice Updates reward-outside state when a concentrated-position boundary becomes initialized or uninitialized.
     /// @param poolId Pool containing the tick.
-    /// @param tickCurrent Current pool tick.
     /// @param tick Position boundary tick.
     /// @param liquidityDelta Position liquidity delta.
-    function _updateTickRewardsPerLiquidityOutside(PoolId poolId, int32 tickCurrent, int32 tick, int128 liquidityDelta)
-        private
-    {
+    function _updateTickRewardsPerLiquidityOutside(PoolId poolId, int32 tick, int128 liquidityDelta) private {
         (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
         uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
         if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
-            if (liquidityNetNext == 0) {
-                _setTickRewardsOutsidePerLiquidity(poolId, tick, 0);
-            } else if (tickCurrent >= tick) {
-                _setTickRewardsOutsidePerLiquidity(poolId, tick, _rewardsGlobalPerLiquidity(poolId));
+            // Initialize the slot to a non-zero sentinel so the first swap crossing this tick is cheaper.
+            // Only changes in the outside snapshot are relevant to position reward accounting.
+            uint256 value;
+            assembly ("memory-safe") {
+                value := iszero(liquidityNet)
             }
+            _setTickRewardsOutsidePerLiquidity(poolId, tick, value);
         }
     }
 

@@ -114,19 +114,10 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         return VE33_MAX_STAKE_DURATION;
     }
 
-    /// @notice Returns whether `account` may manage the represented stake.
-    /// @dev Uses Solady ERC721 ownership and approval checks. Reverts if `id` does not exist.
-    /// @param account The account to check.
-    /// @param id The ERC721 token id.
-    /// @return True if the account owns the token or is approved for it.
-    function isAuthorizedForNft(address account, uint256 id) public view returns (bool) {
-        return _isApprovedOrOwner(account, id);
-    }
-
     /// @notice Requires the caller to own or be approved for a represented stake.
     /// @param id The ERC721 token id.
     modifier authorizedForStake(uint256 id) {
-        if (!isAuthorizedForNft(msg.sender, id)) revert NotAuthorizedForToken(msg.sender, id);
+        if (!_isApprovedOrOwner(msg.sender, id)) revert NotAuthorizedForToken(msg.sender, id);
         _;
     }
 
@@ -253,7 +244,12 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param end The new stake end timestamp.
     function extendStake(uint256 veId, uint64 end) public payable authorizedForStake(veId) {
-        _extendStake(veId, end);
+        uint64 currentEnd = _stakeEndTime(veId);
+
+        StakeId currentStakeId = createStakeId(_stakeSalt(veId), currentEnd);
+        uint128 amount = ve33.stakeAmount(address(this), currentStakeId);
+        ve33.moveStake(currentStakeId, createStakeId(_stakeSalt(veId), end), amount);
+        _setExtraData(veId, end);
     }
 
     /// @notice Moves an existing represented stake to end `duration` seconds from now.
@@ -353,13 +349,8 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and source Ve33 stake salt.
     /// @param amount The amount of stake token to move into the new ERC721.
     /// @return splitVeId The newly minted ERC721 token id.
-    function splitStake(uint256 veId, uint128 amount)
-        external
-        payable
-        authorizedForStake(veId)
-        returns (uint256 splitVeId)
-    {
-        splitVeId = _splitStake(veId, amount, _randomSalt());
+    function splitStake(uint256 veId, uint128 amount) external payable returns (uint256 splitVeId) {
+        splitVeId = splitStake(veId, amount, _randomSalt());
     }
 
     /// @notice Splits part of a represented stake into a newly minted ERC721 with an explicit salt.
@@ -369,15 +360,11 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param salt The salt for deterministic ID generation.
     /// @return splitVeId The newly minted ERC721 token id.
     function splitStake(uint256 veId, uint128 amount, bytes32 salt)
-        external
+        public
         payable
         authorizedForStake(veId)
         returns (uint256 splitVeId)
     {
-        splitVeId = _splitStake(veId, amount, salt);
-    }
-
-    function _splitStake(uint256 veId, uint128 amount, bytes32 salt) private returns (uint256 splitVeId) {
         if (amount == 0) revert InvalidStakeAmount();
 
         uint64 end = _stakeEndTime(veId);
@@ -544,7 +531,9 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         authorizedForStake(veId)
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = _claimPoolFees(veId, poolKey, recipient);
+        (amount0, amount1) = abi.decode(
+            lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, recipient, poolKey)), (uint128, uint128)
+        );
     }
 
     /// @notice Claims pool fees earned by a represented stake to the caller.
@@ -627,16 +616,6 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
         }
     }
 
-    /// @notice Claims pending voter fees through the Core lock.
-    function _claimPoolFees(uint256 veId, PoolKey calldata poolKey, address recipient)
-        private
-        returns (uint128 amount0, uint128 amount1)
-    {
-        (amount0, amount1) = abi.decode(
-            lock(abi.encode(CALL_TYPE_CLAIM_POOL_FEES, veId, recipient, poolKey)), (uint128, uint128)
-        );
-    }
-
     /// @notice Converts a duration into an absolute stake end timestamp.
     function _stakeEndFromDuration(uint32 duration) private view returns (uint64 end) {
         if (duration > VE33_MAX_STAKE_DURATION) revert IVe33.StakeDurationTooLong();
@@ -649,15 +628,5 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @notice Returns the maximum valid stake end timestamp from now.
     function _maxStakeEnd() private view returns (uint64) {
         return _stakeEndFromDuration(uint32(VE33_MAX_STAKE_DURATION));
-    }
-
-    /// @notice Shared implementation for stake extension.
-    function _extendStake(uint256 veId, uint64 end) private {
-        uint64 currentEnd = _stakeEndTime(veId);
-
-        StakeId currentStakeId = createStakeId(_stakeSalt(veId), currentEnd);
-        uint128 amount = ve33.stakeAmount(address(this), currentStakeId);
-        ve33.moveStake(currentStakeId, createStakeId(_stakeSalt(veId), end), amount);
-        _setExtraData(veId, end);
     }
 }

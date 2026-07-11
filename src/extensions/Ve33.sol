@@ -302,8 +302,8 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         uint256 amount = _positionRewards(snapshot, rewardsInsidePerLiquidity, liquidity);
 
         if (poolKey.config.isConcentrated()) {
-            _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickLower(), liquidityDelta);
-            _updateTickRewardsPerLiquidityOutside(poolId, tick, positionId.tickUpper(), liquidityDelta);
+            _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickLower(), liquidityDelta);
+            _updateTickRewardsPerLiquidityOutside(poolId, positionId.tickUpper(), liquidityDelta);
         }
 
         if (liquidityNext == 0) {
@@ -479,7 +479,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         }
 
         if (callType == VE33_SWAP) {
-            (, PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (uint256, PoolKey, SwapParameters));
+            (PoolKey memory poolKey, SwapParameters params) = _decodeSwap(data);
             (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = _swap(poolKey, params);
             assembly ("memory-safe") {
                 result := mload(0x40)
@@ -507,6 +507,19 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             result = abi.encode(_scheduleEmissions(original.addr(), startTime, endTime, rewardRate));
         } else {
             revert();
+        }
+    }
+
+    /// @notice Decodes the fixed-size forwarded swap payload without copying its pool key.
+    /// @dev Preserves the length and canonical address checks performed by `abi.decode`.
+    function _decodeSwap(bytes memory data) private pure returns (PoolKey memory poolKey, SwapParameters params) {
+        assembly ("memory-safe") {
+            if lt(mload(data), 0xa0) { revert(0, 0) }
+
+            poolKey := add(data, 0x40)
+            if or(shr(160, mload(poolKey)), shr(160, mload(add(poolKey, 0x20)))) { revert(0, 0) }
+
+            params := mload(add(poolKey, 0x60))
         }
     }
 
@@ -558,13 +571,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 if (feeAmount != 0) {
                     (uint128 feeAmount0, uint128 feeAmount1) =
                         feeIsToken1 ? (uint128(0), feeAmount) : (feeAmount, uint128(0));
-                    CORE.updateSavedBalances(
-                        poolKey.token0,
-                        poolKey.token1,
-                        VE33_POOL_FEES_SAVED_BALANCE_ID,
-                        int256(uint256(feeAmount0)),
-                        int256(uint256(feeAmount1))
-                    );
+                    _updatePoolFeeSavedBalances(poolKey, feeAmount0, feeAmount1);
 
                     uint128 weight = swapFeeState.totalWeight();
                     if (weight != 0) {
@@ -587,6 +594,27 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                     poolKey.config.concentratedTickSpacing(),
                     params.skipAhead()
                 );
+            }
+        }
+    }
+
+    /// @notice Adds swap fees to this extension's saved pool balances.
+    function _updatePoolFeeSavedBalances(PoolKey memory poolKey, uint128 feeAmount0, uint128 feeAmount1) private {
+        ICore core = CORE;
+        bytes4 selector = ICore.updateSavedBalances.selector;
+        bytes32 savedBalanceId = VE33_POOL_FEES_SAVED_BALANCE_ID;
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+            mstore(free, selector)
+            mstore(add(free, 0x04), mload(poolKey))
+            mstore(add(free, 0x24), mload(add(poolKey, 0x20)))
+            mstore(add(free, 0x44), savedBalanceId)
+            mstore(add(free, 0x64), feeAmount0)
+            mstore(add(free, 0x84), feeAmount1)
+
+            if iszero(call(gas(), core, 0, free, 0xa4, 0, 0)) {
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
             }
         }
     }
@@ -1006,20 +1034,19 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
     /// @notice Updates reward-outside state when a concentrated-position boundary becomes initialized or uninitialized.
     /// @param poolId Pool containing the tick.
-    /// @param tickCurrent Current pool tick.
     /// @param tick Position boundary tick.
     /// @param liquidityDelta Position liquidity delta.
-    function _updateTickRewardsPerLiquidityOutside(PoolId poolId, int32 tickCurrent, int32 tick, int128 liquidityDelta)
-        private
-    {
+    function _updateTickRewardsPerLiquidityOutside(PoolId poolId, int32 tick, int128 liquidityDelta) private {
         (, uint128 liquidityNet) = CORE.poolTicks(poolId, tick);
         uint128 liquidityNetNext = addLiquidityDelta(liquidityNet, liquidityDelta);
         if ((liquidityNet == 0) != (liquidityNetNext == 0)) {
-            if (liquidityNetNext == 0) {
-                _setTickRewardsOutsidePerLiquidity(poolId, tick, 0);
-            } else if (tickCurrent >= tick) {
-                _setTickRewardsOutsidePerLiquidity(poolId, tick, _rewardsGlobalPerLiquidity(poolId));
+            // Initialize the slot to a non-zero sentinel so the first swap crossing this tick is cheaper.
+            // Only changes in the outside snapshot are relevant to position reward accounting.
+            uint256 value;
+            assembly ("memory-safe") {
+                value := iszero(liquidityNet)
             }
+            _setTickRewardsOutsidePerLiquidity(poolId, tick, value);
         }
     }
 

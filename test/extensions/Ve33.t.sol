@@ -377,6 +377,22 @@ contract Ve33Test is FullTest {
         vm.snapshotGasLastCall("Router#ve33SwapInitializedFeeSlots");
     }
 
+    function test_gas_forwardedSwapCrossingInitializedTick() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        _updatePosition(poolKey, positionId, int128(uint128(1e18)));
+        _fundAndVote(poolKey, uint64(1 << 62));
+        _scheduleEmissions(10_000, _defaultEmissionEnd());
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        ve.maybeAccumulateRewards(poolKey);
+
+        SwapParameters params = createSwapParameters({
+            _sqrtRatioLimit: tickToSqrtRatio(65), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
+        });
+        coolAllContracts();
+        _routerSwap(poolKey, params, address(this));
+        vm.snapshotGasLastCall("Router#ve33SwapCrossingInitializedTick");
+    }
+
     function test_gas_coreSwapMatchingVe33SteadyState() public {
         PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 64});
         createPosition(poolKey, -64, 64, uint128(1e18), uint128(1e18));
@@ -1665,7 +1681,9 @@ contract Ve33Test is FullTest {
         ve.maybeAccumulateRewards(poolKey);
         uint256 global = ve.rewardsGlobalPerLiquidity(poolId);
         assertGt(global, 0);
-        assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, positionId.tickLower(), positionId.tickUpper()), global);
+        assertEq(
+            ve.getPoolRewardsPerLiquidityInside(poolId, positionId.tickLower(), positionId.tickUpper()), global - 2
+        );
 
         SwapParameters upToUpper = createSwapParameters({
             _sqrtRatioLimit: tickToSqrtRatio(65), _amount: int128(1e30), _isToken1: true, _skipAhead: 0
@@ -1673,7 +1691,7 @@ contract Ve33Test is FullTest {
         _routerSwap(poolKey, upToUpper, address(this));
         PoolState stateAfterUpper = core.poolState(poolId);
         assertGe(stateAfterUpper.tick(), 64);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 64), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 64), global - 1);
         assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
 
         SwapParameters downToLower = createSwapParameters({
@@ -1682,7 +1700,7 @@ contract Ve33Test is FullTest {
         _routerSwap(poolKey, downToLower, address(this));
         PoolState stateAfterLower = core.poolState(poolId);
         assertLt(stateAfterLower.tick(), -64);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -64), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -64), global - 1);
 
         _updatePosition(poolKey, positionId, -int128(_positionLiquidity(poolKey, positionId)));
         assertEq(ve.positionRewardsSnapshotPerLiquidity(poolId, address(vePositions), positionId), 0);
@@ -1784,7 +1802,7 @@ contract Ve33Test is FullTest {
         (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolId).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MIN_SQRT_RATIO));
         assertEq(tick, MIN_TICK - 1);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MIN_TICK), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MIN_TICK), global - 1);
         assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 
@@ -1809,7 +1827,7 @@ contract Ve33Test is FullTest {
         (SqrtRatio sqrtRatio, int32 tick,) = core.poolState(poolId).parse();
         assertEq(SqrtRatio.unwrap(sqrtRatio), SqrtRatio.unwrap(MAX_SQRT_RATIO));
         assertEq(tick, MAX_TICK);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MAX_TICK), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, MAX_TICK), global - 1);
         assertGt(_claimRewards(poolKey, positionId, address(this)), 0);
     }
 
@@ -1839,9 +1857,9 @@ contract Ve33Test is FullTest {
         PoolState stateAfter = core.poolState(poolId);
         assertGe(stateAfter.tick(), farLower);
         assertLt(stateAfter.tick(), farUpper);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 64), global);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farLower), global);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farUpper), 0);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, 64), global - 1);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farLower), global - 1);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farUpper), 1);
         assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, farLower, farUpper), 0);
         assertEq(_claimRewards(poolKey, farPositionId, address(this)), 0);
         assertGt(_claimRewards(poolKey, activePositionId, address(this)), 0);
@@ -1873,9 +1891,9 @@ contract Ve33Test is FullTest {
         PoolState stateAfter = core.poolState(poolId);
         assertGe(stateAfter.tick(), farLower);
         assertLt(stateAfter.tick(), farUpper);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -64), global);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farLower), 0);
-        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farUpper), global);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, -64), global - 1);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farLower), 1);
+        assertEq(ve.tickRewardsOutsidePerLiquidity(poolId, farUpper), global - 1);
         assertEq(ve.getPoolRewardsPerLiquidityInside(poolId, farLower, farUpper), 0);
         assertEq(_claimRewards(poolKey, farPositionId, address(this)), 0);
         assertGt(_claimRewards(poolKey, activePositionId, address(this)), 0);

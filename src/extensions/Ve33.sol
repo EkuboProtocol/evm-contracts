@@ -572,13 +572,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 if (feeAmount != 0) {
                     (uint128 feeAmount0, uint128 feeAmount1) =
                         feeIsToken1 ? (uint128(0), feeAmount) : (feeAmount, uint128(0));
-                    CORE.updateSavedBalances(
-                        poolKey.token0,
-                        poolKey.token1,
-                        VE33_POOL_FEES_SAVED_BALANCE_ID,
-                        int256(uint256(feeAmount0)),
-                        int256(uint256(feeAmount1))
-                    );
+                    _updatePoolFeeSavedBalances(poolKey, feeAmount0, feeAmount1);
 
                     uint128 weight = swapFeeState.totalWeight();
                     if (weight != 0) {
@@ -601,6 +595,27 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                     poolKey.config.concentratedTickSpacing(),
                     params.skipAhead()
                 );
+            }
+        }
+    }
+
+    /// @notice Adds swap fees to this extension's saved pool balances.
+    function _updatePoolFeeSavedBalances(PoolKey memory poolKey, uint128 feeAmount0, uint128 feeAmount1) private {
+        ICore core = CORE;
+        bytes4 selector = ICore.updateSavedBalances.selector;
+        bytes32 savedBalanceId = VE33_POOL_FEES_SAVED_BALANCE_ID;
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+            mstore(free, selector)
+            mstore(add(free, 0x04), mload(poolKey))
+            mstore(add(free, 0x24), mload(add(poolKey, 0x20)))
+            mstore(add(free, 0x44), savedBalanceId)
+            mstore(add(free, 0x64), feeAmount0)
+            mstore(add(free, 0x84), feeAmount1)
+
+            if iszero(call(gas(), core, 0, free, 0xa4, 0, 0)) {
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
             }
         }
     }

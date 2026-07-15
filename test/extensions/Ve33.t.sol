@@ -630,6 +630,16 @@ contract Ve33Test is FullTest {
         assertEq(ve.poolFeeWeightSum(poolId), 0);
     }
 
+    function test_poolInitializationEmitsSentinelVoteWeightApplied() public {
+        PoolConfig config = createConcentratedPoolConfig(0, 64, address(ve));
+        PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
+        PoolId poolId = poolKey.toPoolId();
+
+        vm.expectEmit(address(ve));
+        emit IVe33.VoteWeightApplied(address(0), StakeId.wrap(bytes32(0)), poolId, 0, 0);
+        core.initializePool(poolKey, 0);
+    }
+
     function test_voteRequiresInitializedPoolAndVeTokenCanInitializeInMulticall() public {
         PoolConfig config = createConcentratedPoolConfig(0, 64, address(ve));
         PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});

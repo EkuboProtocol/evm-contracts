@@ -269,6 +269,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     {
         PoolId poolId = poolKey.toPoolId();
         _maybeAccumulatePoolRewards({poolId: poolId, liquidity: 0});
+        emit VoteWeightApplied(address(0), StakeId.wrap(bytes32(0)), poolId, 0, 0);
     }
 
     /// @notice Rejects direct Core swaps.

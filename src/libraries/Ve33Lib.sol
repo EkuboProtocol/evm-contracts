@@ -8,7 +8,6 @@ import {
     VE33_MAX_STAKE_DURATION,
     VE33_SCHEDULE_EMISSIONS,
     VE33_STAKE,
-    VE33_SWAP,
     VE33_UNSTAKE
 } from "../interfaces/extensions/IVe33.sol";
 import {ICore} from "../interfaces/ICore.sol";
@@ -41,14 +40,13 @@ library Ve33Lib {
         internal
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
-        bytes memory data = new bytes(160);
+        bytes memory data = new bytes(128);
         assembly ("memory-safe") {
             let ptr := add(data, 0x20)
-            mstore(ptr, VE33_SWAP)
-            mstore(add(ptr, 0x20), mload(poolKey))
-            mstore(add(ptr, 0x40), mload(add(poolKey, 0x20)))
-            mstore(add(ptr, 0x60), mload(add(poolKey, 0x40)))
-            mstore(add(ptr, 0x80), params)
+            mstore(ptr, mload(poolKey))
+            mstore(add(ptr, 0x20), mload(add(poolKey, 0x20)))
+            mstore(add(ptr, 0x40), mload(add(poolKey, 0x40)))
+            mstore(add(ptr, 0x60), params)
         }
 
         bytes memory result = core.forward(address(ve33), data);

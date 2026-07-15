@@ -9,24 +9,26 @@ import {PoolKey} from "../../types/poolKey.sol";
 import {PositionId} from "../../types/positionId.sol";
 import {StakeId} from "../../types/stakeId.sol";
 
-// Forward call type for extension-mediated swaps.
-// Payload after call type: abi.encode(PoolKey poolKey, SwapParameters params).
-uint256 constant VE33_SWAP = 0;
 // Forward call type for claiming LP reward-token emissions.
 // Payload after call type: abi.encode(PoolKey poolKey, PositionId positionId).
-uint256 constant VE33_CLAIM_REWARDS = 1;
+// Derived as uint256(keccak256("IVe33#VE33_CLAIM_REWARDS")).
+uint256 constant VE33_CLAIM_REWARDS = 0xeccd4f06da6ec4d17cd1046b3861c12b27468694f227aa6843fd0af2dce40646;
 // Forward call type for increasing a ve stake.
 // Payload after call type: abi.encode(StakeId stakeId, uint128 amount).
-uint256 constant VE33_STAKE = 2;
+// Derived as uint256(keccak256("IVe33#VE33_STAKE")).
+uint256 constant VE33_STAKE = 0x09f4ed6eef510954f91b545ec3c5a2ca948132770b20b97bdcc322c2762f8b05;
 // Forward call type for decreasing an expired ve stake.
 // Payload after call type: abi.encode(StakeId stakeId).
-uint256 constant VE33_UNSTAKE = 3;
+// Derived as uint256(keccak256("IVe33#VE33_UNSTAKE")).
+uint256 constant VE33_UNSTAKE = 0x328e3784db0b53a41752b251419998f22dff0bd6324142dbc9049540ee08fed3;
 // Forward call type for claiming voter pool fees.
 // Payload after call type: abi.encode(StakeId stakeId, PoolKey poolKey).
-uint256 constant VE33_CLAIM_POOL_FEES = 4;
+// Derived as uint256(keccak256("IVe33#VE33_CLAIM_POOL_FEES")).
+uint256 constant VE33_CLAIM_POOL_FEES = 0xab7a5daac73b38c55998098ddd8838468b713d9ffbb370196c6b61a63a5e66f1;
 // Forward call type for scheduling global emissions.
 // Payload after call type: abi.encode(uint64 startTime, uint64 endTime, uint160 rewardRate).
-uint256 constant VE33_SCHEDULE_EMISSIONS = 5;
+// Derived as uint256(keccak256("IVe33#VE33_SCHEDULE_EMISSIONS")).
+uint256 constant VE33_SCHEDULE_EMISSIONS = 0x206c85b7c22054727e8fd76c9f078b9c6716a6e2b5a7623efd384dbeb4a6f042;
 
 // Maximum ve stake duration.
 uint256 constant VE33_MAX_STAKE_DURATION = 4 * 365 days;

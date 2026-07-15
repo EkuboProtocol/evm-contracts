@@ -11,19 +11,19 @@ import {StakeId} from "../../types/stakeId.sol";
 
 // Forward call type for claiming LP reward-token emissions.
 // Payload after call type: abi.encode(PoolKey poolKey, PositionId positionId).
-uint256 constant VE33_CLAIM_REWARDS = 1;
+uint256 constant VE33_CLAIM_REWARDS = uint256(keccak256("IVe33#VE33_CLAIM_REWARDS"));
 // Forward call type for increasing a ve stake.
 // Payload after call type: abi.encode(StakeId stakeId, uint128 amount).
-uint256 constant VE33_STAKE = 2;
+uint256 constant VE33_STAKE = uint256(keccak256("IVe33#VE33_STAKE"));
 // Forward call type for decreasing an expired ve stake.
 // Payload after call type: abi.encode(StakeId stakeId).
-uint256 constant VE33_UNSTAKE = 3;
+uint256 constant VE33_UNSTAKE = uint256(keccak256("IVe33#VE33_UNSTAKE"));
 // Forward call type for claiming voter pool fees.
 // Payload after call type: abi.encode(StakeId stakeId, PoolKey poolKey).
-uint256 constant VE33_CLAIM_POOL_FEES = 4;
+uint256 constant VE33_CLAIM_POOL_FEES = uint256(keccak256("IVe33#VE33_CLAIM_POOL_FEES"));
 // Forward call type for scheduling global emissions.
 // Payload after call type: abi.encode(uint64 startTime, uint64 endTime, uint160 rewardRate).
-uint256 constant VE33_SCHEDULE_EMISSIONS = 5;
+uint256 constant VE33_SCHEDULE_EMISSIONS = uint256(keccak256("IVe33#VE33_SCHEDULE_EMISSIONS"));
 
 // Maximum ve stake duration.
 uint256 constant VE33_MAX_STAKE_DURATION = 4 * 365 days;

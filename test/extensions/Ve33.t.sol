@@ -16,7 +16,14 @@ import {
     ve33CallPoints
 } from "../../src/extensions/Ve33.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
-import {IVe33} from "../../src/interfaces/extensions/IVe33.sol";
+import {
+    IVe33,
+    VE33_CLAIM_POOL_FEES,
+    VE33_CLAIM_REWARDS,
+    VE33_SCHEDULE_EMISSIONS,
+    VE33_STAKE,
+    VE33_UNSTAKE
+} from "../../src/interfaces/extensions/IVe33.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
@@ -588,6 +595,20 @@ contract Ve33Test is FullTest {
         assertFalse(ve33CallPoints().beforeCollectFees);
         assertFalse(ve33CallPoints().afterCollectFees);
         assertEq(ve.stakeToken(), address(stakeToken));
+    }
+
+    function test_forwardCallTypesAreNamespacedOutsideAddressRange() public pure {
+        assertEq(VE33_CLAIM_REWARDS, uint256(keccak256("IVe33#VE33_CLAIM_REWARDS")));
+        assertEq(VE33_STAKE, uint256(keccak256("IVe33#VE33_STAKE")));
+        assertEq(VE33_UNSTAKE, uint256(keccak256("IVe33#VE33_UNSTAKE")));
+        assertEq(VE33_CLAIM_POOL_FEES, uint256(keccak256("IVe33#VE33_CLAIM_POOL_FEES")));
+        assertEq(VE33_SCHEDULE_EMISSIONS, uint256(keccak256("IVe33#VE33_SCHEDULE_EMISSIONS")));
+
+        assertGt(VE33_CLAIM_REWARDS, type(uint160).max);
+        assertGt(VE33_STAKE, type(uint160).max);
+        assertGt(VE33_UNSTAKE, type(uint160).max);
+        assertGt(VE33_CLAIM_POOL_FEES, type(uint160).max);
+        assertGt(VE33_SCHEDULE_EMISSIONS, type(uint160).max);
     }
 
     function test_poolInitializationRejectsInvalidConfig() public {

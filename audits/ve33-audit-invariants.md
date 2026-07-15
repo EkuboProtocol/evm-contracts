@@ -113,7 +113,8 @@ Important boundaries:
 
 ### V33-POOL-002: Direct Core Swaps Are Forbidden
 
-`Ve33.beforeSwap` must always revert. Successful Ve33 swaps must execute through `Core.forward(address(ve33), encode(VE33_SWAP, poolKey, params))`.
+`Ve33.beforeSwap` must always revert. Successful Ve33 swaps must execute through
+`Core.forward(address(ve33), abi.encode(poolKey, params))` without an action prefix.
 
 ### V33-POOL-003: Ve33 Does Not Transfer ERC20s
 

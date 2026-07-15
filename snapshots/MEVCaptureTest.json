@@ -1,15 +1,15 @@
 {
-  "initial_tick_far_from_zero_no_additional_fees": "118850",
-  "initial_tick_far_from_zero_no_additional_fees_output": "119432",
-  "input_token0_move_tick_spacings": "118715",
-  "input_token0_no_movement": "118715",
-  "input_token1_move_tick_spacings": "118726",
-  "input_token1_no_movement": "118726",
-  "output_token0_move_tick_spacings": "119595",
-  "output_token0_no_movement": "119595",
-  "output_token1_move_tick_spacings": "119196",
-  "output_token1_no_movement": "119196",
+  "initial_tick_far_from_zero_no_additional_fees": "118804",
+  "initial_tick_far_from_zero_no_additional_fees_output": "119386",
+  "input_token0_move_tick_spacings": "118669",
+  "input_token0_no_movement": "118669",
+  "input_token1_move_tick_spacings": "118680",
+  "input_token1_no_movement": "118680",
+  "output_token0_move_tick_spacings": "119549",
+  "output_token0_no_movement": "119549",
+  "output_token1_move_tick_spacings": "119150",
+  "output_token1_no_movement": "119150",
   "positions withdraw after fees accumulate": "159804",
-  "second_swap_with_additional_fees_gas_price": "101750",
-  "third_swap_accumulates_fees": "115677"
+  "second_swap_with_additional_fees_gas_price": "101704",
+  "third_swap_accumulates_fees": "115631"
 }

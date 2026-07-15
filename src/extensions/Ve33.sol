@@ -41,7 +41,6 @@ import {
     VE33_MAX_STAKE_DURATION,
     VE33_SCHEDULE_EMISSIONS,
     VE33_STAKE,
-    VE33_SWAP,
     VE33_UNSTAKE
 } from "../interfaces/extensions/IVe33.sol";
 
@@ -273,7 +272,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     }
 
     /// @notice Rejects direct Core swaps.
-    /// @dev Swaps must be executed through `forward` with `VE33_SWAP` so extension fees can be accounted.
+    /// @dev Swaps must be executed through `forward` so extension fees can be accounted.
     function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override(BaseExtension, IExtension) {
         revert SwapMustHappenThroughForward();
     }
@@ -470,7 +469,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @notice Handles extension forward calls from Core.
     /// @dev The original locker becomes the LP owner or stake owner depending on the call type.
     /// @param original Locker that initiated the Core forward call.
-    /// @param data ABI-encoded call type and payload.
+    /// @param data ABI-encoded swap data or call type and payload.
     /// @return result ABI-encoded result for the selected forward call.
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory result) {
         uint256 callType;
@@ -478,17 +477,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             callType := mload(add(data, 0x20))
         }
 
-        if (callType == VE33_SWAP) {
-            (PoolKey memory poolKey, SwapParameters params) = _decodeSwap(data);
-            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = _swap(poolKey, params);
-            assembly ("memory-safe") {
-                result := mload(0x40)
-                mstore(result, 0x40)
-                mstore(add(result, 0x20), balanceUpdate)
-                mstore(add(result, 0x40), stateAfter)
-                mstore(0x40, add(result, 0x60))
-            }
-        } else if (callType == VE33_CLAIM_REWARDS) {
+        if (callType == VE33_CLAIM_REWARDS) {
             (, PoolKey memory poolKey, PositionId positionId) = abi.decode(data, (uint256, PoolKey, PositionId));
             result = abi.encode(_claimRewards(poolKey, original.addr(), positionId));
         } else if (callType == VE33_STAKE) {
@@ -506,7 +495,15 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 abi.decode(data, (uint256, uint64, uint64, uint160));
             result = abi.encode(_scheduleEmissions(original.addr(), startTime, endTime, rewardRate));
         } else {
-            revert();
+            (PoolKey memory poolKey, SwapParameters params) = _decodeSwap(data);
+            (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = _swap(poolKey, params);
+            assembly ("memory-safe") {
+                result := mload(0x40)
+                mstore(result, 0x40)
+                mstore(add(result, 0x20), balanceUpdate)
+                mstore(add(result, 0x40), stateAfter)
+                mstore(0x40, add(result, 0x60))
+            }
         }
     }
 
@@ -514,9 +511,9 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @dev Preserves the length and canonical address checks performed by `abi.decode`.
     function _decodeSwap(bytes memory data) private pure returns (PoolKey memory poolKey, SwapParameters params) {
         assembly ("memory-safe") {
-            if lt(mload(data), 0xa0) { revert(0, 0) }
+            if lt(mload(data), 0x80) { revert(0, 0) }
 
-            poolKey := add(data, 0x40)
+            poolKey := add(data, 0x20)
             if or(shr(160, mload(poolKey)), shr(160, mload(add(poolKey, 0x20)))) { revert(0, 0) }
 
             params := mload(add(poolKey, 0x60))

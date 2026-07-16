@@ -19,6 +19,7 @@ import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
 import {StorageSlot} from "../src/types/storageSlot.sol";
 import {PoolState, createPoolState} from "../src/types/poolState.sol";
 import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
+import {PositionId, createPositionId} from "../src/types/positionId.sol";
 
 contract PositionsTest is FullTest {
     using CoreLib for *;
@@ -52,6 +53,9 @@ contract PositionsTest is FullTest {
         (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
         assertGt(id, 0);
         assertGt(liquidity, 0);
+        PositionId positionId = createPositionId(bytes24(uint192(id)), -100, 100);
+        assertEq(uint256(uint192(positionId.salt())), id);
+        assertEq(core.poolPositions(poolKey.toPoolId(), address(positions), positionId).liquidity, liquidity);
         assertEq(token0.balanceOf(address(core)), 100);
         assertEq(token1.balanceOf(address(core)), 100);
 

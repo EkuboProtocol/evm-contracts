@@ -89,7 +89,7 @@ abstract contract BaseNonfungibleToken is IBaseNonfungibleToken, Ownable, ERC721
     /// @dev Uses keccak256 hash of minter, salt, chain ID, and contract address to generate unique IDs.
     ///      IDs are deterministic per (minter, salt, chainId, contract) tuple; the same pair on a
     ///      different chain or contract yields a different ID.
-    function saltToId(address minter, bytes32 salt) public view returns (uint256 result) {
+    function saltToId(address minter, bytes32 salt) public view virtual returns (uint256 result) {
         assembly ("memory-safe") {
             let free := mload(0x40)
             mstore(free, minter)

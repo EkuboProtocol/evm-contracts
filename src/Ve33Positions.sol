@@ -58,10 +58,6 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
     /// @notice Thrown when a pool is not managed by this contract's Ve33 extension.
     error InvalidPoolExtension();
 
-    /// @notice Thrown when a token id cannot be represented exactly as a Core position salt.
-    /// @param id The ERC721 token id.
-    error PositionSaltOverflow(uint256 id);
-
     /// @notice Creates the Ve33 position NFT manager.
     /// @param core Ekubo Core contract used for locks and position updates.
     /// @param _ve33 Ve33 extension whose pools are supported.
@@ -85,7 +81,6 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
     /// @param tickUpper Upper position tick.
     /// @return The Core position id owned by this contract.
     function positionId(uint256 id, int32 tickLower, int32 tickUpper) public pure returns (PositionId) {
-        if (id > type(uint192).max) revert PositionSaltOverflow(id);
         return createPositionId(bytes24(uint192(id)), tickLower, tickUpper);
     }
 

@@ -604,13 +604,6 @@ contract Ve33Test is FullTest {
         assertEq(vePositions.positionId(id, -64, 64).salt(), bytes24(uint192(id)));
     }
 
-    function test_vePositionsRejectsTokenIdThatCannotFitPositionSalt() public {
-        uint256 id = uint256(type(uint192).max) + 1;
-
-        vm.expectRevert(abi.encodeWithSelector(Ve33Positions.PositionSaltOverflow.selector, id));
-        vePositions.positionId(id, -64, 64);
-    }
-
     function test_forwardCallTypesAreNamespacedOutsideAddressRange() public pure {
         assertEq(VE33_CLAIM_REWARDS, uint256(keccak256("IVe33#VE33_CLAIM_REWARDS")));
         assertEq(VE33_STAKE, uint256(keccak256("IVe33#VE33_STAKE")));

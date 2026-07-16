@@ -70,9 +70,12 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     event StakeChanged(address owner, StakeId stakeId, int256 delta);
 
     /// @notice Emitted after a stake's applied vote weight changes.
-    /// @dev Pool initialization emits a sentinel with zero owner, stake id, weight, and swap fee.
+    /// @dev Pool initialization emits a sentinel with zero owner, stake id, weight, and fees.
+    /// @param votedSwapFee Swap fee selected by the stake.
     /// @param swapFee Effective pool swap fee after applying the weight change.
-    event VoteWeightApplied(address owner, StakeId stakeId, PoolId poolId, uint128 weight, uint64 swapFee);
+    event VoteWeightApplied(
+        address owner, StakeId stakeId, PoolId poolId, uint128 weight, uint64 votedSwapFee, uint64 swapFee
+    );
 
     /// @notice Emitted when a swap accounts fees to voters.
     event PoolFeesAccounted(PoolId poolId, uint128 amount0, uint128 amount1);

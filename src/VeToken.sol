@@ -18,9 +18,11 @@ import {isPowerOfFour} from "./math/isPowerOfFour.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {VeTokenMetadata} from "./VeTokenMetadata.sol";
 import {PoolKey} from "./types/poolKey.sol";
+import {PoolId} from "./types/poolId.sol";
 import {PoolState} from "./types/poolState.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {StakeId, createStakeId} from "./types/stakeId.sol";
+import {VePoolVote} from "./types/vePoolVote.sol";
 
 /// @notice ERC721 representation over Ve33 stake accounting.
 /// @dev The canonical stake is owned by this wrapper in Ve33. ERC721 ownership controls the wrapper.
@@ -465,6 +467,28 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @return The stake voting power at the current timestamp.
     function votingPower(uint256 veId) public view returns (uint256) {
         return ve33.votingPower(address(this), stakeId(veId));
+    }
+
+    /// @notice Returns the active vote and claimable pool fees for a represented stake.
+    /// @param veId The ERC721 token id and Ve33 stake salt.
+    /// @return poolId The pool currently voted on by the stake.
+    /// @return weight The vote weight currently applied to the pool.
+    /// @return votedSwapFee The swap fee selected by the stake.
+    /// @return claimable0 The currently claimable amount of token0 voter fees.
+    /// @return claimable1 The currently claimable amount of token1 voter fees.
+    function voteState(uint256 veId)
+        external
+        view
+        returns (PoolId poolId, uint128 weight, uint64 votedSwapFee, uint128 claimable0, uint128 claimable1)
+    {
+        StakeId id = stakeId(veId);
+        poolId = ve33.votedPool(address(this), id);
+
+        VePoolVote vote_ = ve33.vePoolVote(address(this), id);
+        weight = vote_.weight();
+        votedSwapFee = vote_.swapFee();
+        (claimable0, claimable1) =
+            vote_.fees(ve33.poolFeeGrowth(poolId), ve33.vePoolFeeGrowthSnapshot(address(this), id));
     }
 
     /// @notice Returns the Ve33 stake id represented by an ERC721 token.

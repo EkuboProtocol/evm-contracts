@@ -636,7 +636,7 @@ contract Ve33Test is FullTest {
         PoolId poolId = poolKey.toPoolId();
 
         vm.expectEmit(address(ve));
-        emit IVe33.VoteWeightApplied(address(0), StakeId.wrap(bytes32(0)), poolId, 0, 0);
+        emit IVe33.VoteWeightApplied(address(0), StakeId.wrap(bytes32(0)), poolId, 0, 0, 0);
         core.initializePool(poolKey, 0);
     }
 
@@ -681,21 +681,21 @@ contract Ve33Test is FullTest {
         uint128 power1 = uint128(veToken.votingPower(veId1));
 
         vm.expectEmit(address(ve));
-        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId0), poolId, power0, fee0);
+        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId0), poolId, power0, fee0, fee0);
         _vote(veId0, poolKey, fee0);
 
         uint64 currentSwapFee = uint64((uint256(power0) * fee0 + uint256(power1) * fee1) / (power0 + power1));
         vm.expectEmit(address(ve));
-        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId1), poolId, power1, currentSwapFee);
+        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId1), poolId, power1, fee1, currentSwapFee);
         _vote(veId1, poolKey, fee1);
 
         vm.expectEmit(address(ve));
-        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId0), poolId, 0, fee1);
+        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId0), poolId, 0, fee0, fee1);
         veToken.clearVote(veId0);
 
         vm.warp(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         vm.expectEmit(address(ve));
-        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId1), poolId, 0, 0);
+        emit IVe33.VoteWeightApplied(address(veToken), _stakeId(veId1), poolId, 0, fee1, 0);
         veToken.withdrawStakeToSelf(veId1);
     }
 

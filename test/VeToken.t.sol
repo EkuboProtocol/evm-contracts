@@ -146,6 +146,40 @@ contract VeTokenTest is FullTest {
         vm.snapshotGasLastCall("VeToken#stakes");
     }
 
+    function test_voteStateReturnsAppliedVoteAndClaimableFees() public {
+        (uint256 veId, PoolKey memory poolKey) = _createVotedPoolWithFees();
+
+        (PoolId poolId, uint128 weight, uint64 swapFee, uint128 claimable0, uint128 claimable1) =
+            veToken.voteState(veId);
+        assertEq(PoolId.unwrap(poolId), PoolId.unwrap(poolKey.toPoolId()));
+        assertEq(weight, veToken.votingPower(veId));
+        assertEq(swapFee, uint64(1 << 62));
+        assertGt(uint256(claimable0) + claimable1, 0);
+
+        (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
+        assertEq(claimed0, claimable0);
+        assertEq(claimed1, claimable1);
+
+        (poolId, weight, swapFee, claimable0, claimable1) = veToken.voteState(veId);
+        assertEq(PoolId.unwrap(poolId), PoolId.unwrap(poolKey.toPoolId()));
+        assertEq(weight, veToken.votingPower(veId));
+        assertEq(swapFee, uint64(1 << 62));
+        assertEq(claimable0, 0);
+        assertEq(claimable1, 0);
+    }
+
+    function test_voteStateReturnsZeroForUnvotedStake() public {
+        uint256 veId = veToken.stakeForDuration(1e18, 1 weeks);
+
+        (PoolId poolId, uint128 weight, uint64 swapFee, uint128 claimable0, uint128 claimable1) =
+            veToken.voteState(veId);
+        assertEq(PoolId.unwrap(poolId), bytes32(0));
+        assertEq(weight, 0);
+        assertEq(swapFee, 0);
+        assertEq(claimable0, 0);
+        assertEq(claimable1, 0);
+    }
+
     function test_gas_stakeId() public {
         uint256 veId = veToken.stake(1e18, uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION()));
 

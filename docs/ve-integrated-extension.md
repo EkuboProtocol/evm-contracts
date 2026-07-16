@@ -110,6 +110,10 @@ There is no external permissionless stale-vote poke. If a stake owner wants to k
 
 `vote` is not a forwarded action because it does not require token settlement. It must be called by the `Ve33` stake owner for the `StakeId`; for the ERC721 wrapper that means `VeToken` authorizes the user or approved operator, then calls `Ve33.vote` as the stake owner.
 
+`VoteWeightApplied` reports both the stake's selected swap fee and the effective weighted pool swap fee after the weight
+change. `VeToken.voteState(veId)` returns the stake's applied weight, selected swap fee, and currently claimable pool fees
+together with the stake's stored voted pool id.
+
 ## Forwarded Swap Accounting
 
 The forwarded swap handler uses the supplied `SwapParameters` as-is. Routers and callers are responsible for setting default sqrt-ratio limits before forwarding.

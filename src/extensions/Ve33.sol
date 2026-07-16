@@ -269,7 +269,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     {
         PoolId poolId = poolKey.toPoolId();
         _maybeAccumulatePoolRewards({poolId: poolId, liquidity: 0});
-        emit VoteWeightApplied(address(0), StakeId.wrap(bytes32(0)), poolId, 0, 0);
+        emit VoteWeightApplied(address(0), StakeId.wrap(bytes32(0)), poolId, 0, 0, 0);
     }
 
     /// @notice Rejects direct Core swaps.
@@ -412,7 +412,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         _setVePoolVote(msg.sender, stakeId, createVePoolVote(power, swapFee, uint64(block.timestamp)));
         _setVePoolFeeGrowthSnapshot(msg.sender, stakeId, _poolFeeGrowth(poolId));
 
-        emit VoteWeightApplied(msg.sender, stakeId, poolId, power, currentSwapFee);
+        emit VoteWeightApplied(msg.sender, stakeId, poolId, power, swapFee, currentSwapFee);
     }
 
     /// @notice Clears the active vote for a stake owned by the caller.
@@ -842,11 +842,11 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             _setVotedPoolId(owner, stakeId, PoolId.wrap(bytes32(0)));
             _deleteVePoolVote(owner, stakeId);
             _deleteVePoolFeeGrowthSnapshot(owner, stakeId);
-            emit VoteWeightApplied(owner, stakeId, poolId, 0, currentSwapFee);
+            emit VoteWeightApplied(owner, stakeId, poolId, 0, veVote.swapFee(), currentSwapFee);
         } else {
             _setVePoolVote(owner, stakeId, veVote);
             _setVePoolFeeGrowthSnapshot(owner, stakeId, feeGrowthSnapshot);
-            emit VoteWeightApplied(owner, stakeId, poolId, nextWeight, currentSwapFee);
+            emit VoteWeightApplied(owner, stakeId, poolId, nextWeight, veVote.swapFee(), currentSwapFee);
         }
     }
 

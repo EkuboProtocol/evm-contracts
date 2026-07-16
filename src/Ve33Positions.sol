@@ -69,6 +69,12 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
 
     receive() external payable {}
 
+    /// @inheritdoc BaseNonfungibleToken
+    /// @dev Restricts generated token ids to 192 bits so the complete id is used as the Core position salt.
+    function saltToId(address minter, bytes32 salt) public view override returns (uint256 id) {
+        id = uint192(super.saltToId(minter, salt));
+    }
+
     /// @notice Computes the Core position id controlled by this NFT id and tick range.
     /// @param id ERC721 token id representing the position owner.
     /// @param tickLower Lower position tick.

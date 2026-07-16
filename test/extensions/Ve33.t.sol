@@ -597,6 +597,13 @@ contract Ve33Test is FullTest {
         assertEq(ve.stakeToken(), address(stakeToken));
     }
 
+    function test_vePositionsUsesCompleteUint192TokenIdAsPositionSalt(address minter, bytes32 salt) public view {
+        uint256 id = vePositions.saltToId(minter, salt);
+
+        assertLe(id, type(uint192).max);
+        assertEq(vePositions.positionId(id, -64, 64).salt(), bytes24(uint192(id)));
+    }
+
     function test_forwardCallTypesAreNamespacedOutsideAddressRange() public pure {
         assertEq(VE33_CLAIM_REWARDS, uint256(keccak256("IVe33#VE33_CLAIM_REWARDS")));
         assertEq(VE33_STAKE, uint256(keccak256("IVe33#VE33_STAKE")));

@@ -4,6 +4,7 @@ pragma solidity =0.8.33;
 import {BaseLocker} from "./BaseLocker.sol";
 import {UsesCore} from "./UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
+import {IBaseNonfungibleToken} from "../interfaces/IBaseNonfungibleToken.sol";
 import {IPositions} from "../interfaces/IPositions.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
@@ -38,6 +39,17 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
     uint256 private constant CALL_TYPE_DEPOSIT = 0;
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 2;
+
+    /// @inheritdoc BaseNonfungibleToken
+    /// @dev Restricts generated token ids to 192 bits so the complete id is used as the Core position salt.
+    function saltToId(address minter, bytes32 salt)
+        public
+        view
+        override(BaseNonfungibleToken, IBaseNonfungibleToken)
+        returns (uint256 id)
+    {
+        id = uint192(super.saltToId(minter, salt));
+    }
 
     /// @inheritdoc IPositions
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)

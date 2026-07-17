@@ -154,7 +154,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey));
 
         (uint64 endTime, uint112 saleRate) = rb.roll(address(token0));
         assertEq(endTime, 3840);
@@ -190,7 +190,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         positions.maybeInitializePool(poolKey, 0);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit{value: 1e18}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit{value: 1e18}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey));
 
         (uint64 endTime, uint112 saleRate) = rb.roll(address(0));
         assertEq(endTime, 3840);
@@ -244,7 +244,9 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit{value: isEth ? 1e18 : 0}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit{value: isEth ? 1e18 : 0}(
+            poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey)
+        );
 
         (uint64 endTime,) = rb.roll(token);
         assertGt(endTime, startTime, "end time gt");

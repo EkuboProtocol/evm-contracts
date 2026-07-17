@@ -308,7 +308,12 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
     function _mintPosition(uint256 poolIndex, int32 tickLower, int32 tickUpper) private {
         TrackedPool memory trackedPool = pools[poolIndex];
         (uint256 nftId, uint128 liquidity,,) = ve33Positions.mintAndDeposit(
-            trackedPool.poolKey, tickLower, tickUpper, uint128(POSITION_AMOUNT), uint128(POSITION_AMOUNT), 1
+            trackedPool.poolKey,
+            tickLower,
+            tickUpper,
+            uint128(POSITION_AMOUNT),
+            uint128(POSITION_AMOUNT),
+            core.poolState(trackedPool.poolKey.toPoolId()).sqrtRatio()
         );
         positions.push(
             TrackedPosition({

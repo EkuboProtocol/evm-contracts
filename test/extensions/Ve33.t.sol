@@ -248,7 +248,7 @@ contract Ve33Test is FullTest {
                 positionId.tickUpper(),
                 uint128(delta0),
                 uint128(delta1),
-                uint128(liquidityDelta)
+                core.poolState(poolKey.toPoolId()).sqrtRatio()
             );
             balanceUpdate = createPoolBalanceUpdate(int128(amount0), int128(amount1));
         } else {
@@ -1578,8 +1578,24 @@ contract Ve33Test is FullTest {
         (uint128 liquidity,,) = vePositions.getPositionLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(liquidity, uint128(type(int128).max));
 
+        SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
         vm.expectRevert(Ve33Positions.DepositOverflow.selector);
-        vePositions.deposit(id, poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 1);
+        vePositions.deposit(id, poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio);
+    }
+
+    function test_vePositionsSwapsToTargetPriceBeforeAddingLiquidity() public {
+        PoolKey memory poolKey = createFullRangePool(0, 0, address(ve));
+        PositionId positionId = _mintPosition(MIN_TICK, MAX_TICK);
+        _updatePosition(poolKey, positionId, 1e18);
+
+        SqrtRatio targetSqrtRatio = tickToSqrtRatio(100);
+        (uint128 liquidity, uint128 amount0, uint128 amount1) =
+            vePositions.deposit(_positionNftId(positionId), poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, targetSqrtRatio);
+
+        assertEq(core.poolState(poolKey.toPoolId()).sqrtRatio().toFixed(), targetSqrtRatio.toFixed());
+        assertGt(liquidity, 0);
+        assertGt(amount0, 0);
+        assertGt(amount1, 0);
     }
 
     function test_scheduleEmissionsAccruesMultipleEventsAtSameTime() public {

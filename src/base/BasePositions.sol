@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {BaseLocker} from "./BaseLocker.sol";
-import {UsesCore} from "./UsesCore.sol";
+import {BasePositionDepositor} from "./BasePositionDepositor.sol";
 import {ICore} from "../interfaces/ICore.sol";
-import {IBaseNonfungibleToken} from "../interfaces/IBaseNonfungibleToken.sol";
 import {IPositions} from "../interfaces/IPositions.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
@@ -13,43 +11,30 @@ import {PositionId, createPositionId} from "../types/positionId.sol";
 import {FeesPerLiquidity} from "../types/feesPerLiquidity.sol";
 import {Position} from "../types/position.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
-import {maxLiquidity, liquidityDeltaToAmountDelta} from "../math/liquidity.sol";
-import {PayableMulticallable} from "./PayableMulticallable.sol";
+import {liquidityDeltaToAmountDelta} from "../math/liquidity.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {BaseNonfungibleToken} from "./BaseNonfungibleToken.sol";
-import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
+import {PoolState} from "../types/poolState.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 
 /// @title Base Positions Contract
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Abstract base contract for tracking liquidity positions in Ekubo Protocol as NFTs
 /// @dev Provides core position management functionality with abstract protocol fee collection methods
-abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
+abstract contract BasePositions is IPositions, BasePositionDepositor {
     using CoreLib for *;
     using FlashAccountantLib for *;
 
     /// @notice Constructs the BasePositions contract
     /// @param core The core contract instance
     /// @param owner The owner of the contract (for access control)
-    constructor(ICore core, address owner) BaseNonfungibleToken(owner) BaseLocker(core) UsesCore(core) {}
+    constructor(ICore core, address owner) BasePositionDepositor(core, owner) {}
 
-    uint256 private constant CALL_TYPE_DEPOSIT = 0;
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_WITHDRAW_PROTOCOL_FEES = 2;
-
-    /// @inheritdoc BaseNonfungibleToken
-    /// @dev Restricts generated token ids to 192 bits so the complete id is used as the Core position salt.
-    function saltToId(address minter, bytes32 salt)
-        public
-        view
-        override(BaseNonfungibleToken, IBaseNonfungibleToken)
-        returns (uint256 id)
-    {
-        id = uint192(super.saltToId(minter, salt));
-    }
+    uint8 private constant MEV_CAPTURE_CALL_POINTS = 0x55;
 
     /// @inheritdoc IPositions
     function getPositionFeesAndLiquidity(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
@@ -87,24 +72,59 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        uint128 minLiquidity
-    ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        (liquidity, amount0, amount1) = abi.decode(
-            lock(
-                abi.encode(
-                    CALL_TYPE_DEPOSIT,
-                    msg.sender,
-                    id,
-                    poolKey,
-                    tickLower,
-                    tickUpper,
-                    maxAmount0,
-                    maxAmount1,
-                    minLiquidity
-                )
-            ),
-            (uint128, uint128, uint128)
-        );
+        SqrtRatio sqrtRatio
+    )
+        public
+        payable
+        override(IPositions, BasePositionDepositor)
+        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
+    {
+        return super.deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
+    }
+
+    /// @inheritdoc IPositions
+    function maybeInitializePool(PoolKey memory poolKey, int32 tick)
+        public
+        payable
+        override(IPositions, BasePositionDepositor)
+        returns (bool initialized, SqrtRatio sqrtRatio)
+    {
+        return super.maybeInitializePool(poolKey, tick);
+    }
+
+    /// @inheritdoc IPositions
+    function mintAndDeposit(
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio sqrtRatio
+    )
+        public
+        payable
+        override(IPositions, BasePositionDepositor)
+        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
+    {
+        return super.mintAndDeposit(poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
+    }
+
+    /// @inheritdoc IPositions
+    function mintAndDepositWithSalt(
+        bytes32 salt,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio sqrtRatio
+    )
+        public
+        payable
+        override(IPositions, BasePositionDepositor)
+        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
+    {
+        return super.mintAndDepositWithSalt(salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
     }
 
     /// @inheritdoc IPositions
@@ -153,47 +173,6 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
     }
 
     /// @inheritdoc IPositions
-    function maybeInitializePool(PoolKey memory poolKey, int32 tick)
-        external
-        payable
-        returns (bool initialized, SqrtRatio sqrtRatio)
-    {
-        // the before update position hook shouldn't be taken into account here
-        sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
-        if (sqrtRatio.isZero()) {
-            initialized = true;
-            sqrtRatio = CORE.initializePool(poolKey, tick);
-        }
-    }
-
-    /// @inheritdoc IPositions
-    function mintAndDeposit(
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        uint128 minLiquidity
-    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
-        id = mint();
-        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
-    }
-
-    /// @inheritdoc IPositions
-    function mintAndDepositWithSalt(
-        bytes32 salt,
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        uint128 minLiquidity
-    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
-        id = mint(salt);
-        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
-    }
-
-    /// @inheritdoc IPositions
     function withdrawProtocolFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
         external
         payable
@@ -233,6 +212,21 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         virtual
         returns (uint128 protocolFee0, uint128 protocolFee1);
 
+    function _swap(PoolKey memory poolKey, SwapParameters params)
+        internal
+        override
+        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
+    {
+        address extension = poolKey.config.extension();
+        // MEV Capture pools reject direct Core swaps and use the standard fixed-size forwarded swap payload.
+        if (uint8(uint160(extension) >> 152) == MEV_CAPTURE_CALL_POINTS) {
+            (balanceUpdate, stateAfter) =
+                abi.decode(CORE.forward(extension, abi.encode(poolKey, params)), (PoolBalanceUpdate, PoolState));
+        } else {
+            (balanceUpdate, stateAfter) = CORE.swap(0, poolKey, params);
+        }
+    }
+
     /// @notice Handles lock callback data for position operations
     /// @dev Internal function that processes different types of position operations
     /// @param data Encoded operation data
@@ -241,55 +235,7 @@ abstract contract BasePositions is IPositions, UsesCore, PayableMulticallable, B
         uint256 callType = abi.decode(data, (uint256));
 
         if (callType == CALL_TYPE_DEPOSIT) {
-            (
-                ,
-                address caller,
-                uint256 id,
-                PoolKey memory poolKey,
-                int32 tickLower,
-                int32 tickUpper,
-                uint128 maxAmount0,
-                uint128 maxAmount1,
-                uint128 minLiquidity
-            ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128, uint128, uint128));
-
-            SqrtRatio sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
-
-            uint128 liquidity =
-                maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
-
-            if (liquidity < minLiquidity) {
-                revert DepositFailedDueToSlippage(liquidity, minLiquidity);
-            }
-
-            if (liquidity > uint128(type(int128).max)) {
-                revert DepositOverflow();
-            }
-
-            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(
-                poolKey,
-                createPositionId({_salt: bytes24(uint192(id)), _tickLower: tickLower, _tickUpper: tickUpper}),
-                int128(liquidity)
-            );
-
-            uint128 amount0 = uint128(balanceUpdate.delta0());
-            uint128 amount1 = uint128(balanceUpdate.delta1());
-
-            if (amount0 > maxAmount0 || amount1 > maxAmount1) revert DepositFailedDueToPriceMovement();
-
-            // Use multi-token payment for ERC20-only pools, fall back to individual payments for native token pools
-            if (poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
-                ACCOUNTANT.payTwoFrom(caller, poolKey.token0, poolKey.token1, amount0, amount1);
-            } else {
-                if (amount0 != 0) {
-                    SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
-                }
-                if (amount1 != 0) {
-                    ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
-                }
-            }
-
-            result = abi.encode(liquidity, amount0, amount1);
+            result = _handleDeposit(data);
         } else if (callType == CALL_TYPE_WITHDRAW) {
             (
                 ,

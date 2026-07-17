@@ -9,15 +9,15 @@ import {IBaseNonfungibleToken} from "./IBaseNonfungibleToken.sol";
 /// @notice Interface for managing liquidity positions as NFTs in Ekubo Protocol
 /// @dev Defines the interface for depositing, withdrawing, and collecting fees from liquidity positions
 interface IPositions is IBaseNonfungibleToken {
-    /// @notice Thrown when deposit fails due to insufficient liquidity for the given slippage tolerance
-    /// @param liquidity The actual liquidity that would be provided
-    /// @param minLiquidity The minimum liquidity required
-    error DepositFailedDueToSlippage(uint128 liquidity, uint128 minLiquidity);
+    /// @notice Thrown when the available swap input cannot move the pool to the requested deposit price
+    /// @param targetSqrtRatio The requested deposit price
+    /// @param actualSqrtRatio The price reached by the swap
+    error DepositFailedToReachTargetPrice(SqrtRatio targetSqrtRatio, SqrtRatio actualSqrtRatio);
 
-    /// @notice Thrown when price moves during the beforeUpdatePosition extension call causing the desired deposit amounts to be exceeded
+    /// @notice Thrown when an extension moves the price while liquidity is being added
     error DepositFailedDueToPriceMovement();
 
-    /// @notice Thrown when deposit amount would cause overflow
+    /// @notice Thrown when deposit liquidity cannot fit in the Core position update type
     error DepositOverflow();
 
     /// @notice Thrown when the specified withdraw liquidity amount overflows type(int128).max
@@ -38,17 +38,17 @@ interface IPositions is IBaseNonfungibleToken {
         view
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1);
 
-    /// @notice Deposits tokens into a liquidity position
+    /// @notice Swaps the pool to `sqrtRatio`, then deposits as much liquidity as the token limits allow
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
     /// @param tickLower Lower tick of the price range of the position
     /// @param tickUpper Upper tick of the price range of the position
-    /// @param maxAmount0 Maximum amount of token0 to deposit
-    /// @param maxAmount1 Maximum amount of token1 to deposit
-    /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
+    /// @param maxAmount0 Maximum net amount of token0 to spend across the swap and deposit
+    /// @param maxAmount1 Maximum net amount of token1 to spend across the swap and deposit
+    /// @param sqrtRatio The exact pool price at which liquidity must be added
     /// @return liquidity Amount of liquidity added to the position
-    /// @return amount0 Actual amount of token0 deposited
-    /// @return amount1 Actual amount of token1 deposited
+    /// @return amount0 Amount of token0 added to the position, excluding the preceding swap
+    /// @return amount1 Amount of token1 added to the position, excluding the preceding swap
     function deposit(
         uint256 id,
         PoolKey memory poolKey,
@@ -56,7 +56,7 @@ interface IPositions is IBaseNonfungibleToken {
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        uint128 minLiquidity
+        SqrtRatio sqrtRatio
     ) external payable returns (uint128 liquidity, uint128 amount0, uint128 amount1);
 
     /// @notice Collects accumulated fees from a position to msg.sender
@@ -117,48 +117,29 @@ interface IPositions is IBaseNonfungibleToken {
         payable
         returns (uint128 amount0, uint128 amount1);
 
-    /// @notice Initializes a pool if it hasn't been initialized yet
-    /// @param poolKey Pool key identifying the pool
-    /// @param tick Initial tick for the pool if initialization is needed
-    /// @return initialized Whether the pool was initialized by this call
-    /// @return sqrtRatio The sqrt price ratio of the pool (existing or newly set)
+    /// @notice Initializes a pool if it has not been initialized yet
     function maybeInitializePool(PoolKey memory poolKey, int32 tick)
         external
         payable
         returns (bool initialized, SqrtRatio sqrtRatio);
 
-    /// @notice Mints a new NFT and deposits liquidity into it
-    /// @param poolKey Pool key identifying the pool
-    /// @param tickLower Lower tick of the price range of the position
-    /// @param tickUpper Upper tick of the price range of the position
-    /// @param maxAmount0 Maximum amount of token0 to deposit
-    /// @param maxAmount1 Maximum amount of token1 to deposit
-    /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
-    /// @return id The newly minted NFT token ID
-    /// @return liquidity Amount of liquidity added to the position
-    /// @return amount0 Actual amount of token0 deposited
-    /// @return amount1 Actual amount of token1 deposited
+    /// @notice Mints a new NFT, swaps the pool to `sqrtRatio`, and deposits liquidity
+    /// @param maxAmount0 Maximum net amount of token0 to spend across the swap and deposit
+    /// @param maxAmount1 Maximum net amount of token1 to spend across the swap and deposit
+    /// @param sqrtRatio The exact pool price at which liquidity must be added
     function mintAndDeposit(
         PoolKey memory poolKey,
         int32 tickLower,
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        uint128 minLiquidity
+        SqrtRatio sqrtRatio
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1);
 
-    /// @notice Mints a new NFT with a specific salt and deposits liquidity into it
-    /// @param salt Salt for deterministic NFT ID generation
-    /// @param poolKey Pool key identifying the pool
-    /// @param tickLower Lower tick of the price range of the position
-    /// @param tickUpper Upper tick of the price range of the position
-    /// @param maxAmount0 Maximum amount of token0 to deposit
-    /// @param maxAmount1 Maximum amount of token1 to deposit
-    /// @param minLiquidity Minimum liquidity to receive (for slippage protection)
-    /// @return id The newly minted NFT token ID
-    /// @return liquidity Amount of liquidity added to the position
-    /// @return amount0 Actual amount of token0 deposited
-    /// @return amount1 Actual amount of token1 deposited
+    /// @notice Mints a deterministic NFT, swaps the pool to `sqrtRatio`, and deposits liquidity
+    /// @param maxAmount0 Maximum net amount of token0 to spend across the swap and deposit
+    /// @param maxAmount1 Maximum net amount of token1 to spend across the swap and deposit
+    /// @param sqrtRatio The exact pool price at which liquidity must be added
     function mintAndDepositWithSalt(
         bytes32 salt,
         PoolKey memory poolKey,
@@ -166,7 +147,7 @@ interface IPositions is IBaseNonfungibleToken {
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        uint128 minLiquidity
+        SqrtRatio sqrtRatio
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1);
 
     /// @notice Withdraws accumulated protocol fees (only callable by owner)

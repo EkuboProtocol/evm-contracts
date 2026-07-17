@@ -142,7 +142,9 @@ contract Handler is StdUtils, StdAssertions {
                 * int32(poolKey.config.concentratedTickSpacing());
         }
 
-        try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
+        try positions.deposit(
+            positionId, poolKey, tickLower, tickUpper, amount0, amount1, core.poolState(poolKey.toPoolId()).sqrtRatio()
+        ) returns (
             uint128 liquidity, uint128 result0, uint128 result1
         ) {
             if (liquidity > 0) {

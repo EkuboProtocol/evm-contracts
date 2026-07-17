@@ -130,7 +130,9 @@ contract Handler is StdUtils, StdAssertions {
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        try positions.deposit(positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0) returns (
+        try positions.deposit(
+            positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, core.poolState(poolKey.toPoolId()).sqrtRatio()
+        ) returns (
             uint128 liquidity, uint128, uint128
         ) {
             if (liquidity > 0) {

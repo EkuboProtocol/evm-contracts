@@ -122,7 +122,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey));
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
@@ -147,7 +147,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token1.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey));
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
@@ -181,8 +181,8 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         token1.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 2e18);
 
-        positions.mintAndDeposit(poolKey0, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
-        positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit(poolKey0, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey0));
+        positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey1));
 
         (uint128 fees0, uint128 fees1) = positions.getProtocolFees(address(token0), address(token1));
         assertEq(fees0, 0);

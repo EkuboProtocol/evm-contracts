@@ -76,7 +76,7 @@ contract SwapTest is FullTest {
             tickUpper: MAX_TICK,
             maxAmount0: uint128(amount0),
             maxAmount1: uint128(amount1),
-            minLiquidity: liquidity
+            sqrtRatio: core.poolState(poolKey.toPoolId()).sqrtRatio()
         });
 
         assertEq(positionLiquidity, liquidity, "liquidity expected");

@@ -16,6 +16,7 @@ import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {Router} from "../../src/Router.sol";
 import {MEVCapturePoolState} from "../../src/types/mevCapturePoolState.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
+import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 
 abstract contract BaseMEVCaptureTest is FullTest {
     MEVCapture internal mevCapture;
@@ -49,6 +50,21 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
     function test_isRegistered() public view {
         assertTrue(core.isExtensionRegistered(address(mevCapture)));
+    }
+
+    function test_positionsDepositSwapsThroughForwardToTargetPrice() public {
+        PoolKey memory poolKey = createMEVCapturePool({fee: 1 << 32, tickSpacing: 100, tick: 0});
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+        createPosition(poolKey, -1000, 1000, 1e18, 1e18);
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        SqrtRatio targetSqrtRatio = tickToSqrtRatio(100);
+        (, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -1000, 1000, 1e18, 1e18, targetSqrtRatio);
+
+        assertEq(core.poolState(poolKey.toPoolId()).sqrtRatio().toFixed(), targetSqrtRatio.toFixed());
+        assertGt(liquidity, 0);
     }
 
     function getPoolState(PoolId poolId) private view returns (MEVCapturePoolState state) {

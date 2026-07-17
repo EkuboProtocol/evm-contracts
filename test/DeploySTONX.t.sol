@@ -36,8 +36,8 @@ contract DeploySTONXHarness is DeploySTONX {
         address governance
     ) external returns (PoolKey memory poolKey, uint256 positionId, uint256 veId, uint128 scheduledAmount) {
         poolKey = _stonxPoolKey(address(stonx), usdg, address(ve33));
-        positionId = _seedLiquidity(stonx, positions, poolKey, usdg, address(this), governance);
-        veId = _stakeAndVote(stonx, veToken, core, poolKey);
+        positionId = _seedLiquidity(stonx, positions, poolKey, usdg, address(this), governance, bytes32(0));
+        veId = _stakeAndVote(stonx, veToken, core, poolKey, bytes32(0));
         positions.transferOwnership(governance);
         scheduledAmount = _configureAndStartScheduler(stonx, scheduler, governance);
     }
@@ -115,6 +115,8 @@ contract DeploySTONXTest is FullTest {
     }
 
     function _assertDeploymentOwnership(uint256 positionId, uint256 veId) private view {
+        assertEq(positionId, ve33Positions.saltToId(address(deployer), bytes32(0)));
+        assertEq(veId, veToken.saltToId(address(deployer), bytes32(0)));
         assertEq(stonx.owner(), address(scheduler));
         assertEq(scheduler.owner(), owner);
         assertEq(ve33Positions.owner(), owner);

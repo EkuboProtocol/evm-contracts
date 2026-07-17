@@ -12,7 +12,7 @@ import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {Ve33DataFetcher} from "../src/lens/Ve33DataFetcher.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
-import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
+import {deployExtension, deployIfNeeded, getCreate2Address} from "./DeployAll.s.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 struct Ve33Deployment {
@@ -130,16 +130,28 @@ contract DeployVe33 is Script {
     }
 
     function _deployVe33Support(ICore core, Ve33 ve33, bytes32 salt) internal {
+        _deployVe33Periphery(core, ve33, salt);
+
         deployIfNeeded(
+            abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(ve33)), salt, address(0), "Ve33DataFetcher"
+        );
+    }
+
+    function _deployVe33Periphery(ICore core, Ve33 ve33, bytes32 salt) internal returns (Ve33Periphery periphery) {
+        (address peripheryAddress,) = deployIfNeeded(
             abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)),
             salt,
             address(0),
             "Ve33Periphery"
         );
+        periphery = Ve33Periphery(payable(peripheryAddress));
+    }
 
-        deployIfNeeded(
-            abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(ve33)), salt, address(0), "Ve33DataFetcher"
-        );
+    function _ve33PeripheryAddress(ICore core, Ve33 ve33, bytes32 salt) internal pure returns (address) {
+        return
+            getCreate2Address(
+                salt, keccak256(abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)))
+            );
     }
 
     function _stakeToken(address owner, bytes32 salt)

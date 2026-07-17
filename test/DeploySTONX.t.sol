@@ -56,8 +56,6 @@ contract DeploySTONXTest is FullTest {
     uint64 private constant SWAP_FEE = uint64((uint256(type(uint64).max) * 30) / 10_000);
     uint128 private constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint32 private constant INITIAL_EMISSION_DURATION = 100 days;
-    uint160 private constant INITIAL_EMISSION_RATE =
-        uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / INITIAL_EMISSION_DURATION);
     uint128 private constant SCHEDULER_DAILY_EMISSION_AMOUNT = 333_333e15;
     uint160 private constant SCHEDULER_EMISSION_RATE =
         uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
@@ -189,20 +187,20 @@ contract DeploySTONXTest is FullTest {
     function _assertEmissionState(uint128 scheduledAmount) private view {
         Ve33EmissionRateConfig config = scheduler.config();
         (uint64 emissionEnd, int256 rateDelta) = ve33.nextEmissionRateChangeTime(block.timestamp);
-        uint128 expectedScheduledAmount =
-            uint128((((emissionEnd - block.timestamp) * uint256(INITIAL_EMISSION_RATE)) + type(uint32).max) >> 32);
+        uint160 initialEmissionRate = ve33.emissionRate();
         (uint128 savedStakeAndEmissions,) = core.savedBalances(
             address(ve33), address(stonx), address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
         );
 
-        assertEq(scheduledAmount, expectedScheduledAmount);
+        assertEq(scheduledAmount, INITIAL_EMISSION_AMOUNT);
         assertEq(savedStakeAndEmissions, STONX_AMOUNT + scheduledAmount);
         assertEq(config.targetRate(), SCHEDULER_EMISSION_RATE);
         assertEq(config.scheduleDuration(), 3 days);
-        assertEq(ve33.emissionRate(), INITIAL_EMISSION_RATE);
         assertGe(emissionEnd, block.timestamp + INITIAL_EMISSION_DURATION);
-        assertEq(rateDelta, -int256(uint256(INITIAL_EMISSION_RATE)));
-        assertApproxEqAbs((uint256(INITIAL_EMISSION_RATE) * 1 days) >> 32, 3_333_33e16, 1);
+        assertEq(
+            initialEmissionRate, uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (emissionEnd - block.timestamp))
+        );
+        assertEq(rateDelta, -int256(uint256(initialEmissionRate)));
         assertApproxEqAbs((uint256(SCHEDULER_EMISSION_RATE) * 1 days) >> 32, SCHEDULER_DAILY_EMISSION_AMOUNT, 1);
         assertEq(stonx.totalSupply(), uint256(STONX_AMOUNT) * 2 + scheduledAmount);
     }
@@ -211,15 +209,19 @@ contract DeploySTONXTest is FullTest {
         uint256 initialTimestamp = block.timestamp;
         uint256 initialSupply = stonx.totalSupply();
         (uint64 initialEmissionEnd,) = ve33.nextEmissionRateChangeTime(initialTimestamp);
+        uint160 initialEmissionRate = ve33.emissionRate();
 
         assertEq(scheduler.mintAndSchedule(), 0);
 
         vm.warp(initialTimestamp + INITIAL_EMISSION_DURATION - 3 days);
         assertEq(scheduler.mintAndSchedule(), 0);
         assertEq(stonx.totalSupply(), initialSupply);
-        assertEq(ve33.emissionRate(), INITIAL_EMISSION_RATE);
+        assertEq(ve33.emissionRate(), initialEmissionRate);
 
         vm.warp(initialEmissionEnd);
+        ve33.accrueEmissions();
+        assertEq(ve33.emissionRate(), 0);
+
         assertGt(scheduler.mintAndSchedule(), 0);
         assertEq(ve33.emissionRate(), SCHEDULER_EMISSION_RATE);
     }

@@ -41,8 +41,6 @@ contract DeploySTONX is DeployVe33 {
     uint128 internal constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint32 internal constant INITIAL_EMISSION_DURATION = 100 days;
     uint32 internal constant EMISSION_SCHEDULE_DURATION = 3 days;
-    uint160 internal constant INITIAL_EMISSION_RATE =
-        uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / INITIAL_EMISSION_DURATION);
     uint128 internal constant SCHEDULER_DAILY_EMISSION_AMOUNT = 333_333e15;
     uint160 internal constant SCHEDULER_EMISSION_RATE =
         uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
@@ -165,15 +163,14 @@ contract DeploySTONX is DeployVe33 {
     {
         uint64 emissionEnd =
             uint64(nextValidTime(block.timestamp, block.timestamp + uint256(INITIAL_EMISSION_DURATION) - 1));
-        uint128 emissionAmount =
-            uint128((((emissionEnd - block.timestamp) * uint256(INITIAL_EMISSION_RATE)) + type(uint32).max) >> 32);
+        uint160 emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (emissionEnd - block.timestamp));
 
-        stonx.mint(emissionFunder, emissionAmount);
-        stonx.approve(address(periphery), emissionAmount);
-        scheduledAmount = periphery.scheduleEmissions(0, emissionEnd, INITIAL_EMISSION_RATE);
+        stonx.mint(emissionFunder, INITIAL_EMISSION_AMOUNT);
+        stonx.approve(address(periphery), INITIAL_EMISSION_AMOUNT);
+        scheduledAmount = periphery.scheduleEmissions(0, emissionEnd, emissionRate);
         if (scheduledAmount == 0) revert NoEmissionsScheduled();
-        if (scheduledAmount != emissionAmount) {
-            revert UnexpectedScheduledEmissionAmount(emissionAmount, scheduledAmount);
+        if (scheduledAmount != INITIAL_EMISSION_AMOUNT) {
+            revert UnexpectedScheduledEmissionAmount(INITIAL_EMISSION_AMOUNT, scheduledAmount);
         }
     }
 

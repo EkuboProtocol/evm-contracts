@@ -58,6 +58,9 @@ contract DeploySTONXTest is FullTest {
     uint32 private constant INITIAL_EMISSION_DURATION = 100 days;
     uint160 private constant INITIAL_EMISSION_RATE =
         uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / INITIAL_EMISSION_DURATION);
+    uint128 private constant SCHEDULER_DAILY_EMISSION_AMOUNT = 333_333e15;
+    uint160 private constant SCHEDULER_EMISSION_RATE =
+        uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
 
     DeploySTONXHarness private deployer;
     MintableERC20 private stonx;
@@ -194,18 +197,20 @@ contract DeploySTONXTest is FullTest {
 
         assertEq(scheduledAmount, expectedScheduledAmount);
         assertEq(savedStakeAndEmissions, STONX_AMOUNT + scheduledAmount);
-        assertEq(config.targetRate(), INITIAL_EMISSION_RATE);
+        assertEq(config.targetRate(), SCHEDULER_EMISSION_RATE);
         assertEq(config.scheduleDuration(), 3 days);
         assertEq(ve33.emissionRate(), INITIAL_EMISSION_RATE);
         assertGe(emissionEnd, block.timestamp + INITIAL_EMISSION_DURATION);
         assertEq(rateDelta, -int256(uint256(INITIAL_EMISSION_RATE)));
         assertApproxEqAbs((uint256(INITIAL_EMISSION_RATE) * 1 days) >> 32, 3_333_33e16, 1);
+        assertApproxEqAbs((uint256(SCHEDULER_EMISSION_RATE) * 1 days) >> 32, SCHEDULER_DAILY_EMISSION_AMOUNT, 1);
         assertEq(stonx.totalSupply(), uint256(STONX_AMOUNT) * 2 + scheduledAmount);
     }
 
     function _assertSchedulerInitiallyNoops() private {
         uint256 initialTimestamp = block.timestamp;
         uint256 initialSupply = stonx.totalSupply();
+        (uint64 initialEmissionEnd,) = ve33.nextEmissionRateChangeTime(initialTimestamp);
 
         assertEq(scheduler.mintAndSchedule(), 0);
 
@@ -213,6 +218,10 @@ contract DeploySTONXTest is FullTest {
         assertEq(scheduler.mintAndSchedule(), 0);
         assertEq(stonx.totalSupply(), initialSupply);
         assertEq(ve33.emissionRate(), INITIAL_EMISSION_RATE);
+
+        vm.warp(initialEmissionEnd);
+        assertGt(scheduler.mintAndSchedule(), 0);
+        assertEq(ve33.emissionRate(), SCHEDULER_EMISSION_RATE);
     }
 
     function _assertEmissionsReachPosition(PoolKey memory poolKey, uint256 positionId) private {

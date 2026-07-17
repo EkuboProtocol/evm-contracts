@@ -43,6 +43,9 @@ contract DeploySTONX is DeployVe33 {
     uint32 internal constant EMISSION_SCHEDULE_DURATION = 3 days;
     uint160 internal constant INITIAL_EMISSION_RATE =
         uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / INITIAL_EMISSION_DURATION);
+    uint128 internal constant SCHEDULER_DAILY_EMISSION_AMOUNT = 333_333e15;
+    uint160 internal constant SCHEDULER_EMISSION_RATE =
+        uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
 
     error InvalidChainId(uint256 chainId);
     error PoolHasNoLiquidity();
@@ -178,7 +181,7 @@ contract DeploySTONX is DeployVe33 {
         internal
     {
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(scheduler.setConfig, (INITIAL_EMISSION_RATE, EMISSION_SCHEDULE_DURATION));
+        calls[0] = abi.encodeCall(scheduler.setConfig, (SCHEDULER_EMISSION_RATE, EMISSION_SCHEDULE_DURATION));
         calls[1] = abi.encodeCall(scheduler.transferOwnership, (governance));
 
         stonx.transferOwnership(address(scheduler));

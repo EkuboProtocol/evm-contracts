@@ -418,19 +418,13 @@ contract Ve33Positions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfun
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
 
             _validateVe33Pool(poolKey);
-            result = abi.encode(_claimRewards(poolKey, positionId_, recipient));
+            uint128 rewardAmount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_));
+            if (rewardAmount != 0) {
+                ACCOUNTANT.withdraw(stakeToken, recipient, rewardAmount);
+            }
+            result = abi.encode(rewardAmount);
         } else {
             revert();
-        }
-    }
-
-    function _claimRewards(PoolKey memory poolKey, PositionId positionId_, address recipient)
-        private
-        returns (uint128 amount)
-    {
-        amount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_));
-        if (amount != 0) {
-            ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         }
     }
 

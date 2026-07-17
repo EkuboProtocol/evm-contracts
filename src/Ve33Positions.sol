@@ -269,32 +269,29 @@ contract Ve33Positions is BasePositionDepositor {
             if (liquidity > uint128(type(int128).max)) revert WithdrawOverflow();
 
             PositionId positionId_ = positionId(id, tickLower, tickUpper);
-            uint128 rewardAmount = _claimRewards(poolKey, positionId_, recipient);
+            uint128 rewardAmount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_));
 
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, -int128(liquidity));
             uint128 amount0 = uint128(-balanceUpdate.delta0());
             uint128 amount1 = uint128(-balanceUpdate.delta1());
 
             ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
+            if (rewardAmount != 0) {
+                ACCOUNTANT.withdraw(stakeToken, recipient, rewardAmount);
+            }
             result = abi.encode(amount0, amount1, rewardAmount);
         } else if (callType == CALL_TYPE_CLAIM_REWARDS) {
             (, PoolKey memory poolKey, PositionId positionId_, address recipient) =
                 abi.decode(data, (uint256, PoolKey, PositionId, address));
 
             _validateVe33Pool(poolKey);
-            result = abi.encode(_claimRewards(poolKey, positionId_, recipient));
+            uint128 rewardAmount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_));
+            if (rewardAmount != 0) {
+                ACCOUNTANT.withdraw(stakeToken, recipient, rewardAmount);
+            }
+            result = abi.encode(rewardAmount);
         } else {
             revert();
-        }
-    }
-
-    function _claimRewards(PoolKey memory poolKey, PositionId positionId_, address recipient)
-        private
-        returns (uint128 amount)
-    {
-        amount = uint128(Ve33Lib.claimRewards(CORE, ve33, poolKey, positionId_));
-        if (amount != 0) {
-            ACCOUNTANT.withdraw(stakeToken, recipient, amount);
         }
     }
 

@@ -14,8 +14,8 @@
   "Ve33Forwarder#moveStake": "39275",
   "Ve33Forwarder#stake": "101642",
   "Ve33Periphery#scheduleEmissions": "125470",
-  "Ve33Positions#claimAccruedEmissions": "118268",
-  "Ve33Positions#claimRewards": "46130",
+  "Ve33Positions#claimAccruedEmissions": "118281",
+  "Ve33Positions#claimRewards": "46143",
   "Ve33Positions#deposit": "406801",
   "VeToken#claimPoolFees": "59715",
   "VeToken#vote": "139863"

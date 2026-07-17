@@ -15,8 +15,6 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 contract Ve33Periphery is PayableMulticallable, BaseLocker {
     using FlashAccountantLib for *;
 
-    uint256 private constant CALL_TYPE_SCHEDULE_EMISSIONS = 0;
-
     ICore private immutable CORE_REF;
 
     Ve33 public immutable ve33;
@@ -45,28 +43,17 @@ contract Ve33Periphery is PayableMulticallable, BaseLocker {
         payable
         returns (uint128 amount)
     {
-        amount = abi.decode(
-            lock(abi.encode(CALL_TYPE_SCHEDULE_EMISSIONS, msg.sender, startTime, endTime, rewardRate)), (uint128)
-        );
+        amount = abi.decode(lock(abi.encode(msg.sender, startTime, endTime, rewardRate)), (uint128));
     }
 
     /// @inheritdoc BaseLocker
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        uint256 callType = abi.decode(data, (uint256));
+        (address payer, uint64 startTime, uint64 endTime, uint160 rewardRate) =
+            abi.decode(data, (address, uint64, uint64, uint160));
+        uint128 amount = Ve33Lib.scheduleEmissions(CORE_REF, ve33, startTime, endTime, rewardRate);
+        result = abi.encode(amount);
 
-        if (callType == CALL_TYPE_SCHEDULE_EMISSIONS) {
-            (, address payer, uint64 startTime, uint64 endTime, uint160 rewardRate) =
-                abi.decode(data, (uint256, address, uint64, uint64, uint160));
-            uint128 amount = Ve33Lib.scheduleEmissions(CORE_REF, ve33, startTime, endTime, rewardRate);
-            result = abi.encode(amount);
-            _payStakeToken(payer, amount);
-        } else {
-            revert();
-        }
-    }
-
-    function _payStakeToken(address payer, uint128 amount) private {
-        if (amount == 0) return;
+        if (amount == 0) return result;
 
         if (stakeToken == NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount);

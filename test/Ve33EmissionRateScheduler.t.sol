@@ -10,7 +10,7 @@ import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
-import {nextValidTime} from "../src/math/time.sol";
+import {computeStepSize, isTimeValid} from "../src/math/time.sol";
 import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 
 contract SchedulerCallRevertTarget {
@@ -97,6 +97,18 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertEq(ve.emissionRateDeltaAtTime(expectedEndTime), -int256(uint256(TARGET_RATE)));
     }
 
+    function test_mintAndScheduleNeverSchedulesPastConfiguredDuration() public {
+        vm.prank(owner);
+        scheduler.setConfig(TARGET_RATE, SCHEDULE_DURATION);
+
+        uint64 nowTime = uint64(vm.getBlockTimestamp());
+        scheduler.mintAndSchedule();
+
+        (uint64 endTime,) = ve.nextEmissionRateChangeTime(nowTime);
+        assertLe(endTime, nowTime + SCHEDULE_DURATION);
+        assertTrue(isTimeValid(nowTime, endTime));
+    }
+
     function test_mintAndScheduleReturnsZeroWhenCurrentRateAlreadyAtTarget() public {
         vm.prank(owner);
         scheduler.setConfig(TARGET_RATE, SCHEDULE_DURATION);
@@ -155,7 +167,9 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
     }
 
     function _expectedEndTime(uint32 scheduleDuration) internal view returns (uint64) {
-        return uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + uint256(scheduleDuration) - 1));
+        uint256 maxEndTime = vm.getBlockTimestamp() + uint256(scheduleDuration);
+        uint256 stepSize = computeStepSize(vm.getBlockTimestamp(), maxEndTime);
+        return uint64(maxEndTime - (maxEndTime % stepSize));
     }
 
     function _scheduleAmount(uint160 rewardRate, uint64 endTime) internal view returns (uint128) {

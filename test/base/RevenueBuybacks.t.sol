@@ -12,6 +12,7 @@ import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "../TestToken.sol";
 import {RevenueBuybacksLib} from "../../src/libraries/RevenueBuybacksLib.sol";
+import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 
 contract RevenueBuybacksHarness is RevenueBuybacks {
     constructor(address owner, IOrders orders, address buyToken) RevenueBuybacks(owner, orders, buyToken) {}
@@ -154,7 +155,8 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey));
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio, sqrtRatio);
 
         (uint64 endTime, uint112 saleRate) = rb.roll(address(token0));
         assertEq(endTime, 3840);
@@ -190,7 +192,8 @@ contract RevenueBuybacksTest is BaseOrdersTest {
 
         positions.maybeInitializePool(poolKey, 0);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit{value: 1e18}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey));
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
+        positions.mintAndDeposit{value: 1e18}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio, sqrtRatio);
 
         (uint64 endTime, uint112 saleRate) = rb.roll(address(0));
         assertEq(endTime, 3840);
@@ -244,9 +247,8 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit{value: isEth ? 1e18 : 0}(
-            poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey)
-        );
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
+        positions.mintAndDeposit{value: isEth ? 1e18 : 0}(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio, sqrtRatio);
 
         (uint64 endTime,) = rb.roll(token);
         assertGt(endTime, startTime, "end time gt");

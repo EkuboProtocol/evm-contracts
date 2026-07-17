@@ -72,14 +72,37 @@ abstract contract BasePositions is IPositions, BasePositionDepositor {
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
     )
         public
         payable
         override(IPositions, BasePositionDepositor)
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
-        return super.deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
+        return super.deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio);
+    }
+
+    /// @inheritdoc IPositions
+    function deposit(
+        uint256 id,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
+    )
+        public
+        payable
+        override(IPositions, BasePositionDepositor)
+        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
+    {
+        return super.deposit(
+            id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
+        );
     }
 
     /// @inheritdoc IPositions
@@ -99,14 +122,36 @@ abstract contract BasePositions is IPositions, BasePositionDepositor {
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
     )
         public
         payable
         override(IPositions, BasePositionDepositor)
         returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
     {
-        return super.mintAndDeposit(poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
+        return super.mintAndDeposit(poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio);
+    }
+
+    /// @inheritdoc IPositions
+    function mintAndDeposit(
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
+    )
+        public
+        payable
+        override(IPositions, BasePositionDepositor)
+        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
+    {
+        return super.mintAndDeposit(
+            poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
+        );
     }
 
     /// @inheritdoc IPositions
@@ -117,14 +162,39 @@ abstract contract BasePositions is IPositions, BasePositionDepositor {
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
     )
         public
         payable
         override(IPositions, BasePositionDepositor)
         returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
     {
-        return super.mintAndDepositWithSalt(salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
+        return super.mintAndDepositWithSalt(
+            salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio
+        );
+    }
+
+    /// @inheritdoc IPositions
+    function mintAndDepositWithSalt(
+        bytes32 salt,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
+    )
+        public
+        payable
+        override(IPositions, BasePositionDepositor)
+        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
+    {
+        return super.mintAndDepositWithSalt(
+            salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
+        );
     }
 
     /// @inheritdoc IPositions

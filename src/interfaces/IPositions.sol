@@ -9,10 +9,11 @@ import {IBaseNonfungibleToken} from "./IBaseNonfungibleToken.sol";
 /// @notice Interface for managing liquidity positions as NFTs in Ekubo Protocol
 /// @dev Defines the interface for depositing, withdrawing, and collecting fees from liquidity positions
 interface IPositions is IBaseNonfungibleToken {
-    /// @notice Thrown when the available swap input cannot move the pool to the requested deposit price
-    /// @param targetSqrtRatio The requested deposit price
+    /// @notice Thrown when the available swap input cannot move the pool into the requested deposit price range
+    /// @param minSqrtRatio Lower bound of the requested price range
+    /// @param maxSqrtRatio Upper bound of the requested price range
     /// @param actualSqrtRatio The price reached by the swap
-    error DepositFailedToReachTargetPrice(SqrtRatio targetSqrtRatio, SqrtRatio actualSqrtRatio);
+    error DepositFailedToReachPriceRange(SqrtRatio minSqrtRatio, SqrtRatio maxSqrtRatio, SqrtRatio actualSqrtRatio);
 
     /// @notice Thrown when an extension moves the price while liquidity is being added
     error DepositFailedDueToPriceMovement();
@@ -38,14 +39,15 @@ interface IPositions is IBaseNonfungibleToken {
         view
         returns (uint128 liquidity, uint128 principal0, uint128 principal1, uint128 fees0, uint128 fees1);
 
-    /// @notice Swaps the pool to `sqrtRatio`, then deposits as much liquidity as the token limits allow
+    /// @notice Swaps the pool into the requested price range when necessary, then deposits liquidity
     /// @param id The NFT token ID representing the position
     /// @param poolKey Pool key identifying the pool
     /// @param tickLower Lower tick of the price range of the position
     /// @param tickUpper Upper tick of the price range of the position
     /// @param maxAmount0 Maximum net amount of token0 to spend across the swap and deposit
     /// @param maxAmount1 Maximum net amount of token1 to spend across the swap and deposit
-    /// @param sqrtRatio The exact pool price at which liquidity must be added
+    /// @param minSqrtRatio Lower bound of the acceptable pool price range
+    /// @param maxSqrtRatio Upper bound of the acceptable pool price range
     /// @return liquidity Amount of liquidity added to the position
     /// @return amount0 Amount of token0 added to the position, excluding the preceding swap
     /// @return amount1 Amount of token1 added to the position, excluding the preceding swap
@@ -56,7 +58,21 @@ interface IPositions is IBaseNonfungibleToken {
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
+    ) external payable returns (uint128 liquidity, uint128 amount0, uint128 amount1);
+
+    /// @notice Deposits within a price range and sends unused swap output to `swapRecipient`
+    function deposit(
+        uint256 id,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
     ) external payable returns (uint128 liquidity, uint128 amount0, uint128 amount1);
 
     /// @notice Collects accumulated fees from a position to msg.sender
@@ -123,23 +139,38 @@ interface IPositions is IBaseNonfungibleToken {
         payable
         returns (bool initialized, SqrtRatio sqrtRatio);
 
-    /// @notice Mints a new NFT, swaps the pool to `sqrtRatio`, and deposits liquidity
+    /// @notice Mints a new NFT, swaps the pool into the requested price range when necessary, and deposits liquidity
     /// @param maxAmount0 Maximum net amount of token0 to spend across the swap and deposit
     /// @param maxAmount1 Maximum net amount of token1 to spend across the swap and deposit
-    /// @param sqrtRatio The exact pool price at which liquidity must be added
+    /// @param minSqrtRatio Lower bound of the acceptable pool price range
+    /// @param maxSqrtRatio Upper bound of the acceptable pool price range
     function mintAndDeposit(
         PoolKey memory poolKey,
         int32 tickLower,
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1);
 
-    /// @notice Mints a deterministic NFT, swaps the pool to `sqrtRatio`, and deposits liquidity
+    /// @notice Mints a new NFT, deposits within a price range, and sends unused swap output to `swapRecipient`
+    function mintAndDeposit(
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
+    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1);
+
+    /// @notice Mints a deterministic NFT, swaps into the requested price range when necessary, and deposits liquidity
     /// @param maxAmount0 Maximum net amount of token0 to spend across the swap and deposit
     /// @param maxAmount1 Maximum net amount of token1 to spend across the swap and deposit
-    /// @param sqrtRatio The exact pool price at which liquidity must be added
+    /// @param minSqrtRatio Lower bound of the acceptable pool price range
+    /// @param maxSqrtRatio Upper bound of the acceptable pool price range
     function mintAndDepositWithSalt(
         bytes32 salt,
         PoolKey memory poolKey,
@@ -147,7 +178,21 @@ interface IPositions is IBaseNonfungibleToken {
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
+    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1);
+
+    /// @notice Mints a deterministic NFT, deposits within a range, and sends unused swap output to `swapRecipient`
+    function mintAndDepositWithSalt(
+        bytes32 salt,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1);
 
     /// @notice Withdraws accumulated protocol fees (only callable by owner)

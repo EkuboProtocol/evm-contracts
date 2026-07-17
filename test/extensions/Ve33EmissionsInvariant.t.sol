@@ -313,6 +313,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
             tickUpper,
             uint128(POSITION_AMOUNT),
             uint128(POSITION_AMOUNT),
+            core.poolState(trackedPool.poolKey.toPoolId()).sqrtRatio(),
             core.poolState(trackedPool.poolKey.toPoolId()).sqrtRatio()
         );
         positions.push(

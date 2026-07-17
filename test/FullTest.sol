@@ -253,8 +253,9 @@ abstract contract FullTest is Test {
         }
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
         (id, liquidity,,) = positions.mintAndDeposit{value: value}(
-            poolKey, tickLower, tickUpper, amount0, amount1, poolSqrtRatio(poolKey)
+            poolKey, tickLower, tickUpper, amount0, amount1, sqrtRatio, sqrtRatio
         );
     }
 

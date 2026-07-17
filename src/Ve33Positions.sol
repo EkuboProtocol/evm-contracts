@@ -37,8 +37,8 @@ contract Ve33Positions is BasePositionDepositor {
     /// @notice Token paid as LP rewards by Ve33.
     address public immutable stakeToken;
 
-    /// @notice Thrown when the available swap input cannot move the pool to the requested deposit price.
-    error DepositFailedToReachTargetPrice(SqrtRatio targetSqrtRatio, SqrtRatio actualSqrtRatio);
+    /// @notice Thrown when the available swap input cannot move the pool into the requested deposit price range.
+    error DepositFailedToReachPriceRange(SqrtRatio minSqrtRatio, SqrtRatio maxSqrtRatio, SqrtRatio actualSqrtRatio);
 
     /// @notice Thrown when an extension moves the price while liquidity is being added.
     error DepositFailedDueToPriceMovement();

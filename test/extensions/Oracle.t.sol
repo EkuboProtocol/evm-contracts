@@ -86,7 +86,7 @@ abstract contract BaseOracleTest is FullTest {
             TestToken(token).approve(address(positions), type(uint256).max);
 
             vm.deal(address(positions), uint128(d0));
-            positions.deposit(positionId, pk, MIN_TICK, MAX_TICK, uint128(d0), uint128(d1), sqrtRatio);
+            positions.deposit(positionId, pk, MIN_TICK, MAX_TICK, uint128(d0), uint128(d1), sqrtRatio, sqrtRatio);
         } else if (liquidityBefore > liquidityNext) {
             uint128 diff = liquidityBefore - liquidityNext;
             if (diff > uint256(int256(type(int128).min))) {

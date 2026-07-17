@@ -101,6 +101,7 @@ contract DeploySTONX is DeployVe33 {
             POSITION_TICK_UPPER,
             address(stonx) < usdg ? LIQUIDITY_TOKEN_AMOUNT : LIQUIDITY_USDG_AMOUNT,
             address(stonx) < usdg ? LIQUIDITY_USDG_AMOUNT : LIQUIDITY_TOKEN_AMOUNT,
+            sqrtRatio,
             sqrtRatio
         );
 

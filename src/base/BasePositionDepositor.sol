@@ -35,14 +35,15 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         id = uint192(super.saltToId(minter, salt));
     }
 
-    /// @notice Deposits tokens into a liquidity position at an exact pool price.
+    /// @notice Deposits tokens into a liquidity position within a pool price range.
     /// @param id The NFT token ID representing the position.
     /// @param poolKey Pool receiving liquidity.
     /// @param tickLower Lower tick of the position range.
     /// @param tickUpper Upper tick of the position range.
     /// @param maxAmount0 Maximum net amount of token0 to spend across the swap and deposit.
     /// @param maxAmount1 Maximum net amount of token1 to spend across the swap and deposit.
-    /// @param sqrtRatio The pool price at which liquidity must be added.
+    /// @param minSqrtRatio Lower bound of the acceptable pool price range.
+    /// @param maxSqrtRatio Upper bound of the acceptable pool price range.
     /// @return liquidity Amount of liquidity added to the position.
     /// @return amount0 Amount of token0 added to the position, excluding the preceding swap.
     /// @return amount1 Amount of token1 added to the position, excluding the preceding swap.
@@ -53,12 +54,40 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
+    ) public payable virtual returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
+        return deposit(
+            id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, msg.sender
+        );
+    }
+
+    /// @notice Deposits tokens into a liquidity position and sends unused swap output to `swapRecipient`.
+    function deposit(
+        uint256 id,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
     ) public payable virtual authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
         (liquidity, amount0, amount1) = abi.decode(
             lock(
                 abi.encode(
-                    CALL_TYPE_DEPOSIT, msg.sender, id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio
+                    CALL_TYPE_DEPOSIT,
+                    msg.sender,
+                    swapRecipient,
+                    id,
+                    poolKey,
+                    tickLower,
+                    tickUpper,
+                    maxAmount0,
+                    maxAmount1,
+                    minSqrtRatio,
+                    maxSqrtRatio
                 )
             ),
             (uint128, uint128, uint128)
@@ -80,20 +109,40 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         }
     }
 
-    /// @notice Mints a new NFT and deposits liquidity at an exact pool price.
+    /// @notice Mints a new NFT and deposits liquidity within a pool price range.
     function mintAndDeposit(
         PoolKey memory poolKey,
         int32 tickLower,
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
     ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
-        id = mint();
-        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
+        return
+            mintAndDeposit(
+                poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, msg.sender
+            );
     }
 
-    /// @notice Mints a new deterministic NFT and deposits liquidity at an exact pool price.
+    /// @notice Mints a new NFT, deposits liquidity, and sends unused swap output to `swapRecipient`.
+    function mintAndDeposit(
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
+    ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+        id = mint();
+        (liquidity, amount0, amount1) = deposit(
+            id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
+        );
+    }
+
+    /// @notice Mints a new deterministic NFT and deposits liquidity within a pool price range.
     function mintAndDepositWithSalt(
         bytes32 salt,
         PoolKey memory poolKey,
@@ -101,52 +150,78 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        SqrtRatio sqrtRatio
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio
+    ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+        return mintAndDepositWithSalt(
+            salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, msg.sender
+        );
+    }
+
+    /// @notice Mints a deterministic NFT, deposits liquidity, and sends unused swap output to `swapRecipient`.
+    function mintAndDepositWithSalt(
+        bytes32 salt,
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        SqrtRatio minSqrtRatio,
+        SqrtRatio maxSqrtRatio,
+        address swapRecipient
     ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint(salt);
-        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, sqrtRatio);
+        (liquidity, amount0, amount1) = deposit(
+            id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
+        );
     }
 
     function _handleDeposit(bytes memory data) internal returns (bytes memory result) {
         (
             ,
             address caller,
+            address swapRecipient,
             uint256 id,
             PoolKey memory poolKey,
             int32 tickLower,
             int32 tickUpper,
             uint128 maxAmount0,
             uint128 maxAmount1,
-            SqrtRatio targetSqrtRatio
-        ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128, uint128, SqrtRatio));
+            SqrtRatio minSqrtRatio,
+            SqrtRatio maxSqrtRatio
+        ) = abi.decode(
+            data, (uint256, address, address, uint256, PoolKey, int32, int32, uint128, uint128, SqrtRatio, SqrtRatio)
+        );
 
         _validatePool(poolKey);
 
         PoolState stateBefore = CORE.poolState(poolKey.toPoolId());
         PoolBalanceUpdate swapBalanceUpdate;
         PoolState stateAfter = stateBefore;
+        SqrtRatio boundarySqrtRatio;
 
-        if (stateBefore.sqrtRatio() != targetSqrtRatio) {
-            bool increasing = targetSqrtRatio > stateBefore.sqrtRatio();
+        if (stateBefore.sqrtRatio() < minSqrtRatio || stateBefore.sqrtRatio() > maxSqrtRatio) {
+            bool increasing = stateBefore.sqrtRatio() < minSqrtRatio;
+            boundarySqrtRatio = increasing ? minSqrtRatio : maxSqrtRatio;
             uint128 maxSwapAmount = increasing ? maxAmount1 : maxAmount0;
             int128 swapAmount = maxSwapAmount > uint128(type(int128).max) ? type(int128).max : int128(maxSwapAmount);
 
             (swapBalanceUpdate, stateAfter) = _swap(
                 poolKey,
                 createSwapParameters({
-                    _sqrtRatioLimit: targetSqrtRatio, _amount: swapAmount, _isToken1: increasing, _skipAhead: 0
+                    _sqrtRatioLimit: boundarySqrtRatio, _amount: swapAmount, _isToken1: increasing, _skipAhead: 0
                 })
             );
+            if (stateAfter.sqrtRatio() != boundarySqrtRatio) {
+                revert IPositions.DepositFailedToReachPriceRange(minSqrtRatio, maxSqrtRatio, stateAfter.sqrtRatio());
+            }
         }
 
-        if (stateAfter.sqrtRatio() != targetSqrtRatio) {
-            revert IPositions.DepositFailedToReachTargetPrice(targetSqrtRatio, stateAfter.sqrtRatio());
-        }
-
+        SqrtRatio depositSqrtRatio = stateAfter.sqrtRatio();
         uint128 availableAmount0 = _availableAmount(maxAmount0, swapBalanceUpdate.delta0());
         uint128 availableAmount1 = _availableAmount(maxAmount1, swapBalanceUpdate.delta1());
         uint128 liquidity = maxLiquidity(
-            targetSqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), availableAmount0, availableAmount1
+            depositSqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), availableAmount0, availableAmount1
         );
 
         if (liquidity > uint128(type(int128).max)) revert IPositions.DepositOverflow();
@@ -155,7 +230,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         _validateDepositLiquidity(poolKey, positionId, liquidity);
         PoolBalanceUpdate depositBalanceUpdate = CORE.updatePosition(poolKey, positionId, int128(liquidity));
 
-        if (CORE.poolState(poolKey.toPoolId()).sqrtRatio() != targetSqrtRatio) {
+        if (CORE.poolState(poolKey.toPoolId()).sqrtRatio() != depositSqrtRatio) {
             revert IPositions.DepositFailedDueToPriceMovement();
         }
 
@@ -165,7 +240,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
             revert IPositions.DepositFailedDueToPriceMovement();
         }
 
-        _settle(caller, poolKey, balanceDelta0, balanceDelta1);
+        _settle(caller, swapRecipient, poolKey, balanceDelta0, balanceDelta1);
 
         result = abi.encode(liquidity, uint128(depositBalanceUpdate.delta0()), uint128(depositBalanceUpdate.delta1()));
     }
@@ -180,16 +255,18 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         amount = available > type(uint128).max ? type(uint128).max : uint128(available);
     }
 
-    function _settle(address caller, PoolKey memory poolKey, int256 delta0, int256 delta1) private {
+    function _settle(address caller, address swapRecipient, PoolKey memory poolKey, int256 delta0, int256 delta1)
+        private
+    {
         if (delta0 >= 0 && delta1 >= 0 && poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
             ACCOUNTANT.payTwoFrom(caller, poolKey.token0, poolKey.token1, uint256(delta0), uint256(delta1));
         } else {
-            _settleToken(caller, poolKey.token0, delta0);
-            _settleToken(caller, poolKey.token1, delta1);
+            _settleToken(caller, swapRecipient, poolKey.token0, delta0);
+            _settleToken(caller, swapRecipient, poolKey.token1, delta1);
         }
     }
 
-    function _settleToken(address caller, address token, int256 delta) private {
+    function _settleToken(address caller, address swapRecipient, address token, int256 delta) private {
         if (delta > 0) {
             uint128 amount = uint128(uint256(delta));
             if (token == NATIVE_TOKEN_ADDRESS) {
@@ -198,7 +275,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
                 ACCOUNTANT.payFrom(caller, token, amount);
             }
         } else if (delta < 0) {
-            ACCOUNTANT.withdraw(token, caller, uint128(uint256(-delta)));
+            ACCOUNTANT.withdraw(token, swapRecipient, uint128(uint256(-delta)));
         }
     }
 

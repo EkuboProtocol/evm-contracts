@@ -52,7 +52,7 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         (uint256 id, uint128 liquidity,,) =
-            positions.mintAndDeposit(poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey));
+            positions.mintAndDeposit(poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey));
         assertGt(id, 0);
         assertGt(liquidity, 0);
         PositionId positionId = createPositionId(bytes24(uint192(id)), -100, 100);
@@ -75,20 +75,21 @@ contract PositionsTest is FullTest {
         assertEq(amount1, 49);
     }
 
-    function test_deposit_swapsToTargetPriceBeforeAddingLiquidity() public {
+    function test_deposit_swapsToMinimumPriceBeforeAddingLiquidity() public {
         PoolKey memory poolKey = createPool(0, 0, 100, address(0));
         createPosition(poolKey, -1000, 1000, 1e18, 1e18);
 
         token0.approve(address(positions), 1e18);
         token1.approve(address(positions), 1e18);
-        SqrtRatio targetSqrtRatio = tickToSqrtRatio(100);
+        SqrtRatio minSqrtRatio = tickToSqrtRatio(100);
+        SqrtRatio maxSqrtRatio = tickToSqrtRatio(200);
 
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
         (, uint128 liquidity, uint128 amount0, uint128 amount1) =
-            positions.mintAndDeposit(poolKey, -1000, 1000, 1e18, 1e18, targetSqrtRatio);
+            positions.mintAndDeposit(poolKey, -1000, 1000, 1e18, 1e18, minSqrtRatio, maxSqrtRatio);
 
-        assertEq(poolSqrtRatio(poolKey).toFixed(), targetSqrtRatio.toFixed());
+        assertEq(poolSqrtRatio(poolKey).toFixed(), minSqrtRatio.toFixed());
         assertGt(liquidity, 0);
         assertGt(amount0, 0);
         assertGt(amount1, 0);
@@ -96,39 +97,79 @@ contract PositionsTest is FullTest {
         assertLe(balance1Before - token1.balanceOf(address(this)), 1e18);
     }
 
-    function test_deposit_returnsUnusedSwapOutputToCaller() public {
+    function test_deposit_sendsUnusedSwapOutputToRecipient() public {
         PoolKey memory poolKey = createPool(0, 0, 100, address(0));
         createPosition(poolKey, -1000, 1000, 1e18, 1e18);
 
         token0.approve(address(positions), 1e18);
-        SqrtRatio targetSqrtRatio = tickToSqrtRatio(-100);
+        SqrtRatio minSqrtRatio = tickToSqrtRatio(-200);
+        SqrtRatio maxSqrtRatio = tickToSqrtRatio(-100);
         uint256 balance0Before = token0.balanceOf(address(this));
         uint256 balance1Before = token1.balanceOf(address(this));
+        address swapRecipient = makeAddr("swapRecipient");
 
-        (, uint128 liquidity,, uint128 amount1) = positions.mintAndDeposit(poolKey, 0, 100, 1e18, 0, targetSqrtRatio);
+        (, uint128 liquidity,, uint128 amount1) =
+            positions.mintAndDeposit(poolKey, 0, 100, 1e18, 0, minSqrtRatio, maxSqrtRatio, swapRecipient);
 
-        assertEq(poolSqrtRatio(poolKey).toFixed(), targetSqrtRatio.toFixed());
+        assertEq(poolSqrtRatio(poolKey).toFixed(), maxSqrtRatio.toFixed());
         assertGt(liquidity, 0);
         assertEq(amount1, 0);
         assertLe(balance0Before - token0.balanceOf(address(this)), 1e18);
+        assertEq(token1.balanceOf(address(this)), balance1Before);
+        assertGt(token1.balanceOf(swapRecipient), 0);
+    }
+
+    function test_deposit_defaultsSwapRecipientToCaller() public {
+        PoolKey memory poolKey = createPool(0, 0, 100, address(0));
+        createPosition(poolKey, -1000, 1000, 1e18, 1e18);
+
+        token0.approve(address(positions), 1e18);
+        uint256 balance1Before = token1.balanceOf(address(this));
+        positions.mintAndDeposit(poolKey, 0, 100, 1e18, 0, tickToSqrtRatio(-200), tickToSqrtRatio(-100));
+
         assertGt(token1.balanceOf(address(this)), balance1Before);
     }
 
-    function test_deposit_revertsWhenMaxAmountCannotReachTargetPrice() public {
+    function test_deposit_doesNotSwapWhenPriceIsWithinRange() public {
+        PoolKey memory poolKey = createPool(0, 0, 100, address(0));
+        SqrtRatio sqrtRatioBefore = poolSqrtRatio(poolKey);
+
+        token0.approve(address(positions), 1e18);
+        token1.approve(address(positions), 1e18);
+        (, uint128 liquidity,,) =
+            positions.mintAndDeposit(poolKey, -1000, 1000, 1e18, 1e18, tickToSqrtRatio(-100), tickToSqrtRatio(100));
+
+        assertEq(poolSqrtRatio(poolKey).toFixed(), sqrtRatioBefore.toFixed());
+        assertGt(liquidity, 0);
+    }
+
+    function test_deposit_allowsZeroLiquidityNoop() public {
+        PoolKey memory poolKey = createPool(0, 0, 100, address(0));
+        uint256 id = positions.mint();
+
+        (uint128 liquidity, uint128 amount0, uint128 amount1) =
+            positions.deposit(id, poolKey, -1000, 1000, 0, 0, tickToSqrtRatio(-100), tickToSqrtRatio(100));
+
+        assertEq(liquidity, 0);
+        assertEq(amount0, 0);
+        assertEq(amount1, 0);
+    }
+
+    function test_deposit_revertsWhenMaxAmountCannotReachPriceRange() public {
         PoolKey memory poolKey = createPool(0, 0, 100, address(0));
         createPosition(poolKey, -1000, 1000, 1e18, 1e18);
 
         uint256 id = positions.mint();
         token1.approve(address(positions), 1);
-        SqrtRatio targetSqrtRatio = tickToSqrtRatio(100);
+        SqrtRatio minSqrtRatio = tickToSqrtRatio(100);
         SqrtRatio currentSqrtRatio = poolSqrtRatio(poolKey);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IPositions.DepositFailedToReachTargetPrice.selector, targetSqrtRatio, currentSqrtRatio
+                IPositions.DepositFailedToReachPriceRange.selector, minSqrtRatio, minSqrtRatio, currentSqrtRatio
             )
         );
-        positions.deposit(id, poolKey, -1000, 1000, 0, 1, targetSqrtRatio);
+        positions.deposit(id, poolKey, -1000, 1000, 0, 1, minSqrtRatio, minSqrtRatio);
     }
 
     function test_mintAndDeposit_shared_tick_boundary(CallPoints memory callPoints) public {
@@ -137,8 +178,9 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        (, uint128 liquidityA,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey));
-        (, uint128 liquidityB,,) = positions.mintAndDeposit(poolKey, -300, -100, 100, 100, poolSqrtRatio(poolKey));
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
+        (, uint128 liquidityA,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, sqrtRatio, sqrtRatio);
+        (, uint128 liquidityB,,) = positions.mintAndDeposit(poolKey, -300, -100, 100, 100, sqrtRatio, sqrtRatio);
 
         (int128 liquidityDelta, uint128 liquidityNet) = core.poolTicks(poolKey.toPoolId(), -300);
         assertEq(liquidityDelta, int128(liquidityB));
@@ -360,8 +402,9 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) =
-            positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey));
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(
+            poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey)
+        );
         vm.snapshotGasLastCall("mintAndDeposit full range max");
         assertGt(liquidity, 0);
 
@@ -390,8 +433,9 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) =
-            positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey));
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(
+            poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey)
+        );
         vm.snapshotGasLastCall("mintAndDeposit full range min");
         assertGt(liquidity, 0);
 
@@ -420,7 +464,9 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        (uint256 id,,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey));
+        (uint256 id,,,) = positions.mintAndDeposit(
+            poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey)
+        );
         (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 0);
         assertEq(f1, 0);
@@ -446,7 +492,9 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        (uint256 id,,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey));
+        (uint256 id,,,) = positions.mintAndDeposit(
+            poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey)
+        );
         (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 0);
         assertEq(f1, 0);
@@ -514,7 +562,7 @@ contract PositionsTest is FullTest {
 
         coolAllContracts();
         (uint256 id, uint128 liquidity,,) =
-            positions.mintAndDeposit(poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey));
+            positions.mintAndDeposit(poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey));
         vm.snapshotGasLastCall("mintAndDeposit");
 
         coolAllContracts();
@@ -528,8 +576,9 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) =
-            positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey));
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(
+            poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey)
+        );
         vm.snapshotGasLastCall("mintAndDeposit eth");
 
         coolAllContracts();
@@ -544,8 +593,9 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) =
-            positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey));
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(
+            poolKey, -100, 100, 100, 100, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey)
+        );
         vm.snapshotGasLastCall("mintAndDeposit eth (free)");
 
         coolAllContracts();
@@ -567,8 +617,9 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) =
-            positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey));
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(
+            poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey)
+        );
         vm.snapshotGasLastCall("mintAndDeposit full range both tokens");
 
         coolAllContracts();
@@ -598,7 +649,7 @@ contract PositionsTest is FullTest {
 
         // Test 1: Mint and deposit should work regardless of protocol fee parameters
         (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) =
-            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, poolSqrtRatio(poolKey));
+            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey));
 
         assertGt(id, 0, "Position ID should be greater than 0");
         assertGt(liquidity, 0, "Liquidity should be greater than 0");
@@ -673,7 +724,7 @@ contract PositionsTest is FullTest {
 
         // Test 1: Mint and deposit should work regardless of protocol fee parameters
         (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) =
-            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, poolSqrtRatio(poolKey));
+            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, poolSqrtRatio(poolKey), poolSqrtRatio(poolKey));
 
         assertGt(id, 0, "Position ID should be greater than 0");
         assertGt(liquidity, 0, "Liquidity should be greater than 0");

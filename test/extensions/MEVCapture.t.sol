@@ -52,7 +52,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertTrue(core.isExtensionRegistered(address(mevCapture)));
     }
 
-    function test_positionsDepositSwapsThroughForwardToTargetPrice() public {
+    function test_positionsDepositSwapsThroughForwardIntoPriceRange() public {
         PoolKey memory poolKey = createMEVCapturePool({fee: 1 << 32, tickSpacing: 100, tick: 0});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
@@ -60,10 +60,10 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        SqrtRatio targetSqrtRatio = tickToSqrtRatio(100);
-        (, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -1000, 1000, 1e18, 1e18, targetSqrtRatio);
+        SqrtRatio minSqrtRatio = tickToSqrtRatio(100);
+        (, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -1000, 1000, 1e18, 1e18, minSqrtRatio, minSqrtRatio);
 
-        assertEq(core.poolState(poolKey.toPoolId()).sqrtRatio().toFixed(), targetSqrtRatio.toFixed());
+        assertEq(core.poolState(poolKey.toPoolId()).sqrtRatio().toFixed(), minSqrtRatio.toFixed());
         assertGt(liquidity, 0);
     }
 

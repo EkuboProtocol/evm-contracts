@@ -494,6 +494,7 @@ contract OrdersTest is BaseOrdersTest {
             MAX_TICK,
             9065869775701580912051,
             16591196256327018126941976177968210,
+            poolSqrtRatio(poolKey),
             poolSqrtRatio(poolKey)
         );
 
@@ -501,7 +502,14 @@ contract OrdersTest is BaseOrdersTest {
 
         twamm.lockAndExecuteVirtualOrders(poolKey);
         (uint128 liquidity1,,) = positions.deposit(
-            pID, poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396, poolSqrtRatio(poolKey)
+            pID,
+            poolKey,
+            MIN_TICK,
+            MAX_TICK,
+            229636410600502050710229286961,
+            502804080817310396,
+            poolSqrtRatio(poolKey),
+            poolSqrtRatio(poolKey)
         );
         (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
@@ -548,6 +556,7 @@ contract OrdersTest is BaseOrdersTest {
             MAX_TICK,
             1412971749302168760052394,
             35831434466998775335139276644539,
+            poolSqrtRatio(poolKey),
             poolSqrtRatio(poolKey)
         );
 

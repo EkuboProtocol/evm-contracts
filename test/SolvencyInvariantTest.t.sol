@@ -143,7 +143,14 @@ contract Handler is StdUtils, StdAssertions {
         }
 
         try positions.deposit(
-            positionId, poolKey, tickLower, tickUpper, amount0, amount1, core.poolState(poolKey.toPoolId()).sqrtRatio()
+            positionId,
+            poolKey,
+            tickLower,
+            tickUpper,
+            amount0,
+            amount1,
+            core.poolState(poolKey.toPoolId()).sqrtRatio(),
+            core.poolState(poolKey.toPoolId()).sqrtRatio()
         ) returns (
             uint128 liquidity, uint128 result0, uint128 result1
         ) {

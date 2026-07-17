@@ -1482,12 +1482,29 @@ contract Ve33Test is FullTest {
         uint256 token1BalanceBefore = token1.balanceOf(recipient);
         uint256 rewardBalanceBefore = stakeToken.balanceOf(recipient);
 
+        vm.recordLogs();
         (uint128 amount0, uint128 amount1, uint256 rewardAmount) =
             vePositions.withdrawAndClaimRewards(id, poolKey, tickLower, tickUpper, liquidity, recipient);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[3] memory expectedTransferOrder = [poolKey.token0, poolKey.token1, address(stakeToken)];
+        uint256 recipientTransferCount;
+        bytes32 transferEventSignature = keccak256("Transfer(address,address,uint256)");
+        for (uint256 i = 0; i < logs.length; i++) {
+            Vm.Log memory log = logs[i];
+            if (
+                log.topics.length == 3 && log.topics[0] == transferEventSignature
+                    && address(uint160(uint256(log.topics[2]))) == recipient
+            ) {
+                assertEq(log.emitter, expectedTransferOrder[recipientTransferCount]);
+                recipientTransferCount++;
+            }
+        }
 
         assertGt(amount0, 0);
         assertGt(amount1, 0);
         assertEq(rewardAmount, claimableRewardAmount);
+        assertEq(recipientTransferCount, expectedTransferOrder.length);
         assertEq(token0.balanceOf(recipient), token0BalanceBefore + amount0);
         assertEq(token1.balanceOf(recipient), token1BalanceBefore + amount1);
         assertEq(stakeToken.balanceOf(recipient), rewardBalanceBefore + rewardAmount);

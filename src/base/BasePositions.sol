@@ -23,7 +23,7 @@ import {SwapParameters} from "../types/swapParameters.sol";
 /// @author Moody Salem <moody@ekubo.org>
 /// @notice Abstract base contract for tracking liquidity positions in Ekubo Protocol as NFTs
 /// @dev Provides core position management functionality with abstract protocol fee collection methods
-abstract contract BasePositions is IPositions, BasePositionDepositor {
+abstract contract BasePositions is BasePositionDepositor, IPositions {
     using CoreLib for *;
     using FlashAccountantLib for *;
 
@@ -62,139 +62,6 @@ abstract contract BasePositions is IPositions, BasePositionDepositor {
             ? CORE.getPoolFeesPerLiquidity(poolId)
             : CORE.getPoolFeesPerLiquidityInside(poolId, tickLower, tickUpper);
         (fees0, fees1) = position.fees(feesPerLiquidityInside);
-    }
-
-    /// @inheritdoc IPositions
-    function deposit(
-        uint256 id,
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio minSqrtRatio,
-        SqrtRatio maxSqrtRatio
-    )
-        public
-        payable
-        override(IPositions, BasePositionDepositor)
-        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        return super.deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio);
-    }
-
-    /// @inheritdoc IPositions
-    function deposit(
-        uint256 id,
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio minSqrtRatio,
-        SqrtRatio maxSqrtRatio,
-        address swapRecipient
-    )
-        public
-        payable
-        override(IPositions, BasePositionDepositor)
-        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        return super.deposit(
-            id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
-        );
-    }
-
-    /// @inheritdoc IPositions
-    function maybeInitializePool(PoolKey memory poolKey, int32 tick)
-        public
-        payable
-        override(IPositions, BasePositionDepositor)
-        returns (bool initialized, SqrtRatio sqrtRatio)
-    {
-        return super.maybeInitializePool(poolKey, tick);
-    }
-
-    /// @inheritdoc IPositions
-    function mintAndDeposit(
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio minSqrtRatio,
-        SqrtRatio maxSqrtRatio
-    )
-        public
-        payable
-        override(IPositions, BasePositionDepositor)
-        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        return super.mintAndDeposit(poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio);
-    }
-
-    /// @inheritdoc IPositions
-    function mintAndDeposit(
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio minSqrtRatio,
-        SqrtRatio maxSqrtRatio,
-        address swapRecipient
-    )
-        public
-        payable
-        override(IPositions, BasePositionDepositor)
-        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        return super.mintAndDeposit(
-            poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
-        );
-    }
-
-    /// @inheritdoc IPositions
-    function mintAndDepositWithSalt(
-        bytes32 salt,
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio minSqrtRatio,
-        SqrtRatio maxSqrtRatio
-    )
-        public
-        payable
-        override(IPositions, BasePositionDepositor)
-        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        return super.mintAndDepositWithSalt(
-            salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio
-        );
-    }
-
-    /// @inheritdoc IPositions
-    function mintAndDepositWithSalt(
-        bytes32 salt,
-        PoolKey memory poolKey,
-        int32 tickLower,
-        int32 tickUpper,
-        uint128 maxAmount0,
-        uint128 maxAmount1,
-        SqrtRatio minSqrtRatio,
-        SqrtRatio maxSqrtRatio,
-        address swapRecipient
-    )
-        public
-        payable
-        override(IPositions, BasePositionDepositor)
-        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        return super.mintAndDepositWithSalt(
-            salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
-        );
     }
 
     /// @inheritdoc IPositions

@@ -6,7 +6,9 @@ import {BaseNonfungibleToken} from "./BaseNonfungibleToken.sol";
 import {PayableMulticallable} from "./PayableMulticallable.sol";
 import {UsesCore} from "./UsesCore.sol";
 import {ICore} from "../interfaces/ICore.sol";
+import {IPositionDepositor} from "../interfaces/IPositionDepositor.sol";
 import {IPositions} from "../interfaces/IPositions.sol";
+import {IBaseNonfungibleToken} from "../interfaces/IBaseNonfungibleToken.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {maxLiquidity} from "../math/liquidity.sol";
@@ -21,7 +23,13 @@ import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol"
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @notice Shared NFT deposit flow for regular and extension-specific position managers.
-abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
+abstract contract BasePositionDepositor is
+    IPositionDepositor,
+    UsesCore,
+    PayableMulticallable,
+    BaseLocker,
+    BaseNonfungibleToken
+{
     using CoreLib for *;
     using FlashAccountantLib for *;
 
@@ -31,7 +39,13 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
 
     /// @inheritdoc BaseNonfungibleToken
     /// @dev Restricts generated token ids to 192 bits so the complete id is used as the Core position salt.
-    function saltToId(address minter, bytes32 salt) public view virtual override returns (uint256 id) {
+    function saltToId(address minter, bytes32 salt)
+        public
+        view
+        virtual
+        override(BaseNonfungibleToken, IBaseNonfungibleToken)
+        returns (uint256 id)
+    {
         id = uint192(super.saltToId(minter, salt));
     }
 
@@ -56,10 +70,9 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         uint128 maxAmount1,
         SqrtRatio minSqrtRatio,
         SqrtRatio maxSqrtRatio
-    ) public payable virtual returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        return deposit(
-            id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, msg.sender
-        );
+    ) public payable virtual override returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
+        return
+            deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, msg.sender);
     }
 
     /// @notice Deposits tokens into a liquidity position and sends unused swap output to `swapRecipient`.
@@ -73,7 +86,14 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         SqrtRatio minSqrtRatio,
         SqrtRatio maxSqrtRatio,
         address swapRecipient
-    ) public payable virtual authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
+    )
+        public
+        payable
+        virtual
+        override
+        authorizedForNft(id)
+        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
+    {
         (liquidity, amount0, amount1) = abi.decode(
             lock(
                 abi.encode(
@@ -99,6 +119,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         public
         payable
         virtual
+        override
         returns (bool initialized, SqrtRatio sqrtRatio)
     {
         _validatePool(poolKey);
@@ -118,7 +139,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         uint128 maxAmount1,
         SqrtRatio minSqrtRatio,
         SqrtRatio maxSqrtRatio
-    ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+    ) public payable virtual override returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         return
             mintAndDeposit(
                 poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, msg.sender
@@ -135,7 +156,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         SqrtRatio minSqrtRatio,
         SqrtRatio maxSqrtRatio,
         address swapRecipient
-    ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+    ) public payable virtual override returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint();
         (liquidity, amount0, amount1) = deposit(
             id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
@@ -152,7 +173,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         uint128 maxAmount1,
         SqrtRatio minSqrtRatio,
         SqrtRatio maxSqrtRatio
-    ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+    ) public payable virtual override returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         return mintAndDepositWithSalt(
             salt, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, msg.sender
         );
@@ -169,7 +190,7 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         SqrtRatio minSqrtRatio,
         SqrtRatio maxSqrtRatio,
         address swapRecipient
-    ) public payable virtual returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+    ) public payable virtual override returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint(salt);
         (liquidity, amount0, amount1) = deposit(
             id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minSqrtRatio, maxSqrtRatio, swapRecipient
@@ -230,13 +251,12 @@ abstract contract BasePositionDepositor is UsesCore, PayableMulticallable, BaseL
         _validateDepositLiquidity(poolKey, positionId, liquidity);
         PoolBalanceUpdate depositBalanceUpdate = CORE.updatePosition(poolKey, positionId, int128(liquidity));
 
-        if (CORE.poolState(poolKey.toPoolId()).sqrtRatio() != depositSqrtRatio) {
-            revert IPositions.DepositFailedDueToPriceMovement();
-        }
-
         int256 balanceDelta0 = int256(swapBalanceUpdate.delta0()) + int256(depositBalanceUpdate.delta0());
         int256 balanceDelta1 = int256(swapBalanceUpdate.delta1()) + int256(depositBalanceUpdate.delta1());
-        if (balanceDelta0 > int256(uint256(maxAmount0)) || balanceDelta1 > int256(uint256(maxAmount1))) {
+        if (
+            CORE.poolState(poolKey.toPoolId()).sqrtRatio() != depositSqrtRatio
+                || balanceDelta0 > int256(uint256(maxAmount0)) || balanceDelta1 > int256(uint256(maxAmount1))
+        ) {
             revert IPositions.DepositFailedDueToPriceMovement();
         }
 

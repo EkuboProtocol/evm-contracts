@@ -15,6 +15,13 @@ import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
+struct Ve33Deployment {
+    address stakeToken;
+    Ve33 ve33;
+    VeToken veToken;
+    Ve33Positions positions;
+}
+
 /// @title DeployVe33
 /// @notice Deploys the Ve33 extension, VeToken ERC721 wrapper, Ve33Positions, Ve33Periphery, and Ve33DataFetcher.
 contract DeployVe33 is Script {
@@ -36,7 +43,7 @@ contract DeployVe33 is Script {
 
     function _deployVe33(ICore core, address deployer, bytes32 salt)
         internal
-        returns (MintableERC20 stakeToken, Ve33 ve33, Ve33Positions positions)
+        returns (Ve33Deployment memory deployment)
     {
         address stakeTokenAddress;
         string memory stakeTokenName;
@@ -44,7 +51,7 @@ contract DeployVe33 is Script {
         uint8 stakeTokenDecimals;
 
         (stakeTokenAddress, stakeTokenName, stakeTokenSymbol, stakeTokenDecimals) = _stakeToken(deployer, salt);
-        stakeToken = MintableERC20(stakeTokenAddress);
+        deployment.stakeToken = stakeTokenAddress;
 
         (address ve33Address,) = deployExtension(
             abi.encodePacked(type(Ve33).creationCode, abi.encode(core, stakeTokenAddress)),
@@ -54,11 +61,13 @@ contract DeployVe33 is Script {
             "Ve33"
         );
 
-        ve33 = Ve33(payable(ve33Address));
+        deployment.ve33 = Ve33(payable(ve33Address));
 
-        _deployVeToken(core, ve33, stakeTokenAddress, stakeTokenName, stakeTokenSymbol, stakeTokenDecimals, salt);
-        positions = _deployPositions(core, ve33, deployer, salt);
-        _deployVe33Support(core, ve33, salt);
+        deployment.veToken = _deployVeToken(
+            core, deployment.ve33, stakeTokenAddress, stakeTokenName, stakeTokenSymbol, stakeTokenDecimals, salt
+        );
+        deployment.positions = _deployPositions(core, deployment.ve33, deployer, salt);
+        _deployVe33Support(core, deployment.ve33, salt);
     }
 
     function _deployVeToken(
@@ -69,7 +78,7 @@ contract DeployVe33 is Script {
         string memory stakeTokenSymbol,
         uint8 stakeTokenDecimals,
         bytes32 salt
-    ) internal {
+    ) internal returns (VeToken veToken) {
         (address veTokenMetadata,) = deployIfNeeded(
             abi.encodePacked(
                 type(VeTokenMetadata).creationCode,
@@ -80,10 +89,10 @@ contract DeployVe33 is Script {
             "VeTokenMetadata"
         );
 
-        string memory veTokenName = _envStringOr("VE_TOKEN_NAME", string.concat("Vote-Escrow ", stakeTokenName));
-        string memory veTokenSymbol = _envStringOr("VE_TOKEN_SYMBOL", string.concat("ve", stakeTokenSymbol));
+        string memory veTokenName = _envStringOr("VE_TOKEN_NAME", _defaultVeTokenName(stakeTokenName));
+        string memory veTokenSymbol = _envStringOr("VE_TOKEN_SYMBOL", _defaultVeTokenSymbol(stakeTokenSymbol));
 
-        deployIfNeeded(
+        (address veTokenAddress,) = deployIfNeeded(
             abi.encodePacked(
                 type(VeToken).creationCode,
                 abi.encode(core, ve33, VeTokenMetadata(veTokenMetadata), veTokenName, veTokenSymbol)
@@ -92,6 +101,7 @@ contract DeployVe33 is Script {
             address(0),
             "VeToken"
         );
+        veToken = VeToken(payable(veTokenAddress));
     }
 
     function _deployPositions(ICore core, Ve33 ve33, address deployer, bytes32 salt)
@@ -166,6 +176,14 @@ contract DeployVe33 is Script {
 
     function _defaultPositionsSymbol() internal pure virtual returns (string memory) {
         return "ekuVe33Po";
+    }
+
+    function _defaultVeTokenName(string memory stakeTokenName) internal pure virtual returns (string memory) {
+        return string.concat("Vote-Escrow ", stakeTokenName);
+    }
+
+    function _defaultVeTokenSymbol(string memory stakeTokenSymbol) internal pure virtual returns (string memory) {
+        return string.concat("ve", stakeTokenSymbol);
     }
 
     function _stakeTokenName(address stakeToken) internal returns (string memory) {

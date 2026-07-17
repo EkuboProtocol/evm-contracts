@@ -3,13 +3,15 @@ pragma solidity =0.8.33;
 
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {DeployVe33} from "./DeployVe33.s.sol";
+import {DeployVe33, Ve33Deployment} from "./DeployVe33.s.sol";
 import {deployIfNeeded} from "./DeployAll.s.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {Ve33} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {Ve33EmissionRateScheduler} from "../src/Ve33EmissionRateScheduler.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
+import {VeToken} from "../src/VeToken.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {sqrtRatioToTick} from "../src/math/ticks.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
@@ -18,6 +20,8 @@ import {toSqrtRatio} from "../src/types/sqrtRatio.sol";
 /// @title DeploySTONX
 /// @notice Deploys and configures the STONX Ve33 system on RHC or RHC testnet.
 contract DeploySTONX is DeployVe33 {
+    using CoreLib for *;
+
     uint256 internal constant RHC_CHAIN_ID = 4663;
     uint256 internal constant RHC_TESTNET_CHAIN_ID = 46630;
 
@@ -31,10 +35,13 @@ contract DeploySTONX is DeployVe33 {
     // Outermost usable ticks within Core's global bounds for this tick spacing.
     int32 internal constant POSITION_TICK_LOWER = -88_722_432;
     int32 internal constant POSITION_TICK_UPPER = 88_722_432;
+    uint64 internal constant SWAP_FEE = uint64((uint256(type(uint64).max) * 30) / 10_000);
     uint32 internal constant EMISSION_SCHEDULE_DURATION = 3 days;
     uint160 internal constant EMISSION_RATE = uint160(uint256(333_333e15) * (1 << 32) / 1 days);
 
     error InvalidChainId(uint256 chainId);
+    error PoolHasNoLiquidity();
+    error NoEmissionsScheduled();
     error USDGNotFullySpent(uint128 spent);
 
     function run() public override {
@@ -50,30 +57,36 @@ contract DeploySTONX is DeployVe33 {
 
         vm.startBroadcast();
 
-        (MintableERC20 stonx, Ve33 ve33, Ve33Positions positions) = _deployVe33(core, deployer, salt);
+        Ve33Deployment memory deployment = _deployVe33(core, deployer, salt);
+        MintableERC20 stonx = MintableERC20(deployment.stakeToken);
 
         stonx.mint(deployer, DEPLOYER_TOKEN_AMOUNT);
         stonx.mint(deployer, LIQUIDITY_TOKEN_AMOUNT);
 
-        uint256 positionId = _seedLiquidity(stonx, ve33, positions, usdg, deployer, governance);
-        address schedulerAddress = _deployScheduler(stonx, ve33, core, salt, deployer, governance);
+        PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(deployment.ve33));
+        uint256 positionId = _seedLiquidity(stonx, deployment.positions, poolKey, usdg, deployer, governance);
+        uint256 veId = _stakeAndVote(stonx, deployment.veToken, core, poolKey);
+        deployment.positions.transferOwnership(governance);
+        (address schedulerAddress, uint128 scheduledAmount) =
+            _deployScheduler(stonx, deployment.ve33, core, salt, deployer, governance);
 
         console2.log("STONX", address(stonx));
         console2.log("STONX/USDG Ve33 position", positionId);
+        console2.log("STONX VeToken stake", veId);
         console2.log("Ve33EmissionRateScheduler", schedulerAddress);
+        console2.log("Initial scheduled emissions", scheduledAmount);
 
         vm.stopBroadcast();
     }
 
     function _seedLiquidity(
         MintableERC20 stonx,
-        Ve33 ve33,
         Ve33Positions positions,
+        PoolKey memory poolKey,
         address usdg,
         address deployer,
         address governance
     ) internal returns (uint256 positionId) {
-        PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(ve33));
         int32 poolInitialTick = this.initialTick(address(stonx), usdg);
         positions.maybeInitializePool(poolKey, poolInitialTick);
 
@@ -96,6 +109,17 @@ contract DeploySTONX is DeployVe33 {
         positions.transferFrom(deployer, governance, positionId);
     }
 
+    function _stakeAndVote(MintableERC20 stonx, VeToken veToken, ICore core, PoolKey memory poolKey)
+        internal
+        returns (uint256 veId)
+    {
+        if (core.poolState(poolKey.toPoolId()).liquidity() == 0) revert PoolHasNoLiquidity();
+
+        stonx.approve(address(veToken), DEPLOYER_TOKEN_AMOUNT);
+        veId = veToken.stakeMaxDuration(DEPLOYER_TOKEN_AMOUNT);
+        veToken.vote(veId, poolKey, SWAP_FEE);
+    }
+
     function _deployScheduler(
         MintableERC20 stonx,
         Ve33 ve33,
@@ -103,7 +127,7 @@ contract DeploySTONX is DeployVe33 {
         bytes32 salt,
         address deployer,
         address governance
-    ) internal returns (address schedulerAddress) {
+    ) internal returns (address schedulerAddress, uint128 scheduledAmount) {
         (schedulerAddress,) = deployIfNeeded(
             abi.encodePacked(type(Ve33EmissionRateScheduler).creationCode, abi.encode(deployer, core, ve33)),
             salt,
@@ -111,9 +135,18 @@ contract DeploySTONX is DeployVe33 {
             "Ve33EmissionRateScheduler"
         );
         Ve33EmissionRateScheduler scheduler = Ve33EmissionRateScheduler(payable(schedulerAddress));
+        scheduledAmount = _configureAndStartScheduler(stonx, scheduler, governance);
+    }
+
+    function _configureAndStartScheduler(MintableERC20 stonx, Ve33EmissionRateScheduler scheduler, address governance)
+        internal
+        returns (uint128 scheduledAmount)
+    {
         scheduler.setConfig(EMISSION_RATE, EMISSION_SCHEDULE_DURATION);
         scheduler.transferOwnership(governance);
-        stonx.transferOwnership(schedulerAddress);
+        stonx.transferOwnership(address(scheduler));
+        scheduledAmount = scheduler.mintAndSchedule();
+        if (scheduledAmount == 0) revert NoEmissionsScheduled();
     }
 
     function _stakeToken(address owner, bytes32 salt)
@@ -138,6 +171,10 @@ contract DeploySTONX is DeployVe33 {
 
     function _defaultPositionsSymbol() internal pure override returns (string memory) {
         return "stonxPO";
+    }
+
+    function _defaultVeTokenName(string memory) internal pure override returns (string memory) {
+        return "Vote-Escrow STONX";
     }
 
     function _stonxPoolKey(address stonx, address usdg, address ve33) internal pure returns (PoolKey memory poolKey) {

@@ -2,11 +2,10 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "./FullTest.sol";
-import {DeploySTONX} from "../script/DeploySTONX.s.sol";
+import {STONXDeployment} from "../script/DeploySTONX.s.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {BaseNonfungibleToken} from "../src/base/BaseNonfungibleToken.sol";
-import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
-import {ICore} from "../src/interfaces/ICore.sol";
+import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
 import {Ve33DataFetcher} from "../src/lens/Ve33DataFetcher.sol";
@@ -19,31 +18,6 @@ import {PoolId} from "../src/types/poolId.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 import {VePoolSwapFeeState} from "../src/types/vePoolSwapFeeState.sol";
-
-contract DeploySTONXHarness is DeploySTONX {
-    function setPositionsMetadata(Ve33Positions positions) external {
-        positions.setMetadata("Ekubo STONX Positions", "stonxPO", "https://prod-api.ekubo.org/positions/");
-    }
-
-    function initialize(
-        MintableERC20 stonx,
-        Ve33 ve33,
-        VeToken veToken,
-        Ve33Positions positions,
-        Ve33Periphery periphery,
-        Ve33EmissionRateScheduler scheduler,
-        ICore core,
-        address usdg,
-        address governance
-    ) external returns (PoolKey memory poolKey, uint256 positionId, uint256 veId, uint128 scheduledAmount) {
-        poolKey = _stonxPoolKey(address(stonx), usdg, address(ve33));
-        positionId = _seedLiquidity(stonx, positions, poolKey, usdg, address(this), governance, bytes32(0));
-        veId = _stakeAndVote(stonx, veToken, core, poolKey, bytes32(0));
-        positions.transferOwnership(governance);
-        scheduledAmount = _scheduleInitialEmissions(stonx, periphery, address(this));
-        _configureScheduler(stonx, scheduler, governance);
-    }
-}
 
 contract DeploySTONXTest is FullTest {
     using CoreLib for *;
@@ -60,7 +34,7 @@ contract DeploySTONXTest is FullTest {
     uint160 private constant SCHEDULER_EMISSION_RATE =
         uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
 
-    DeploySTONXHarness private deployer;
+    STONXDeployment private deployment;
     MintableERC20 private stonx;
     Ve33 private ve33;
     VeTokenMetadata private metadata;
@@ -72,24 +46,6 @@ contract DeploySTONXTest is FullTest {
 
     function setUp() public override {
         super.setUp();
-
-        deployer = new DeploySTONXHarness();
-        stonx = new MintableERC20(address(this), "Ekubo Stock Liquidity Token", "STONX");
-        address ve33Address = address(uint160(ve33CallPoints().toUint8()) << 152);
-        deployCodeTo("Ve33.sol:Ve33", abi.encode(core, stonx), ve33Address);
-        ve33 = Ve33(payable(ve33Address));
-
-        metadata = new VeTokenMetadata("Ekubo Stock Liquidity Token", "STONX", 18, address(stonx));
-        veToken = new VeToken(core, ve33, metadata, "Vote-Escrow STONX", "veSTONX");
-        ve33Positions = new Ve33Positions(core, ve33, address(deployer));
-        deployer.setPositionsMetadata(ve33Positions);
-        periphery = new Ve33Periphery(core, ve33);
-        dataFetcher = new Ve33DataFetcher(ve33);
-        scheduler = new Ve33EmissionRateScheduler(address(deployer), core, ve33);
-
-        stonx.mint(address(deployer), STONX_AMOUNT);
-        stonx.mint(address(deployer), STONX_AMOUNT);
-        stonx.transferOwnership(address(deployer));
     }
 
     function test_initializeWhenSTONXIsToken0() public {
@@ -103,15 +59,46 @@ contract DeploySTONXTest is FullTest {
     function _testInitialize(address usdgAddress) private {
         deployCodeTo("MintableERC20.sol:MintableERC20", abi.encode(address(this), "USDG", "USDG"), usdgAddress);
         MintableERC20 usdg = MintableERC20(usdgAddress);
-        usdg.mint(address(deployer), USDG_AMOUNT);
+        usdg.mint(address(this), USDG_AMOUNT);
 
-        uint256 positionId;
-        uint256 veId;
-        uint128 scheduledAmount;
-        PoolKey memory poolKey;
-        (poolKey, positionId, veId, scheduledAmount) =
-            deployer.initialize(stonx, ve33, veToken, ve33Positions, periphery, scheduler, core, usdgAddress, owner);
+        deployment = new STONXDeployment(core, usdgAddress, address(this), owner, bytes32(0), bytes32(0));
+        stonx = deployment.deployStakeToken(
+            abi.encodePacked(
+                type(MintableERC20).creationCode,
+                abi.encode(address(deployment), "Ekubo Stock Liquidity Token", "STONX")
+            )
+        );
+        ve33 = deployment.deployVe33(abi.encodePacked(type(Ve33).creationCode, abi.encode(core, stonx)));
+        metadata = deployment.deployVeTokenMetadata(
+            abi.encodePacked(
+                type(VeTokenMetadata).creationCode,
+                abi.encode("Ekubo Stock Liquidity Token", "STONX", uint8(18), address(stonx))
+            )
+        );
+        veToken = deployment.deployVeToken(
+            abi.encodePacked(
+                type(VeToken).creationCode, abi.encode(core, ve33, metadata, "Vote-Escrow STONX", "veSTONX")
+            )
+        );
+        ve33Positions = deployment.deployPositions(
+            abi.encodePacked(type(Ve33Positions).creationCode, abi.encode(core, ve33, address(deployment)))
+        );
+        periphery =
+            deployment.deployPeriphery(abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)));
+        dataFetcher =
+            deployment.deployDataFetcher(abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(ve33)));
+        scheduler = deployment.deployScheduler(
+            abi.encodePacked(type(Ve33EmissionRateScheduler).creationCode, abi.encode(address(deployment), core, ve33))
+        );
+
+        usdg.approve(address(deployment), USDG_AMOUNT);
+        uint256 positionId = deployment.initializeLiquidity();
+        uint256 veId = deployment.initializeVe33Incentives();
+        uint128 scheduledAmount = deployment.initializeEmissions();
+        PoolKey memory poolKey = deployment.poolKey();
         PoolId poolId = poolKey.toPoolId();
+
+        _assertStoredDeployment(positionId, veId, scheduledAmount);
 
         _assertDeploymentOwnership(positionId, veId);
         _assertPositionAndPoolState(poolKey, poolId, positionId, usdg);
@@ -121,14 +108,37 @@ contract DeploySTONXTest is FullTest {
         _assertEmissionsReachPosition(poolKey, positionId);
     }
 
+    function _assertStoredDeployment(uint256 positionId, uint256 veId, uint128 scheduledAmount) private {
+        assertEq(address(deployment.stonx()), address(stonx));
+        assertEq(address(deployment.ve33()), address(ve33));
+        assertEq(address(deployment.metadata()), address(metadata));
+        assertEq(address(deployment.veToken()), address(veToken));
+        assertEq(address(deployment.positions()), address(ve33Positions));
+        assertEq(address(deployment.periphery()), address(periphery));
+        assertEq(address(deployment.dataFetcher()), address(dataFetcher));
+        assertEq(address(deployment.scheduler()), address(scheduler));
+        assertEq(deployment.positionId(), positionId);
+        assertEq(deployment.veId(), veId);
+        assertEq(deployment.scheduledAmount(), scheduledAmount);
+        assertTrue(deployment.liquidityInitialized());
+        assertTrue(deployment.incentivesInitialized());
+        assertTrue(deployment.emissionsInitialized());
+
+        assertEq(address(deployment.deployStakeToken(bytes(""))), address(stonx));
+        assertEq(address(deployment.deployVe33(bytes(""))), address(ve33));
+        assertEq(deployment.initializeLiquidity(), positionId);
+        assertEq(deployment.initializeVe33Incentives(), veId);
+        assertEq(deployment.initializeEmissions(), scheduledAmount);
+    }
+
     function _assertDeploymentOwnership(uint256 positionId, uint256 veId) private view {
-        assertEq(positionId, ve33Positions.saltToId(address(deployer), bytes32(0)));
-        assertEq(veId, veToken.saltToId(address(deployer), bytes32(0)));
+        assertEq(positionId, ve33Positions.saltToId(address(deployment), bytes32(0)));
+        assertEq(veId, veToken.saltToId(address(deployment), bytes32(0)));
         assertEq(stonx.owner(), address(scheduler));
         assertEq(scheduler.owner(), owner);
         assertEq(ve33Positions.owner(), owner);
         assertEq(ve33Positions.ownerOf(positionId), owner);
-        assertEq(veToken.ownerOf(veId), address(deployer));
+        assertEq(veToken.ownerOf(veId), address(this));
 
         assertEq(address(veToken.ve33()), address(ve33));
         assertEq(address(veToken.metadata()), address(metadata));
@@ -161,8 +171,8 @@ contract DeploySTONXTest is FullTest {
 
         assertGt(positionLiquidity, 0);
         assertGt(core.poolState(poolId).liquidity(), 0);
-        assertEq(usdg.balanceOf(address(deployer)), 0);
-        assertLe(stonx.balanceOf(address(deployer)), STONX_AMOUNT);
+        assertEq(usdg.balanceOf(address(deployment)), 0);
+        assertLe(stonx.balanceOf(address(deployment)), STONX_AMOUNT);
     }
 
     function _assertStakeAndVoteState(PoolId poolId, uint256 veId) private view {

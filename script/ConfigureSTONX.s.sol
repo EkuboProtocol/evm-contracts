@@ -3,7 +3,8 @@ pragma solidity =0.8.33;
 
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {DeployVe33, Ve33Deployment} from "./DeployVe33.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {deployIfNeeded} from "./DeployAll.s.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {Ve33} from "../src/extensions/Ve33.sol";
@@ -19,15 +20,25 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {toSqrtRatio} from "../src/types/sqrtRatio.sol";
 
-/// @title DeploySTONX
-/// @notice Deploys and configures the STONX Ve33 system on RHC or RHC testnet.
-contract DeploySTONX is DeployVe33 {
+struct StonxVe33System {
+    Ve33 ve33;
+    VeToken veToken;
+    Ve33Positions positions;
+    Ve33Periphery periphery;
+}
+
+/// @title ConfigureSTONX
+/// @notice Configures an already-deployed STONX Ve33 system.
+contract ConfigureSTONX is Script {
     using CoreLib for *;
 
-    uint256 internal constant RHC_CHAIN_ID = 4663;
-    uint256 internal constant RHC_TESTNET_CHAIN_ID = 46630;
+    uint256 internal constant Q128 = 1 << 128;
+    uint256 internal constant SQRT_TEN_X128 = 0x3298b075b4b6a5240945790619b37fd4a;
+    uint256 internal constant MAX_DECIMAL_DIFFERENCE = 38;
 
-    address internal constant DEFAULT_USDG_ADDRESS = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
+    address internal constant DEFAULT_CORE_ADDRESS = 0x00000000000014aA86C5d3c41765bb24e11bd701;
+    bytes32 internal constant DEFAULT_DEPLOYMENT_SALT =
+        0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
     address internal constant DEFAULT_GOVERNANCE_ADDRESS = 0xcd87828F4f279D3C5fD7af531370298964B5EAAb;
 
     uint128 internal constant LIQUIDITY_TOKEN_AMOUNT = 333_333e18;
@@ -45,39 +56,38 @@ contract DeploySTONX is DeployVe33 {
     uint160 internal constant SCHEDULER_EMISSION_RATE =
         uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
 
-    error InvalidChainId(uint256 chainId);
     error PoolHasNoLiquidity();
     error NoEmissionsScheduled();
     error UnexpectedScheduledEmissionAmount(uint128 expected, uint128 actual);
     error USDGNotFullySpent(uint128 spent);
+    error InvalidStonxOwner(address expected, address actual);
+    error UnsupportedDecimalDifference(uint256 difference);
 
-    function run() public override {
-        if (block.chainid != RHC_CHAIN_ID && block.chainid != RHC_TESTNET_CHAIN_ID) {
-            revert InvalidChainId(block.chainid);
-        }
-
+    function run() public {
         bytes32 salt = vm.envOr("SALT", DEFAULT_DEPLOYMENT_SALT);
         bytes32 nftSalt = vm.envOr("NFT_SALT", bytes32(0));
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         address deployer = vm.getWallets()[0];
-        address usdg = vm.envOr("USDG_ADDRESS", DEFAULT_USDG_ADDRESS);
+        Ve33 ve33 = Ve33(payable(vm.envAddress("VE33_ADDRESS")));
+        MintableERC20 stonx = MintableERC20(ve33.stakeToken());
+        address usdg = vm.envAddress("USDG_ADDRESS");
         address governance = vm.envOr("GOVERNANCE_ADDRESS", DEFAULT_GOVERNANCE_ADDRESS);
+        StonxVe33System memory system = _loadVe33System(ve33);
+
+        address stonxOwner = stonx.owner();
+        if (stonxOwner != deployer) revert InvalidStonxOwner(deployer, stonxOwner);
 
         vm.startBroadcast();
-
-        Ve33Deployment memory deployment = _deployVe33(core, deployer, salt);
-        MintableERC20 stonx = MintableERC20(deployment.stakeToken);
-        Ve33Periphery periphery = Ve33Periphery(payable(_ve33PeripheryAddress(core, deployment.ve33, salt)));
 
         stonx.mint(deployer, DEPLOYER_TOKEN_AMOUNT);
         stonx.mint(deployer, LIQUIDITY_TOKEN_AMOUNT);
 
-        PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(deployment.ve33));
-        uint256 positionId = _seedLiquidity(stonx, deployment.positions, poolKey, usdg, deployer, governance, nftSalt);
-        uint256 veId = _stakeAndVote(stonx, deployment.veToken, core, poolKey, nftSalt);
-        deployment.positions.transferOwnership(governance);
+        PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(system.ve33));
+        uint256 positionId = _seedLiquidity(stonx, system.positions, poolKey, usdg, deployer, governance, nftSalt);
+        uint256 veId = _stakeAndVote(stonx, system.veToken, core, poolKey, nftSalt);
+        system.positions.transferOwnership(governance);
         (address schedulerAddress, uint128 scheduledAmount) =
-            _deployScheduler(stonx, deployment.ve33, periphery, core, salt, deployer, governance);
+            _deployScheduler(stonx, system.ve33, system.periphery, core, salt, deployer, governance);
 
         console2.log("STONX", address(stonx));
         console2.log("STONX/USDG Ve33 position", positionId);
@@ -86,6 +96,13 @@ contract DeploySTONX is DeployVe33 {
         console2.log("Initial scheduled emissions", scheduledAmount);
 
         vm.stopBroadcast();
+    }
+
+    function _loadVe33System(Ve33 ve33) internal returns (StonxVe33System memory system) {
+        system.ve33 = ve33;
+        system.veToken = VeToken(payable(vm.envAddress("VE_TOKEN_ADDRESS")));
+        system.positions = Ve33Positions(payable(vm.envAddress("VE33_POSITIONS_ADDRESS")));
+        system.periphery = Ve33Periphery(payable(vm.envAddress("VE33_PERIPHERY_ADDRESS")));
     }
 
     function _seedLiquidity(
@@ -101,7 +118,10 @@ contract DeploySTONX is DeployVe33 {
         IERC20(usdg).approve(address(positions), LIQUIDITY_USDG_AMOUNT);
 
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(positions.maybeInitializePool, (poolKey, initialTick(address(stonx), usdg)));
+        calls[0] = abi.encodeCall(
+            positions.maybeInitializePool,
+            (poolKey, initialTick(address(stonx), stonx.decimals(), usdg, IERC20(usdg).decimals()))
+        );
         calls[1] = abi.encodeCall(
             positions.mintAndDepositWithSalt,
             (
@@ -185,44 +205,41 @@ contract DeploySTONX is DeployVe33 {
         scheduler.multicall(calls);
     }
 
-    function _stakeToken(address owner, bytes32 salt)
-        internal
-        override
-        returns (address stakeToken, string memory name, string memory symbol, uint8 decimals)
-    {
-        name = "Ekubo Stock Liquidity Token";
-        symbol = "STONX";
-        decimals = 18;
-        (stakeToken,) = deployIfNeeded(
-            abi.encodePacked(type(MintableERC20).creationCode, abi.encode(owner, name, symbol)),
-            salt,
-            address(0),
-            "STONX"
-        );
-    }
-
-    function _defaultPositionsName() internal pure override returns (string memory) {
-        return "Ekubo STONX Positions";
-    }
-
-    function _defaultPositionsSymbol() internal pure override returns (string memory) {
-        return "stonxPO";
-    }
-
-    function _defaultVeTokenName(string memory) internal pure override returns (string memory) {
-        return "Vote-Escrow STONX";
-    }
-
     function _stonxPoolKey(address stonx, address usdg, address ve33) internal pure returns (PoolKey memory poolKey) {
         (poolKey.token0, poolKey.token1) = stonx < usdg ? (stonx, usdg) : (usdg, stonx);
         poolKey.config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: TICK_SPACING, _extension: ve33});
     }
 
-    function initialTick(address stonx, address usdg) internal pure returns (int32 tick) {
-        uint256 sqrtRatioX128 = stonx < usdg ? (uint256(1) << 128) / 1e6 : (uint256(1) << 128) * 1e6;
+    function initialTick(address stonx, uint8 stonxDecimals, address usdg, uint8 usdgDecimals)
+        public
+        pure
+        returns (int32 tick)
+    {
+        bool stonxIsToken0 = stonx < usdg;
+        uint256 decimals0 = stonxIsToken0 ? stonxDecimals : usdgDecimals;
+        uint256 decimals1 = stonxIsToken0 ? usdgDecimals : stonxDecimals;
+        uint256 decimalDifference = decimals0 > decimals1 ? decimals0 - decimals1 : decimals1 - decimals0;
+        if (decimalDifference > MAX_DECIMAL_DIFFERENCE) {
+            revert UnsupportedDecimalDifference(decimalDifference);
+        }
+
+        uint256 sqrtRatioX128;
+        uint256 integerScale = 10 ** (decimalDifference / 2);
+        if (decimals1 >= decimals0) {
+            sqrtRatioX128 = Q128 * integerScale;
+            if (decimalDifference % 2 != 0) {
+                sqrtRatioX128 = FixedPointMathLib.fullMulDiv(sqrtRatioX128, SQRT_TEN_X128, Q128);
+            }
+        } else {
+            sqrtRatioX128 = Q128 / integerScale;
+            if (decimalDifference % 2 != 0) {
+                sqrtRatioX128 = FixedPointMathLib.fullMulDiv(sqrtRatioX128, Q128, SQRT_TEN_X128);
+            }
+        }
+
         tick = sqrtRatioToTick(toSqrtRatio(sqrtRatioX128, true));
 
         // Round toward the USDG-limiting side so the position spends the full configured USDG amount.
-        if (stonx < usdg) ++tick;
+        if (stonxIsToken0) ++tick;
     }
 }

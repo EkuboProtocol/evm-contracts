@@ -10,16 +10,31 @@ import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
 import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {Ve33DataFetcher} from "../src/lens/Ve33DataFetcher.sol";
-import {MintableERC20} from "../src/MintableERC20.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
-import {deployExtension, deployIfNeeded, getCreate2Address} from "./DeployAll.s.sol";
+import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
-struct Ve33Deployment {
+struct Ve33DeploymentParams {
+    // Stake-token metadata used by VeTokenMetadata.
     address stakeToken;
-    Ve33 ve33;
-    VeToken veToken;
-    Ve33Positions positions;
+    string stakeTokenName;
+    string stakeTokenSymbol;
+    uint8 stakeTokenDecimals;
+
+    // ERC721 collection metadata.
+    string veTokenName;
+    string veTokenSymbol;
+    string positionsName;
+    string positionsSymbol;
+    string positionsBaseUrl;
+    address positionsOwner;
+
+    // Optional deterministic-address assertions.
+    address expectedVe33;
+    address expectedVeToken;
+    address expectedVe33Positions;
+    address expectedVe33Periphery;
+    address expectedVe33DataFetcher;
 }
 
 /// @title DeployVe33
@@ -29,172 +44,179 @@ contract DeployVe33 is Script {
     bytes32 internal constant DEFAULT_DEPLOYMENT_SALT =
         0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
 
-    function run() public virtual {
+    function run()
+        public
+        returns (
+            Ve33 ve33,
+            VeToken veToken,
+            Ve33Positions positions,
+            Ve33Periphery periphery,
+            Ve33DataFetcher dataFetcher
+        )
+    {
         bytes32 salt = vm.envOr("SALT", DEFAULT_DEPLOYMENT_SALT);
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
-        address deployer = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
+        address stakeToken = vm.envAddress("STAKE_TOKEN");
+        address positionsOwner = vm.envOr("OWNER_ADDRESS", vm.getWallets()[0]);
+        Ve33DeploymentParams memory params = _deploymentParams(stakeToken, positionsOwner);
 
         vm.startBroadcast();
 
-        _deployVe33(core, deployer, salt);
+        (ve33, veToken, positions, periphery, dataFetcher) = _deployVe33(core, params, salt);
 
         vm.stopBroadcast();
     }
 
-    function _deployVe33(ICore core, address deployer, bytes32 salt)
+    function _deploymentParams(address stakeToken, address positionsOwner)
         internal
-        returns (Ve33Deployment memory deployment)
+        returns (Ve33DeploymentParams memory params)
     {
-        address stakeTokenAddress;
-        string memory stakeTokenName;
-        string memory stakeTokenSymbol;
-        uint8 stakeTokenDecimals;
+        string memory stakeTokenName = _stakeTokenName(stakeToken);
+        string memory stakeTokenSymbol = _stakeTokenSymbol(stakeToken);
 
-        (stakeTokenAddress, stakeTokenName, stakeTokenSymbol, stakeTokenDecimals) = _stakeToken(deployer, salt);
-        deployment.stakeToken = stakeTokenAddress;
+        params = Ve33DeploymentParams({
+            stakeToken: stakeToken,
+            stakeTokenName: stakeTokenName,
+            stakeTokenSymbol: stakeTokenSymbol,
+            stakeTokenDecimals: stakeToken == NATIVE_TOKEN_ADDRESS ? 18 : IERC20(stakeToken).decimals(),
+            veTokenName: _envStringOr("VE_TOKEN_NAME", _defaultVeTokenName(stakeTokenName)),
+            veTokenSymbol: _envStringOr("VE_TOKEN_SYMBOL", _defaultVeTokenSymbol(stakeTokenSymbol)),
+            positionsName: _envStringOr("VE33_POSITIONS_NAME", _defaultPositionsName()),
+            positionsSymbol: _envStringOr("VE33_POSITIONS_SYMBOL", _defaultPositionsSymbol()),
+            positionsBaseUrl: _envStringOr("VE33_POSITIONS_BASE_URL", "https://prod-api.ekubo.org/positions/"),
+            positionsOwner: positionsOwner,
+            expectedVe33: vm.envOr("VE33_ADDRESS", address(0)),
+            expectedVeToken: vm.envOr("VE_TOKEN_ADDRESS", address(0)),
+            expectedVe33Positions: vm.envOr("VE33_POSITIONS_ADDRESS", address(0)),
+            expectedVe33Periphery: vm.envOr("VE33_PERIPHERY_ADDRESS", address(0)),
+            expectedVe33DataFetcher: vm.envOr("VE33_DATA_FETCHER_ADDRESS", address(0))
+        });
+    }
 
+    function _deployVe33(ICore core, Ve33DeploymentParams memory params, bytes32 salt)
+        internal
+        returns (
+            Ve33 ve33,
+            VeToken veToken,
+            Ve33Positions positions,
+            Ve33Periphery periphery,
+            Ve33DataFetcher dataFetcher
+        )
+    {
         (address ve33Address,) = deployExtension(
-            abi.encodePacked(type(Ve33).creationCode, abi.encode(core, stakeTokenAddress)),
+            abi.encodePacked(type(Ve33).creationCode, abi.encode(core, params.stakeToken)),
             salt,
             ve33CallPoints(),
-            address(0),
+            params.expectedVe33,
             "Ve33"
         );
 
-        deployment.ve33 = Ve33(payable(ve33Address));
+        ve33 = Ve33(payable(ve33Address));
 
-        deployment.veToken = _deployVeToken(
-            core, deployment.ve33, stakeTokenAddress, stakeTokenName, stakeTokenSymbol, stakeTokenDecimals, salt
-        );
-        deployment.positions = _deployPositions(core, deployment.ve33, deployer, salt);
-        _deployVe33Support(core, deployment.ve33, salt);
+        veToken = _deployVeToken(core, ve33, params, salt);
+        positions = _deployPositions(core, ve33, params, salt);
+        (periphery, dataFetcher) =
+            _deployVe33Support(core, ve33, params.expectedVe33Periphery, params.expectedVe33DataFetcher, salt);
     }
 
-    function _deployVeToken(
-        ICore core,
-        Ve33 ve33,
-        address stakeToken,
-        string memory stakeTokenName,
-        string memory stakeTokenSymbol,
-        uint8 stakeTokenDecimals,
-        bytes32 salt
-    ) internal returns (VeToken veToken) {
+    function _deployVeToken(ICore core, Ve33 ve33, Ve33DeploymentParams memory params, bytes32 salt)
+        internal
+        returns (VeToken veToken)
+    {
         (address veTokenMetadata,) = deployIfNeeded(
             abi.encodePacked(
                 type(VeTokenMetadata).creationCode,
-                abi.encode(stakeTokenName, stakeTokenSymbol, stakeTokenDecimals, stakeToken)
+                abi.encode(params.stakeTokenName, params.stakeTokenSymbol, params.stakeTokenDecimals, params.stakeToken)
             ),
             salt,
             address(0),
             "VeTokenMetadata"
         );
 
-        string memory veTokenName = _envStringOr("VE_TOKEN_NAME", _defaultVeTokenName(stakeTokenName));
-        string memory veTokenSymbol = _envStringOr("VE_TOKEN_SYMBOL", _defaultVeTokenSymbol(stakeTokenSymbol));
-
         (address veTokenAddress,) = deployIfNeeded(
             abi.encodePacked(
                 type(VeToken).creationCode,
-                abi.encode(core, ve33, VeTokenMetadata(veTokenMetadata), veTokenName, veTokenSymbol)
+                abi.encode(core, ve33, VeTokenMetadata(veTokenMetadata), params.veTokenName, params.veTokenSymbol)
             ),
             salt,
-            address(0),
+            params.expectedVeToken,
             "VeToken"
         );
         veToken = VeToken(payable(veTokenAddress));
     }
 
-    function _deployPositions(ICore core, Ve33 ve33, address deployer, bytes32 salt)
+    function _deployPositions(ICore core, Ve33 ve33, Ve33DeploymentParams memory params, bytes32 salt)
         internal
         returns (Ve33Positions positions)
     {
-        string memory positionsName = _envStringOr("VE33_POSITIONS_NAME", _defaultPositionsName());
-        string memory positionsSymbol = _envStringOr("VE33_POSITIONS_SYMBOL", _defaultPositionsSymbol());
-        string memory positionsBaseUrl =
-            _envStringOr("VE33_POSITIONS_BASE_URL", "https://prod-api.ekubo.org/positions/");
-
         (address positionsAddress, bool deployedPositions) = deployIfNeeded(
-            abi.encodePacked(type(Ve33Positions).creationCode, abi.encode(core, ve33, deployer)),
+            abi.encodePacked(type(Ve33Positions).creationCode, abi.encode(core, ve33, params.positionsOwner)),
             salt,
-            address(0),
+            params.expectedVe33Positions,
             "Ve33Positions"
         );
 
         if (deployedPositions) {
             positions = Ve33Positions(payable(positionsAddress));
-            positions.setMetadata({newName: positionsName, newSymbol: positionsSymbol, newBaseUrl: positionsBaseUrl});
+            positions.setMetadata({
+                newName: params.positionsName, newSymbol: params.positionsSymbol, newBaseUrl: params.positionsBaseUrl
+            });
             console2.log("Set Ve33 positions metadata");
         } else {
             positions = Ve33Positions(payable(positionsAddress));
         }
     }
 
-    function _deployVe33Support(ICore core, Ve33 ve33, bytes32 salt) internal {
-        _deployVe33Periphery(core, ve33, salt);
-
-        deployIfNeeded(
-            abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(ve33)), salt, address(0), "Ve33DataFetcher"
-        );
+    function _deployVe33Support(
+        ICore core,
+        Ve33 ve33,
+        address expectedPeriphery,
+        address expectedDataFetcher,
+        bytes32 salt
+    ) internal returns (Ve33Periphery periphery, Ve33DataFetcher dataFetcher) {
+        periphery = _deployVe33Periphery(core, ve33, expectedPeriphery, salt);
+        dataFetcher = _deployVe33DataFetcher(ve33, expectedDataFetcher, salt);
     }
 
-    function _deployVe33Periphery(ICore core, Ve33 ve33, bytes32 salt) internal returns (Ve33Periphery periphery) {
+    function _deployVe33Periphery(ICore core, Ve33 ve33, address expectedAddress, bytes32 salt)
+        internal
+        returns (Ve33Periphery periphery)
+    {
         (address peripheryAddress,) = deployIfNeeded(
             abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)),
             salt,
-            address(0),
+            expectedAddress,
             "Ve33Periphery"
         );
         periphery = Ve33Periphery(payable(peripheryAddress));
     }
 
-    function _ve33PeripheryAddress(ICore core, Ve33 ve33, bytes32 salt) internal pure returns (address) {
-        return
-            getCreate2Address(
-                salt, keccak256(abi.encodePacked(type(Ve33Periphery).creationCode, abi.encode(core, ve33)))
-            );
-    }
-
-    function _stakeToken(address owner, bytes32 salt)
+    function _deployVe33DataFetcher(Ve33 ve33, address expectedAddress, bytes32 salt)
         internal
-        virtual
-        returns (
-            address stakeToken,
-            string memory stakeTokenName,
-            string memory stakeTokenSymbol,
-            uint8 stakeTokenDecimals
-        )
+        returns (Ve33DataFetcher dataFetcher)
     {
-        try vm.envAddress("STAKE_TOKEN") returns (address envStakeToken) {
-            stakeToken = envStakeToken;
-            stakeTokenName = _stakeTokenName(stakeToken);
-            stakeTokenSymbol = _stakeTokenSymbol(stakeToken);
-            stakeTokenDecimals = 18;
-        } catch {
-            stakeTokenName = vm.envString("STAKE_TOKEN_NAME");
-            stakeTokenSymbol = vm.envString("STAKE_TOKEN_SYMBOL");
-            stakeTokenDecimals = 18;
-            (stakeToken,) = deployIfNeeded(
-                abi.encodePacked(type(MintableERC20).creationCode, abi.encode(owner, stakeTokenName, stakeTokenSymbol)),
-                salt,
-                address(0),
-                "MintableERC20"
-            );
-        }
+        (address dataFetcherAddress,) = deployIfNeeded(
+            abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(ve33)),
+            salt,
+            expectedAddress,
+            "Ve33DataFetcher"
+        );
+        dataFetcher = Ve33DataFetcher(dataFetcherAddress);
     }
 
-    function _defaultPositionsName() internal pure virtual returns (string memory) {
+    function _defaultPositionsName() internal pure returns (string memory) {
         return "Ekubo Ve33 Positions";
     }
 
-    function _defaultPositionsSymbol() internal pure virtual returns (string memory) {
+    function _defaultPositionsSymbol() internal pure returns (string memory) {
         return "ekuVe33Po";
     }
 
-    function _defaultVeTokenName(string memory stakeTokenName) internal pure virtual returns (string memory) {
+    function _defaultVeTokenName(string memory stakeTokenName) internal pure returns (string memory) {
         return string.concat("Vote-Escrow ", stakeTokenName);
     }
 
-    function _defaultVeTokenSymbol(string memory stakeTokenSymbol) internal pure virtual returns (string memory) {
+    function _defaultVeTokenSymbol(string memory stakeTokenSymbol) internal pure returns (string memory) {
         return string.concat("ve", stakeTokenSymbol);
     }
 

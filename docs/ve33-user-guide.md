@@ -121,6 +121,25 @@ Scheduling emissions does not choose pools by itself. As global emissions accrue
 Use `script/DeployVe33.s.sol` for deterministic deployment of the extension, ERC721 wrappers, and periphery. Use
 `script/DeployRouter.s.sol` separately on chains where a Ve33-aware router should be deployed.
 
+To deploy a new `MintableERC20` stake token first, configure:
+
+```text
+TOKEN_NAME=<ERC20 name>
+TOKEN_SYMBOL=<ERC20 symbol>
+TOKEN_DECIMALS=<optional ERC20 decimals, defaults to 18>
+TOKEN_ADDRESS=<optional expected deterministic address>
+SALT=<optional create2 salt>
+```
+
+The mintable token is owned by the broadcasting wallet returned by `vm.getWallets()[0]`.
+
+```sh
+forge script --offline script/DeployMintableToken.s.sol --broadcast --rpc-url <rpc>
+```
+
+Pass the resulting token address to the Ve33 deployment. `DeployVe33` reads the stake token's name, symbol, and decimals
+from the token contract unless the optional name or symbol overrides are provided.
+
 Required environment variables:
 
 ```text
@@ -132,17 +151,44 @@ Optional environment variables:
 ```text
 CORE_ADDRESS=<deployed core, defaults to 0x00000000000014aA86C5d3c41765bb24e11bd701>
 SALT=<create2 salt>
+OWNER_ADDRESS=<Ve33Positions owner, defaults to broadcaster>
 VE33_ADDRESS=<expected Ve33 address>
 VE_TOKEN_ADDRESS=<expected VeToken address>
 VE33_POSITIONS_ADDRESS=<expected Ve33Positions address>
-VE33_POSITIONS_OWNER=<metadata owner for Ve33Positions, defaults to broadcaster>
 VE33_PERIPHERY_ADDRESS=<expected Ve33Periphery address>
+VE33_DATA_FETCHER_ADDRESS=<expected Ve33DataFetcher address>
+STAKE_TOKEN_NAME=<optional stake-token name override>
+STAKE_TOKEN_SYMBOL=<optional stake-token symbol override>
+VE_TOKEN_NAME=<optional VeToken collection name>
+VE_TOKEN_SYMBOL=<optional VeToken collection symbol>
+VE33_POSITIONS_NAME=<optional positions collection name>
+VE33_POSITIONS_SYMBOL=<optional positions collection symbol>
+VE33_POSITIONS_BASE_URL=<optional positions metadata base URL>
 ```
 
 Run with Foundry's offline mode:
 
 ```sh
 forge script --offline script/DeployVe33.s.sol --broadcast --rpc-url <rpc>
+```
+
+For the STONX proposal flow, deploy STONX with `DeployMintableToken`, deploy its Ve33 system with `DeployVe33`, then run
+`ConfigureSTONX`. The configuration script derives STONX from `Ve33.stakeToken()` and requires the broadcasting wallet
+to still own STONX. It seeds the STONX/USDG pool, creates and votes the initial stake, schedules initial emissions,
+deploys and configures the emission scheduler, and transfers the configured ownership.
+
+Required environment variables:
+
+```text
+VE33_ADDRESS=<Ve33 extension previously deployed with STONX>
+VE_TOKEN_ADDRESS=<VeToken deployed with Ve33>
+VE33_POSITIONS_ADDRESS=<Ve33Positions deployed with Ve33>
+VE33_PERIPHERY_ADDRESS=<Ve33Periphery deployed with Ve33>
+USDG_ADDRESS=<USDG token used for initial liquidity>
+```
+
+```sh
+forge script --offline script/ConfigureSTONX.s.sol --broadcast --rpc-url <rpc>
 ```
 
 Router deployment accepts these optional environment variables:

@@ -35,7 +35,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
     function setUp() public override {
         super.setUp();
 
-        stakeToken = new MintableERC20(address(this), "Mintable TestToken", "mTT");
+        stakeToken = new MintableERC20(address(this), "Mintable TestToken", "mTT", 18);
         address deployAddress = address(uint160(ve33CallPoints().toUint8()) << 152);
         deployCodeTo("Ve33.sol:Ve33", abi.encode(core, address(stakeToken)), deployAddress);
         ve = Ve33(payable(deployAddress));

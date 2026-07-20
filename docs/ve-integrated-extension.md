@@ -207,4 +207,8 @@ The extension relies on Core saved balances for deferred accounting:
 
 ## Deployment
 
-`script/DeployVe33.s.sol` deploys `Ve33`, `VeToken`, `Ve33Positions`, and `Ve33Periphery` with deterministic CREATE2 deployment. It requires `CORE_ADDRESS` and `STAKE_TOKEN`, and accepts optional expected-address environment variables for deployment verification. `script/DeployRouter.s.sol` deploys the router separately so chains without Ve33 do not need a Ve33 address. See the user guide for the operator-facing commands.
+`script/DeployMintableToken.s.sol` can first deploy a generically configured mintable stake token owned by the
+broadcasting wallet. `script/DeployVe33.s.sol` then deploys `Ve33`, `VeToken`, `Ve33Positions`, and `Ve33Periphery` with
+deterministic CREATE2 deployment using the existing `STAKE_TOKEN`, including its on-chain decimals. It accepts optional
+expected-address environment variables for deployment verification. `script/DeployRouter.s.sol` deploys the router
+separately so chains without Ve33 do not need a Ve33 address. See the user guide for the operator-facing commands.

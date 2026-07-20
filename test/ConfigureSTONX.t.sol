@@ -2,7 +2,7 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "./FullTest.sol";
-import {DeploySTONX} from "../script/DeploySTONX.s.sol";
+import {ConfigureSTONX} from "../script/ConfigureSTONX.s.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {BaseNonfungibleToken} from "../src/base/BaseNonfungibleToken.sol";
 import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
@@ -20,7 +20,7 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 import {VePoolSwapFeeState} from "../src/types/vePoolSwapFeeState.sol";
 
-contract DeploySTONXHarness is DeploySTONX {
+contract ConfigureSTONXHarness is ConfigureSTONX {
     function setPositionsMetadata(Ve33Positions positions) external {
         positions.setMetadata("Ekubo STONX Positions", "stonxPO", "https://prod-api.ekubo.org/positions/");
     }
@@ -45,7 +45,8 @@ contract DeploySTONXHarness is DeploySTONX {
     }
 }
 
-contract DeploySTONXTest is FullTest {
+/// @notice Tests the post-deployment STONX configuration flow.
+contract ConfigureSTONXTest is FullTest {
     using CoreLib for *;
     using Ve33Lib for Ve33;
 
@@ -60,7 +61,7 @@ contract DeploySTONXTest is FullTest {
     uint160 private constant SCHEDULER_EMISSION_RATE =
         uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
 
-    DeploySTONXHarness private deployer;
+    ConfigureSTONXHarness private deployer;
     MintableERC20 private stonx;
     Ve33 private ve33;
     VeTokenMetadata private metadata;
@@ -73,8 +74,8 @@ contract DeploySTONXTest is FullTest {
     function setUp() public override {
         super.setUp();
 
-        deployer = new DeploySTONXHarness();
-        stonx = new MintableERC20(address(this), "Ekubo Stock Liquidity Token", "STONX");
+        deployer = new ConfigureSTONXHarness();
+        stonx = new MintableERC20(address(this), "Ekubo Stock Liquidity Token", "STONX", 18);
         address ve33Address = address(uint160(ve33CallPoints().toUint8()) << 152);
         deployCodeTo("Ve33.sol:Ve33", abi.encode(core, stonx), ve33Address);
         ve33 = Ve33(payable(ve33Address));
@@ -100,9 +101,37 @@ contract DeploySTONXTest is FullTest {
         _testInitialize(address(0x10000));
     }
 
+    function test_initialTickFor18DecimalSTONXAnd6DecimalUSDG() public view {
+        assertEq(deployer.initialTick(address(1), 18, address(2), 6), -27_631_034);
+        assertEq(deployer.initialTick(address(2), 18, address(1), 6), 27_631_034);
+    }
+
+    function testFuzz_initialTickTracksOneToOneHumanPrice(uint8 stonxDecimals, uint8 usdgDecimals, bool stonxIsToken0)
+        public
+        view
+    {
+        stonxDecimals = uint8(bound(stonxDecimals, 0, 38));
+        usdgDecimals = uint8(bound(usdgDecimals, 0, 38));
+
+        address stonxAddress = stonxIsToken0 ? address(1) : address(2);
+        address usdgAddress = stonxIsToken0 ? address(2) : address(1);
+        int32 tick = deployer.initialTick(stonxAddress, stonxDecimals, usdgAddress, usdgDecimals);
+
+        int256 decimals0 = int256(uint256(stonxIsToken0 ? stonxDecimals : usdgDecimals));
+        int256 decimals1 = int256(uint256(stonxIsToken0 ? usdgDecimals : stonxDecimals));
+        int256 approximateOneToOneTick = (decimals1 - decimals0) * 2_302_586;
+        assertApproxEqAbs(int256(tick), approximateOneToOneTick, 11);
+    }
+
+    function test_initialTickRejectsUnsupportedDecimalDifference() public {
+        vm.expectRevert(abi.encodeWithSelector(ConfigureSTONX.UnsupportedDecimalDifference.selector, 39));
+        deployer.initialTick(address(1), 39, address(2), 0);
+    }
+
     function _testInitialize(address usdgAddress) private {
-        deployCodeTo("MintableERC20.sol:MintableERC20", abi.encode(address(this), "USDG", "USDG"), usdgAddress);
+        deployCodeTo("MintableERC20.sol:MintableERC20", abi.encode(address(this), "USDG", "USDG", 6), usdgAddress);
         MintableERC20 usdg = MintableERC20(usdgAddress);
+        assertEq(usdg.decimals(), 6);
         usdg.mint(address(deployer), USDG_AMOUNT);
 
         uint256 positionId;

@@ -10,30 +10,30 @@ import {MintableERC20} from "../src/MintableERC20.sol";
 
 contract MintableERC20Test is Test {
     function test_ownerCanMintToRecipient() public {
-        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT");
+        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT", 18);
         token.mint(address(0xbeef), 123);
 
         assertEq(token.balanceOf(address(0xbeef)), 123);
     }
 
     function test_metadata() public {
-        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT");
+        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT", 6);
 
         assertEq(token.name(), "Mintable TestToken");
         assertEq(token.symbol(), "mTT");
-        assertEq(token.decimals(), 18);
+        assertEq(token.decimals(), 6);
     }
 
     function test_constructorFailsIfMetadataIsTooLong() public {
         vm.expectRevert(MintableERC20.PackedStringTooLong.selector);
-        new MintableERC20(address(this), "This token name is too long to pack", "mTT");
+        new MintableERC20(address(this), "This token name is too long to pack", "mTT", 18);
 
         vm.expectRevert(MintableERC20.PackedStringTooLong.selector);
-        new MintableERC20(address(this), "Mintable TestToken", "This token symbol is too long to pack");
+        new MintableERC20(address(this), "Mintable TestToken", "This token symbol is too long to pack", 18);
     }
 
     function test_mintFailsIfNotOwner() public {
-        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT");
+        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT", 18);
 
         vm.prank(address(0xbeef));
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -41,7 +41,7 @@ contract MintableERC20Test is Test {
     }
 
     function test_mintFailsIfTotalSupplyWouldExceedUint128Max() public {
-        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT");
+        MintableERC20 token = new MintableERC20(address(this), "Mintable TestToken", "mTT", 18);
         token.mint(address(0xbeef), type(uint128).max);
 
         vm.expectRevert(ERC20.TotalSupplyOverflow.selector);

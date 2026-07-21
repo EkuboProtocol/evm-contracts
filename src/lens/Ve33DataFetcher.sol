@@ -6,6 +6,8 @@ import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {Ve33Lib} from "../libraries/Ve33Lib.sol";
 import {Ve33StorageLayout} from "../libraries/Ve33StorageLayout.sol";
 import {StorageSlot} from "../types/storageSlot.sol";
+import {PoolId} from "../types/poolId.sol";
+import {VePoolSwapFeeState} from "../types/vePoolSwapFeeState.sol";
 import {MAX_NUM_VALID_TIMES, nextValidTime} from "../math/time.sol";
 
 struct Ve33EmissionRateChange {
@@ -28,6 +30,17 @@ contract Ve33DataFetcher {
 
     constructor(Ve33 ve33) {
         VE33_EXTENSION = ve33;
+    }
+
+    /// @notice Returns the current voted swap fee for each requested pool.
+    /// @dev The returned fees use the same Q64 fixed-point representation consumed by Ve33 swaps.
+    function getPoolSwapFees(PoolId[] calldata poolIds) external view returns (uint64[] memory swapFees) {
+        Ve33 ve33 = VE33_EXTENSION;
+        swapFees = new uint64[](poolIds.length);
+
+        for (uint256 i = 0; i < poolIds.length; i++) {
+            swapFees[i] = ve33.poolSwapFeeState(poolIds[i]).swapFee();
+        }
     }
 
     function getEmissionState() public view returns (Ve33EmissionState memory state) {

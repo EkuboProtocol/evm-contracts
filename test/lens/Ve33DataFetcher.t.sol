@@ -7,7 +7,11 @@ import {Ve33Periphery} from "../../src/Ve33Periphery.sol";
 import {Ve33, ve33CallPoints} from "../../src/extensions/Ve33.sol";
 import {Ve33DataFetcher, Ve33EmissionRateChange, Ve33EmissionState} from "../../src/lens/Ve33DataFetcher.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
+import {Ve33StorageLayout} from "../../src/libraries/Ve33StorageLayout.sol";
 import {nextValidTime} from "../../src/math/time.sol";
+import {PoolId} from "../../src/types/poolId.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
+import {createVePoolSwapFeeState, VePoolSwapFeeState} from "../../src/types/vePoolSwapFeeState.sol";
 
 contract Ve33DataFetcherTest is FullTest {
     using Ve33Lib for Ve33;
@@ -47,6 +51,33 @@ contract Ve33DataFetcherTest is FullTest {
         assertEq(state.currentEmissionRate, 0);
         assertEq(state.totalRemainingEmissions, 0);
         assertEq(state.futureEmissionRateChanges.length, 0);
+    }
+
+    function test_getPoolSwapFees() public {
+        PoolId[] memory poolIds = new PoolId[](3);
+        poolIds[0] = PoolId.wrap(bytes32(uint256(1)));
+        poolIds[1] = PoolId.wrap(bytes32(uint256(2)));
+        poolIds[2] = PoolId.wrap(bytes32(uint256(3)));
+
+        VePoolSwapFeeState state0 = createVePoolSwapFeeState(100, uint64(1 << 60));
+        VePoolSwapFeeState state2 = createVePoolSwapFeeState(300, uint64(3 << 60));
+        vm.store(
+            address(ve),
+            StorageSlot.unwrap(Ve33StorageLayout.poolSwapFeeStateSlot(poolIds[0])),
+            VePoolSwapFeeState.unwrap(state0)
+        );
+        vm.store(
+            address(ve),
+            StorageSlot.unwrap(Ve33StorageLayout.poolSwapFeeStateSlot(poolIds[2])),
+            VePoolSwapFeeState.unwrap(state2)
+        );
+
+        uint64[] memory swapFees = dataFetcher.getPoolSwapFees(poolIds);
+
+        assertEq(swapFees.length, 3);
+        assertEq(swapFees[0], uint64(1 << 60));
+        assertEq(swapFees[1], 0);
+        assertEq(swapFees[2], uint64(3 << 60));
     }
 
     function test_getEmissionState_immediateSchedule() public {

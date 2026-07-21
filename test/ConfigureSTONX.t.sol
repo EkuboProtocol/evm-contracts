@@ -85,7 +85,7 @@ contract ConfigureSTONXTest is FullTest {
         ve33Positions = new Ve33Positions(core, ve33, address(deployer));
         deployer.setPositionsMetadata(ve33Positions);
         periphery = new Ve33Periphery(core, ve33);
-        dataFetcher = new Ve33DataFetcher(ve33);
+        dataFetcher = new Ve33DataFetcher(core, ve33);
         scheduler = new Ve33EmissionRateScheduler(address(deployer), core, ve33);
 
         stonx.mint(address(deployer), STONX_AMOUNT);

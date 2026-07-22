@@ -10,6 +10,7 @@ import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {TestToken} from "./TestToken.sol";
 import {StorageSlot} from "../src/types/storageSlot.sol";
+import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract PositionsRevenueBuybacksTest is BaseOrdersTest {
     PositionsRevenueBuybacks buybacks;
@@ -122,7 +123,8 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio, sqrtRatio);
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
@@ -147,7 +149,8 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token1.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
+        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio, sqrtRatio);
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
@@ -181,8 +184,10 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         token1.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 2e18);
 
-        positions.mintAndDeposit(poolKey0, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
-        positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        SqrtRatio sqrtRatio0 = poolSqrtRatio(poolKey0);
+        SqrtRatio sqrtRatio1 = poolSqrtRatio(poolKey1);
+        positions.mintAndDeposit(poolKey0, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio0, sqrtRatio0);
+        positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, sqrtRatio1, sqrtRatio1);
 
         (uint128 fees0, uint128 fees1) = positions.getProtocolFees(address(token0), address(token1));
         assertEq(fees0, 0);

@@ -18,6 +18,7 @@ import {SwapParameters} from "../src/types/swapParameters.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Locker} from "../src/types/locker.sol";
 import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 
@@ -252,7 +253,14 @@ abstract contract FullTest is Test {
         }
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
-        (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, tickLower, tickUpper, amount0, amount1, 0);
+        SqrtRatio sqrtRatio = poolSqrtRatio(poolKey);
+        (id, liquidity,,) = positions.mintAndDeposit{value: value}(
+            poolKey, tickLower, tickUpper, amount0, amount1, sqrtRatio, sqrtRatio
+        );
+    }
+
+    function poolSqrtRatio(PoolKey memory poolKey) internal view returns (SqrtRatio) {
+        return CoreLib.poolState(core, poolKey.toPoolId()).sqrtRatio();
     }
 
     function advanceTime(uint256 by) internal returns (uint256 next) {

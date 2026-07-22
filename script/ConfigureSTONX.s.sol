@@ -18,7 +18,7 @@ import {sqrtRatioToTick} from "../src/math/ticks.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
-import {toSqrtRatio} from "../src/types/sqrtRatio.sol";
+import {SqrtRatio, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 
 struct StonxVe33System {
     Ve33 ve33;
@@ -114,31 +114,22 @@ contract ConfigureSTONX is Script {
         address governance,
         bytes32 nftSalt
     ) internal returns (uint256 positionId) {
+        int32 poolInitialTick = initialTick(address(stonx), stonx.decimals(), usdg, IERC20(usdg).decimals());
+        (, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, poolInitialTick);
         stonx.approve(address(positions), LIQUIDITY_TOKEN_AMOUNT);
         IERC20(usdg).approve(address(positions), LIQUIDITY_USDG_AMOUNT);
-
-        bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(
-            positions.maybeInitializePool,
-            (poolKey, initialTick(address(stonx), stonx.decimals(), usdg, IERC20(usdg).decimals()))
-        );
-        calls[1] = abi.encodeCall(
-            positions.mintAndDepositWithSalt,
-            (
-                nftSalt,
-                poolKey,
-                POSITION_TICK_LOWER,
-                POSITION_TICK_UPPER,
-                address(stonx) < usdg ? LIQUIDITY_TOKEN_AMOUNT : LIQUIDITY_USDG_AMOUNT,
-                address(stonx) < usdg ? LIQUIDITY_USDG_AMOUNT : LIQUIDITY_TOKEN_AMOUNT,
-                0
-            )
-        );
-
-        bytes[] memory results = positions.multicall(calls);
         uint128 amount0;
         uint128 amount1;
-        (positionId,, amount0, amount1) = abi.decode(results[1], (uint256, uint128, uint128, uint128));
+        (positionId,, amount0, amount1) = positions.mintAndDepositWithSalt(
+            nftSalt,
+            poolKey,
+            POSITION_TICK_LOWER,
+            POSITION_TICK_UPPER,
+            address(stonx) < usdg ? LIQUIDITY_TOKEN_AMOUNT : LIQUIDITY_USDG_AMOUNT,
+            address(stonx) < usdg ? LIQUIDITY_USDG_AMOUNT : LIQUIDITY_TOKEN_AMOUNT,
+            sqrtRatio,
+            sqrtRatio
+        );
 
         uint128 usdgSpent = address(stonx) < usdg ? amount1 : amount0;
         if (usdgSpent != LIQUIDITY_USDG_AMOUNT) revert USDGNotFullySpent(usdgSpent);

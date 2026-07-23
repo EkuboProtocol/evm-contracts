@@ -8,7 +8,7 @@ import {ICore} from "./interfaces/ICore.sol";
 import {IFlashAccountant} from "./interfaces/IFlashAccountant.sol";
 import {IMintableERC20} from "./interfaces/IMintableERC20.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
-import {nextValidTime} from "./math/time.sol";
+import {computeStepSize} from "./math/time.sol";
 import {Ve33EmissionRateConfig, createVe33EmissionRateConfig} from "./types/ve33EmissionRateConfig.sol";
 
 /// @title Ve33 Emission Rate Scheduler
@@ -28,7 +28,7 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     /// @notice Mintable token used as the Ve33 stake/reward token.
     IMintableERC20 public immutable token;
 
-    /// @notice Packed target emission rate and schedule duration.
+    /// @notice Packed target emission rate and maximum schedule duration.
     Ve33EmissionRateConfig public config;
 
     /// @notice Emitted when the owner updates scheduler config.
@@ -47,9 +47,9 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
         token = IMintableERC20(_ve33.stakeToken());
     }
 
-    /// @notice Sets the target global Q32 emission rate and schedule duration.
+    /// @notice Sets the target global Q32 emission rate and maximum schedule duration.
     /// @param targetRate Target global Q32 emission rate.
-    /// @param scheduleDuration Schedule duration in seconds.
+    /// @param scheduleDuration Maximum schedule duration in seconds.
     function setConfig(uint160 targetRate, uint32 scheduleDuration) external onlyOwner {
         if (targetRate != 0 && scheduleDuration == 0) revert InvalidScheduleDuration();
 
@@ -76,7 +76,10 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
         if (duration == 0) revert InvalidScheduleDuration();
 
         uint64 nowTime = uint64(block.timestamp);
-        uint64 horizon = uint64(nextValidTime(nowTime, nowTime + uint256(duration) - 1));
+        uint256 maxEndTime = block.timestamp + uint256(duration);
+        uint256 stepSize = computeStepSize(block.timestamp, maxEndTime);
+        uint64 horizon = uint64(maxEndTime - (maxEndTime % stepSize));
+        if (horizon <= nowTime) return abi.encode(uint128(0));
 
         ve33.accrueEmissions();
 

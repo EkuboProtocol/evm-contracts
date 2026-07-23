@@ -10,7 +10,7 @@ import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
-import {nextValidTime} from "../src/math/time.sol";
+import {computeStepSize, isTimeValid} from "../src/math/time.sol";
 import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 
 contract SchedulerCallRevertTarget {
@@ -97,6 +97,49 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertEq(ve.emissionRateDeltaAtTime(expectedEndTime), -int256(uint256(TARGET_RATE)));
     }
 
+    function test_permissionlessCallDoesNotMintBeyondOneSecondDuration() public {
+        vm.warp(1);
+        vm.prank(owner);
+        scheduler.setConfig(TARGET_RATE, 1);
+
+        vm.prank(address(0xbeef));
+        uint128 amount = scheduler.mintAndSchedule();
+
+        (uint64 endTime,) = ve.nextEmissionRateChangeTime(1);
+        assertEq(endTime, 0);
+        assertEq(amount, 0);
+        assertEq(stakeToken.totalSupply(), 0);
+        assertEq(_rewardSavedBalance(), 0);
+    }
+
+    function test_mintAndScheduleAcceptsZeroDurationForZeroTargetWithoutScheduling() public {
+        vm.prank(owner);
+        scheduler.setConfig(0, 0);
+
+        vm.prank(address(0xbeef));
+        assertEq(scheduler.mintAndSchedule(), 0);
+
+        (uint64 endTime,) = ve.nextEmissionRateChangeTime(block.timestamp);
+        assertEq(endTime, 0);
+    }
+
+    function test_mintAndScheduleDoesNotExceed255SecondDuration() public {
+        _assertScheduleWithinDuration(255);
+    }
+
+    function test_mintAndScheduleDoesNotExceed256SecondDuration() public {
+        _assertScheduleWithinDuration(256);
+    }
+
+    function test_mintAndScheduleDoesNotExceedMultiDayDuration() public {
+        _assertScheduleWithinDuration(14 days);
+    }
+
+    function testFuzz_mintAndScheduleNeverSchedulesPastConfiguredDuration(uint32 scheduleDuration) public {
+        scheduleDuration = uint32(bound(scheduleDuration, 1, type(uint32).max));
+        _assertScheduleWithinDuration(scheduleDuration);
+    }
+
     function test_mintAndScheduleReturnsZeroWhenCurrentRateAlreadyAtTarget() public {
         vm.prank(owner);
         scheduler.setConfig(TARGET_RATE, SCHEDULE_DURATION);
@@ -155,7 +198,9 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
     }
 
     function _expectedEndTime(uint32 scheduleDuration) internal view returns (uint64) {
-        return uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + uint256(scheduleDuration) - 1));
+        uint256 maxEndTime = vm.getBlockTimestamp() + uint256(scheduleDuration);
+        uint256 stepSize = computeStepSize(vm.getBlockTimestamp(), maxEndTime);
+        return uint64(maxEndTime - (maxEndTime % stepSize));
     }
 
     function _scheduleAmount(uint160 rewardRate, uint64 endTime) internal view returns (uint128) {
@@ -174,6 +219,25 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         (saved,) = core.savedBalances(
             address(ve), address(stakeToken), address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
         );
+    }
+
+    function _assertScheduleWithinDuration(uint32 scheduleDuration) internal {
+        vm.warp(1);
+        vm.prank(owner);
+        scheduler.setConfig(TARGET_RATE, scheduleDuration);
+
+        uint64 nowTime = uint64(vm.getBlockTimestamp());
+        vm.prank(address(0xbeef));
+        uint128 amount = scheduler.mintAndSchedule();
+
+        (uint64 endTime,) = ve.nextEmissionRateChangeTime(nowTime);
+        if (amount == 0) {
+            assertEq(endTime, 0);
+        } else {
+            assertGt(endTime, nowTime);
+            assertLe(endTime, nowTime + scheduleDuration);
+            assertTrue(isTimeValid(nowTime, endTime));
+        }
     }
 
     // ─── BaseOwnableExecutor.call surface ────────────────────────────────────

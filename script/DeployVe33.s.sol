@@ -175,7 +175,7 @@ contract DeployVe33 is Script {
         bytes32 salt
     ) internal returns (Ve33Periphery periphery, Ve33DataFetcher dataFetcher) {
         periphery = _deployVe33Periphery(core, ve33, expectedPeriphery, salt);
-        dataFetcher = _deployVe33DataFetcher(ve33, expectedDataFetcher, salt);
+        dataFetcher = _deployVe33DataFetcher(core, ve33, expectedDataFetcher, salt);
     }
 
     function _deployVe33Periphery(ICore core, Ve33 ve33, address expectedAddress, bytes32 salt)
@@ -191,12 +191,12 @@ contract DeployVe33 is Script {
         periphery = Ve33Periphery(payable(peripheryAddress));
     }
 
-    function _deployVe33DataFetcher(Ve33 ve33, address expectedAddress, bytes32 salt)
+    function _deployVe33DataFetcher(ICore core, Ve33 ve33, address expectedAddress, bytes32 salt)
         internal
         returns (Ve33DataFetcher dataFetcher)
     {
         (address dataFetcherAddress,) = deployIfNeeded(
-            abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(ve33)),
+            abi.encodePacked(type(Ve33DataFetcher).creationCode, abi.encode(core, ve33)),
             salt,
             expectedAddress,
             "Ve33DataFetcher"

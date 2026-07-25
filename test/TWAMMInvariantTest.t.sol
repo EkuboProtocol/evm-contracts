@@ -20,13 +20,14 @@ import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
 import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
-import {IPositions} from "../src/interfaces/IPositions.sol";
+import {IPositionDepositor, PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {Orders} from "../src/Orders.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
 import {TestToken} from "./TestToken.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
+import {LiquidityDeltaOverflow, maxLiquidity} from "../src/math/liquidity.sol";
+import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {createOrderConfig} from "../src/types/orderConfig.sol";
@@ -130,9 +131,25 @@ contract Handler is StdUtils, StdAssertions {
     function deposit(uint256 poolKeyIndex, uint128 amount0, uint128 amount1) public ifPoolExists {
         PoolKey memory poolKey = allPoolKeys[bound(poolKeyIndex, 0, allPoolKeys.length - 1)];
 
-        try positions.deposit(positionId, poolKey, MIN_TICK, MAX_TICK, amount0, amount1, 0) returns (
-            uint128 liquidity, uint128, uint128
-        ) {
+        SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        uint128 depositLiquidity =
+            maxLiquidity(sqrtRatio, tickToSqrtRatio(MIN_TICK), tickToSqrtRatio(MAX_TICK), amount0, amount1);
+        if (depositLiquidity == 0) return;
+        PositionDeposit memory parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: MIN_TICK,
+            tickUpper: MAX_TICK,
+            liquidity: depositLiquidity,
+            targetSqrtRatio: sqrtRatio,
+            maxAmount0: amount0,
+            maxAmount1: amount1,
+            swapRecipient: address(0),
+            routeAfterDeposit: false,
+            router: address(0),
+            route: bytes("")
+        });
+
+        try positions.deposit(positionId, parameters) returns (uint128 liquidity, int256, int256) {
             if (liquidity > 0) {
                 activePositions.push(ActivePosition(poolKey, MIN_TICK, MAX_TICK, liquidity));
             }
@@ -144,11 +161,12 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != IPositions.DepositOverflow.selector && sig != IPositions.DepositFailedDueToPriceMovement.selector
-                    && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
-                    && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
-                    && sig != Amount1DeltaOverflow.selector && sig != Amount0DeltaOverflow.selector
-                    && sig != SafeTransferLib.TransferFromFailed.selector
+                sig != IPositionDepositor.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector
+                    && sig != 0x4e487b71 && sig != FixedPointMathLib.FullMulDivFailed.selector
+                    && sig != LiquidityDeltaOverflow.selector && sig != Amount1DeltaOverflow.selector
+                    && sig != Amount0DeltaOverflow.selector && sig != SafeTransferLib.TransferFromFailed.selector
+                    && sig != IPositionDepositor.DepositExceedsMaxAmounts.selector
+                    && sig != IPositionDepositor.DepositSqrtRatioChanged.selector
             ) {
                 revert UnexpectedError(err);
             }

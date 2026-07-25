@@ -70,14 +70,15 @@ contract SwapTest is FullTest {
             sqrtRatioUpper: MAX_SQRT_RATIO
         });
 
-        (uint256 id, uint128 positionLiquidity,,) = positions.mintAndDeposit({
-            poolKey: poolKey,
-            tickLower: MIN_TICK,
-            tickUpper: MAX_TICK,
-            maxAmount0: uint128(amount0),
-            maxAmount1: uint128(amount1),
-            minLiquidity: liquidity
-        });
+        uint256 id;
+        uint128 positionLiquidity;
+        if (liquidity == 0) {
+            id = positions.mint();
+        } else {
+            (id, positionLiquidity,,) = positions.mintAndDeposit(
+                positionDeposit(poolKey, MIN_TICK, MAX_TICK, uint128(amount0), uint128(amount1))
+            );
+        }
 
         assertEq(positionLiquidity, liquidity, "liquidity expected");
 

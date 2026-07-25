@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {BaseOrdersTest} from "./Orders.t.sol";
 import {PositionsRevenueBuybacks} from "../src/PositionsRevenueBuybacks.sol";
+import {IPositions} from "../src/interfaces/IPositions.sol";
 import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../src/types/poolConfig.sol";
@@ -27,7 +28,8 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
             (token0, token1) = (token1, token0);
         }
 
-        buybacks = new PositionsRevenueBuybacks(address(this), positions, orders, address(buybacksToken));
+        buybacks =
+            new PositionsRevenueBuybacks(address(this), IPositions(address(positions)), orders, address(buybacksToken));
 
         vm.prank(positions.owner());
         positions.transferOwnership(address(buybacks));
@@ -122,7 +124,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token0.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit(positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18));
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
@@ -147,7 +149,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         positions.maybeInitializePool(poolKey, 0);
         token1.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 1e18);
-        positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit(positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18));
 
         cheatDonateProtocolFees(address(token0), address(token1), 1e18, 1e17);
 
@@ -181,8 +183,8 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         token1.approve(address(positions), 1e18);
         buybacksToken.approve(address(positions), 2e18);
 
-        positions.mintAndDeposit(poolKey0, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
-        positions.mintAndDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        positions.mintAndDeposit(positionDeposit(poolKey0, MIN_TICK, MAX_TICK, 1e18, 1e18));
+        positions.mintAndDeposit(positionDeposit(poolKey1, MIN_TICK, MAX_TICK, 1e18, 1e18));
 
         (uint128 fees0, uint128 fees1) = positions.getProtocolFees(address(token0), address(token1));
         assertEq(fees0, 0);

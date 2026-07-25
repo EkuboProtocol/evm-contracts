@@ -9,16 +9,18 @@ import {deployIfNeeded} from "./DeployAll.s.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {Ve33} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
+import {PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {Ve33EmissionRateScheduler} from "../src/Ve33EmissionRateScheduler.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {sqrtRatioToTick} from "../src/math/ticks.sol";
+import {maxLiquidity} from "../src/math/liquidity.sol";
+import {sqrtRatioToTick, tickToSqrtRatio} from "../src/math/ticks.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
-import {toSqrtRatio} from "../src/types/sqrtRatio.sol";
+import {SqrtRatio, toSqrtRatio} from "../src/types/sqrtRatio.sol";
 
 struct StonxVe33System {
     Ve33 ve33;
@@ -83,7 +85,7 @@ contract ConfigureSTONX is Script {
         stonx.mint(deployer, LIQUIDITY_TOKEN_AMOUNT);
 
         PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(system.ve33));
-        uint256 positionId = _seedLiquidity(stonx, system.positions, poolKey, usdg, deployer, governance, nftSalt);
+        uint256 positionId = _seedLiquidity(stonx, system.positions, core, poolKey, usdg, deployer, governance, nftSalt);
         uint256 veId = _stakeAndVote(stonx, system.veToken, core, poolKey, nftSalt);
         system.positions.transferOwnership(governance);
         (address schedulerAddress, uint128 scheduledAmount) =
@@ -108,41 +110,60 @@ contract ConfigureSTONX is Script {
     function _seedLiquidity(
         MintableERC20 stonx,
         Ve33Positions positions,
+        ICore core,
         PoolKey memory poolKey,
         address usdg,
         address deployer,
         address governance,
         bytes32 nftSalt
     ) internal returns (uint256 positionId) {
+        int32 poolInitialTick = initialTick(address(stonx), stonx.decimals(), usdg, IERC20(usdg).decimals());
+        SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        if (sqrtRatio.isZero()) sqrtRatio = tickToSqrtRatio(poolInitialTick);
         stonx.approve(address(positions), LIQUIDITY_TOKEN_AMOUNT);
         IERC20(usdg).approve(address(positions), LIQUIDITY_USDG_AMOUNT);
 
+        uint128 maxAmount0 = address(stonx) < usdg ? LIQUIDITY_TOKEN_AMOUNT : LIQUIDITY_USDG_AMOUNT;
+        uint128 maxAmount1 = address(stonx) < usdg ? LIQUIDITY_USDG_AMOUNT : LIQUIDITY_TOKEN_AMOUNT;
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(
-            positions.maybeInitializePool,
-            (poolKey, initialTick(address(stonx), stonx.decimals(), usdg, IERC20(usdg).decimals()))
-        );
+        calls[0] = abi.encodeCall(positions.maybeInitializePool, (poolKey, poolInitialTick));
         calls[1] = abi.encodeCall(
-            positions.mintAndDepositWithSalt,
-            (
-                nftSalt,
-                poolKey,
-                POSITION_TICK_LOWER,
-                POSITION_TICK_UPPER,
-                address(stonx) < usdg ? LIQUIDITY_TOKEN_AMOUNT : LIQUIDITY_USDG_AMOUNT,
-                address(stonx) < usdg ? LIQUIDITY_USDG_AMOUNT : LIQUIDITY_TOKEN_AMOUNT,
-                0
-            )
+            positions.mintAndDepositWithSalt, (nftSalt, _positionDeposit(poolKey, sqrtRatio, maxAmount0, maxAmount1))
         );
 
         bytes[] memory results = positions.multicall(calls);
-        uint128 amount0;
-        uint128 amount1;
-        (positionId,, amount0, amount1) = abi.decode(results[1], (uint256, uint128, uint128, uint128));
-
-        uint128 usdgSpent = address(stonx) < usdg ? amount1 : amount0;
+        int256 amount0;
+        int256 amount1;
+        (positionId,, amount0, amount1) = abi.decode(results[1], (uint256, uint128, int256, int256));
+        uint128 usdgSpent = uint128(uint256(address(stonx) < usdg ? amount1 : amount0));
         if (usdgSpent != LIQUIDITY_USDG_AMOUNT) revert USDGNotFullySpent(usdgSpent);
         positions.transferFrom(deployer, governance, positionId);
+    }
+
+    function _positionDeposit(PoolKey memory poolKey, SqrtRatio sqrtRatio, uint128 maxAmount0, uint128 maxAmount1)
+        internal
+        pure
+        returns (PositionDeposit memory parameters)
+    {
+        parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: POSITION_TICK_LOWER,
+            tickUpper: POSITION_TICK_UPPER,
+            liquidity: maxLiquidity(
+                sqrtRatio,
+                tickToSqrtRatio(POSITION_TICK_LOWER),
+                tickToSqrtRatio(POSITION_TICK_UPPER),
+                maxAmount0,
+                maxAmount1
+            ),
+            targetSqrtRatio: sqrtRatio,
+            maxAmount0: maxAmount0,
+            maxAmount1: maxAmount1,
+            swapRecipient: address(0),
+            routeAfterDeposit: false,
+            router: address(0),
+            route: bytes("")
+        });
     }
 
     function _stakeAndVote(MintableERC20 stonx, VeToken veToken, ICore core, PoolKey memory poolKey, bytes32 nftSalt)

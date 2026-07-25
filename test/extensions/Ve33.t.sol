@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "../FullTest.sol";
+import {ForwardedSwapRoute, ForwardedSwapRouter} from "../ForwardedSwapRouter.sol";
 import {TestToken} from "../TestToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {Router} from "../../src/Router.sol";
@@ -16,6 +17,7 @@ import {
     ve33CallPoints
 } from "../../src/extensions/Ve33.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
+import {IPositionDepositor, PositionDeposit} from "../../src/interfaces/IPositionDepositor.sol";
 import {
     IVe33,
     VE33_CLAIM_POOL_FEES,
@@ -235,20 +237,28 @@ contract Ve33Test is FullTest {
     {
         uint256 id = _positionNftId(positionId);
         if (liquidityDelta > 0) {
+            SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
             (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
-                core.poolState(poolKey.toPoolId()).sqrtRatio(),
+                sqrtRatio,
                 liquidityDelta,
                 tickToSqrtRatio(positionId.tickLower()),
                 tickToSqrtRatio(positionId.tickUpper())
             );
-            (, uint128 amount0, uint128 amount1) = vePositions.deposit(
+            (, int256 amount0, int256 amount1) = vePositions.deposit(
                 id,
-                poolKey,
-                positionId.tickLower(),
-                positionId.tickUpper(),
-                uint128(delta0),
-                uint128(delta1),
-                uint128(liquidityDelta)
+                PositionDeposit({
+                    poolKey: poolKey,
+                    tickLower: positionId.tickLower(),
+                    tickUpper: positionId.tickUpper(),
+                    liquidity: uint128(liquidityDelta),
+                    targetSqrtRatio: sqrtRatio,
+                    maxAmount0: uint128(delta0),
+                    maxAmount1: uint128(delta1),
+                    swapRecipient: address(0),
+                    routeAfterDeposit: false,
+                    router: address(0),
+                    route: bytes("")
+                })
             );
             balanceUpdate = createPoolBalanceUpdate(int128(amount0), int128(amount1));
         } else {
@@ -1595,8 +1605,68 @@ contract Ve33Test is FullTest {
         (uint128 liquidity,,) = vePositions.getPositionLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(liquidity, uint128(type(int128).max));
 
-        vm.expectRevert(Ve33Positions.DepositOverflow.selector);
-        vePositions.deposit(id, poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 1);
+        PositionDeposit memory parameters = positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+        parameters.liquidity = 1;
+        vm.expectRevert(IPositionDepositor.DepositOverflow.selector);
+        vePositions.deposit(id, parameters);
+    }
+
+    function test_vePositionsDepositRoutesThroughVe33ToTargetPrice() public {
+        (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
+        uint128 initialLiquidity = 20_000_000;
+        _updatePosition(poolKey, positionId, int128(initialLiquidity));
+
+        int128 swapAmount = 100;
+        (PoolBalanceUpdate swapBalanceUpdate, PoolState stateAfter) = router.quote({
+            poolKey: poolKey, isToken1: false, amount: swapAmount, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
+        });
+        SqrtRatio targetSqrtRatio = stateAfter.sqrtRatio();
+        uint128 depositLiquidity = 10_000_000;
+        (int128 depositAmount0, int128 depositAmount1) = liquidityDeltaToAmountDelta(
+            targetSqrtRatio, int128(depositLiquidity), tickToSqrtRatio(-64), tickToSqrtRatio(64)
+        );
+        int256 expectedAmount0 = int256(swapBalanceUpdate.delta0()) + int256(depositAmount0);
+        int256 expectedAmount1 = int256(swapBalanceUpdate.delta1()) + int256(depositAmount1);
+        assertGt(expectedAmount0, 0, "token0 net input");
+        assertGt(expectedAmount1, 0, "token1 net input");
+
+        ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
+        uint256 id = _positionNftId(positionId);
+        (uint128 actualLiquidity, int256 amount0, int256 amount1) = vePositions.deposit(
+            id,
+            PositionDeposit({
+                poolKey: poolKey,
+                tickLower: -64,
+                tickUpper: 64,
+                liquidity: depositLiquidity,
+                targetSqrtRatio: targetSqrtRatio,
+                maxAmount0: uint128(uint256(expectedAmount0)),
+                maxAmount1: uint128(uint256(expectedAmount1)),
+                swapRecipient: address(0),
+                routeAfterDeposit: false,
+                router: address(forwardedRouter),
+                route: abi.encode(
+                    ForwardedSwapRoute({
+                        poolKey: poolKey,
+                        params: createSwapParameters(targetSqrtRatio, swapAmount, false, 0),
+                        useExtension: true,
+                        reverseResult: false,
+                        returnInvalidTokens: false,
+                        misreportDeltas: false
+                    })
+                )
+            })
+        );
+
+        assertEq(actualLiquidity, depositLiquidity, "exact liquidity");
+        assertEq(amount0, expectedAmount0, "net token0");
+        assertEq(amount1, expectedAmount1, "net token1");
+        assertEq(_positionLiquidity(poolKey, positionId), initialLiquidity + depositLiquidity, "position liquidity");
+        assertEq(
+            SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()),
+            SqrtRatio.unwrap(targetSqrtRatio),
+            "target price"
+        );
     }
 
     function test_scheduleEmissionsAccruesMultipleEventsAtSameTime() public {

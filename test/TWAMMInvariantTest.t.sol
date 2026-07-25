@@ -143,16 +143,12 @@ contract Handler is StdUtils, StdAssertions {
             targetSqrtRatio: sqrtRatio,
             maxAmount0: amount0,
             maxAmount1: amount1,
-            swapRecipient: address(0),
-            routeAfterDeposit: false,
             router: address(0),
-            route: bytes("")
+            routerData: bytes("")
         });
 
-        try positions.deposit(positionId, parameters) returns (uint128 liquidity, int256, int256) {
-            if (liquidity > 0) {
-                activePositions.push(ActivePosition(poolKey, MIN_TICK, MAX_TICK, liquidity));
-            }
+        try positions.deposit(positionId, parameters) returns (int256, int256) {
+            activePositions.push(ActivePosition(poolKey, MIN_TICK, MAX_TICK, depositLiquidity));
         } catch (bytes memory err) {
             bytes4 sig;
             assembly ("memory-safe") {
@@ -161,12 +157,12 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != IPositionDepositor.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector
+                sig != IPositionDepositor.InvalidDepositLiquidity.selector && sig != SafeCastLib.Overflow.selector
                     && sig != 0x4e487b71 && sig != FixedPointMathLib.FullMulDivFailed.selector
                     && sig != LiquidityDeltaOverflow.selector && sig != Amount1DeltaOverflow.selector
                     && sig != Amount0DeltaOverflow.selector && sig != SafeTransferLib.TransferFromFailed.selector
                     && sig != IPositionDepositor.DepositExceedsMaxAmounts.selector
-                    && sig != IPositionDepositor.DepositSqrtRatioChanged.selector
+                    && sig != IPositionDepositor.TargetSqrtRatioNotReached.selector
             ) {
                 revert UnexpectedError(err);
             }

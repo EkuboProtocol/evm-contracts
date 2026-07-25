@@ -244,7 +244,7 @@ contract Ve33Test is FullTest {
                 tickToSqrtRatio(positionId.tickLower()),
                 tickToSqrtRatio(positionId.tickUpper())
             );
-            (, int256 amount0, int256 amount1) = vePositions.deposit(
+            (int256 amount0, int256 amount1) = vePositions.deposit(
                 id,
                 PositionDeposit({
                     poolKey: poolKey,
@@ -254,10 +254,8 @@ contract Ve33Test is FullTest {
                     targetSqrtRatio: sqrtRatio,
                     maxAmount0: uint128(delta0),
                     maxAmount1: uint128(delta1),
-                    swapRecipient: address(0),
-                    routeAfterDeposit: false,
                     router: address(0),
-                    route: bytes("")
+                    routerData: bytes("")
                 })
             );
             balanceUpdate = createPoolBalanceUpdate(int128(amount0), int128(amount1));
@@ -1607,7 +1605,11 @@ contract Ve33Test is FullTest {
 
         PositionDeposit memory parameters = positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
         parameters.liquidity = 1;
-        vm.expectRevert(IPositionDepositor.DepositOverflow.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionDepositor.PositionLiquidityOverflow.selector, uint128(type(int128).max), uint128(1)
+            )
+        );
         vePositions.deposit(id, parameters);
     }
 
@@ -1632,7 +1634,7 @@ contract Ve33Test is FullTest {
 
         ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
         uint256 id = _positionNftId(positionId);
-        (uint128 actualLiquidity, int256 amount0, int256 amount1) = vePositions.deposit(
+        (int256 amount0, int256 amount1) = vePositions.deposit(
             id,
             PositionDeposit({
                 poolKey: poolKey,
@@ -1642,10 +1644,8 @@ contract Ve33Test is FullTest {
                 targetSqrtRatio: targetSqrtRatio,
                 maxAmount0: uint128(uint256(expectedAmount0)),
                 maxAmount1: uint128(uint256(expectedAmount1)),
-                swapRecipient: address(0),
-                routeAfterDeposit: false,
                 router: address(forwardedRouter),
-                route: abi.encode(
+                routerData: abi.encode(
                     ForwardedSwapRoute({
                         poolKey: poolKey,
                         params: createSwapParameters(targetSqrtRatio, swapAmount, false, 0),
@@ -1658,7 +1658,6 @@ contract Ve33Test is FullTest {
             })
         );
 
-        assertEq(actualLiquidity, depositLiquidity, "exact liquidity");
         assertEq(amount0, expectedAmount0, "net token0");
         assertEq(amount1, expectedAmount1, "net token1");
         assertEq(_positionLiquidity(poolKey, positionId), initialLiquidity + depositLiquidity, "position liquidity");

@@ -155,16 +155,12 @@ contract Handler is StdUtils, StdAssertions {
             targetSqrtRatio: sqrtRatio,
             maxAmount0: amount0,
             maxAmount1: amount1,
-            swapRecipient: address(0),
-            routeAfterDeposit: false,
             router: address(0),
-            route: bytes("")
+            routerData: bytes("")
         });
 
-        try positions.deposit(positionId, parameters) returns (uint128 liquidity, int256 result0, int256 result1) {
-            if (liquidity > 0) {
-                activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
-            }
+        try positions.deposit(positionId, parameters) returns (int256 result0, int256 result1) {
+            activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, depositLiquidity));
 
             PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += result0;
@@ -177,11 +173,11 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != IPositionDepositor.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector
+                sig != IPositionDepositor.InvalidDepositLiquidity.selector && sig != SafeCastLib.Overflow.selector
                     && sig != 0x4e487b71 && sig != FixedPointMathLib.FullMulDivFailed.selector
                     && sig != LiquidityDeltaOverflow.selector && sig != ICore.MaxLiquidityPerTickExceeded.selector
                     && sig != IPositionDepositor.DepositExceedsMaxAmounts.selector
-                    && sig != IPositionDepositor.DepositSqrtRatioChanged.selector
+                    && sig != IPositionDepositor.TargetSqrtRatioNotReached.selector
             ) {
                 revert UnexpectedError(err);
             }

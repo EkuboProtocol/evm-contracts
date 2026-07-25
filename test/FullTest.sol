@@ -268,8 +268,9 @@ abstract contract FullTest is Test {
         }
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
-        (id, liquidity,,) =
-            positions.mintAndDeposit{value: value}(positionDeposit(poolKey, tickLower, tickUpper, amount0, amount1));
+        PositionDeposit memory parameters = positionDeposit(poolKey, tickLower, tickUpper, amount0, amount1);
+        liquidity = parameters.liquidity;
+        (id,,) = positions.mintAndDeposit{value: value}(parameters);
     }
 
     function positionDeposit(
@@ -290,10 +291,8 @@ abstract contract FullTest is Test {
             targetSqrtRatio: sqrtRatio,
             maxAmount0: maxAmount0,
             maxAmount1: maxAmount1,
-            swapRecipient: address(0),
-            routeAfterDeposit: false,
             router: address(0),
-            route: bytes("")
+            routerData: bytes("")
         });
     }
 

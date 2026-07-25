@@ -51,10 +51,10 @@ abstract contract BasePositionDepositor is
         virtual
         override
         authorizedForNft(id)
-        returns (uint128 liquidity, int256 amount0, int256 amount1)
+        returns (int256 amount0, int256 amount1)
     {
-        (liquidity, amount0, amount1) = abi.decode(
-            lock(abi.encode(CALL_TYPE_DEPOSIT, msg.sender, id, parameters)), (uint128, int256, int256)
+        (amount0, amount1) = abi.decode(
+            lock(abi.encode(CALL_TYPE_DEPOSIT, msg.sender, id, parameters)), (int256, int256)
         );
     }
 
@@ -80,10 +80,10 @@ abstract contract BasePositionDepositor is
         payable
         virtual
         override
-        returns (uint256 id, uint128 liquidity, int256 amount0, int256 amount1)
+        returns (uint256 id, int256 amount0, int256 amount1)
     {
         id = mint();
-        (liquidity, amount0, amount1) = deposit(id, parameters);
+        (amount0, amount1) = deposit(id, parameters);
     }
 
     /// @inheritdoc IPositionDepositor
@@ -92,10 +92,10 @@ abstract contract BasePositionDepositor is
         payable
         virtual
         override
-        returns (uint256 id, uint128 liquidity, int256 amount0, int256 amount1)
+        returns (uint256 id, int256 amount0, int256 amount1)
     {
         id = mint(salt);
-        (liquidity, amount0, amount1) = deposit(id, parameters);
+        (amount0, amount1) = deposit(id, parameters);
     }
 
     function _handleDeposit(bytes memory data) internal returns (bytes memory result) {
@@ -105,8 +105,7 @@ abstract contract BasePositionDepositor is
         _validatePool(parameters.poolKey);
 
         uint128 liquidity = parameters.liquidity;
-        if (liquidity == 0) revert ZeroDepositLiquidity();
-        if (liquidity > uint128(type(int128).max)) revert DepositOverflow();
+        if (liquidity == 0 || liquidity > uint128(type(int128).max)) revert InvalidDepositLiquidity(liquidity);
         if (!parameters.targetSqrtRatio.isValid()) {
             revert InvalidTargetSqrtRatio(parameters.targetSqrtRatio);
         }
@@ -116,7 +115,9 @@ abstract contract BasePositionDepositor is
 
         int256 routeAmount0;
         int256 routeAmount1;
-        if (!parameters.routeAfterDeposit) {
+        bool routeAfterDeposit =
+            parameters.router != address(0) && CORE.poolState(parameters.poolKey.toPoolId()).liquidity() == 0;
+        if (!routeAfterDeposit) {
             (routeAmount0, routeAmount1) = _route(parameters);
 
             SqrtRatio routedSqrtRatio = CORE.poolState(parameters.poolKey.toPoolId()).sqrtRatio();
@@ -127,16 +128,13 @@ abstract contract BasePositionDepositor is
 
         PoolBalanceUpdate depositBalanceUpdate = CORE.updatePosition(parameters.poolKey, positionId, int128(liquidity));
 
-        if (parameters.routeAfterDeposit) {
+        if (routeAfterDeposit) {
             (routeAmount0, routeAmount1) = _route(parameters);
         }
 
         SqrtRatio finalSqrtRatio = CORE.poolState(parameters.poolKey.toPoolId()).sqrtRatio();
         if (finalSqrtRatio != parameters.targetSqrtRatio) {
-            if (parameters.routeAfterDeposit) {
-                revert TargetSqrtRatioNotReached(parameters.targetSqrtRatio, finalSqrtRatio);
-            }
-            revert DepositSqrtRatioChanged(parameters.targetSqrtRatio, finalSqrtRatio);
+            revert TargetSqrtRatioNotReached(parameters.targetSqrtRatio, finalSqrtRatio);
         }
 
         int256 amount0 = routeAmount0 + int256(depositBalanceUpdate.delta0());
@@ -145,18 +143,17 @@ abstract contract BasePositionDepositor is
             revert DepositExceedsMaxAmounts(amount0, amount1, parameters.maxAmount0, parameters.maxAmount1);
         }
 
-        address swapRecipient = parameters.swapRecipient == address(0) ? caller : parameters.swapRecipient;
-        _settle(caller, swapRecipient, parameters.poolKey, amount0, amount1);
-        result = abi.encode(liquidity, amount0, amount1);
+        _settle(caller, parameters.poolKey, amount0, amount1);
+        result = abi.encode(amount0, amount1);
     }
 
     function _route(PositionDeposit memory parameters) private returns (int256 amount0, int256 amount1) {
         if (parameters.router == address(0)) {
-            if (parameters.route.length != 0) revert RouterRequired();
+            if (parameters.routerData.length != 0) revert RouterRequired();
             return (0, 0);
         }
 
-        bytes memory routeResult = ACCOUNTANT.forward(parameters.router, parameters.route);
+        bytes memory routeResult = ACCOUNTANT.forward(parameters.router, parameters.routerData);
         (address specifiedToken, address calculatedToken, int256 specifiedDelta, int256 calculatedDelta) =
             abi.decode(routeResult, (address, address, int256, int256));
 
@@ -169,18 +166,16 @@ abstract contract BasePositionDepositor is
         revert InvalidRouteTokens(specifiedToken, calculatedToken, parameters.poolKey.token0, parameters.poolKey.token1);
     }
 
-    function _settle(address caller, address swapRecipient, PoolKey memory poolKey, int256 delta0, int256 delta1)
-        private
-    {
+    function _settle(address caller, PoolKey memory poolKey, int256 delta0, int256 delta1) private {
         if (delta0 >= 0 && delta1 >= 0 && poolKey.token0 != NATIVE_TOKEN_ADDRESS) {
             ACCOUNTANT.payTwoFrom(caller, poolKey.token0, poolKey.token1, uint256(delta0), uint256(delta1));
         } else {
-            _settleToken(caller, swapRecipient, poolKey.token0, delta0);
-            _settleToken(caller, swapRecipient, poolKey.token1, delta1);
+            _settleToken(caller, poolKey.token0, delta0);
+            _settleToken(caller, poolKey.token1, delta1);
         }
     }
 
-    function _settleToken(address caller, address swapRecipient, address token, int256 delta) private {
+    function _settleToken(address caller, address token, int256 delta) private {
         if (delta > 0) {
             uint128 amount = uint128(uint256(delta));
             if (token == NATIVE_TOKEN_ADDRESS) {
@@ -190,7 +185,7 @@ abstract contract BasePositionDepositor is
             }
         } else if (delta < 0) {
             if (delta < -int256(uint256(type(uint128).max))) revert RouteOutputOverflow(token, delta);
-            ACCOUNTANT.withdraw(token, swapRecipient, uint128(uint256(-delta)));
+            ACCOUNTANT.withdraw(token, caller, uint128(uint256(-delta)));
         }
     }
 

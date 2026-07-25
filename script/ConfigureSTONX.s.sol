@@ -134,7 +134,7 @@ contract ConfigureSTONX is Script {
         bytes[] memory results = positions.multicall(calls);
         int256 amount0;
         int256 amount1;
-        (positionId,, amount0, amount1) = abi.decode(results[1], (uint256, uint128, int256, int256));
+        (positionId, amount0, amount1) = abi.decode(results[1], (uint256, int256, int256));
         uint128 usdgSpent = uint128(uint256(address(stonx) < usdg ? amount1 : amount0));
         if (usdgSpent != LIQUIDITY_USDG_AMOUNT) revert USDGNotFullySpent(usdgSpent);
         positions.transferFrom(deployer, governance, positionId);
@@ -159,10 +159,8 @@ contract ConfigureSTONX is Script {
             targetSqrtRatio: sqrtRatio,
             maxAmount0: maxAmount0,
             maxAmount1: maxAmount1,
-            swapRecipient: address(0),
-            routeAfterDeposit: false,
             router: address(0),
-            route: bytes("")
+            routerData: bytes("")
         });
     }
 

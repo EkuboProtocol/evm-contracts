@@ -4,6 +4,7 @@ pragma solidity =0.8.33;
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 
 import {ICore} from "../src/interfaces/ICore.sol";
+import {PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio, SqrtRatio, ONE} from "../src/types/sqrtRatio.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
@@ -75,9 +76,10 @@ contract SwapTest is FullTest {
         if (liquidity == 0) {
             id = positions.mint();
         } else {
-            (id, positionLiquidity,,) = positions.mintAndDeposit(
-                positionDeposit(poolKey, MIN_TICK, MAX_TICK, uint128(amount0), uint128(amount1))
-            );
+            PositionDeposit memory parameters =
+                positionDeposit(poolKey, MIN_TICK, MAX_TICK, uint128(amount0), uint128(amount1));
+            positionLiquidity = parameters.liquidity;
+            (id,,) = positions.mintAndDeposit(parameters);
         }
 
         assertEq(positionLiquidity, liquidity, "liquidity expected");

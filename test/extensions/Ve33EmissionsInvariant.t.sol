@@ -311,21 +311,19 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         TrackedPool memory trackedPool = pools[poolIndex];
         SqrtRatio sqrtRatio = core.poolState(trackedPool.poolId).sqrtRatio();
         uint128 maxAmount = uint128(POSITION_AMOUNT);
-        (uint256 nftId, uint128 liquidity,,) = ve33Positions.mintAndDeposit(
+        uint128 liquidity =
+            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount, maxAmount);
+        (uint256 nftId,,) = ve33Positions.mintAndDeposit(
             PositionDeposit({
                 poolKey: trackedPool.poolKey,
                 tickLower: tickLower,
                 tickUpper: tickUpper,
-                liquidity: maxLiquidity(
-                    sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount, maxAmount
-                ),
+                liquidity: liquidity,
                 targetSqrtRatio: sqrtRatio,
                 maxAmount0: maxAmount,
                 maxAmount1: maxAmount,
-                swapRecipient: address(0),
-                routeAfterDeposit: false,
                 router: address(0),
-                route: bytes("")
+                routerData: bytes("")
             })
         );
         positions.push(

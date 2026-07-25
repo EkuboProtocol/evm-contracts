@@ -298,7 +298,9 @@ contract Ve33Positions is BasePositionDepositor {
         override
     {
         uint128 existingLiquidity = Ve33Lib.positionLiquidity(CORE, poolKey.toPoolId(), address(this), positionId_);
-        if (existingLiquidity > uint128(type(int128).max) - liquidity) revert DepositOverflow();
+        if (existingLiquidity > uint128(type(int128).max) - liquidity) {
+            revert PositionLiquidityOverflow(existingLiquidity, liquidity);
+        }
     }
 
     function _positionRewardAmount(

@@ -43,7 +43,8 @@ contract ConfigureSTONX is Script {
 
     uint128 internal constant LIQUIDITY_TOKEN_AMOUNT = 333_333e18;
     uint128 internal constant LIQUIDITY_USDG_AMOUNT = 333_333e6;
-    uint128 internal constant DEPLOYER_TOKEN_AMOUNT = 333_333e18;
+    uint128 internal constant STAKE_TOKEN_AMOUNT = 333_333e18;
+    uint128 internal constant INITIAL_MINT_AMOUNT = LIQUIDITY_TOKEN_AMOUNT + STAKE_TOKEN_AMOUNT;
     uint32 internal constant TICK_SPACING = 1024;
     // Outermost usable ticks within Core's global bounds for this tick spacing.
     int32 internal constant POSITION_TICK_LOWER = -88_722_432;
@@ -79,12 +80,11 @@ contract ConfigureSTONX is Script {
 
         vm.startBroadcast();
 
-        stonx.mint(deployer, DEPLOYER_TOKEN_AMOUNT);
-        stonx.mint(deployer, LIQUIDITY_TOKEN_AMOUNT);
+        stonx.mint(deployer, INITIAL_MINT_AMOUNT);
 
         PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(system.ve33));
         uint256 positionId = _seedLiquidity(stonx, system.positions, poolKey, usdg, deployer, governance, nftSalt);
-        uint256 veId = _stakeAndVote(stonx, system.veToken, core, poolKey, nftSalt);
+        uint256 veId = _stakeAndVote(stonx, system.veToken, core, poolKey, deployer, nftSalt);
         system.positions.transferOwnership(governance);
         (address schedulerAddress, uint128 scheduledAmount) =
             _deployScheduler(stonx, system.ve33, system.periphery, core, salt, deployer, governance);
@@ -145,16 +145,28 @@ contract ConfigureSTONX is Script {
         positions.transferFrom(deployer, governance, positionId);
     }
 
-    function _stakeAndVote(MintableERC20 stonx, VeToken veToken, ICore core, PoolKey memory poolKey, bytes32 nftSalt)
-        internal
-        returns (uint256 veId)
-    {
+    function _stakeAndVote(
+        MintableERC20 stonx,
+        VeToken veToken,
+        ICore core,
+        PoolKey memory poolKey,
+        address deployer,
+        bytes32 nftSalt
+    ) internal returns (uint256 veId) {
         if (core.poolState(poolKey.toPoolId()).liquidity() == 0) revert PoolHasNoLiquidity();
 
-        stonx.approve(address(veToken), DEPLOYER_TOKEN_AMOUNT);
-        veId = veToken.stakeAndVote(
-            DEPLOYER_TOKEN_AMOUNT, uint64(block.timestamp + veToken.MAX_STAKE_DURATION()), nftSalt, poolKey, SWAP_FEE
+        stonx.approve(address(veToken), STAKE_TOKEN_AMOUNT);
+
+        veId = veToken.saltToId(deployer, nftSalt);
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeWithSignature(
+            "stakeForDuration(uint128,uint32,bytes32)",
+            STAKE_TOKEN_AMOUNT,
+            uint32(veToken.MAX_STAKE_DURATION()),
+            nftSalt
         );
+        calls[1] = abi.encodeCall(veToken.vote, (veId, poolKey, SWAP_FEE));
+        veToken.multicall(calls);
     }
 
     function _deployScheduler(

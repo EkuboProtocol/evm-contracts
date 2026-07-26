@@ -38,7 +38,7 @@ contract ConfigureSTONXHarness is ConfigureSTONX {
     ) external returns (PoolKey memory poolKey, uint256 positionId, uint256 veId, uint128 scheduledAmount) {
         poolKey = _stonxPoolKey(address(stonx), usdg, address(ve33));
         positionId = _seedLiquidity(stonx, positions, poolKey, usdg, address(this), governance, bytes32(0));
-        veId = _stakeAndVote(stonx, veToken, core, poolKey, bytes32(0));
+        veId = _stakeAndVote(stonx, veToken, core, poolKey, address(this), bytes32(0));
         positions.transferOwnership(governance);
         scheduledAmount = _scheduleInitialEmissions(stonx, periphery, address(this));
         _configureScheduler(stonx, scheduler, governance);
@@ -88,8 +88,7 @@ contract ConfigureSTONXTest is FullTest {
         dataFetcher = new Ve33DataFetcher(core, ve33);
         scheduler = new Ve33EmissionRateScheduler(address(deployer), core, ve33);
 
-        stonx.mint(address(deployer), STONX_AMOUNT);
-        stonx.mint(address(deployer), STONX_AMOUNT);
+        stonx.mint(address(deployer), STONX_AMOUNT * 2);
         stonx.transferOwnership(address(deployer));
     }
 

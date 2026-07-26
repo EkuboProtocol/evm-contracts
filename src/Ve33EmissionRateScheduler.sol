@@ -8,7 +8,7 @@ import {ICore} from "./interfaces/ICore.sol";
 import {IFlashAccountant} from "./interfaces/IFlashAccountant.sol";
 import {IMintableERC20} from "./interfaces/IMintableERC20.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
-import {computeStepSize} from "./math/time.sol";
+import {computeStepSize, nextValidTime} from "./math/time.sol";
 import {Ve33EmissionRateConfig, createVe33EmissionRateConfig} from "./types/ve33EmissionRateConfig.sol";
 
 /// @title Ve33 Emission Rate Scheduler
@@ -18,6 +18,9 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
 
     /// @notice Thrown when a nonzero target is configured with a zero schedule duration.
     error InvalidScheduleDuration();
+
+    /// @notice Thrown when a fixed-amount schedule does not require exactly the requested amount.
+    error UnexpectedScheduledAmount(uint128 expected, uint128 actual);
 
     /// @notice Ekubo Core contract.
     ICore public immutable core;
@@ -63,8 +66,30 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
         amount = abi.decode(lock(""), (uint128));
     }
 
+    /// @notice Mints and schedules an exact amount of tokens for at least `duration` seconds from now.
+    /// @dev The end timestamp and emission rate are computed inside the Core lock using the transaction's block timestamp.
+    ///      Only the owner can call this because the requested amount is not bounded by `config`.
+    /// @param amount Exact amount of tokens to mint and schedule.
+    /// @param duration Minimum duration of the emission schedule in seconds.
+    /// @return scheduledAmount Amount minted and scheduled.
+    function mintAndScheduleForDuration(uint128 amount, uint32 duration)
+        external
+        onlyOwner
+        returns (uint128 scheduledAmount)
+    {
+        if (amount == 0) return 0;
+        if (duration == 0) revert InvalidScheduleDuration();
+
+        scheduledAmount = abi.decode(lock(abi.encode(amount, duration)), (uint128));
+    }
+
     /// @inheritdoc BaseLocker
-    function handleLockData(uint256, bytes memory) internal override returns (bytes memory result) {
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
+        if (data.length != 0) {
+            (uint128 fixedAmount, uint32 fixedDuration) = abi.decode(data, (uint128, uint32));
+            return abi.encode(_mintAndScheduleForDuration(fixedAmount, fixedDuration));
+        }
+
         Ve33EmissionRateConfig config_ = config;
         uint160 target = config_.targetRate();
         if (target == 0) return abi.encode(uint128(0));
@@ -117,6 +142,18 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
 
         if (totalAmount != 0) _mintTokenPayment(totalAmount);
         return abi.encode(totalAmount);
+    }
+
+    function _mintAndScheduleForDuration(uint128 amount, uint32 duration) private returns (uint128 scheduledAmount) {
+        uint256 currentTime = block.timestamp;
+        uint256 endTime = nextValidTime(currentTime, currentTime + uint256(duration) - 1);
+        if (endTime == 0) revert InvalidScheduleDuration();
+
+        uint160 rewardRate = uint160((uint256(amount) << 32) / (endTime - currentTime));
+        scheduledAmount = Ve33Lib.scheduleEmissions(core, ve33, 0, uint64(endTime), rewardRate);
+        if (scheduledAmount != amount) revert UnexpectedScheduledAmount(amount, scheduledAmount);
+
+        _mintTokenPayment(scheduledAmount);
     }
 
     function _mintTokenPayment(uint128 amount) private {

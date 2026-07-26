@@ -10,7 +10,7 @@ import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
-import {computeStepSize, isTimeValid} from "../src/math/time.sol";
+import {computeStepSize, isTimeValid, nextValidTime} from "../src/math/time.sol";
 import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 
 contract SchedulerCallRevertTarget {
@@ -73,6 +73,47 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertEq(scheduler.mintAndSchedule(), 0);
         assertEq(stakeToken.totalSupply(), 0);
         assertEq(ve.emissionRate(), 0);
+    }
+
+    function test_mintAndScheduleForDurationFailsIfNotOwner() public {
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        scheduler.mintAndScheduleForDuration(1, 1 days);
+    }
+
+    function test_mintAndScheduleForDurationFailsWithZeroDuration() public {
+        vm.prank(owner);
+        vm.expectRevert(Ve33EmissionRateScheduler.InvalidScheduleDuration.selector);
+        scheduler.mintAndScheduleForDuration(1, 0);
+    }
+
+    function test_mintAndScheduleForDurationReturnsZeroForZeroAmount() public {
+        vm.prank(owner);
+        assertEq(scheduler.mintAndScheduleForDuration(0, 0), 0);
+        assertEq(stakeToken.totalSupply(), 0);
+        assertEq(ve.emissionRate(), 0);
+    }
+
+    function test_mintAndScheduleForDurationUsesExecutionTimestampAndMintsExactAmount() public {
+        uint128 requestedAmount = 333_333e18;
+        uint32 duration = 100 days;
+        uint256 generatedAt = vm.getBlockTimestamp();
+
+        vm.warp(generatedAt + 1 days);
+        uint256 executedAt = vm.getBlockTimestamp();
+        uint64 expectedEnd = uint64(nextValidTime(executedAt, executedAt + uint256(duration) - 1));
+        uint160 expectedRate = uint160((uint256(requestedAmount) << 32) / (expectedEnd - executedAt));
+
+        vm.prank(owner);
+        uint128 scheduledAmount = scheduler.mintAndScheduleForDuration(requestedAmount, duration);
+
+        assertEq(scheduledAmount, requestedAmount);
+        assertEq(stakeToken.totalSupply(), requestedAmount);
+        assertEq(stakeToken.balanceOf(address(core)), requestedAmount);
+        assertEq(_rewardSavedBalance(), requestedAmount);
+        assertEq(ve.emissionRate(), expectedRate);
+        assertEq(ve.emissionRateDeltaAtTime(expectedEnd), -int256(uint256(expectedRate)));
+        assertGe(expectedEnd, executedAt + duration);
+        assertTrue(isTimeValid(executedAt, expectedEnd));
     }
 
     function test_lockCallbackFailsIfNotCore() public {

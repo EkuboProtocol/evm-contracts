@@ -269,8 +269,7 @@ abstract contract FullTest is Test {
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
         PositionDeposit memory parameters = positionDeposit(poolKey, tickLower, tickUpper, amount0, amount1);
-        liquidity = parameters.liquidity;
-        (id,,) = positions.mintAndDeposit{value: value}(parameters);
+        (id, liquidity,,) = positions.mintAndDeposit{value: value}(parameters);
     }
 
     function positionDeposit(
@@ -281,16 +280,16 @@ abstract contract FullTest is Test {
         uint128 maxAmount1
     ) internal view returns (PositionDeposit memory parameters) {
         SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        uint128 liquidity =
+            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
         parameters = PositionDeposit({
             poolKey: poolKey,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            liquidity: maxLiquidity(
-                sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1
-            ),
-            targetSqrtRatio: sqrtRatio,
             maxAmount0: maxAmount0,
             maxAmount1: maxAmount1,
+            minLiquidity: liquidity,
+            targetSqrtRatio: sqrtRatio,
             router: address(0),
             routerData: bytes("")
         });

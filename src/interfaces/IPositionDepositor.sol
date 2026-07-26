@@ -5,7 +5,7 @@ import {PoolKey} from "../types/poolKey.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {IBaseNonfungibleToken} from "./IBaseNonfungibleToken.sol";
 
-/// @notice Parameters for adding an exact amount of liquidity at an exact pool price.
+/// @notice Parameters for adding the maximum liquidity possible at an exact pool price.
 struct PositionDeposit {
     /// @notice Pool receiving the liquidity.
     PoolKey poolKey;
@@ -13,20 +13,22 @@ struct PositionDeposit {
     int32 tickLower;
     /// @notice Upper tick of the position range.
     int32 tickUpper;
-    /// @notice Exact amount of liquidity to add.
-    uint128 liquidity;
-    /// @notice Exact final pool sqrt ratio after the liquidity update and optional route.
-    SqrtRatio targetSqrtRatio;
     /// @notice Maximum net amount of token0 the caller will pay across the price-setting swap and deposit.
     uint128 maxAmount0;
     /// @notice Maximum net amount of token1 the caller will pay across the price-setting swap and deposit.
     uint128 maxAmount1;
-    /// @notice Optional Core forwardee used to rebalance the deposit. Zero skips routing.
+    /// @notice Minimum liquidity that must be added.
+    uint128 minLiquidity;
+    /// @notice Exact pool sqrt ratio at which liquidity must be added.
+    SqrtRatio targetSqrtRatio;
+    /// @notice Core forwardee used to rebalance the deposit. A nonzero address always runs; zero skips routing.
     /// @dev The forwardee must return ABI-encoded
     ///      `(address specifiedToken, address calculatedToken, int256 specifiedDelta, int256 calculatedDelta)`.
     ///      The deltas must be the endpoint debt changes its route leaves on the shared Core lock.
-    ///      The route runs before the deposit unless the pool has no active liquidity, in which case the deposit
-    ///      runs first so the route can move the pool.
+    ///      A price-limited route that consumes less than its specified maximum must return the amounts
+    ///      actually swapped, including zero deltas when moving through empty liquidity.
+    ///      The route always runs before liquidity is calculated and added. A swap can move through empty
+    ///      liquidity to its limit without changing either token balance.
     address router;
     /// @notice Router-specific data forwarded through Core under the position manager's lock.
     bytes routerData;
@@ -34,8 +36,11 @@ struct PositionDeposit {
 
 /// @notice Shared interface for adding liquidity through a position NFT manager.
 interface IPositionDepositor is IBaseNonfungibleToken {
-    /// @notice Thrown when deposit liquidity is zero or cannot fit in the Core position update type.
-    error InvalidDepositLiquidity(uint128 liquidity);
+    /// @notice Thrown when the maximum liquidity available is below the caller's minimum.
+    error DepositLiquidityBelowMinimum(uint128 liquidity, uint128 minLiquidity);
+
+    /// @notice Thrown when the available liquidity cannot fit in one Core position update.
+    error DepositLiquidityOverflow(uint128 liquidity);
 
     /// @notice Thrown when adding liquidity would make a managed position exceed the Core update type.
     error PositionLiquidityOverflow(uint128 currentLiquidity, uint128 addedLiquidity);
@@ -58,12 +63,12 @@ interface IPositionDepositor is IBaseNonfungibleToken {
     /// @notice Thrown when a routed output is too large to settle in one Core withdrawal.
     error RouteOutputOverflow(address token, int256 amount);
 
-    /// @notice Adds exactly the requested liquidity and optionally routes around the update.
+    /// @notice Routes when the router is nonzero, then adds the maximum liquidity allowed by the token limits.
     /// @dev Positive returned amounts are paid by the caller. Negative returned amounts are sent to the caller.
     function deposit(uint256 id, PositionDeposit calldata parameters)
         external
         payable
-        returns (int256 amount0, int256 amount1);
+        returns (uint128 liquidity, int256 amount0, int256 amount1);
 
     /// @notice Initializes a pool if it has not been initialized yet.
     function maybeInitializePool(PoolKey calldata poolKey, int32 tick)
@@ -71,15 +76,15 @@ interface IPositionDepositor is IBaseNonfungibleToken {
         payable
         returns (bool initialized, SqrtRatio sqrtRatio);
 
-    /// @notice Mints a new NFT, adds exactly the requested liquidity, and optionally routes around the update.
+    /// @notice Mints a new NFT, routes when the router is nonzero, and adds the maximum available liquidity.
     function mintAndDeposit(PositionDeposit calldata parameters)
         external
         payable
-        returns (uint256 id, int256 amount0, int256 amount1);
+        returns (uint256 id, uint128 liquidity, int256 amount0, int256 amount1);
 
-    /// @notice Mints a deterministic NFT, adds exactly the requested liquidity, and optionally routes around the update.
+    /// @notice Mints a deterministic NFT, routes when the router is nonzero, and adds the maximum available liquidity.
     function mintAndDepositWithSalt(bytes32 salt, PositionDeposit calldata parameters)
         external
         payable
-        returns (uint256 id, int256 amount0, int256 amount1);
+        returns (uint256 id, uint128 liquidity, int256 amount0, int256 amount1);
 }

@@ -490,16 +490,14 @@ contract OrdersTest is BaseOrdersTest {
         twamm.lockAndExecuteVirtualOrders(poolKey);
         PositionDeposit memory deposit0 =
             positionDeposit(poolKey, MIN_TICK, MAX_TICK, 9065869775701580912051, 16591196256327018126941976177968210);
-        uint128 liquidity0 = deposit0.liquidity;
-        positions.deposit(pID, deposit0);
+        (uint128 liquidity0,,) = positions.deposit(pID, deposit0);
 
         advanceTime(102_399);
 
         twamm.lockAndExecuteVirtualOrders(poolKey);
         PositionDeposit memory deposit1 =
             positionDeposit(poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396);
-        uint128 liquidity1 = deposit1.liquidity;
-        positions.deposit(pID, deposit1);
+        (uint128 liquidity1,,) = positions.deposit(pID, deposit1);
         (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 13485562298671080879303606629460147559991345152);
@@ -540,8 +538,7 @@ contract OrdersTest is BaseOrdersTest {
         twamm.lockAndExecuteVirtualOrders(poolKey);
         PositionDeposit memory deposit2 =
             positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1412971749302168760052394, 35831434466998775335139276644539);
-        uint128 liquidity2 = deposit2.liquidity;
-        positions.deposit(pID, deposit2);
+        (uint128 liquidity2,,) = positions.deposit(pID, deposit2);
 
         liquidity = core.poolState(poolId).liquidity();
         assertEq(liquidity, liquidity0 + liquidity1 + liquidity2);

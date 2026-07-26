@@ -33,7 +33,7 @@ import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {computeFee} from "../../src/math/fee.sol";
 import {nextValidTime} from "../../src/math/time.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
-import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
+import {liquidityDeltaToAmountDelta, maxLiquidity} from "../../src/math/liquidity.sol";
 import {timeToBitmapWordAndIndex} from "../../src/math/timeBitmap.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
@@ -244,16 +244,16 @@ contract Ve33Test is FullTest {
                 tickToSqrtRatio(positionId.tickLower()),
                 tickToSqrtRatio(positionId.tickUpper())
             );
-            (int256 amount0, int256 amount1) = vePositions.deposit(
+            (, int256 amount0, int256 amount1) = vePositions.deposit(
                 id,
                 PositionDeposit({
                     poolKey: poolKey,
                     tickLower: positionId.tickLower(),
                     tickUpper: positionId.tickUpper(),
-                    liquidity: uint128(liquidityDelta),
-                    targetSqrtRatio: sqrtRatio,
                     maxAmount0: uint128(delta0),
                     maxAmount1: uint128(delta1),
+                    minLiquidity: uint128(liquidityDelta),
+                    targetSqrtRatio: sqrtRatio,
                     router: address(0),
                     routerData: bytes("")
                 })
@@ -1603,8 +1603,11 @@ contract Ve33Test is FullTest {
         (uint128 liquidity,,) = vePositions.getPositionLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(liquidity, uint128(type(int128).max));
 
-        PositionDeposit memory parameters = positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
-        parameters.liquidity = 1;
+        SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        (int128 amount0, int128 amount1) = liquidityDeltaToAmountDelta(sqrtRatio, 1, MIN_SQRT_RATIO, MAX_SQRT_RATIO);
+        PositionDeposit memory parameters =
+            positionDeposit(poolKey, MIN_TICK, MAX_TICK, uint128(amount0), uint128(amount1));
+        parameters.minLiquidity = 1;
         vm.expectRevert(
             abi.encodeWithSelector(
                 IPositionDepositor.PositionLiquidityOverflow.selector, uint128(type(int128).max), uint128(1)
@@ -1617,15 +1620,28 @@ contract Ve33Test is FullTest {
         (PoolKey memory poolKey, PositionId positionId) = _createConcentratedPool();
         uint128 initialLiquidity = 20_000_000;
         _updatePosition(poolKey, positionId, int128(initialLiquidity));
+        uint128 initialPositionLiquidity = _positionLiquidity(poolKey, positionId);
 
         int128 swapAmount = 100;
         (PoolBalanceUpdate swapBalanceUpdate, PoolState stateAfter) = router.quote({
             poolKey: poolKey, isToken1: false, amount: swapAmount, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
         });
         SqrtRatio targetSqrtRatio = stateAfter.sqrtRatio();
-        uint128 depositLiquidity = 10_000_000;
+        uint128 seedLiquidity = 10_000_000;
+        (int128 seedAmount0, int128 seedAmount1) = liquidityDeltaToAmountDelta(
+            targetSqrtRatio, int128(seedLiquidity), tickToSqrtRatio(-64), tickToSqrtRatio(64)
+        );
+        uint128 maxAmount0 = uint128(uint256(int256(swapBalanceUpdate.delta0()) + int256(seedAmount0)));
+        uint128 maxAmount1 = uint128(uint256(int256(swapBalanceUpdate.delta1()) + int256(seedAmount1)));
+        uint128 expectedLiquidity = maxLiquidity(
+            targetSqrtRatio,
+            tickToSqrtRatio(-64),
+            tickToSqrtRatio(64),
+            maxAmount0 - uint128(swapBalanceUpdate.delta0()),
+            maxAmount1 + uint128(uint256(-int256(swapBalanceUpdate.delta1())))
+        );
         (int128 depositAmount0, int128 depositAmount1) = liquidityDeltaToAmountDelta(
-            targetSqrtRatio, int128(depositLiquidity), tickToSqrtRatio(-64), tickToSqrtRatio(64)
+            targetSqrtRatio, int128(expectedLiquidity), tickToSqrtRatio(-64), tickToSqrtRatio(64)
         );
         int256 expectedAmount0 = int256(swapBalanceUpdate.delta0()) + int256(depositAmount0);
         int256 expectedAmount1 = int256(swapBalanceUpdate.delta1()) + int256(depositAmount1);
@@ -1634,16 +1650,16 @@ contract Ve33Test is FullTest {
 
         ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
         uint256 id = _positionNftId(positionId);
-        (int256 amount0, int256 amount1) = vePositions.deposit(
+        (uint128 liquidity, int256 amount0, int256 amount1) = vePositions.deposit(
             id,
             PositionDeposit({
                 poolKey: poolKey,
                 tickLower: -64,
                 tickUpper: 64,
-                liquidity: depositLiquidity,
+                maxAmount0: maxAmount0,
+                maxAmount1: maxAmount1,
+                minLiquidity: expectedLiquidity,
                 targetSqrtRatio: targetSqrtRatio,
-                maxAmount0: uint128(uint256(expectedAmount0)),
-                maxAmount1: uint128(uint256(expectedAmount1)),
                 router: address(forwardedRouter),
                 routerData: abi.encode(
                     ForwardedSwapRoute({
@@ -1658,9 +1674,12 @@ contract Ve33Test is FullTest {
             })
         );
 
+        assertEq(liquidity, expectedLiquidity, "added liquidity");
         assertEq(amount0, expectedAmount0, "net token0");
         assertEq(amount1, expectedAmount1, "net token1");
-        assertEq(_positionLiquidity(poolKey, positionId), initialLiquidity + depositLiquidity, "position liquidity");
+        assertEq(
+            _positionLiquidity(poolKey, positionId), initialPositionLiquidity + expectedLiquidity, "position liquidity"
+        );
         assertEq(
             SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()),
             SqrtRatio.unwrap(targetSqrtRatio),

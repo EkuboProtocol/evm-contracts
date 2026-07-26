@@ -11,13 +11,15 @@ import {IPositionDepositor, PositionDeposit} from "../interfaces/IPositionDeposi
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {maxLiquidity} from "../math/liquidity.sol";
+import {tickToSqrtRatio} from "../math/ticks.sol";
 import {PoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PositionId, createPositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @notice Shared exact-price deposit flow for regular and extension-specific position managers.
+/// @notice Shared maximum-liquidity deposit flow for regular and extension-specific position managers.
 abstract contract BasePositionDepositor is
     IPositionDepositor,
     UsesCore,
@@ -51,10 +53,10 @@ abstract contract BasePositionDepositor is
         virtual
         override
         authorizedForNft(id)
-        returns (int256 amount0, int256 amount1)
+        returns (uint128 liquidity, int256 amount0, int256 amount1)
     {
-        (amount0, amount1) = abi.decode(
-            lock(abi.encode(CALL_TYPE_DEPOSIT, msg.sender, id, parameters)), (int256, int256)
+        (liquidity, amount0, amount1) = abi.decode(
+            lock(abi.encode(CALL_TYPE_DEPOSIT, msg.sender, id, parameters)), (uint128, int256, int256)
         );
     }
 
@@ -80,10 +82,10 @@ abstract contract BasePositionDepositor is
         payable
         virtual
         override
-        returns (uint256 id, int256 amount0, int256 amount1)
+        returns (uint256 id, uint128 liquidity, int256 amount0, int256 amount1)
     {
         id = mint();
-        (amount0, amount1) = deposit(id, parameters);
+        (liquidity, amount0, amount1) = deposit(id, parameters);
     }
 
     /// @inheritdoc IPositionDepositor
@@ -92,10 +94,10 @@ abstract contract BasePositionDepositor is
         payable
         virtual
         override
-        returns (uint256 id, int256 amount0, int256 amount1)
+        returns (uint256 id, uint128 liquidity, int256 amount0, int256 amount1)
     {
         id = mint(salt);
-        (amount0, amount1) = deposit(id, parameters);
+        (liquidity, amount0, amount1) = deposit(id, parameters);
     }
 
     function _handleDeposit(bytes memory data) internal returns (bytes memory result) {
@@ -104,47 +106,59 @@ abstract contract BasePositionDepositor is
 
         _validatePool(parameters.poolKey);
 
-        uint128 liquidity = parameters.liquidity;
-        if (liquidity == 0 || liquidity > uint128(type(int128).max)) revert InvalidDepositLiquidity(liquidity);
         if (!parameters.targetSqrtRatio.isValid()) {
             revert InvalidTargetSqrtRatio(parameters.targetSqrtRatio);
         }
 
+        (int256 routeAmount0, int256 routeAmount1) = _route(parameters);
+        SqrtRatio routedSqrtRatio = CORE.poolState(parameters.poolKey.toPoolId()).sqrtRatio();
+        if (routedSqrtRatio != parameters.targetSqrtRatio) {
+            revert TargetSqrtRatioNotReached(parameters.targetSqrtRatio, routedSqrtRatio);
+        }
+
+        uint128 liquidity = maxLiquidity(
+            routedSqrtRatio,
+            tickToSqrtRatio(parameters.tickLower),
+            tickToSqrtRatio(parameters.tickUpper),
+            _availableAmount(parameters.maxAmount0, routeAmount0),
+            _availableAmount(parameters.maxAmount1, routeAmount1)
+        );
+
+        if (liquidity < parameters.minLiquidity) {
+            revert DepositLiquidityBelowMinimum(liquidity, parameters.minLiquidity);
+        }
+        if (liquidity > uint128(type(int128).max)) revert DepositLiquidityOverflow(liquidity);
+
         PositionId positionId = createPositionId(bytes24(uint192(id)), parameters.tickLower, parameters.tickUpper);
         _validateDepositLiquidity(parameters.poolKey, positionId, liquidity);
-
-        int256 routeAmount0;
-        int256 routeAmount1;
-        bool routeAfterDeposit =
-            parameters.router != address(0) && CORE.poolState(parameters.poolKey.toPoolId()).liquidity() == 0;
-        if (!routeAfterDeposit) {
-            (routeAmount0, routeAmount1) = _route(parameters);
-
-            SqrtRatio routedSqrtRatio = CORE.poolState(parameters.poolKey.toPoolId()).sqrtRatio();
-            if (routedSqrtRatio != parameters.targetSqrtRatio) {
-                revert TargetSqrtRatioNotReached(parameters.targetSqrtRatio, routedSqrtRatio);
-            }
-        }
-
         PoolBalanceUpdate depositBalanceUpdate = CORE.updatePosition(parameters.poolKey, positionId, int128(liquidity));
-
-        if (routeAfterDeposit) {
-            (routeAmount0, routeAmount1) = _route(parameters);
-        }
-
-        SqrtRatio finalSqrtRatio = CORE.poolState(parameters.poolKey.toPoolId()).sqrtRatio();
-        if (finalSqrtRatio != parameters.targetSqrtRatio) {
-            revert TargetSqrtRatioNotReached(parameters.targetSqrtRatio, finalSqrtRatio);
-        }
 
         int256 amount0 = routeAmount0 + int256(depositBalanceUpdate.delta0());
         int256 amount1 = routeAmount1 + int256(depositBalanceUpdate.delta1());
-        if (amount0 > int256(uint256(parameters.maxAmount0)) || amount1 > int256(uint256(parameters.maxAmount1))) {
+        SqrtRatio finalSqrtRatio = CORE.poolState(parameters.poolKey.toPoolId()).sqrtRatio();
+        if (finalSqrtRatio != parameters.targetSqrtRatio) {
+            revert TargetSqrtRatioNotReached(parameters.targetSqrtRatio, finalSqrtRatio);
+        } else if (amount0 > int256(uint256(parameters.maxAmount0)) || amount1 > int256(uint256(parameters.maxAmount1)))
+        {
             revert DepositExceedsMaxAmounts(amount0, amount1, parameters.maxAmount0, parameters.maxAmount1);
         }
 
         _settle(caller, parameters.poolKey, amount0, amount1);
-        result = abi.encode(amount0, amount1);
+        result = abi.encode(liquidity, amount0, amount1);
+    }
+
+    function _availableAmount(uint128 maxAmount, int256 routeAmount) private pure returns (uint128 amount) {
+        if (routeAmount >= 0) {
+            uint256 spent = uint256(routeAmount);
+            return spent >= maxAmount ? 0 : maxAmount - uint128(spent);
+        }
+
+        uint256 received;
+        assembly ("memory-safe") {
+            received := sub(0, routeAmount)
+        }
+        uint256 room = type(uint128).max - uint256(maxAmount);
+        amount = received >= room ? type(uint128).max : maxAmount + uint128(received);
     }
 
     function _route(PositionDeposit memory parameters) private returns (int256 amount0, int256 amount1) {

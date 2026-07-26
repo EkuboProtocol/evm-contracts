@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import {PoolKey} from "../types/poolKey.sol";
 import {IPositionDepositor} from "./IPositionDepositor.sol";
 
-/// @notice Exact-liquidity positions interface with routed deposits.
+/// @notice Positions interface with maximum-liquidity routed deposits.
 interface IPositionsV2 is IPositionDepositor {
     error WithdrawOverflow();
 

@@ -78,8 +78,7 @@ contract SwapTest is FullTest {
         } else {
             PositionDeposit memory parameters =
                 positionDeposit(poolKey, MIN_TICK, MAX_TICK, uint128(amount0), uint128(amount1));
-            positionLiquidity = parameters.liquidity;
-            (id,,) = positions.mintAndDeposit(parameters);
+            (id, positionLiquidity,,) = positions.mintAndDeposit(parameters);
         }
 
         assertEq(positionLiquidity, liquidity, "liquidity expected");

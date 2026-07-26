@@ -21,8 +21,7 @@ import {Positions} from "../src/Positions.sol";
 import {IPositionDepositor, PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {TestToken} from "./TestToken.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
-import {LiquidityDeltaOverflow, maxLiquidity} from "../src/math/liquidity.sol";
-import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 function maxBounds(PoolConfig config) pure returns (int32 tickLower, int32 tickUpper) {
@@ -144,23 +143,20 @@ contract Handler is StdUtils, StdAssertions {
         }
 
         SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
-        uint128 depositLiquidity =
-            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), amount0, amount1);
-        if (depositLiquidity == 0) return;
         PositionDeposit memory parameters = PositionDeposit({
             poolKey: poolKey,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            liquidity: depositLiquidity,
-            targetSqrtRatio: sqrtRatio,
             maxAmount0: amount0,
             maxAmount1: amount1,
+            minLiquidity: 1,
+            targetSqrtRatio: sqrtRatio,
             router: address(0),
             routerData: bytes("")
         });
 
-        try positions.deposit(positionId, parameters) returns (int256 result0, int256 result1) {
-            activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, depositLiquidity));
+        try positions.deposit(positionId, parameters) returns (uint128 liquidity, int256 result0, int256 result1) {
+            activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
 
             PoolId poolId = poolKey.toPoolId();
             poolBalances[poolId].amount0 += result0;
@@ -173,9 +169,11 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != IPositionDepositor.InvalidDepositLiquidity.selector && sig != SafeCastLib.Overflow.selector
-                    && sig != 0x4e487b71 && sig != FixedPointMathLib.FullMulDivFailed.selector
-                    && sig != LiquidityDeltaOverflow.selector && sig != ICore.MaxLiquidityPerTickExceeded.selector
+                sig != IPositionDepositor.DepositLiquidityBelowMinimum.selector
+                    && sig != IPositionDepositor.DepositLiquidityOverflow.selector
+                    && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                    && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
+                    && sig != ICore.MaxLiquidityPerTickExceeded.selector
                     && sig != IPositionDepositor.DepositExceedsMaxAmounts.selector
                     && sig != IPositionDepositor.TargetSqrtRatioNotReached.selector
             ) {

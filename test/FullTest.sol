@@ -3,7 +3,10 @@ pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {ICore, IExtension} from "../src/interfaces/ICore.sol";
+import {PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
+import {maxLiquidity} from "../src/math/liquidity.sol";
+import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {Core} from "../src/Core.sol";
 import {Positions} from "../src/Positions.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
@@ -18,6 +21,7 @@ import {SwapParameters} from "../src/types/swapParameters.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Locker} from "../src/types/locker.sol";
 import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 
@@ -153,6 +157,8 @@ contract MockExtension is IExtension, BaseLocker {
 }
 
 abstract contract FullTest is Test {
+    using CoreLib for *;
+
     address immutable owner = makeAddr("owner");
     Core core;
     Positions positions;
@@ -244,6 +250,16 @@ abstract contract FullTest is Test {
         internal
         returns (uint256 id, uint128 liquidity)
     {
+        return this.createPositionExternal(poolKey, tickLower, tickUpper, amount0, amount1);
+    }
+
+    function createPositionExternal(
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 amount0,
+        uint128 amount1
+    ) external returns (uint256 id, uint128 liquidity) {
         uint256 value;
         if (poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
             value = amount0;
@@ -252,7 +268,31 @@ abstract contract FullTest is Test {
         }
         TestToken(poolKey.token1).approve(address(positions), amount1);
 
-        (id, liquidity,,) = positions.mintAndDeposit{value: value}(poolKey, tickLower, tickUpper, amount0, amount1, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, tickLower, tickUpper, amount0, amount1);
+        (id, liquidity,,) = positions.mintAndDeposit{value: value}(parameters);
+    }
+
+    function positionDeposit(
+        PoolKey memory poolKey,
+        int32 tickLower,
+        int32 tickUpper,
+        uint128 maxAmount0,
+        uint128 maxAmount1
+    ) internal view returns (PositionDeposit memory parameters) {
+        SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        uint128 liquidity =
+            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount0, maxAmount1);
+        parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            maxAmount0: maxAmount0,
+            maxAmount1: maxAmount1,
+            minLiquidity: liquidity,
+            targetSqrtRatio: sqrtRatio,
+            router: address(0),
+            routerData: bytes("")
+        });
     }
 
     function advanceTime(uint256 by) internal returns (uint256 next) {

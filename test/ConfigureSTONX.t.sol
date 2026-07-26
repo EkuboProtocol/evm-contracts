@@ -37,7 +37,7 @@ contract ConfigureSTONXHarness is ConfigureSTONX {
         address governance
     ) external returns (PoolKey memory poolKey, uint256 positionId, uint256 veId, uint128 scheduledAmount) {
         poolKey = _stonxPoolKey(address(stonx), usdg, address(ve33));
-        positionId = _seedLiquidity(stonx, positions, poolKey, usdg, address(this), governance, bytes32(0));
+        positionId = _seedLiquidity(stonx, positions, core, poolKey, usdg, address(this), governance, bytes32(0));
         veId = _stakeAndVote(stonx, veToken, core, poolKey, bytes32(0));
         positions.transferOwnership(governance);
         scheduledAmount = _scheduleInitialEmissions(stonx, periphery, address(this));

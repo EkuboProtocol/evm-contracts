@@ -4,20 +4,22 @@ pragma solidity =0.8.33;
 import {CallPoints} from "../src/types/callPoints.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {FullTest, MockExtension} from "./FullTest.sol";
+import {ForwardedSwapRoute, ForwardedSwapRouter} from "./ForwardedSwapRouter.sol";
 import {RouteNode, TokenAmount} from "../src/base/BaseRouter.sol";
+import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
+import {IPositionDepositor, PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {createSwapParameters} from "../src/types/swapParameters.sol";
+import {SwapParameters, createSwapParameters} from "../src/types/swapParameters.sol";
 import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {MIN_TICK, MAX_TICK} from "../src/math/constants.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../src/types/sqrtRatio.sol";
 import {Positions} from "../src/Positions.sol";
 import {FreePositions} from "../src/FreePositions.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
+import {liquidityDeltaToAmountDelta, maxLiquidity} from "../src/math/liquidity.sol";
 import {computeFee} from "../src/math/fee.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
-import {StorageSlot} from "../src/types/storageSlot.sol";
-import {PoolState, createPoolState} from "../src/types/poolState.sol";
+import {PoolState} from "../src/types/poolState.sol";
 import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
 import {PositionId, createPositionId} from "../src/types/positionId.sol";
 
@@ -44,13 +46,341 @@ contract PositionsTest is FullTest {
         assertNotEq(id, p2.saltToId(minter, salt));
     }
 
+    function test_mintAndDeposit_rebalancesUnevenAmountsThroughForwardedRouter() public {
+        this.runRoutedDeposit(false);
+    }
+
+    function test_mintAndDeposit_mapsReversedRouteEndpoints() public {
+        this.runRoutedDeposit(true);
+    }
+
+    function test_mintAndDeposit_sendsNetSwapOutputToCaller() public {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        createPosition(poolKey, -100, 100, 10_000, 10_000);
+
+        int128 swapAmount = 1_000;
+        (PoolBalanceUpdate swapBalanceUpdate, PoolState stateAfter) = router.quote({
+            poolKey: poolKey, isToken1: false, amount: swapAmount, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
+        });
+        SqrtRatio targetSqrtRatio = stateAfter.sqrtRatio();
+        uint128 seedLiquidity = 4_000_000;
+        (int128 seedAmount0, int128 seedAmount1) = liquidityDeltaToAmountDelta(
+            targetSqrtRatio, int128(seedLiquidity), tickToSqrtRatio(-100), tickToSqrtRatio(100)
+        );
+        uint128 maxAmount0 = uint128(uint256(int256(swapBalanceUpdate.delta0()) + int256(seedAmount0)));
+        uint128 availableAmount1 = uint128(uint256(-int256(swapBalanceUpdate.delta1())));
+        uint128 expectedLiquidity = maxLiquidity(
+            targetSqrtRatio,
+            tickToSqrtRatio(-100),
+            tickToSqrtRatio(100),
+            maxAmount0 - uint128(swapBalanceUpdate.delta0()),
+            availableAmount1
+        );
+        (int128 depositAmount0, int128 depositAmount1) = liquidityDeltaToAmountDelta(
+            targetSqrtRatio, int128(expectedLiquidity), tickToSqrtRatio(-100), tickToSqrtRatio(100)
+        );
+        int256 expectedAmount0 = int256(swapBalanceUpdate.delta0()) + int256(depositAmount0);
+        int256 expectedAmount1 = int256(swapBalanceUpdate.delta1()) + int256(depositAmount1);
+        assertGt(expectedAmount0, 0, "token0 net input");
+        assertLt(expectedAmount1, 0, "token1 net output");
+
+        ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
+        PositionDeposit memory parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: -100,
+            tickUpper: 100,
+            maxAmount0: maxAmount0,
+            maxAmount1: 0,
+            minLiquidity: expectedLiquidity,
+            targetSqrtRatio: targetSqrtRatio,
+            router: address(forwardedRouter),
+            routerData: abi.encode(
+                ForwardedSwapRoute({
+                    poolKey: poolKey,
+                    params: createSwapParameters(targetSqrtRatio, swapAmount, false, 0),
+                    useExtension: false,
+                    reverseResult: false,
+                    returnInvalidTokens: false,
+                    misreportDeltas: false
+                })
+            )
+        });
+
+        token0.approve(address(positions), parameters.maxAmount0);
+        uint256 token0Before = token0.balanceOf(address(this));
+        uint256 token1Before = token1.balanceOf(address(this));
+        (, uint128 liquidity, int256 amount0, int256 amount1) = positions.mintAndDeposit(parameters);
+
+        assertEq(liquidity, expectedLiquidity, "added liquidity");
+        assertEq(amount0, expectedAmount0, "net token0");
+        assertEq(amount1, expectedAmount1, "net token1");
+        assertEq(token0Before - token0.balanceOf(address(this)), uint256(expectedAmount0), "token0 spent");
+        assertEq(token1.balanceOf(address(this)) - token1Before, uint256(-expectedAmount1), "caller token1 output");
+    }
+
+    function test_mintAndDeposit_routesEmptyPoolBeforeDepositWithoutConsumingSwapAmount() public {
+        PoolKey memory poolKey = createPool(50, 0, 100);
+        assertEq(core.poolState(poolKey.toPoolId()).liquidity(), 0, "pool starts empty");
+
+        uint128 seedLiquidity = 100_000_000;
+        SqrtRatio targetSqrtRatio = tickToSqrtRatio(-50);
+        (int128 depositAmount0, int128 depositAmount1) = liquidityDeltaToAmountDelta(
+            targetSqrtRatio, int128(seedLiquidity), tickToSqrtRatio(-100), tickToSqrtRatio(100)
+        );
+        uint128 expectedLiquidity = maxLiquidity(
+            targetSqrtRatio,
+            tickToSqrtRatio(-100),
+            tickToSqrtRatio(100),
+            uint128(depositAmount0),
+            uint128(depositAmount1)
+        );
+
+        int128 swapAmount = 1_000;
+        (PoolBalanceUpdate swapBalanceUpdate, PoolState stateAfter) = router.quote({
+            poolKey: poolKey, isToken1: false, amount: swapAmount, sqrtRatioLimit: targetSqrtRatio, skipAhead: 0
+        });
+        assertEq(swapBalanceUpdate.delta0(), 0, "empty swap token0 delta");
+        assertEq(swapBalanceUpdate.delta1(), 0, "empty swap token1 delta");
+        assertEq(SqrtRatio.unwrap(stateAfter.sqrtRatio()), SqrtRatio.unwrap(targetSqrtRatio), "quoted target");
+
+        ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
+        PositionDeposit memory parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: -100,
+            tickUpper: 100,
+            maxAmount0: uint128(depositAmount0),
+            maxAmount1: uint128(depositAmount1),
+            minLiquidity: expectedLiquidity,
+            targetSqrtRatio: targetSqrtRatio,
+            router: address(forwardedRouter),
+            routerData: abi.encode(
+                ForwardedSwapRoute({
+                    poolKey: poolKey,
+                    params: createSwapParameters(targetSqrtRatio, swapAmount, false, 0),
+                    useExtension: false,
+                    reverseResult: false,
+                    returnInvalidTokens: false,
+                    misreportDeltas: false
+                })
+            )
+        });
+        token0.approve(address(positions), parameters.maxAmount0);
+        token1.approve(address(positions), parameters.maxAmount1);
+
+        (, uint128 liquidity, int256 amount0, int256 amount1) = positions.mintAndDeposit(parameters);
+
+        assertEq(liquidity, expectedLiquidity, "added liquidity");
+        assertEq(amount0, depositAmount0, "net token0");
+        assertEq(amount1, depositAmount1, "net token1");
+        assertEq(core.poolState(poolKey.toPoolId()).liquidity(), expectedLiquidity, "active liquidity");
+        assertEq(
+            SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()),
+            SqrtRatio.unwrap(targetSqrtRatio),
+            "target price"
+        );
+    }
+
+    function runRoutedDeposit(bool reverseResult) external {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        createPosition(poolKey, -100, 100, 10_000, 10_000);
+
+        int128 swapAmount = 1_000;
+        (PoolBalanceUpdate swapBalanceUpdate, PoolState stateAfter) = router.quote({
+            poolKey: poolKey, isToken1: false, amount: swapAmount, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
+        });
+        SqrtRatio targetSqrtRatio = stateAfter.sqrtRatio();
+        uint128 seedLiquidity = 40_000_000;
+        (int128 seedAmount0, int128 seedAmount1) = liquidityDeltaToAmountDelta(
+            targetSqrtRatio, int128(seedLiquidity), tickToSqrtRatio(-100), tickToSqrtRatio(100)
+        );
+        uint128 maxAmount0 = uint128(uint256(int256(swapBalanceUpdate.delta0()) + int256(seedAmount0)));
+        uint128 maxAmount1 = uint128(uint256(int256(swapBalanceUpdate.delta1()) + int256(seedAmount1)));
+        uint128 availableAmount0 = maxAmount0 - uint128(swapBalanceUpdate.delta0());
+        uint128 availableAmount1 = maxAmount1 + uint128(uint256(-int256(swapBalanceUpdate.delta1())));
+        uint128 expectedLiquidity = maxLiquidity(
+            targetSqrtRatio, tickToSqrtRatio(-100), tickToSqrtRatio(100), availableAmount0, availableAmount1
+        );
+        (int128 depositAmount0, int128 depositAmount1) = liquidityDeltaToAmountDelta(
+            targetSqrtRatio, int128(expectedLiquidity), tickToSqrtRatio(-100), tickToSqrtRatio(100)
+        );
+        int256 expectedAmount0 = int256(swapBalanceUpdate.delta0()) + int256(depositAmount0);
+        int256 expectedAmount1 = int256(swapBalanceUpdate.delta1()) + int256(depositAmount1);
+        assertGt(expectedAmount0, 0, "token0 net input");
+        assertGt(expectedAmount1, 0, "token1 net input");
+        assertNotEq(expectedAmount0, expectedAmount1, "uneven net inputs");
+
+        ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
+        PositionDeposit memory parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: -100,
+            tickUpper: 100,
+            maxAmount0: maxAmount0 - 1,
+            maxAmount1: maxAmount1,
+            minLiquidity: expectedLiquidity,
+            targetSqrtRatio: targetSqrtRatio,
+            router: address(forwardedRouter),
+            routerData: abi.encode(
+                ForwardedSwapRoute({
+                    poolKey: poolKey,
+                    params: createSwapParameters(targetSqrtRatio, swapAmount, false, 0),
+                    useExtension: false,
+                    reverseResult: reverseResult,
+                    returnInvalidTokens: false,
+                    misreportDeltas: false
+                })
+            )
+        });
+
+        token0.approve(address(positions), maxAmount0);
+        token1.approve(address(positions), maxAmount1);
+
+        uint128 reducedLiquidity = maxLiquidity(
+            targetSqrtRatio, tickToSqrtRatio(-100), tickToSqrtRatio(100), availableAmount0 - 1, availableAmount1
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionDepositor.DepositLiquidityBelowMinimum.selector, reducedLiquidity, expectedLiquidity
+            )
+        );
+        positions.mintAndDeposit(parameters);
+
+        parameters.maxAmount0 = maxAmount0;
+        uint256 balance0Before = token0.balanceOf(address(this));
+        uint256 balance1Before = token1.balanceOf(address(this));
+        (uint256 id, uint128 liquidity, int256 amount0, int256 amount1) = positions.mintAndDeposit(parameters);
+
+        assertEq(liquidity, expectedLiquidity, "added liquidity");
+        assertEq(amount0, expectedAmount0, "net token0");
+        assertEq(amount1, expectedAmount1, "net token1");
+        assertEq(balance0Before - token0.balanceOf(address(this)), uint256(expectedAmount0), "token0 spent");
+        assertEq(balance1Before - token1.balanceOf(address(this)), uint256(expectedAmount1), "token1 spent");
+        assertEq(
+            SqrtRatio.unwrap(core.poolState(poolKey.toPoolId()).sqrtRatio()),
+            SqrtRatio.unwrap(targetSqrtRatio),
+            "target price"
+        );
+
+        PositionId positionId = createPositionId(bytes24(uint192(id)), -100, 100);
+        assertEq(
+            core.poolPositions(poolKey.toPoolId(), address(positions), positionId).liquidity,
+            expectedLiquidity,
+            "position liquidity"
+        );
+    }
+
+    function test_mintAndDeposit_revertsBelowMinimumLiquidity() public {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 0, 0);
+        parameters.minLiquidity = 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IPositionDepositor.DepositLiquidityBelowMinimum.selector, uint128(0), uint128(1))
+        );
+        positions.mintAndDeposit(parameters);
+    }
+
+    function test_mintAndDeposit_revertsWhenTargetPriceIsStale() public {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        SqrtRatio actualSqrtRatio = parameters.targetSqrtRatio;
+        parameters.targetSqrtRatio = tickToSqrtRatio(1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionDepositor.TargetSqrtRatioNotReached.selector, parameters.targetSqrtRatio, actualSqrtRatio
+            )
+        );
+        positions.mintAndDeposit(parameters);
+    }
+
+    function test_mintAndDeposit_revertsForInvalidTargetPrice() public {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        parameters.targetSqrtRatio = SqrtRatio.wrap(0);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IPositionDepositor.InvalidTargetSqrtRatio.selector, parameters.targetSqrtRatio)
+        );
+        positions.mintAndDeposit(parameters);
+    }
+
+    function test_mintAndDeposit_revertsForRouteWithoutRouter() public {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        parameters.routerData = hex"01";
+
+        vm.expectRevert(IPositionDepositor.RouterRequired.selector);
+        positions.mintAndDeposit(parameters);
+    }
+
+    function test_mintAndDeposit_revertsForInvalidRouteTokens() public {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        parameters.router = address(forwardedRouter);
+        parameters.routerData = abi.encode(
+            ForwardedSwapRoute({
+                poolKey: poolKey,
+                params: SwapParameters.wrap(bytes32(0)),
+                useExtension: false,
+                reverseResult: false,
+                returnInvalidTokens: true,
+                misreportDeltas: false
+            })
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IPositionDepositor.InvalidRouteTokens.selector, address(1), address(2), poolKey.token0, poolKey.token1
+            )
+        );
+        positions.mintAndDeposit(parameters);
+    }
+
+    function test_mintAndDeposit_revertsWhenRouterMisreportsDeltas() public {
+        PoolKey memory poolKey = createPool(0, 0, 100);
+        createPosition(poolKey, -100, 100, 10_000, 10_000);
+
+        int128 swapAmount = 100;
+        (, PoolState stateAfter) = router.quote({
+            poolKey: poolKey, isToken1: false, amount: swapAmount, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
+        });
+        ForwardedSwapRouter forwardedRouter = new ForwardedSwapRouter(core);
+        PositionDeposit memory parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: -100,
+            tickUpper: 100,
+            maxAmount0: 10_000,
+            maxAmount1: 10_000,
+            minLiquidity: 1_000_000,
+            targetSqrtRatio: stateAfter.sqrtRatio(),
+            router: address(forwardedRouter),
+            routerData: abi.encode(
+                ForwardedSwapRoute({
+                    poolKey: poolKey,
+                    params: createSwapParameters(stateAfter.sqrtRatio(), swapAmount, false, 0),
+                    useExtension: false,
+                    reverseResult: false,
+                    returnInvalidTokens: false,
+                    misreportDeltas: true
+                })
+            )
+        });
+        token0.approve(address(positions), type(uint256).max);
+        token1.approve(address(positions), type(uint256).max);
+
+        vm.expectRevert(abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector, 0));
+        positions.mintAndDeposit(parameters);
+    }
+
     function test_mintAndDeposit(CallPoints memory callPoints) public {
         PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
 
         token0.approve(address(positions), 100);
         token1.approve(address(positions), 100);
 
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(parameters);
         assertGt(id, 0);
         assertGt(liquidity, 0);
         PositionId positionId = createPositionId(bytes24(uint192(id)), -100, 100);
@@ -79,8 +409,10 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        (, uint128 liquidityA,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
-        (, uint128 liquidityB,,) = positions.mintAndDeposit(poolKey, -300, -100, 100, 100, 0);
+        PositionDeposit memory parametersA = positionDeposit(poolKey, -100, 100, 100, 100);
+        PositionDeposit memory parametersB = positionDeposit(poolKey, -300, -100, 100, 100);
+        (, uint128 liquidityA,,) = positions.mintAndDeposit(parametersA);
+        (, uint128 liquidityB,,) = positions.mintAndDeposit(parametersB);
 
         (int128 liquidityDelta, uint128 liquidityNet) = core.poolTicks(poolKey.toPoolId(), -300);
         assertEq(liquidityDelta, int128(liquidityB));
@@ -302,7 +634,8 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(parameters);
         vm.snapshotGasLastCall("mintAndDeposit full range max");
         assertGt(liquidity, 0);
 
@@ -331,7 +664,8 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(parameters);
         vm.snapshotGasLastCall("mintAndDeposit full range min");
         assertGt(liquidity, 0);
 
@@ -360,7 +694,7 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        (uint256 id,,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
+        (uint256 id,,,) = positions.mintAndDeposit(positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36));
         (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 0);
         assertEq(f1, 0);
@@ -386,7 +720,7 @@ contract PositionsTest is FullTest {
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
-        (uint256 id,,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36, 0);
+        (uint256 id,,,) = positions.mintAndDeposit(positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e36, 1e36));
         (,,, uint128 f0, uint128 f1) = positions.getPositionFeesAndLiquidity(id, poolKey, MIN_TICK, MAX_TICK);
         assertEq(f0, 0);
         assertEq(f1, 0);
@@ -453,7 +787,8 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, -100, 100, 100, 100, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(parameters);
         vm.snapshotGasLastCall("mintAndDeposit");
 
         coolAllContracts();
@@ -467,7 +802,8 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(parameters);
         vm.snapshotGasLastCall("mintAndDeposit eth");
 
         coolAllContracts();
@@ -482,7 +818,8 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), 100);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(poolKey, -100, 100, 100, 100, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 100, 100);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit{value: 100}(parameters);
         vm.snapshotGasLastCall("mintAndDeposit eth (free)");
 
         coolAllContracts();
@@ -504,7 +841,8 @@ contract PositionsTest is FullTest {
         token1.approve(address(positions), type(uint256).max);
 
         coolAllContracts();
-        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1e18, 1e18);
+        (uint256 id, uint128 liquidity,,) = positions.mintAndDeposit(parameters);
         vm.snapshotGasLastCall("mintAndDeposit full range both tokens");
 
         coolAllContracts();
@@ -533,8 +871,11 @@ contract PositionsTest is FullTest {
         token1.approve(address(testPositions), type(uint256).max);
 
         // Test 1: Mint and deposit should work regardless of protocol fee parameters
-        (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) =
-            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 1000, 1000);
+        (uint256 id, uint128 liquidity, int256 signedAmount0, int256 signedAmount1) =
+            testPositions.mintAndDeposit(parameters);
+        uint128 amount0 = uint128(uint256(signedAmount0));
+        uint128 amount1 = uint128(uint256(signedAmount1));
 
         assertGt(id, 0, "Position ID should be greater than 0");
         assertGt(liquidity, 0, "Liquidity should be greater than 0");
@@ -608,8 +949,11 @@ contract PositionsTest is FullTest {
         token1.approve(address(testPositions), type(uint256).max);
 
         // Test 1: Mint and deposit should work regardless of protocol fee parameters
-        (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) =
-            testPositions.mintAndDeposit(poolKey, -100, 100, 1000, 1000, 0);
+        PositionDeposit memory parameters = positionDeposit(poolKey, -100, 100, 1000, 1000);
+        (uint256 id, uint128 liquidity, int256 signedAmount0, int256 signedAmount1) =
+            testPositions.mintAndDeposit(parameters);
+        uint128 amount0 = uint128(uint256(signedAmount0));
+        uint128 amount1 = uint128(uint256(signedAmount1));
 
         assertGt(id, 0, "Position ID should be greater than 0");
         assertGt(liquidity, 0, "Liquidity should be greater than 0");

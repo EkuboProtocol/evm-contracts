@@ -2,7 +2,7 @@
 pragma solidity =0.8.33;
 
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
+import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {PoolConfig, createStableswapPoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {SqrtRatio, MIN_SQRT_RATIO, MAX_SQRT_RATIO, toSqrtRatio} from "../src/types/sqrtRatio.sol";
@@ -18,7 +18,7 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Positions} from "../src/Positions.sol";
-import {IPositions} from "../src/interfaces/IPositions.sol";
+import {IPositionDepositor, PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {TestToken} from "./TestToken.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {LiquidityDeltaOverflow} from "../src/math/liquidity.sol";
@@ -142,16 +142,25 @@ contract Handler is StdUtils, StdAssertions {
                 * int32(poolKey.config.concentratedTickSpacing());
         }
 
-        try positions.deposit(positionId, poolKey, tickLower, tickUpper, amount0, amount1, 0) returns (
-            uint128 liquidity, uint128 result0, uint128 result1
-        ) {
-            if (liquidity > 0) {
-                activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
-            }
+        SqrtRatio sqrtRatio = core.poolState(poolKey.toPoolId()).sqrtRatio();
+        PositionDeposit memory parameters = PositionDeposit({
+            poolKey: poolKey,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            maxAmount0: amount0,
+            maxAmount1: amount1,
+            minLiquidity: 1,
+            targetSqrtRatio: sqrtRatio,
+            router: address(0),
+            routerData: bytes("")
+        });
+
+        try positions.deposit(positionId, parameters) returns (uint128 liquidity, int256 result0, int256 result1) {
+            activePositions.push(ActivePosition(poolKey, tickLower, tickUpper, liquidity));
 
             PoolId poolId = poolKey.toPoolId();
-            poolBalances[poolId].amount0 += int256(uint256(result0));
-            poolBalances[poolId].amount1 += int256(uint256(result1));
+            poolBalances[poolId].amount0 += result0;
+            poolBalances[poolId].amount1 += result1;
         } catch (bytes memory err) {
             bytes4 sig;
             assembly ("memory-safe") {
@@ -160,9 +169,13 @@ contract Handler is StdUtils, StdAssertions {
 
             // 0x4e487b71 is arithmetic overflow/underflow
             if (
-                sig != IPositions.DepositOverflow.selector && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
+                sig != IPositionDepositor.DepositLiquidityBelowMinimum.selector
+                    && sig != IPositionDepositor.DepositLiquidityOverflow.selector
+                    && sig != SafeCastLib.Overflow.selector && sig != 0x4e487b71
                     && sig != FixedPointMathLib.FullMulDivFailed.selector && sig != LiquidityDeltaOverflow.selector
                     && sig != ICore.MaxLiquidityPerTickExceeded.selector
+                    && sig != IPositionDepositor.DepositExceedsMaxAmounts.selector
+                    && sig != IPositionDepositor.TargetSqrtRatioNotReached.selector
             ) {
                 revert UnexpectedError(err);
             }

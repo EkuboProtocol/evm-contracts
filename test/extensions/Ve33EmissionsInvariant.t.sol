@@ -23,11 +23,13 @@ import {
     ve33CallPoints
 } from "../../src/extensions/Ve33.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
+import {PositionDeposit} from "../../src/interfaces/IPositionDepositor.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {Ve33StorageLayout} from "../../src/libraries/Ve33StorageLayout.sol";
 import {Ve33Lib} from "../../src/libraries/Ve33Lib.sol";
 import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../../src/math/delta.sol";
+import {maxLiquidity} from "../../src/math/liquidity.sol";
 import {nextValidTime} from "../../src/math/time.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
@@ -307,8 +309,22 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
 
     function _mintPosition(uint256 poolIndex, int32 tickLower, int32 tickUpper) private {
         TrackedPool memory trackedPool = pools[poolIndex];
-        (uint256 nftId, uint128 liquidity,,) = ve33Positions.mintAndDeposit(
-            trackedPool.poolKey, tickLower, tickUpper, uint128(POSITION_AMOUNT), uint128(POSITION_AMOUNT), 1
+        SqrtRatio sqrtRatio = core.poolState(trackedPool.poolId).sqrtRatio();
+        uint128 maxAmount = uint128(POSITION_AMOUNT);
+        uint128 liquidity =
+            maxLiquidity(sqrtRatio, tickToSqrtRatio(tickLower), tickToSqrtRatio(tickUpper), maxAmount, maxAmount);
+        (uint256 nftId,,,) = ve33Positions.mintAndDeposit(
+            PositionDeposit({
+                poolKey: trackedPool.poolKey,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                maxAmount0: maxAmount,
+                maxAmount1: maxAmount,
+                minLiquidity: liquidity,
+                targetSqrtRatio: sqrtRatio,
+                router: address(0),
+                routerData: bytes("")
+            })
         );
         positions.push(
             TrackedPosition({

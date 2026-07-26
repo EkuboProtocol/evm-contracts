@@ -13,6 +13,7 @@ import {TWAMMLib} from "../src/libraries/TWAMMLib.sol";
 import {TWAMMStorageLayout} from "../src/libraries/TWAMMStorageLayout.sol";
 import {Orders} from "../src/Orders.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
+import {PositionDeposit} from "../src/interfaces/IPositionDepositor.sol";
 import {BaseTWAMMTest} from "./extensions/TWAMM.t.sol";
 import {ITWAMM, OrderKey} from "../src/interfaces/extensions/ITWAMM.sol";
 import {TwammPoolState, createTwammPoolState} from "../src/types/twammPoolState.sol";
@@ -487,15 +488,16 @@ contract OrdersTest is BaseOrdersTest {
         uint256 pID = positions.mint();
 
         twamm.lockAndExecuteVirtualOrders(poolKey);
-        (uint128 liquidity0,,) = positions.deposit(
-            pID, poolKey, MIN_TICK, MAX_TICK, 9065869775701580912051, 16591196256327018126941976177968210, 0
-        );
+        PositionDeposit memory deposit0 =
+            positionDeposit(poolKey, MIN_TICK, MAX_TICK, 9065869775701580912051, 16591196256327018126941976177968210);
+        (uint128 liquidity0,,) = positions.deposit(pID, deposit0);
 
         advanceTime(102_399);
 
         twamm.lockAndExecuteVirtualOrders(poolKey);
-        (uint128 liquidity1,,) =
-            positions.deposit(pID, poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396, 0);
+        PositionDeposit memory deposit1 =
+            positionDeposit(poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396);
+        (uint128 liquidity1,,) = positions.deposit(pID, deposit1);
         (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
         assertEq(sqrtRatio.toFixed(), 13485562298671080879303606629460147559991345152);
@@ -534,9 +536,9 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(liquidity, liquidity0 + liquidity1);
 
         twamm.lockAndExecuteVirtualOrders(poolKey);
-        (uint128 liquidity2,,) = positions.deposit(
-            pID, poolKey, MIN_TICK, MAX_TICK, 1412971749302168760052394, 35831434466998775335139276644539, 0
-        );
+        PositionDeposit memory deposit2 =
+            positionDeposit(poolKey, MIN_TICK, MAX_TICK, 1412971749302168760052394, 35831434466998775335139276644539);
+        (uint128 liquidity2,,) = positions.deposit(pID, deposit2);
 
         liquidity = core.poolState(poolId).liquidity();
         assertEq(liquidity, liquidity0 + liquidity1 + liquidity2);

@@ -10,6 +10,7 @@ import {VeTokenBribe} from "../src/VeTokenBribe.sol";
 import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
+import {nextValidTime} from "../src/math/time.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
@@ -67,25 +68,25 @@ contract ReenteringBribeDepositor is ITokenTransferCallback {
 
 contract ReenteringFundingToken is TestToken {
     VeTokenBribe private _bribe;
-    uint256 private _nestedAmount;
-    uint64 private _duration;
+    uint64 private _endTime;
+    uint160 private _nestedRate;
     bool private _armed;
 
     constructor() TestToken(address(this)) {}
 
-    function fundWithReentry(VeTokenBribe bribe, uint256 amount, uint256 nestedAmount, uint64 duration) external {
+    function fundWithReentry(VeTokenBribe bribe, uint64 endTime, uint160 rate, uint160 nestedRate) external {
         _bribe = bribe;
-        _nestedAmount = nestedAmount;
-        _duration = duration;
+        _endTime = endTime;
+        _nestedRate = nestedRate;
         _armed = true;
         _approve(address(this), address(bribe), type(uint256).max);
-        bribe.notifyRewardAmount(amount, duration);
+        bribe.scheduleRewards(0, endTime, rate);
     }
 
     function _afterTokenTransfer(address from, address to, uint256) internal override {
         if (!_armed || from != address(this) || to != address(_bribe)) return;
         _armed = false;
-        _bribe.notifyRewardAmount(_nestedAmount, _duration);
+        _bribe.scheduleRewards(0, _endTime, _nestedRate);
     }
 }
 
@@ -182,9 +183,23 @@ contract VeTokenBribeTest is FullTest {
         bribe.stake(veId);
     }
 
-    function _fund(uint256 amount) internal {
+    function _defaultRewardEnd() internal view returns (uint64) {
+        return uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + REWARD_DURATION - 1));
+    }
+
+    function _rewardRateForAmount(uint128 amount, uint64 endTime) internal view returns (uint160) {
+        return uint160((uint256(amount) << 32) / (endTime - vm.getBlockTimestamp()));
+    }
+
+    function _fund(uint128 amount) internal returns (uint64 endTime, uint160 rate, uint128 scheduledAmount) {
+        endTime = _defaultRewardEnd();
+        rate = _rewardRateForAmount(amount, endTime);
         vm.prank(distributor);
-        bribe.notifyRewardAmount(amount, REWARD_DURATION);
+        scheduledAmount = bribe.scheduleRewards(0, endTime, rate);
+    }
+
+    function _emitted(uint160 rate, uint256 elapsed) internal pure returns (uint256) {
+        return (uint256(rate) * elapsed) >> 32;
     }
 
     function test_stakeTakesCustodyReadsWeightAndVotesForSinglePool() public {
@@ -205,17 +220,18 @@ contract VeTokenBribeTest is FullTest {
     function test_rewardsAreDistributedByWeightAndTime() public {
         uint256 aliceVeId = _stakeInBribe(alice, 1e18);
         uint256 bobVeId = _stakeInBribe(bob, 3e18);
-        _fund(700e18);
+        (, uint160 rate,) = _fund(700e18);
 
         vm.warp(block.timestamp + 1 days);
+        uint256 streamed = _emitted(rate, 1 days);
 
-        assertApproxEqAbs(bribe.earned(aliceVeId), 25e18, 1e6);
-        assertApproxEqAbs(bribe.earned(bobVeId), 75e18, 1e6);
+        assertApproxEqAbs(bribe.earned(aliceVeId), streamed / 4, 2);
+        assertApproxEqAbs(bribe.earned(bobVeId), (streamed * 3) / 4, 2);
 
         uint256 aliceBalanceBefore = rewardToken.balanceOf(alice);
         vm.prank(alice);
         uint256 claimed = bribe.claimReward(aliceVeId);
-        assertApproxEqAbs(claimed, 25e18, 1e6);
+        assertApproxEqAbs(claimed, streamed / 4, 2);
         assertEq(rewardToken.balanceOf(alice), aliceBalanceBefore + claimed);
     }
 
@@ -232,37 +248,38 @@ contract VeTokenBribeTest is FullTest {
 
         uint256 aliceVeId = _stakeInBribe(alice, aliceAmount);
         uint256 bobVeId = _stakeInBribe(bob, bobAmount);
-        _fund(rewardAmount);
+        (, uint160 rate, uint128 scheduledAmount) = _fund(rewardAmount);
         vm.warp(vm.getBlockTimestamp() + elapsed);
 
         uint256 totalEarned = bribe.earned(aliceVeId) + bribe.earned(bobVeId);
-        uint256 streamed = (uint256(elapsed) * rewardAmount) / REWARD_DURATION;
+        uint256 streamed = _emitted(rate, elapsed);
         assertLe(totalEarned, streamed);
-        assertLe(streamed, rewardAmount);
+        assertLe(streamed, scheduledAmount);
     }
 
     function test_laterStakeOnlyEarnsForTimeInBribe() public {
         uint256 aliceVeId = _stakeInBribe(alice, 1e18);
-        _fund(700e18);
+        (, uint160 rate,) = _fund(700e18);
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
         uint256 bobVeId = _stakeInBribe(bob, 1e18);
         vm.warp(vm.getBlockTimestamp() + 1 days);
+        uint256 streamedPerDay = _emitted(rate, 1 days);
 
-        assertApproxEqAbs(bribe.earned(aliceVeId), 150e18, 1e6);
-        assertApproxEqAbs(bribe.earned(bobVeId), 50e18, 1e6);
+        assertApproxEqAbs(bribe.earned(aliceVeId), streamedPerDay + streamedPerDay / 2, 2);
+        assertApproxEqAbs(bribe.earned(bobVeId), streamedPerDay / 2, 2);
     }
 
     function test_unstakeClaimsRewardsClearsVoteAndReturnsNft() public {
         uint256 veId = _stakeInBribe(alice, 1e18);
-        _fund(700e18);
+        (, uint160 rate,) = _fund(700e18);
         vm.warp(block.timestamp + 1 days);
 
         uint256 rewardBalanceBefore = rewardToken.balanceOf(alice);
         vm.prank(alice);
         (uint256 reward,,) = bribe.unstake(veId);
 
-        assertApproxEqAbs(reward, 100e18, 1e6);
+        assertApproxEqAbs(reward, _emitted(rate, 1 days), 1);
         assertEq(rewardToken.balanceOf(alice), rewardBalanceBefore + reward);
         assertEq(veToken.ownerOf(veId), alice);
         assertEq(bribe.totalWeight(), 0);
@@ -322,7 +339,8 @@ contract VeTokenBribeTest is FullTest {
         veToken.approve(address(blockingBribe), veId);
         vm.prank(alice);
         blockingBribe.stake(veId);
-        blockingBribe.notifyRewardAmount(700e18, REWARD_DURATION);
+        uint64 endTime = _defaultRewardEnd();
+        blockingBribe.scheduleRewards(0, endTime, _rewardRateForAmount(700e18, endTime));
         vm.warp(vm.getBlockTimestamp() + 1 days);
         blockingToken.setTransfersBlocked(true);
 
@@ -492,88 +510,159 @@ contract VeTokenBribeTest is FullTest {
         assertEq(veToken.ownerOf(veId), alice);
     }
 
-    function test_onlyDistributorCanFundRewards() public {
+    function test_onlyDistributorCanScheduleRewards() public {
+        uint64 endTime = _defaultRewardEnd();
+
         vm.expectRevert(VeTokenBribe.RewardDistributorOnly.selector);
-        bribe.notifyRewardAmount(1e18, REWARD_DURATION);
+        bribe.scheduleRewards(0, endTime, uint160(1 << 32));
     }
 
     function test_reentrantFundingCannotCommitAnInconsistentSchedule() public {
         ReenteringFundingToken fundingToken = new ReenteringFundingToken();
         VeTokenBribe reentrantBribe =
             new VeTokenBribe(veToken, poolKey, VOTING_FEE, address(fundingToken), address(fundingToken));
+        uint64 endTime = _defaultRewardEnd();
+        uint160 rate = uint160(1 << 32);
+        uint128 expectedAmount = uint128(endTime - vm.getBlockTimestamp());
 
-        vm.expectRevert(abi.encodeWithSelector(VeTokenBribe.UnexpectedRewardAmount.selector, 700e18, 800e18));
-        fundingToken.fundWithReentry(reentrantBribe, 700e18, 100e18, REWARD_DURATION);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VeTokenBribe.UnexpectedRewardAmount.selector, expectedAmount, uint256(expectedAmount) * 2
+            )
+        );
+        fundingToken.fundWithReentry(reentrantBribe, endTime, rate, rate);
 
         assertEq(reentrantBribe.rewardRate(), 0);
         assertEq(fundingToken.balanceOf(address(reentrantBribe)), 0);
+        assertEq(reentrantBribe.rewardRateDeltaAtTime(endTime), 0);
     }
 
-    function test_fundingDuringActivePeriodRollsRemainingRewardsIntoNewSchedule() public {
+    function test_overlappingSchedulesAddTheirRates() public {
         uint256 veId = _stakeInBribe(alice, 1e18);
-        _fund(700e18);
+        (, uint160 firstRate,) = _fund(700e18);
         vm.warp(vm.getBlockTimestamp() + 1 days);
+        uint256 expected = _emitted(firstRate, 1 days);
 
+        uint64 secondEnd = _defaultRewardEnd();
+        uint160 secondRate = _rewardRateForAmount(600e18, secondEnd);
         vm.prank(distributor);
-        bribe.notifyRewardAmount(600e18, 6 days);
+        bribe.scheduleRewards(0, secondEnd, secondRate);
+        assertEq(bribe.rewardRate(), firstRate + secondRate);
+
         vm.warp(vm.getBlockTimestamp() + 1 days);
+        expected += _emitted(firstRate + secondRate, 1 days);
 
-        assertApproxEqAbs(bribe.earned(veId), 300e18, 1e6);
+        assertApproxEqAbs(bribe.earned(veId), expected, 2);
     }
 
-    function test_rateRemainderIsPaidAndRolledIntoReplacementSchedule() public {
-        uint256 veId = _stakeInBribe(alice, 1e18);
-        uint256 firstFunding = REWARD_DURATION + 1;
+    function test_schedulesStopIndependentlyAtTheirEndTimes() public {
+        uint64 firstEnd = _defaultRewardEnd();
+        uint64 secondEnd = uint64(nextValidTime(vm.getBlockTimestamp(), uint256(firstEnd) + REWARD_DURATION - 1));
+        uint160 firstRate = uint160(1 << 32);
+        uint160 secondRate = uint160(2 << 32);
 
         vm.prank(distributor);
-        bribe.notifyRewardAmount(firstFunding, REWARD_DURATION);
-        assertEq(bribe.rewardRate(), 1);
-        assertEq(bribe.rewardRemainder(), 1);
-
-        vm.warp(vm.getBlockTimestamp() + 1);
+        bribe.scheduleRewards(0, firstEnd, firstRate);
         vm.prank(distributor);
-        bribe.notifyRewardAmount(REWARD_DURATION, REWARD_DURATION);
-        assertEq(bribe.rewardRate(), 2);
-        assertEq(bribe.rewardRemainder(), 0);
+        bribe.scheduleRewards(0, secondEnd, secondRate);
 
-        vm.warp(bribe.periodFinish());
-        assertEq(bribe.earned(veId), 1 + 2 * uint256(REWARD_DURATION));
-    }
+        assertEq(bribe.rewardRate(), firstRate + secondRate);
+        assertEq(bribe.rewardRateDeltaAtTime(firstEnd), -int256(uint256(firstRate)));
+        assertEq(bribe.rewardRateDeltaAtTime(secondEnd), -int256(uint256(secondRate)));
 
-    function test_rateRemainderIsSpreadAcrossPeriod() public {
-        uint256 veId = _stakeInBribe(alice, 1e18);
-        uint256 funding = 2 * uint256(REWARD_DURATION) - 1;
+        vm.warp(firstEnd);
+        bribe.accrueRewards();
+        assertEq(bribe.rewardRate(), secondRate);
+        assertEq(bribe.rewardRateDeltaAtTime(firstEnd), 0);
 
-        vm.prank(distributor);
-        bribe.notifyRewardAmount(funding, REWARD_DURATION);
-        vm.warp(vm.getBlockTimestamp() + REWARD_DURATION / 2);
-
-        assertEq(bribe.earned(veId), funding / 2);
-    }
-
-    function test_rewardSmallerThanDurationStillVestsCompletely() public {
-        uint256 veId = _stakeInBribe(alice, 1e18);
-
-        vm.prank(distributor);
-        bribe.notifyRewardAmount(3, REWARD_DURATION);
+        vm.warp(secondEnd);
+        bribe.accrueRewards();
         assertEq(bribe.rewardRate(), 0);
-        assertEq(bribe.rewardRemainder(), 3);
-
-        vm.warp(bribe.periodFinish());
-        assertEq(bribe.earned(veId), 3);
+        assertEq(bribe.rewardRateDeltaAtTime(secondEnd), 0);
     }
 
-    function test_rewardStreamPausesUntilBribeHasVotingWeight() public {
-        _fund(700e18);
-        uint64 initialFinish = bribe.periodFinish();
+    function test_futureScheduleStartsAtItsConfiguredTime() public {
+        uint256 veId = _stakeInBribe(alice, 1e18);
+        uint64 startTime = uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 1 days - 1));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), uint256(startTime) + REWARD_DURATION - 1));
+        uint160 rate = uint160(1e18 << 32);
+
+        vm.prank(distributor);
+        bribe.scheduleRewards(startTime, endTime, rate);
+        assertEq(bribe.rewardRate(), 0);
+        assertEq(bribe.rewardRateDeltaAtTime(startTime), int256(uint256(rate)));
+
+        vm.warp(startTime);
+        assertEq(bribe.rewardRate(), rate);
+        assertEq(bribe.earned(veId), 0);
+
+        vm.warp(uint256(startTime) + 1 days);
+        assertApproxEqAbs(bribe.earned(veId), _emitted(rate, 1 days), 1);
+    }
+
+    function test_scheduleRewardsRejectsInvalidEndTime() public {
+        vm.prank(distributor);
+        vm.expectRevert(VeTokenBribe.InvalidTimestamps.selector);
+        bribe.scheduleRewards(0, uint64(vm.getBlockTimestamp()), uint160(1 << 32));
+    }
+
+    function test_scheduleRewardsRejectsFundingAboveUint128() public {
+        uint256 alignedTime = (vm.getBlockTimestamp() + 255) & ~uint256(255);
+        vm.warp(alignedTime);
+        uint64 endTime = uint64(alignedTime + 256);
+
+        vm.prank(distributor);
+        vm.expectRevert(VeTokenBribe.RewardFundingOverflow.selector);
+        bribe.scheduleRewards(0, endTime, uint160(1) << 152);
+
+        assertEq(bribe.rewardRate(), 0);
+        assertEq(bribe.rewardRateDeltaAtTime(endTime), 0);
+    }
+
+    function test_scheduleRewardsAllowsUint128MaxFunding() public {
+        uint256 alignedTime = (vm.getBlockTimestamp() + 255) & ~uint256(255);
+        vm.warp(alignedTime);
+        uint64 endTime = uint64(alignedTime + 256);
+        uint160 rate = uint160(uint256(type(uint128).max) << 24);
+
+        vm.prank(distributor);
+        uint128 amount = bribe.scheduleRewards(0, endTime, rate);
+
+        assertEq(amount, type(uint128).max);
+        assertEq(rewardToken.balanceOf(address(bribe)), type(uint128).max);
+        assertEq(bribe.rewardRate(), rate);
+        assertEq(bribe.rewardRateDeltaAtTime(endTime), -int256(uint256(rate)));
+    }
+
+    function test_rewardScheduleAccruesAcrossUint32Wrap() public {
+        vm.warp(uint256(type(uint32).max) - 1 days);
+        uint256 veId = _stakeInBribe(alice, 1e18);
+        uint64 endTime = _defaultRewardEnd();
+        (, uint160 rate,) = _fund(700e18);
+
+        assertGt(endTime, type(uint32).max);
+        assertLt(uint32(endTime), uint32(vm.getBlockTimestamp()));
+        assertLt(bribe.rewardRateDeltaAtTime(endTime), int256(0));
+        assertEq(bribe.rewardRateDeltaAtTime(uint32(endTime)), 0);
+
+        vm.warp(endTime);
+        bribe.accrueRewards();
+
+        assertEq(bribe.rewardsLastAccrued(), uint32(endTime));
+        assertEq(bribe.rewardRate(), 0);
+        assertEq(bribe.rewardRateDeltaAtTime(endTime), 0);
+        assertApproxEqAbs(bribe.earned(veId), _emitted(rate, endTime - (uint256(type(uint32).max) - 1 days)), 1);
+    }
+
+    function test_rewardsEmittedWithoutVotingWeightAreNotRetroactive() public {
+        (, uint160 rate,) = _fund(700e18);
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
         uint256 veId = _stakeInBribe(alice, 1e18);
-        assertEq(bribe.periodFinish(), initialFinish + 1 days);
         assertEq(bribe.earned(veId), 0);
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
-        assertApproxEqAbs(bribe.earned(veId), 100e18, 1e6);
+        assertApproxEqAbs(bribe.earned(veId), _emitted(rate, 1 days), 1);
     }
 
     function test_virtualVotingFeeCanBeOverridden() public {

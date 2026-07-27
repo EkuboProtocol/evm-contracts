@@ -6,24 +6,28 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {VeToken} from "./VeToken.sol";
+import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "./math/time.sol";
+import {bitmapWordAndIndexToTime, timeToBitmapWordAndIndex} from "./math/timeBitmap.sol";
+import {Bitmap} from "./types/bitmap.sol";
 import {PoolConfig} from "./types/poolConfig.sol";
 import {PoolId} from "./types/poolId.sol";
 import {PoolKey} from "./types/poolKey.sol";
+import {Ve33GlobalEmissionState, createVe33GlobalEmissionState} from "./types/ve33GlobalEmissionState.sol";
+
+uint256 constant BRIBE_MAX_ABS_VALUE_REWARD_RATE_DELTA = type(uint160).max / MAX_NUM_VALID_TIMES;
 
 /// @title VeToken Bribe
 /// @notice Custodies VeToken NFTs, directs their votes to one pool, and pays an ERC20 incentive by applied vote weight.
 /// @dev A deposited NFT keeps the vote weight applied when it enters the bribe. Call `refreshVote` to checkpoint
 ///      incentives, collect its voter fees, and apply its current voting power and `votingFee()` again.
 contract VeTokenBribe {
-    uint256 private constant REWARD_GROWTH_SCALE = 1e18;
-
     /// @notice VeToken collection accepted by this bribe.
     VeToken public immutable VE_TOKEN;
 
     /// @notice ERC20 paid as the additional voting incentive.
     address public immutable REWARD_TOKEN;
 
-    /// @notice Account allowed to fund or extend the incentive stream.
+    /// @notice Account allowed to schedule incentive rewards.
     address public immutable REWARD_DISTRIBUTOR;
 
     /// @notice Pool incentivized by this bribe and receiving every deposited NFT vote.
@@ -38,25 +42,19 @@ contract VeTokenBribe {
     /// @notice Sum of the applied vote weights earning incentives.
     uint256 public totalWeight;
 
-    /// @notice Total incentive tokens in the current stream, including rolled-over unvested rewards.
-    uint256 public periodReward;
+    /// @notice Accumulated Q128 reward growth per unit of applied vote weight.
+    uint256 private _rewardGrowthGlobalX128;
 
-    /// @notice Start of the current incentive stream.
-    uint64 public periodStart;
+    /// @dev Packed Q32 reward rate and uint32 last-accrued timestamp, shared with Ve33's scheduler representation.
+    Ve33GlobalEmissionState private _globalRewardState;
 
-    /// @notice End of the current incentive stream.
-    uint64 public periodFinish;
-
-    /// @notice Last timestamp included in `rewardGrowthStored`.
-    uint64 public lastUpdateTime;
-
-    /// @notice Accumulated incentive per unit of applied vote weight, scaled by 1e18.
-    uint256 public rewardGrowthStored;
+    mapping(uint256 time => int256 delta) private _rewardRateDeltaAtTime;
+    mapping(uint256 word => Bitmap bitmap) private _rewardInitializedTimeBitmap;
 
     struct Deposit {
         address owner;
         uint128 weight;
-        uint256 rewardGrowthSnapshot;
+        uint256 rewardGrowthGlobalX128Snapshot;
         uint256 accruedReward;
     }
 
@@ -65,8 +63,9 @@ contract VeTokenBribe {
 
     error InvalidAddress();
     error InvalidPool();
-    error InvalidDuration();
-    error InvalidRewardAmount();
+    error InvalidTimestamps();
+    error RewardFundingOverflow();
+    error MaxRewardRateDeltaPerTime();
     error UnexpectedRewardAmount(uint256 expected, uint256 received);
     error RewardDistributorOnly();
     error AlreadyDeposited();
@@ -79,8 +78,8 @@ contract VeTokenBribe {
     event Unstaked(address indexed owner, uint256 indexed veId, uint128 weight);
     event VoteRefreshed(address indexed owner, uint256 indexed veId, uint128 previousWeight, uint128 weight);
     event RewardPaid(address indexed owner, uint256 indexed veId, uint256 amount);
-    event RewardAdded(
-        address indexed funder, uint256 addedAmount, uint256 rewardRate, uint256 rewardRemainder, uint64 periodFinish
+    event RewardsScheduled(
+        address indexed funder, uint64 startTime, uint64 endTime, uint160 rewardRate, uint128 amount
     );
     event VotingFeesClaimed(
         address indexed owner, uint256 indexed veId, address indexed recipient, uint128 amount0, uint128 amount1
@@ -109,7 +108,7 @@ contract VeTokenBribe {
         POOL_TOKEN1 = _poolKey.token1;
         POOL_CONFIG = _poolKey.config;
         _DEFAULT_VOTING_FEE = defaultVotingFee;
-        lastUpdateTime = uint64(block.timestamp);
+        _globalRewardState = createVe33GlobalEmissionState({rate: 0, lastAccruedTime: uint32(block.timestamp)});
     }
 
     /// @notice Returns the pool incentivized by this bribe.
@@ -123,45 +122,39 @@ contract VeTokenBribe {
         return _DEFAULT_VOTING_FEE;
     }
 
-    /// @notice Floor of the current incentive tokens streamed per second.
-    function rewardRate() public view returns (uint256) {
-        uint64 duration = periodFinish - periodStart;
-        return duration == 0 ? 0 : periodReward / duration;
+    /// @notice Returns the current Q32 reward-token rate per second, including elapsed scheduled changes.
+    function rewardRate() public view returns (uint160 rate) {
+        (, rate) = _previewRewardState();
     }
 
-    /// @notice Remainder from dividing `periodReward` by the duration, spread across the stream.
-    function rewardRemainder() public view returns (uint256) {
-        uint64 duration = periodFinish - periodStart;
-        return duration == 0 ? 0 : periodReward % duration;
+    /// @notice Returns the packed timestamp of the last state-changing reward accrual.
+    function rewardsLastAccrued() public view returns (uint32) {
+        return _globalRewardState.lastAccrued();
     }
 
-    /// @notice Returns the latest timestamp that can accrue rewards.
-    function lastTimeRewardApplicable() public view returns (uint64) {
-        uint64 finish = periodFinish;
-        return uint64(block.timestamp) < finish ? uint64(block.timestamp) : finish;
+    /// @notice Returns a scheduled Q32 reward-rate delta.
+    function rewardRateDeltaAtTime(uint256 time) public view returns (int256) {
+        return _rewardRateDeltaAtTime[time];
     }
 
-    /// @notice Returns current accumulated incentive per unit of applied vote weight.
-    function rewardGrowth() public view returns (uint256 growth) {
-        growth = rewardGrowthStored;
-        uint256 weight = totalWeight;
-        if (weight != 0) {
-            uint64 applicableTime = lastTimeRewardApplicable();
-            uint64 updatedAt = lastUpdateTime;
-            if (applicableTime > updatedAt) {
-                uint256 accrued = _vestedReward(applicableTime) - _vestedReward(updatedAt);
-                growth += FixedPointMathLib.fullMulDiv(accrued, REWARD_GROWTH_SCALE, weight);
-            }
-        }
+    /// @notice Returns one initialized-time bitmap word for scheduled reward-rate changes.
+    function rewardInitializedTimeBitmap(uint256 word) public view returns (uint256) {
+        return Bitmap.unwrap(_rewardInitializedTimeBitmap[word]);
+    }
+
+    /// @notice Returns current Q128 reward growth per unit of applied vote weight.
+    function rewardGrowthGlobalX128() public view returns (uint256 growth) {
+        (growth,) = _previewRewardState();
     }
 
     /// @notice Returns the incentive currently claimable for a deposited VeToken.
     function earned(uint256 veId) public view returns (uint256 amount) {
         Deposit storage deposit = deposits[veId];
-        amount = deposit.accruedReward
-            + FixedPointMathLib.fullMulDiv(
-                deposit.weight, rewardGrowth() - deposit.rewardGrowthSnapshot, REWARD_GROWTH_SCALE
-            );
+        uint256 growthDelta;
+        unchecked {
+            growthDelta = rewardGrowthGlobalX128() - deposit.rewardGrowthGlobalX128Snapshot;
+        }
+        amount = deposit.accruedReward + FixedPointMathLib.fullMulDivN(growthDelta, deposit.weight, 128);
     }
 
     /// @notice Takes custody of a VeToken and directs its full applied vote to the incentivized pool.
@@ -174,7 +167,7 @@ contract VeTokenBribe {
         bool hasVote = PoolId.unwrap(votedPool) != bytes32(0);
         if (hasVote && PoolId.unwrap(votedPool) != PoolId.unwrap(POOL_ID)) revert IncompatibleExistingVote();
 
-        _updateRewardGrowth();
+        accrueRewards();
         VE_TOKEN.transferFrom(msg.sender, address(this), veId);
 
         if (hasVote) {
@@ -188,7 +181,10 @@ contract VeTokenBribe {
         if (appliedWeight == 0) revert NoVotingPower();
 
         deposits[veId] = Deposit({
-            owner: msg.sender, weight: appliedWeight, rewardGrowthSnapshot: rewardGrowthStored, accruedReward: 0
+            owner: msg.sender,
+            weight: appliedWeight,
+            rewardGrowthGlobalX128Snapshot: _rewardGrowthGlobalX128,
+            accruedReward: 0
         });
         totalWeight += appliedWeight;
 
@@ -260,7 +256,7 @@ contract VeTokenBribe {
     ///      available if an external token blocks the normal claim-and-unstake path.
     function unstakeWithoutClaiming(uint256 veId) external {
         Deposit storage deposit = _authorizedDeposit(veId);
-        _updateRewardGrowth();
+        accrueRewards();
 
         address owner = deposit.owner;
         uint128 weight = deposit.weight;
@@ -272,38 +268,94 @@ contract VeTokenBribe {
         VE_TOKEN.transferFrom(address(this), owner, veId);
     }
 
-    /// @notice Replaces the incentive stream with the added amount plus any unvested rewards.
-    /// @dev Accrued rewards are checkpointed first. The replacement is vested cumulatively across `duration`, and its
-    ///      clock pauses while the bribe has no applied vote weight.
-    /// @param amount Amount requested from the reward distributor.
-    /// @param duration Duration of the replacement stream.
-    /// @return received Reward-token amount received. Reverts unless it exactly matches `amount`.
-    function notifyRewardAmount(uint256 amount, uint64 duration) external returns (uint256 received) {
+    /// @notice Adds a Q32 reward-token rate over a chosen valid time range.
+    /// @dev Overlapping schedules add their rates. Rewards emitted while `totalWeight` is zero are not retroactive.
+    /// @param startTime Real schedule start time, or zero for immediate start.
+    /// @param endTime Schedule end time.
+    /// @param rate Q32 reward-token rate per second.
+    /// @return amount Reward-token amount required to back the schedule, rounded up.
+    function scheduleRewards(uint64 startTime, uint64 endTime, uint160 rate) external returns (uint128 amount) {
         if (msg.sender != REWARD_DISTRIBUTOR) revert RewardDistributorOnly();
-        if (duration == 0) revert InvalidDuration();
-        if (amount == 0) revert InvalidRewardAmount();
+        if (rate == 0) return 0;
+
+        uint256 realStartTime = FixedPointMathLib.max(block.timestamp, startTime);
+        if (
+            !isTimeValid({currentTime: block.timestamp, time: startTime})
+                || !isTimeValid({currentTime: block.timestamp, time: endTime}) || endTime <= realStartTime
+        ) {
+            revert InvalidTimestamps();
+        }
+
+        unchecked {
+            uint256 realDuration = endTime - realStartTime;
+            uint256 requiredAmount = ((realDuration * rate) + type(uint32).max) >> 32;
+            if (requiredAmount > type(uint128).max) revert RewardFundingOverflow();
+            amount = uint128(requiredAmount);
+        }
 
         uint256 balanceBefore = SafeTransferLib.balanceOf(REWARD_TOKEN, address(this));
-        _updateRewardGrowth();
+        accrueRewards();
 
-        uint256 funding = amount;
-        uint64 currentTime = uint64(block.timestamp);
-        uint64 finish = periodFinish;
-        if (currentTime < finish) funding += periodReward - _vestedReward(currentTime);
-
-        uint256 nextRewardRate = funding / duration;
-        uint256 nextRewardRemainder = funding % duration;
-
-        periodReward = funding;
-        periodStart = currentTime;
-        periodFinish = currentTime + duration;
-        lastUpdateTime = currentTime;
+        int256 rateDelta = int256(uint256(rate));
+        if (startTime > block.timestamp) {
+            _updateRewardTime(startTime, rateDelta);
+        } else {
+            (uint160 currentRate, uint32 lastAccrued) = _globalRewardState.parse();
+            unchecked {
+                currentRate += rate;
+            }
+            _globalRewardState = createVe33GlobalEmissionState(currentRate, lastAccrued);
+        }
+        _updateRewardTime(endTime, -rateDelta);
 
         SafeTransferLib.safeTransferFrom(REWARD_TOKEN, msg.sender, address(this), amount);
-        received = SafeTransferLib.balanceOf(REWARD_TOKEN, address(this)) - balanceBefore;
+        uint256 received = SafeTransferLib.balanceOf(REWARD_TOKEN, address(this)) - balanceBefore;
         if (received != amount) revert UnexpectedRewardAmount(amount, received);
 
-        emit RewardAdded(msg.sender, amount, nextRewardRate, nextRewardRemainder, periodFinish);
+        emit RewardsScheduled(msg.sender, startTime, endTime, rate, amount);
+    }
+
+    /// @notice Accrues scheduled rewards into Q128 reward growth through the current timestamp.
+    function accrueRewards() public {
+        Ve33GlobalEmissionState globalRewardState = _globalRewardState;
+        uint160 rate = globalRewardState.emissionRate();
+        uint256 lastAccruedTime = globalRewardState.realEmissionTimeAtOrBeforeNow();
+        if (lastAccruedTime == block.timestamp) return;
+
+        uint256 time = lastAccruedTime;
+        uint256 growth = _rewardGrowthGlobalX128;
+        uint256 weight = totalWeight;
+
+        while (time != block.timestamp) {
+            (uint256 eventTime, bool initialized) = _searchForNextRewardTime(lastAccruedTime, time, block.timestamp);
+            growth = _accumulateRewardGrowth(growth, rate, eventTime - time, weight);
+
+            if (initialized) {
+                unchecked {
+                    rate = uint160(uint256(int256(uint256(rate)) + _rewardRateDeltaAtTime[eventTime]));
+                }
+                _rewardRateDeltaAtTime[eventTime] = 0;
+                _flipRewardTime(eventTime);
+            }
+            time = eventTime;
+        }
+
+        _rewardGrowthGlobalX128 = growth;
+        _globalRewardState = createVe33GlobalEmissionState(rate, uint32(block.timestamp));
+    }
+
+    /// @notice Finds the next initialized reward-rate change strictly after `fromTime`.
+    function nextRewardRateChangeTime(uint256 fromTime) external view returns (uint64 time, int256 delta) {
+        uint256 lastAccruedTime = _globalRewardState.realEmissionTimeAtOrBeforeNow();
+        uint256 untilTime;
+        unchecked {
+            untilTime = block.timestamp + type(uint32).max;
+        }
+        (uint256 nextTime, bool initialized) = _searchForNextRewardTime(lastAccruedTime, fromTime, untilTime);
+        if (initialized) {
+            time = uint64(nextTime);
+            delta = _rewardRateDeltaAtTime[nextTime];
+        }
     }
 
     function _authorizedDeposit(uint256 veId) private view returns (Deposit storage deposit) {
@@ -312,44 +364,101 @@ contract VeTokenBribe {
         if (deposit.owner != msg.sender) revert DepositOwnerOnly();
     }
 
-    function _updateRewardGrowth() private {
-        if (totalWeight == 0) {
-            uint64 currentTime = uint64(block.timestamp);
-            uint64 updatedAt = lastUpdateTime;
-            if (currentTime > updatedAt) {
-                uint64 finish = periodFinish;
-                if (finish > updatedAt) {
-                    uint64 idleTime = currentTime - updatedAt;
-                    periodStart += idleTime;
-                    periodFinish = finish + idleTime;
-                }
-                lastUpdateTime = currentTime;
-            }
-            return;
-        }
+    function _previewRewardState() private view returns (uint256 growth, uint160 rate) {
+        Ve33GlobalEmissionState globalRewardState = _globalRewardState;
+        rate = globalRewardState.emissionRate();
+        uint256 lastAccruedTime = globalRewardState.realEmissionTimeAtOrBeforeNow();
+        uint256 time = lastAccruedTime;
+        growth = _rewardGrowthGlobalX128;
+        uint256 weight = totalWeight;
 
-        uint64 applicableTime = lastTimeRewardApplicable();
-        rewardGrowthStored = rewardGrowth();
-        lastUpdateTime = applicableTime;
+        while (time != block.timestamp) {
+            (uint256 eventTime, bool initialized) = _searchForNextRewardTime(lastAccruedTime, time, block.timestamp);
+            growth = _accumulateRewardGrowth(growth, rate, eventTime - time, weight);
+
+            if (initialized) {
+                unchecked {
+                    rate = uint160(uint256(int256(uint256(rate)) + _rewardRateDeltaAtTime[eventTime]));
+                }
+            }
+            time = eventTime;
+        }
     }
 
-    function _vestedReward(uint64 time) private view returns (uint256) {
-        uint64 start = periodStart;
-        if (time <= start) return 0;
+    function _accumulateRewardGrowth(uint256 growth, uint160 rate, uint256 elapsed, uint256 weight)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 amount = (uint256(rate) * elapsed) >> 32;
+        assembly ("memory-safe") {
+            growth := add(growth, div(shl(128, amount), weight))
+        }
+        return growth;
+    }
 
-        uint64 finish = periodFinish;
-        uint256 reward = periodReward;
-        if (time >= finish) return reward;
+    function _addConstrainedRateDelta(int256 rateDelta, int256 change) private pure returns (int256 next) {
+        unchecked {
+            next = rateDelta + change;
+        }
+        if (FixedPointMathLib.abs(next) > BRIBE_MAX_ABS_VALUE_REWARD_RATE_DELTA) {
+            revert MaxRewardRateDeltaPerTime();
+        }
+    }
 
-        return FixedPointMathLib.fullMulDiv(reward, time - start, finish - start);
+    function _updateRewardTime(uint64 time, int256 delta) private {
+        int256 currentDelta = _rewardRateDeltaAtTime[time];
+        int256 nextDelta = _addConstrainedRateDelta(currentDelta, delta);
+        _rewardRateDeltaAtTime[time] = nextDelta;
+
+        if ((currentDelta == 0) != (nextDelta == 0)) _flipRewardTime(time);
+    }
+
+    function _flipRewardTime(uint256 time) private {
+        (uint256 word, uint256 index) = timeToBitmapWordAndIndex(time);
+        _rewardInitializedTimeBitmap[word] = _rewardInitializedTimeBitmap[word].toggle(uint8(index));
+    }
+
+    function _findNextRewardTime(uint256 fromTime) private view returns (uint256 nextTime, bool initialized) {
+        unchecked {
+            (uint256 word, uint256 index) = timeToBitmapWordAndIndex(fromTime);
+            uint256 nextIndex = _rewardInitializedTimeBitmap[word].geSetBit(uint8(index));
+            initialized = nextIndex != 0;
+            nextIndex = (nextIndex - 1) % 256;
+            nextTime = bitmapWordAndIndexToTime(word, nextIndex);
+        }
+    }
+
+    function _searchForNextRewardTime(uint256 lastAccrued, uint256 fromTime, uint256 untilTime)
+        private
+        view
+        returns (uint256 nextTime, bool initialized)
+    {
+        unchecked {
+            nextTime = fromTime;
+            while (!initialized && nextTime != untilTime) {
+                uint256 nextValid = nextValidTime(lastAccrued, nextTime);
+                if (nextValid == 0) {
+                    nextTime = untilTime;
+                    break;
+                }
+                (nextTime, initialized) = _findNextRewardTime(nextValid);
+                if (nextTime > untilTime) {
+                    nextTime = untilTime;
+                    initialized = false;
+                }
+            }
+        }
     }
 
     function _checkpoint(Deposit storage deposit) private {
-        _updateRewardGrowth();
-        deposit.accruedReward += FixedPointMathLib.fullMulDiv(
-            deposit.weight, rewardGrowthStored - deposit.rewardGrowthSnapshot, REWARD_GROWTH_SCALE
-        );
-        deposit.rewardGrowthSnapshot = rewardGrowthStored;
+        accrueRewards();
+        uint256 growthDelta;
+        unchecked {
+            growthDelta = _rewardGrowthGlobalX128 - deposit.rewardGrowthGlobalX128Snapshot;
+        }
+        deposit.accruedReward += FixedPointMathLib.fullMulDivN(growthDelta, deposit.weight, 128);
+        deposit.rewardGrowthGlobalX128Snapshot = _rewardGrowthGlobalX128;
     }
 
     function _claimVotingFeesIfVoted(uint256 veId, address recipient)

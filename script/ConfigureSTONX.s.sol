@@ -80,7 +80,7 @@ contract ConfigureSTONX is Script {
 
         vm.startBroadcast();
 
-        stonx.mint(deployer, INITIAL_MINT_AMOUNT);
+        assert(stonx.balanceOf(deployer) >= INITIAL_MINT_AMOUNT);
 
         PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(system.ve33));
         uint256 positionId = _seedLiquidity(stonx, system.positions, poolKey, usdg, deployer, governance, nftSalt);

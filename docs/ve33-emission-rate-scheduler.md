@@ -13,11 +13,12 @@ The scheduler has three jobs:
 
 1. Apply emission-policy changes at governance-selected timestamps.
 2. Convert those arbitrary policy timestamps into schedules accepted by Ve33's existing timestamp-validity rules.
-3. Pay only the tokens required to bring projected global Ve33 emissions up to the configured minimum.
+3. When projected emissions are below the configured minimum, pay only the tokens required to reach the fitted Ve33
+   execution rate.
 
-`minEmissionsRate` is a floor, not an additive emissions stream. If another Ve33 schedule already supplies some or all
-of the minimum, this scheduler pays only the shortfall. If projected emissions are already above the minimum, it pays
-nothing.
+`minEmissionsRate` is a floor, not an additive emissions stream. If another Ve33 schedule supplies part of the
+minimum, this scheduler pays only the amount needed to reach the fitted execution rate. If projected emissions are
+already at or above the minimum, it pays nothing.
 
 The scheduler never calls a token mint interface. Its Ve33 stake token may be an ERC-20 or the native token:
 
@@ -82,8 +83,9 @@ The scheduler tracks two different timelines:
 
 - `lastScheduledTime` is the arbitrary policy-time cursor. It records exactly how far the configured policy has been
   accounted.
-- `emissionEnd` is a timestamp accepted by Ve33. It records the valid execution-time boundary through which projected
-  emissions have been covered.
+- `emissionEnd` is the execution-time cursor through which projected emissions have been covered. When it is in the
+  future, it is a timestamp accepted by Ve33. An immediate config reset sets it to the current block timestamp, which
+  need not itself satisfy Ve33's future endpoint-validity rules.
 
 These values are intentionally different. A governance update may begin at an arbitrary timestamp, but Ve33 still
 requires schedule endpoints to be valid according to its existing time rules.
@@ -245,7 +247,7 @@ Useful reads are:
 - `config().nextConfigTime()`: queue-head timestamp read from the packed active state;
 - `scheduledConfigs(timestamp)`: packed linked-list node at a timestamp;
 - `lastScheduledTime()`: exact policy cursor;
-- `emissionEnd()`: latest Ve33-valid execution boundary;
+- `emissionEnd()`: execution-time cursor; future values are Ve33-valid scheduling boundaries;
 - `rateRemainder()`: carried Q32 fractional policy amount;
 - the scheduler's stake-token balance: remaining funding;
 - `stakeToken()`: ERC-20 address or the native-token sentinel; and

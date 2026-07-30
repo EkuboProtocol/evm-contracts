@@ -56,7 +56,8 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     /// @notice Arbitrary policy timestamp through which emissions have been accounted.
     uint64 public lastScheduledTime;
 
-    /// @notice Valid Ve33 timestamp through which projected emissions have been covered.
+    /// @notice Execution-time cursor through which projected emissions have been covered.
+    /// @dev A future value is a Ve33-valid schedule endpoint; an immediate config reset sets it to the current time.
     uint64 public emissionEnd;
 
     /// @notice Unpaid fractional Q32 token amount carried between calls under the current configuration.

@@ -6,29 +6,32 @@ import {Ve33EmissionRateConfig, createVe33EmissionRateConfig} from "../../src/ty
 
 contract Ve33EmissionRateConfigTest is Test {
     function test_conversionToAndFrom(Ve33EmissionRateConfig config) public pure {
-        Ve33EmissionRateConfig recreated = createVe33EmissionRateConfig(config.targetRate(), config.scheduleDuration());
+        Ve33EmissionRateConfig recreated =
+            createVe33EmissionRateConfig(config.minEmissionsRate(), config.scheduleDuration());
 
-        assertEq(recreated.targetRate(), config.targetRate(), "targetRate");
-        assertEq(recreated.scheduleDuration(), config.scheduleDuration(), "scheduleDuration");
+        assertEq(Ve33EmissionRateConfig.unwrap(recreated), Ve33EmissionRateConfig.unwrap(config));
     }
 
-    function test_conversionFromAndTo(uint160 targetRate, uint32 scheduleDuration) public pure {
-        Ve33EmissionRateConfig config = createVe33EmissionRateConfig(targetRate, scheduleDuration);
-        assertEq(config.targetRate(), targetRate);
+    function test_conversionFromAndTo(uint160 minEmissionsRate, uint32 scheduleDuration) public pure {
+        Ve33EmissionRateConfig config = createVe33EmissionRateConfig(minEmissionsRate, scheduleDuration);
+        assertEq(config.minEmissionsRate(), minEmissionsRate);
         assertEq(config.scheduleDuration(), scheduleDuration);
     }
 
-    function test_conversionFromAndToDirtyBits(bytes32 targetRateDirty, bytes32 scheduleDurationDirty) public pure {
-        uint160 targetRate;
+    function test_conversionFromAndToDirtyBits(bytes32 minEmissionsRateDirty, bytes32 scheduleDurationDirty)
+        public
+        pure
+    {
+        uint160 minEmissionsRate;
         uint32 scheduleDuration;
 
         assembly ("memory-safe") {
-            targetRate := targetRateDirty
+            minEmissionsRate := minEmissionsRateDirty
             scheduleDuration := scheduleDurationDirty
         }
 
-        Ve33EmissionRateConfig config = createVe33EmissionRateConfig(targetRate, scheduleDuration);
-        assertEq(config.targetRate(), targetRate, "targetRate");
+        Ve33EmissionRateConfig config = createVe33EmissionRateConfig(minEmissionsRate, scheduleDuration);
+        assertEq(config.minEmissionsRate(), minEmissionsRate, "minEmissionsRate");
         assertEq(config.scheduleDuration(), scheduleDuration, "scheduleDuration");
     }
 }

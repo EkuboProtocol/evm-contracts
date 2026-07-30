@@ -5,6 +5,7 @@ import {console2} from "forge-std/console2.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Script} from "forge-std/Script.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {deployIfNeeded} from "./DeployAll.s.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {Ve33} from "../src/extensions/Ve33.sol";
@@ -48,13 +49,14 @@ contract ConfigureSTONX is Script {
     uint128 internal constant LIQUIDITY_TOKEN_AMOUNT = 333_333e18;
     uint128 internal constant LIQUIDITY_USDG_AMOUNT = 333_333e6;
     uint128 internal constant STAKE_TOKEN_AMOUNT = 333_333e18;
-    uint128 internal constant INITIAL_MINT_AMOUNT = LIQUIDITY_TOKEN_AMOUNT + STAKE_TOKEN_AMOUNT;
+    uint128 internal constant INITIAL_EMISSION_AMOUNT = 333_333e18;
+    uint128 internal constant REQUIRED_STONX_AMOUNT =
+        LIQUIDITY_TOKEN_AMOUNT + STAKE_TOKEN_AMOUNT + INITIAL_EMISSION_AMOUNT;
     uint32 internal constant TICK_SPACING = 1024;
     // Outermost usable ticks within Core's global bounds for this tick spacing.
     int32 internal constant POSITION_TICK_LOWER = -88_722_432;
     int32 internal constant POSITION_TICK_UPPER = 88_722_432;
     uint64 internal constant SWAP_FEE = 0;
-    uint128 internal constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint128 internal constant INITIAL_DAILY_EMISSION_AMOUNT = 333_333e16;
     uint32 internal constant INITIAL_EMISSION_DELAY = 1 weeks;
     uint32 internal constant INITIAL_EMISSION_DURATION = 100 days;
@@ -86,7 +88,7 @@ contract ConfigureSTONX is Script {
 
         vm.startBroadcast();
 
-        assert(stonx.balanceOf(deployer) >= INITIAL_MINT_AMOUNT);
+        assert(stonx.balanceOf(deployer) >= REQUIRED_STONX_AMOUNT);
 
         PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(system.ve33));
         uint256 positionId = _seedLiquidity(stonx, system.positions, poolKey, usdg, deployer, governance, nftSalt);
@@ -100,6 +102,7 @@ contract ConfigureSTONX is Script {
         console2.log("STONX VeToken stake", veId);
         console2.log("Ve33EmissionRateScheduler", schedulerAddress);
         console2.log("Initial configured emissions", INITIAL_EMISSION_AMOUNT);
+        console2.log("Initial scheduler STONX funding", INITIAL_EMISSION_AMOUNT);
         console2.log("Initial emissions start timestamp", emissionStart);
         console2.log("Initial emissions end timestamp", emissionEnd);
         console2.log(
@@ -211,6 +214,8 @@ contract ConfigureSTONX is Script {
         uint64 emissionStart,
         uint64 emissionEnd
     ) internal {
+        SafeTransferLib.safeTransfer(scheduler.stakeToken(), address(scheduler), INITIAL_EMISSION_AMOUNT);
+
         bytes[] memory calls = new bytes[](5);
         calls[0] = abi.encodeCall(scheduler.setConfig, (uint160(0), EMISSION_SCHEDULE_DURATION));
         calls[1] = abi.encodeCall(

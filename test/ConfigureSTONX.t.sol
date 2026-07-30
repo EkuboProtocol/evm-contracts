@@ -62,8 +62,8 @@ contract ConfigureSTONXTest is FullTest {
     uint64 private constant SWAP_FEE = 0;
     uint128 private constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint128 private constant INITIAL_DAILY_EMISSION_AMOUNT = 333_333e16;
-    uint64 private constant INITIAL_EMISSION_START = 1_785_513_600;
-    uint64 private constant INITIAL_EMISSION_END = 1_794_153_600;
+    uint64 private constant INITIAL_EMISSION_START = 1_785_508_200;
+    uint64 private constant INITIAL_EMISSION_END = 1_794_148_200;
     uint32 private constant INITIAL_EMISSION_DURATION = 100 days;
     uint160 private constant INITIAL_EMISSION_RATE =
         uint160(((uint256(INITIAL_DAILY_EMISSION_AMOUNT) << 32) + 1 days - 1) / 1 days);

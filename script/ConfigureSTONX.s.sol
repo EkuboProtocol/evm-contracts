@@ -58,8 +58,8 @@ contract ConfigureSTONX is Script {
     int32 internal constant POSITION_TICK_UPPER = 88_722_432;
     uint64 internal constant SWAP_FEE = 0;
     uint128 internal constant INITIAL_DAILY_EMISSION_AMOUNT = 333_333e16;
-    uint64 internal constant INITIAL_EMISSION_START = 1_785_513_600;
-    uint64 internal constant INITIAL_EMISSION_END = 1_794_153_600;
+    uint64 internal constant INITIAL_EMISSION_START = 1_785_508_200;
+    uint64 internal constant INITIAL_EMISSION_END = 1_794_148_200;
     uint160 internal constant INITIAL_EMISSION_RATE =
         uint160(((uint256(INITIAL_DAILY_EMISSION_AMOUNT) << 32) + 1 days - 1) / 1 days);
     uint32 internal constant EMISSION_SCHEDULE_DURATION = 1 weeks;

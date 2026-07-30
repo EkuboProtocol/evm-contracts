@@ -125,9 +125,9 @@ Ve33 emission schedule contributes to the global minimum.
 The launch policy is:
 
 - zero emissions before the start;
-- an exact policy start at `1785513600` (July 31, 2026 at 12:00 PM ET);
+- an exact policy start at `1785508200` (July 31, 2026 at 10:30 AM ET);
 - 3,333.33 STONX per day for exactly 100 policy days;
-- an exact policy end at `1794153600`;
+- an exact policy end at `1794148200`;
 - 333,333 STONX of total scheduler spending over those 100 days when no other Ve33 emissions overlap; and
 - a lower ongoing minimum rate after the 100-day boundary.
 

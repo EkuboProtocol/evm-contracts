@@ -3,7 +3,7 @@ pragma solidity =0.8.33;
 
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {BaseOwnableExecutor} from "./base/BaseOwnableExecutor.sol";
-import {Ve33} from "./extensions/Ve33.sol";
+import {Ve33, VE33_MAX_ABS_VALUE_EMISSION_RATE_DELTA} from "./extensions/Ve33.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
@@ -25,7 +25,9 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
 
     /// @notice Thrown when a zero schedule duration is supplied where a nonzero duration is required.
     error InvalidScheduleDuration();
-    /// @notice Thrown when a configuration timestamp is not both future and unaccounted.
+    /// @notice Thrown when a minimum rate could produce a fitted Ve33 rate above its per-time delta limit.
+    error MinEmissionsRateTooHigh(uint160 minEmissionsRate);
+    /// @notice Thrown when a configuration timestamp is ineligible for the requested insertion or removal.
     error InvalidConfigTime(uint64 startTime);
     /// @notice Thrown when the linked-list insertion or removal hint is incorrect.
     error InvalidPreviousConfigTime(uint64 previousConfigTime);
@@ -33,12 +35,8 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     error ConfigAlreadyScheduled(uint64 startTime);
     /// @notice Thrown when no configuration exists at a timestamp.
     error ConfigNotScheduled(uint64 startTime);
-    /// @notice Thrown when an immediate update would modify an interval that has already been scheduled.
-    error EmissionsAlreadyScheduled(uint64 untilTime);
     /// @notice Thrown when an immediate update would skip a pending configuration.
     error ConfigUpdateDue(uint64 startTime);
-    /// @notice Thrown when the amount for a policy interval does not fit the Ve33 funding path.
-    error EmissionAmountOverflow();
     /// @notice Thrown when no valid Ve33 timestamp can represent the end of a policy interval.
     error NoValidEmissionEnd();
     /// @notice Ekubo Core contract.
@@ -50,6 +48,12 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     /// @notice Token used as the Ve33 stake/reward token, or address(0) for the native token.
     address public immutable stakeToken;
 
+    /// @notice Largest accepted minimum rate.
+    /// @dev A call accounts at most `uint32.max` policy seconds. Even if that whole amount is fitted into one second,
+    ///      this bound keeps the resulting rate within Ve33's absolute emission-rate-delta limit. It also implies that
+    ///      every policy amount fits uint128.
+    uint160 public constant MAX_MIN_EMISSIONS_RATE = uint160(VE33_MAX_ABS_VALUE_EMISSION_RATE_DELTA / type(uint32).max);
+
     /// @notice Packed active emission-rate configuration and head of the future-configuration linked list.
     ScheduledVe33EmissionRateConfig public config;
 
@@ -57,11 +61,9 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     uint64 public lastScheduledTime;
 
     /// @notice Execution-time cursor through which projected emissions have been covered.
-    /// @dev A future value is a Ve33-valid schedule endpoint; an immediate config reset sets it to the current time.
+    /// @dev A future value is a Ve33-valid schedule endpoint. An immediate config update only advances a stale cursor
+    ///      to the current time; it never rewinds already-funded emissions.
     uint64 public emissionEnd;
-
-    /// @notice Unpaid fractional Q32 token amount carried between calls under the current configuration.
-    uint32 public rateRemainder;
 
     /// @notice Future configurations keyed by their arbitrary policy start timestamp.
     mapping(uint64 startTime => ScheduledVe33EmissionRateConfig) public scheduledConfigs;
@@ -113,23 +115,21 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     }
 
     /// @notice Immediately sets the minimum global Q32 emissions rate and maximum preschedule duration.
-    /// @dev Reverts if a prior call has already accounted for future policy time or scheduled future emissions.
+    /// @dev The update takes effect at the later of the current block and `lastScheduledTime`. It cannot cancel a Ve33
+    ///      stream that was already funded, but it prevents permissionless callers from extending the old policy.
     /// @param minEmissionsRate Minimum global Q32 token emissions rate.
     /// @param scheduleDuration Maximum policy duration accounted by one call.
     function setConfig(uint160 minEmissionsRate, uint32 scheduleDuration) external onlyOwner {
-        if (minEmissionsRate != 0 && scheduleDuration == 0) revert InvalidScheduleDuration();
+        _validateConfig(minEmissionsRate, scheduleDuration, false);
         uint64 nextConfigTime_ = config.nextConfigTime();
         if (nextConfigTime_ != 0 && nextConfigTime_ <= block.timestamp) revert ConfigUpdateDue(nextConfigTime_);
-
-        uint64 accountedUntil = lastScheduledTime > emissionEnd ? lastScheduledTime : emissionEnd;
-        if (accountedUntil > block.timestamp) revert EmissionsAlreadyScheduled(accountedUntil);
 
         config = createScheduledVe33EmissionRateConfig(
             createVe33EmissionRateConfig(minEmissionsRate, scheduleDuration), nextConfigTime_
         );
-        lastScheduledTime = uint64(block.timestamp);
-        emissionEnd = uint64(block.timestamp);
-        rateRemainder = 0;
+        uint64 nowTime = uint64(block.timestamp);
+        if (lastScheduledTime < nowTime) lastScheduledTime = nowTime;
+        if (emissionEnd < nowTime) emissionEnd = nowTime;
 
         emit ConfigSet(minEmissionsRate, scheduleDuration);
     }
@@ -147,7 +147,7 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
         uint32 scheduleDuration,
         uint64 previousConfigTime
     ) external onlyOwner {
-        if (scheduleDuration == 0) revert InvalidScheduleDuration();
+        _validateConfig(minEmissionsRate, scheduleDuration, true);
         if (startTime <= block.timestamp || startTime <= lastScheduledTime) revert InvalidConfigTime(startTime);
         if (ScheduledVe33EmissionRateConfig.unwrap(scheduledConfigs[startTime]) != bytes32(0)) {
             revert ConfigAlreadyScheduled(startTime);
@@ -183,10 +183,11 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     }
 
     /// @notice Removes a future configuration from the timestamp-ordered linked list.
+    /// @dev A wall-clock-due node remains cancellable until policy accounting reaches its timestamp.
     /// @param startTime Timestamp of the configuration to remove.
     /// @param previousConfigTime Linked-list removal hint, or zero when removing the head.
     function cancelConfig(uint64 startTime, uint64 previousConfigTime) external onlyOwner {
-        if (startTime <= block.timestamp || startTime <= lastScheduledTime) revert InvalidConfigTime(startTime);
+        if (startTime <= lastScheduledTime) revert InvalidConfigTime(startTime);
 
         ScheduledVe33EmissionRateConfig scheduledConfig = scheduledConfigs[startTime];
         Ve33EmissionRateConfig rateConfig = scheduledConfig.emissionRateConfig();
@@ -234,24 +235,30 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
 
         Ve33EmissionRateConfig rateConfig = config_.emissionRateConfig();
         uint32 duration = rateConfig.scheduleDuration();
-        if (duration == 0) return abi.encode(uint128(0));
-
         uint64 nowTime = uint64(block.timestamp);
-        uint64 horizon = nowTime + duration;
-        if (nextConfigTime_ != 0 && nextConfigTime_ < horizon) {
-            horizon = nextConfigTime_;
+        if (duration == 0) {
+            if (nextConfigTime_ == 0 || nextConfigTime_ > nowTime) return abi.encode(uint128(0));
+
+            lastScheduledTime = nextConfigTime_;
+            _activateNextConfig();
+            config_ = config;
+            nextConfigTime_ = config_.nextConfigTime();
+            rateConfig = config_.emissionRateConfig();
+            duration = rateConfig.scheduleDuration();
         }
+
         uint64 lastScheduledTime_ = lastScheduledTime;
+        uint256 horizon256 = block.timestamp + duration;
+        uint256 maximumAccountingHorizon = uint256(lastScheduledTime_) + type(uint32).max;
+        if (horizon256 > maximumAccountingHorizon) horizon256 = maximumAccountingHorizon;
+        if (nextConfigTime_ != 0 && nextConfigTime_ < horizon256) horizon256 = nextConfigTime_;
+        uint64 horizon = uint64(horizon256);
         if (horizon <= lastScheduledTime_) return abi.encode(uint128(0));
 
         uint160 minEmissionsRate = rateConfig.minEmissionsRate();
-        uint256 accruedQ32 = uint256(horizon - lastScheduledTime_) * minEmissionsRate + uint256(rateRemainder);
-        uint256 policyAmount256 = accruedQ32 >> 32;
-        if (policyAmount256 > type(uint128).max) revert EmissionAmountOverflow();
-        uint128 policyAmount = uint128(policyAmount256);
+        uint128 policyAmount = uint128((uint256(horizon - lastScheduledTime_) * minEmissionsRate) >> 32);
 
         lastScheduledTime = horizon;
-        rateRemainder = uint32(accruedQ32);
 
         uint128 amount;
         if (policyAmount == 0) {
@@ -261,7 +268,6 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
             uint64 emissionEnd_ = emissionEnd;
             uint64 realStartTime = emissionEnd_ > nowTime ? emissionEnd_ : nowTime;
             uint256 maximumEmissionDuration = (uint256(policyAmount) << 32) / minEmissionsRate;
-            if (maximumEmissionDuration > type(uint32).max) maximumEmissionDuration = type(uint32).max;
 
             uint256 maximumEndTime = uint256(realStartTime) + maximumEmissionDuration;
             uint256 latestValidTime = block.timestamp + type(uint32).max;
@@ -269,10 +275,9 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
 
             uint64 nextEmissionEnd = _validTimeAtOrBefore(maximumEndTime, realStartTime);
             uint256 emissionDuration = nextEmissionEnd - realStartTime;
-            // Ve33 rounds the funded amount up. Because every valid emission duration is less than 2**32,
-            // floor(amount * 2**32 / duration) funds exactly `policyAmount` when no existing emissions contribute.
-            // Choosing a duration no greater than policyAmount / minEmissionsRate also keeps this fitted minimum rate
-            // at or above the configured minimum.
+            // Choosing a duration no greater than policyAmount / minEmissionsRate keeps this fitted minimum rate at
+            // or above the configured minimum. MAX_MIN_EMISSIONS_RATE guarantees the fitted rate fits uint160 and
+            // remains within Ve33's per-time delta limit, even when this valid interval is only one second.
             uint160 fittedMinEmissionsRate = uint160((uint256(policyAmount) << 32) / emissionDuration);
 
             amount = _scheduleRateShortfall(realStartTime, nextEmissionEnd, minEmissionsRate, fittedMinEmissionsRate);
@@ -291,7 +296,6 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
         Ve33EmissionRateConfig rateConfig = scheduledConfig.emissionRateConfig();
 
         config = scheduledConfig;
-        rateRemainder = 0;
         scheduledConfigs[startTime] = ScheduledVe33EmissionRateConfig.wrap(bytes32(0));
 
         emit ConfigActivated(startTime, rateConfig.minEmissionsRate(), rateConfig.scheduleDuration());
@@ -308,6 +312,11 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
         uint256 previousTime = maximumTime - (maximumTime % stepSize);
         if (previousTime <= afterTime) revert NoValidEmissionEnd();
         time = uint64(previousTime);
+    }
+
+    function _validateConfig(uint160 minEmissionsRate, uint32 scheduleDuration, bool requireDuration) private pure {
+        if (scheduleDuration == 0 && (requireDuration || minEmissionsRate != 0)) revert InvalidScheduleDuration();
+        if (minEmissionsRate > MAX_MIN_EMISSIONS_RATE) revert MinEmissionsRateTooHigh(minEmissionsRate);
     }
 
     function _scheduleRateShortfall(

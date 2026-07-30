@@ -286,7 +286,6 @@ contract ConfigureSTONXTest is FullTest {
         assertEq(scheduler.lastScheduledTime(), emissionEnd);
         assertEq(scheduler.config().emissionRateConfig().minEmissionsRate(), SCHEDULER_EMISSION_RATE);
         assertEq(scheduler.config().nextConfigTime(), 0);
-        assertEq(scheduler.rateRemainder(), 0);
         assertLe(scheduler.emissionEnd(), emissionEnd);
     }
 

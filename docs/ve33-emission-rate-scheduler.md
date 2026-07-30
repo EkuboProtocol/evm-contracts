@@ -35,6 +35,12 @@ An emission-rate configuration contains:
 - `minEmissionsRate`: the minimum global Ve33 emissions rate, expressed as Q32 token units per second.
 - `scheduleDuration`: how far beyond the current block a keeper call may preschedule policy.
 
+`minEmissionsRate` may not exceed `MAX_MIN_EMISSIONS_RATE()`. The scheduler may compress a policy amount into a
+shorter Ve33-valid interval, which raises the physical rate. The bound is chosen so that even a maximum-length
+`uint32` policy interval compressed into one second remains within Ve33's per-timestamp rate-delta limit. It also
+guarantees that every amount computed by the scheduler fits Ve33's `uint128` funding path. Unsafe rates are rejected
+when a configuration is set or queued, rather than when that policy later becomes due.
+
 For an intended daily amount, the Q32 rate is:
 
 ```text
@@ -84,15 +90,16 @@ The scheduler tracks two different timelines:
 - `lastScheduledTime` is the arbitrary policy-time cursor. It records exactly how far the configured policy has been
   accounted.
 - `emissionEnd` is the execution-time cursor through which projected emissions have been covered. When it is in the
-  future, it is a timestamp accepted by Ve33. An immediate config reset sets it to the current block timestamp, which
-  need not itself satisfy Ve33's future endpoint-validity rules.
+  future, it is a timestamp accepted by Ve33. An immediate config update only advances a stale cursor to the current
+  block timestamp; it never rewinds a future cursor or already-funded emissions.
 
 These values are intentionally different. A governance update may begin at an arbitrary timestamp, but Ve33 still
 requires schedule endpoints to be valid according to its existing time rules.
 
 The scheduler does not relax or bypass those rules. Instead, it:
 
-1. Calculates the exact whole-token policy amount accrued between policy timestamps.
+1. Calculates the whole-token policy amount accrued between policy timestamps, flooring any fractional smallest unit
+   for that call.
 2. Chooses a Ve33-valid execution interval no longer than the corresponding minimum-rate interval.
 3. Fits the policy amount into that interval.
 
@@ -105,20 +112,27 @@ Policy accounting and configuration activation still happen at the exact arbitra
 `scheduleEmissions()` is permissionless. A successful call performs the following work atomically:
 
 1. Activate a queued configuration if the policy cursor is exactly at its start timestamp.
+   A disabled zero-duration policy instead waits until its queue head is wall-clock due, moves the policy cursor to
+   that timestamp, and activates it.
 2. Set the policy horizon to the earlier of:
    - `block.timestamp + scheduleDuration`; or
-   - the next queued configuration timestamp.
-3. Accrue the configured Q32 minimum rate from `lastScheduledTime` through that horizon.
-4. Carry the fractional low 32 bits in `rateRemainder`, so splitting the same policy interval across several keeper
-   calls does not change its whole-token amount.
-5. Select a compatible Ve33-valid execution interval.
-6. Accrue current Ve33 emissions and scan any already-scheduled rate changes in that interval.
-7. Where projected emissions are below the configured minimum, schedule enough shortfall to reach the fitted rate.
-8. Pay the actual amount Ve33 requires for those shortfall schedules from the scheduler's balance.
-9. Activate the next configuration if the policy horizon ended at its timestamp.
+   - the next queued configuration timestamp; or
+   - `uint32.max` seconds after `lastScheduledTime`, which bounds catch-up arithmetic after a very late call.
+3. Accrue the configured Q32 minimum rate from `lastScheduledTime` through that horizon and floor the result to a whole
+   smallest token unit. Fractions are intentionally not carried between calls.
+4. Select a compatible Ve33-valid execution interval.
+5. Accrue current Ve33 emissions and scan any already-scheduled rate changes in that interval.
+6. Where projected emissions are below the configured minimum, schedule enough shortfall to reach the fitted rate.
+7. Pay the actual amount Ve33 requires for those shortfall schedules from the scheduler's balance.
+8. Activate the next configuration if the policy horizon ended at its timestamp.
 
 The returned amount is the number of tokens paid by that call. It can be lower than the policy amount when another
 Ve33 emission schedule contributes to the global minimum.
+
+Ve33 rounds each funded subinterval up independently. Existing rate-change timestamps can therefore make the returned
+amount exceed the single-window nominal amount by less than one smallest token unit per funded subinterval. The
+scheduler deliberately does not store or reconcile this bounded dust. Likewise, flooring each keeper call can discard
+less than one smallest unit. This keeps the policy state simple and is immaterial for STONX.
 
 ## Exact 333,333 STONX launch period
 
@@ -137,14 +151,15 @@ The initial rate is rounded up in Q32:
 initialRate = ceil(3,333.33e18 * 2^32 / 1 day)
 ```
 
-The scheduler carries Q32 fractions across keeper calls. Over exactly 100 days:
+The configured launch rate has the useful property that the standard seven-day chunks and final two-day chunk are
+already exact whole-wei amounts. Over exactly 100 days:
 
 ```text
 floor(100 days * initialRate / 2^32) = 333,333e18
 ```
 
-The launch tests call the scheduler weekly and verify that the sum paid through the 100-day boundary is exactly
-`333,333e18`.
+The launch tests call the scheduler every seven days, followed by the final two-day interval, and verify that the sum
+paid through the 100-day boundary is exactly `333,333e18` without fractional carry state.
 
 This exact total assumes no unrelated Ve33 schedule supplies part of the configured minimum. If another schedule does
 overlap, paying less is correct: the scheduler is maintaining a minimum global rate, not blindly adding a second
@@ -167,9 +182,10 @@ A late call does not lose policy accounting. Its horizon is still based on `bloc
 can catch up unaccounted policy time and preschedule the next interval in one transaction. However, late calls delay
 the physical distribution and can make the fitted stream more compressed.
 
-If several queued configuration timestamps have passed, each call stops at the next timestamp. Call repeatedly until
-`lastScheduledTime` has crossed the elapsed updates and the intended configuration is active. This bounds the work
-performed by one transaction.
+If several queued configuration timestamps have passed, each call stops at the next timestamp. A call also accounts no
+more than `uint32.max` policy seconds after a very long keeper outage. Call repeatedly until `lastScheduledTime` has
+crossed the elapsed updates and the intended configuration is active. This bounds the work performed by one
+transaction.
 
 ## Launch funding and ownership
 
@@ -212,14 +228,23 @@ separate plain ETH transfer, not attached to `multicall()`.
 
 ### Immediate configuration
 
-`setConfig(minEmissionsRate, scheduleDuration)` updates the active policy immediately.
+`setConfig(minEmissionsRate, scheduleDuration)` replaces the active policy without rewinding either scheduler cursor.
 
-It is intended for a policy that has not already been accounted into the future. It reverts if:
+More precisely, the new policy begins at the later of the current block and `lastScheduledTime`. If a permissionless
+caller has already prescheduled the old policy, governance can still call `setConfig()` to stop any further extension;
+the policy and execution cursors are never rewound. Already-funded Ve33 streams remain committed because Ve33 has no
+cancellation operation.
 
-- a queued update is already due; or
-- policy time or Ve33 execution time has already been scheduled beyond the current block.
+It reverts if:
+
+- a queued update is already wall-clock due and must first be processed or cancelled;
+- a nonzero rate is paired with zero duration; or
+- the rate exceeds `MAX_MIN_EMISSIONS_RATE()`.
 
 It preserves the linked-list head.
+
+`setConfig(0, 0)` disables new scheduling. A zero-duration policy has no lookahead: if it has a queued successor, a
+permissionless call activates that successor once its start timestamp is reached.
 
 ### Schedule a configuration
 
@@ -230,6 +255,7 @@ Requirements include:
 - `startTime` must be in the future;
 - `startTime` must be later than `lastScheduledTime`;
 - `scheduleDuration` must be nonzero;
+- `minEmissionsRate` must not exceed `MAX_MIN_EMISSIONS_RATE()`;
 - no node may already exist at `startTime`; and
 - `previousConfigTime` must identify the correct insertion position.
 
@@ -239,7 +265,9 @@ Use scheduled configurations for planned changes at exact policy timestamps.
 
 `cancelConfig(startTime, previousConfigTime)` removes a future node.
 
-A node cannot be cancelled once its start timestamp has been reached or once policy accounting has reached it.
+A node remains cancellable after its wall-clock start timestamp if policy accounting has not reached it. It cannot be
+cancelled once `lastScheduledTime` has reached its timestamp. This gives governance a recovery path if execution of an
+overdue policy is blocked by funding or Ve33 state.
 
 ## Monitoring
 
@@ -251,7 +279,7 @@ Useful reads are:
 - `scheduledConfigs(timestamp)`: packed linked-list node at a timestamp;
 - `lastScheduledTime()`: exact policy cursor;
 - `emissionEnd()`: execution-time cursor; future values are Ve33-valid scheduling boundaries;
-- `rateRemainder()`: carried Q32 fractional policy amount;
+- `MAX_MIN_EMISSIONS_RATE()`: largest accepted policy minimum;
 - the scheduler's stake-token balance: remaining funding;
 - `stakeToken()`: ERC-20 address or the native-token sentinel; and
 - `scheduleEmissions()` return value: actual amount paid for that call.
@@ -267,8 +295,12 @@ Useful events are:
 
 - If the configured amount is too small to fit into any currently available valid Ve33 interval while remaining at or
   above the minimum rate, the call reverts with `NoValidEmissionEnd`. Waiting allows more policy amount to accrue.
+- A wall-clock-due but unaccounted queued node can still be cancelled if execution cannot reach it.
 - Existing emissions can reduce the scheduler's payment below the nominal policy amount, including to zero.
 - A zero minimum advances policy time without payment and is useful for delayed launches.
+- A `(0, 0)` policy is fully disabled until a queued configuration becomes wall-clock due.
+- Fractional Q32 amounts are not carried, and independent Ve33 subinterval round-ups are not reconciled. Both effects
+  are bounded dust in the token's smallest unit.
 - Configuration insertion and cancellation are owner-only, but emission maintenance is permissionless.
 - The scheduler does not need token ownership or a mint interface, but it must be sufficiently prefunded.
 - The owner can use `call()` to recover or reposition excess ERC-20 or native-token funding.

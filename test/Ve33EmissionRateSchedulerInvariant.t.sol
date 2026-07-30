@@ -9,7 +9,7 @@ import {FullTest} from "./FullTest.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {Ve33EmissionRateScheduler} from "../src/Ve33EmissionRateScheduler.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
-import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
+import {Ve33, VE33_MAX_ABS_VALUE_EMISSION_RATE_DELTA, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {IVe33} from "../src/interfaces/extensions/IVe33.sol";
 import {isTimeValid, nextValidTime} from "../src/math/time.sol";
@@ -25,15 +25,15 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
     uint256 private constant MAX_CONFIG_DELAY = 120 days;
     uint256 private constant MAX_TIME_ADVANCE = 45 days;
     uint160 private constant MAX_ROUTINE_RATE = uint160(uint256(1e20) << 32);
+    uint160 private constant MAX_MIN_EMISSIONS_RATE =
+        uint160(VE33_MAX_ABS_VALUE_EMISSION_RATE_DELTA / type(uint32).max);
 
     struct PokeExpectation {
         ScheduledVe33EmissionRateConfig finalConfig;
         uint64 lastScheduledTime;
         uint64 activatedAtStart;
         uint64 activatedAtEnd;
-        uint32 rateRemainder;
         uint256 policyAmount;
-        bool overflows;
     }
 
     Ve33EmissionRateScheduler private immutable scheduler;
@@ -49,7 +49,7 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
     error UnexpectedError(bytes data);
     error UnexpectedCallResult(bool expectedSuccess, bool actualSuccess);
     /// @dev Codes: 1 storage, 2 balance, 3 config result, 4 accounting cursor, 5 deletion, 6 payment,
-    ///      7 policy result, 8 monotonicity, 9 execution timestamp, 10 config list, 11 remainder, 12 transfer.
+    ///      7 policy result, 8 monotonicity, 9 execution timestamp, 10 config list/rate bound, 12 transfer.
     error InvariantViolation(uint256 code);
 
     constructor(Ve33EmissionRateScheduler _scheduler, Ve33Periphery _periphery, MintableERC20 _stakeToken, Vm _vm) {
@@ -100,6 +100,8 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
         bytes32 stateBefore = _schedulerStateHash();
         uint256 schedulerBalanceBefore = _assetBalance(address(scheduler));
         uint64 nextConfigTimeBefore = scheduler.config().nextConfigTime();
+        uint64 lastScheduledTimeBefore = scheduler.lastScheduledTime();
+        uint64 emissionEndBefore = scheduler.emissionEnd();
 
         bool success;
         try scheduler.setConfig(rate, duration) {
@@ -114,9 +116,9 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
             _check(rateConfig.minEmissionsRate() == rate, 3);
             _check(rateConfig.scheduleDuration() == duration, 3);
             _check(scheduler.config().nextConfigTime() == nextConfigTimeBefore, 3);
-            _check(scheduler.lastScheduledTime() == vm.getBlockTimestamp(), 3);
-            _check(scheduler.emissionEnd() == vm.getBlockTimestamp(), 3);
-            _check(scheduler.rateRemainder() == 0, 3);
+            uint64 nowTime = uint64(vm.getBlockTimestamp());
+            _check(scheduler.lastScheduledTime() == _max(lastScheduledTimeBefore, nowTime), 3);
+            _check(scheduler.emissionEnd() == _max(emissionEndBefore, nowTime), 3);
         } else {
             _check(_schedulerStateHash() == stateBefore, 1);
         }
@@ -126,7 +128,7 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
 
     function scheduleConfig(uint64 timeSeed, uint160 rateSeed, uint32 durationSeed, uint8 behavior) external {
         (, uint64[] memory times) = scheduler.getConfigState();
-        if (times.length >= MAX_CONFIGS && behavior % 5 == 0) {
+        if (times.length >= MAX_CONFIGS) {
             _afterAction();
             return;
         }
@@ -138,7 +140,7 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
         uint64 previousConfigTime =
             behavior % 5 == 4 ? _incorrectPreviousTime(startTime, correctPreviousTime, times) : correctPreviousTime;
 
-        bool expectedSuccess = _canScheduleConfig(startTime, duration, previousConfigTime);
+        bool expectedSuccess = _canScheduleConfig(startTime, rate, duration, previousConfigTime);
         bytes32 stateBefore = _schedulerStateHash();
         bytes32 accountingStateBefore = _accountingStateHash();
         uint256 schedulerBalanceBefore = _assetBalance(address(scheduler));
@@ -312,21 +314,11 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
             amount = paid;
         } catch (bytes memory reason) {
             bytes4 selector = _selector(reason);
-            if (expected.overflows) {
-                if (selector != Ve33EmissionRateScheduler.EmissionAmountOverflow.selector) {
-                    revert UnexpectedError(reason);
-                }
-            } else if (
-                selector == Ve33EmissionRateScheduler.EmissionAmountOverflow.selector || !_isSchedulingError(selector)
-            ) {
-                revert UnexpectedError(reason);
-            }
+            if (!_isSchedulingError(selector)) revert UnexpectedError(reason);
         }
 
         if (success) {
-            _check(!expected.overflows, 7);
             _check(scheduler.lastScheduledTime() == expected.lastScheduledTime, 7);
-            _check(scheduler.rateRemainder() == expected.rateRemainder, 7);
             _check(
                 ScheduledVe33EmissionRateConfig.unwrap(scheduler.config())
                     == ScheduledVe33EmissionRateConfig.unwrap(expected.finalConfig),
@@ -346,41 +338,46 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
     function _pokeExpectation() private view returns (PokeExpectation memory expected) {
         ScheduledVe33EmissionRateConfig config_ = scheduler.config();
         uint64 lastScheduledTime_ = scheduler.lastScheduledTime();
-        uint32 remainder = scheduler.rateRemainder();
         uint64 nextConfigTime_ = config_.nextConfigTime();
 
         if (nextConfigTime_ != 0 && nextConfigTime_ == lastScheduledTime_) {
             expected.activatedAtStart = nextConfigTime_;
             config_ = scheduler.scheduledConfigs(nextConfigTime_);
             nextConfigTime_ = config_.nextConfigTime();
-            remainder = 0;
         }
 
         expected.finalConfig = config_;
         expected.lastScheduledTime = lastScheduledTime_;
-        expected.rateRemainder = remainder;
 
         Ve33EmissionRateConfig rateConfig = config_.emissionRateConfig();
         uint32 duration = rateConfig.scheduleDuration();
-        if (duration == 0) return expected;
+        uint64 nowTime = uint64(vm.getBlockTimestamp());
+        if (duration == 0) {
+            if (nextConfigTime_ == 0 || nextConfigTime_ > nowTime) return expected;
 
-        uint64 horizon = uint64(vm.getBlockTimestamp()) + duration;
-        if (nextConfigTime_ != 0 && nextConfigTime_ < horizon) horizon = nextConfigTime_;
-        if (horizon <= lastScheduledTime_) return expected;
-
-        uint256 accruedQ32 = uint256(horizon - lastScheduledTime_) * rateConfig.minEmissionsRate() + uint256(remainder);
-        expected.policyAmount = accruedQ32 >> 32;
-        if (expected.policyAmount > type(uint128).max) {
-            expected.overflows = true;
-            return expected;
+            expected.activatedAtStart = nextConfigTime_;
+            lastScheduledTime_ = nextConfigTime_;
+            config_ = scheduler.scheduledConfigs(nextConfigTime_);
+            nextConfigTime_ = config_.nextConfigTime();
+            rateConfig = config_.emissionRateConfig();
+            duration = rateConfig.scheduleDuration();
+            expected.finalConfig = config_;
+            expected.lastScheduledTime = lastScheduledTime_;
         }
 
+        uint256 horizon256 = vm.getBlockTimestamp() + duration;
+        uint256 maximumAccountingHorizon = uint256(lastScheduledTime_) + type(uint32).max;
+        if (horizon256 > maximumAccountingHorizon) horizon256 = maximumAccountingHorizon;
+        if (nextConfigTime_ != 0 && nextConfigTime_ < horizon256) horizon256 = nextConfigTime_;
+        uint64 horizon = uint64(horizon256);
+        if (horizon <= lastScheduledTime_) return expected;
+
+        expected.policyAmount = (uint256(horizon - lastScheduledTime_) * rateConfig.minEmissionsRate()) >> 32;
+
         expected.lastScheduledTime = horizon;
-        expected.rateRemainder = uint32(accruedQ32);
         if (nextConfigTime_ != 0 && horizon == nextConfigTime_) {
             expected.activatedAtEnd = nextConfigTime_;
             expected.finalConfig = scheduler.scheduledConfigs(nextConfigTime_);
-            expected.rateRemainder = 0;
         }
     }
 
@@ -416,11 +413,8 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
         _check(times.length <= MAX_CONFIGS, 10);
 
         Ve33EmissionRateConfig activeRateConfig = currentConfig.emissionRateConfig();
-        if (activeRateConfig.minEmissionsRate() != 0) {
-            _check(activeRateConfig.scheduleDuration() != 0, 10);
-        } else {
-            _check(scheduler.rateRemainder() == 0, 11);
-        }
+        _check(activeRateConfig.minEmissionsRate() <= MAX_MIN_EMISSIONS_RATE, 10);
+        if (activeRateConfig.minEmissionsRate() != 0) _check(activeRateConfig.scheduleDuration() != 0, 10);
 
         uint64 expectedTime = currentConfig.nextConfigTime();
         uint64 previousTime;
@@ -432,6 +426,7 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
 
             ScheduledVe33EmissionRateConfig scheduledConfig = scheduler.scheduledConfigs(time);
             _check(scheduledConfig.emissionRateConfig().scheduleDuration() != 0, 10);
+            _check(scheduledConfig.emissionRateConfig().minEmissionsRate() <= MAX_MIN_EMISSIONS_RATE, 10);
             expectedTime = scheduledConfig.nextConfigTime();
             previousTime = time;
         }
@@ -444,20 +439,18 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
 
     function _canSetConfig(uint160 rate, uint32 duration) private view returns (bool) {
         if (rate != 0 && duration == 0) return false;
+        if (rate > MAX_MIN_EMISSIONS_RATE) return false;
         uint64 nextConfigTime_ = scheduler.config().nextConfigTime();
-        if (nextConfigTime_ != 0 && nextConfigTime_ <= vm.getBlockTimestamp()) return false;
-        uint64 accountedUntil = scheduler.lastScheduledTime() > scheduler.emissionEnd()
-            ? scheduler.lastScheduledTime()
-            : scheduler.emissionEnd();
-        return accountedUntil <= vm.getBlockTimestamp();
+        return nextConfigTime_ == 0 || nextConfigTime_ > vm.getBlockTimestamp();
     }
 
-    function _canScheduleConfig(uint64 startTime, uint32 duration, uint64 previousConfigTime)
+    function _canScheduleConfig(uint64 startTime, uint160 rate, uint32 duration, uint64 previousConfigTime)
         private
         view
         returns (bool)
     {
         if (duration == 0) return false;
+        if (rate > MAX_MIN_EMISSIONS_RATE) return false;
         if (startTime <= vm.getBlockTimestamp() || startTime <= scheduler.lastScheduledTime()) return false;
         if (ScheduledVe33EmissionRateConfig.unwrap(scheduler.scheduledConfigs(startTime)) != bytes32(0)) return false;
 
@@ -476,7 +469,7 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
     }
 
     function _canCancelConfig(uint64 startTime, uint64 previousConfigTime) private view returns (bool) {
-        if (startTime <= vm.getBlockTimestamp() || startTime <= scheduler.lastScheduledTime()) return false;
+        if (startTime <= scheduler.lastScheduledTime()) return false;
         ScheduledVe33EmissionRateConfig scheduledConfig = scheduler.scheduledConfigs(startTime);
         if (scheduledConfig.emissionRateConfig().scheduleDuration() == 0) return false;
 
@@ -551,7 +544,9 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
         if (mode == 1) return 1;
         if (mode == 2) return uint160(1 << 32);
         if (mode == 3) return uint160(uint256(1e18) << 32);
-        if (mode == 4) return type(uint160).max;
+        if (mode == 4) return MAX_MIN_EMISSIONS_RATE;
+        if (mode == 5) return MAX_MIN_EMISSIONS_RATE + 1;
+        if (mode == 6) return type(uint160).max;
         return uint160(uint256(seed) % (uint256(MAX_ROUTINE_RATE) + 1));
     }
 
@@ -577,18 +572,14 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
 
     function _schedulerStateHash() private view returns (bytes32 hash) {
         (ScheduledVe33EmissionRateConfig currentConfig, uint64[] memory times) = scheduler.getConfigState();
-        hash = keccak256(
-            abi.encode(
-                currentConfig, scheduler.lastScheduledTime(), scheduler.emissionEnd(), scheduler.rateRemainder(), times
-            )
-        );
+        hash = keccak256(abi.encode(currentConfig, scheduler.lastScheduledTime(), scheduler.emissionEnd(), times));
         for (uint256 i; i < times.length; i++) {
             hash = keccak256(abi.encode(hash, times[i], scheduler.scheduledConfigs(times[i])));
         }
     }
 
     function _accountingStateHash() private view returns (bytes32) {
-        return keccak256(abi.encode(scheduler.lastScheduledTime(), scheduler.emissionEnd(), scheduler.rateRemainder()));
+        return keccak256(abi.encode(scheduler.lastScheduledTime(), scheduler.emissionEnd()));
     }
 
     function _assetBalance(address account) private view returns (uint256) {
@@ -597,17 +588,16 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
 
     function _isConfigurationError(bytes4 selector) private pure returns (bool) {
         return selector == Ve33EmissionRateScheduler.InvalidScheduleDuration.selector
+            || selector == Ve33EmissionRateScheduler.MinEmissionsRateTooHigh.selector
             || selector == Ve33EmissionRateScheduler.InvalidConfigTime.selector
             || selector == Ve33EmissionRateScheduler.InvalidPreviousConfigTime.selector
             || selector == Ve33EmissionRateScheduler.ConfigAlreadyScheduled.selector
             || selector == Ve33EmissionRateScheduler.ConfigNotScheduled.selector
-            || selector == Ve33EmissionRateScheduler.EmissionsAlreadyScheduled.selector
             || selector == Ve33EmissionRateScheduler.ConfigUpdateDue.selector;
     }
 
     function _isSchedulingError(bytes4 selector) private pure returns (bool) {
-        return selector == Ve33EmissionRateScheduler.EmissionAmountOverflow.selector
-            || selector == Ve33EmissionRateScheduler.NoValidEmissionEnd.selector
+        return selector == Ve33EmissionRateScheduler.NoValidEmissionEnd.selector
             || selector == SafeTransferLib.TransferFailed.selector
             || selector == SafeTransferLib.ETHTransferFailed.selector || selector == ICore.SavedBalanceOverflow.selector
             || selector == IVe33.EmissionFundingOverflow.selector || selector == IVe33.MaxRateDeltaPerTime.selector;
@@ -621,6 +611,10 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
 
     function _check(bool condition, uint256 code) private pure {
         if (!condition) revert InvariantViolation(code);
+    }
+
+    function _max(uint64 a, uint64 b) private pure returns (uint64) {
+        return a > b ? a : b;
     }
 
     function _selector(bytes memory reason) private pure returns (bytes4 selector) {

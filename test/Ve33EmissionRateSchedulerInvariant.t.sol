@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -21,7 +20,7 @@ import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 /// @notice Stateful fuzz handler for Ve33EmissionRateScheduler.
 /// @dev Ve33 and its periphery only vary the external emission environment. Assertions are deliberately limited to
 ///      state, accounting, configuration, funding, and atomicity owned by the scheduler.
-contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
+contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils {
     uint256 private constant MAX_CONFIGS = 12;
     uint256 private constant MAX_CONFIG_DELAY = 120 days;
     uint256 private constant MAX_TIME_ADVANCE = 45 days;
@@ -49,6 +48,9 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
 
     error UnexpectedError(bytes data);
     error UnexpectedCallResult(bool expectedSuccess, bool actualSuccess);
+    /// @dev Codes: 1 storage, 2 balance, 3 config result, 4 accounting cursor, 5 deletion, 6 payment,
+    ///      7 policy result, 8 monotonicity, 9 execution timestamp, 10 config list, 11 remainder, 12 transfer.
+    error InvariantViolation(uint256 code);
 
     constructor(Ve33EmissionRateScheduler _scheduler, Ve33Periphery _periphery, MintableERC20 _stakeToken, Vm _vm) {
         scheduler = _scheduler;
@@ -86,8 +88,8 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
         }
 
         vm.warp(vm.getBlockTimestamp() + by);
-        assertEq(_schedulerStateHash(), schedulerStateBefore, "time warp changed scheduler storage");
-        assertEq(_assetBalance(address(scheduler)), schedulerBalanceBefore, "time warp changed scheduler balance");
+        _check(_schedulerStateHash() == schedulerStateBefore, 1);
+        _check(_assetBalance(address(scheduler)) == schedulerBalanceBefore, 2);
         _afterAction();
     }
 
@@ -109,16 +111,16 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
         if (success != expectedSuccess) revert UnexpectedCallResult(expectedSuccess, success);
         if (success) {
             Ve33EmissionRateConfig rateConfig = scheduler.config().emissionRateConfig();
-            assertEq(rateConfig.minEmissionsRate(), rate, "setConfig rate mismatch");
-            assertEq(rateConfig.scheduleDuration(), duration, "setConfig duration mismatch");
-            assertEq(scheduler.config().nextConfigTime(), nextConfigTimeBefore, "setConfig changed queue head");
-            assertEq(scheduler.lastScheduledTime(), vm.getBlockTimestamp(), "setConfig policy cursor mismatch");
-            assertEq(scheduler.emissionEnd(), vm.getBlockTimestamp(), "setConfig execution cursor mismatch");
-            assertEq(scheduler.rateRemainder(), 0, "setConfig did not clear remainder");
+            _check(rateConfig.minEmissionsRate() == rate, 3);
+            _check(rateConfig.scheduleDuration() == duration, 3);
+            _check(scheduler.config().nextConfigTime() == nextConfigTimeBefore, 3);
+            _check(scheduler.lastScheduledTime() == vm.getBlockTimestamp(), 3);
+            _check(scheduler.emissionEnd() == vm.getBlockTimestamp(), 3);
+            _check(scheduler.rateRemainder() == 0, 3);
         } else {
-            assertEq(_schedulerStateHash(), stateBefore, "failed setConfig changed scheduler state");
+            _check(_schedulerStateHash() == stateBefore, 1);
         }
-        assertEq(_assetBalance(address(scheduler)), schedulerBalanceBefore, "setConfig changed scheduler token balance");
+        _check(_assetBalance(address(scheduler)) == schedulerBalanceBefore, 2);
         _afterAction();
     }
 
@@ -151,15 +153,13 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
         if (success != expectedSuccess) revert UnexpectedCallResult(expectedSuccess, success);
         if (success) {
             ScheduledVe33EmissionRateConfig scheduledConfig = scheduler.scheduledConfigs(startTime);
-            assertEq(scheduledConfig.emissionRateConfig().minEmissionsRate(), rate, "queued rate mismatch");
-            assertEq(scheduledConfig.emissionRateConfig().scheduleDuration(), duration, "queued duration mismatch");
+            _check(scheduledConfig.emissionRateConfig().minEmissionsRate() == rate, 3);
+            _check(scheduledConfig.emissionRateConfig().scheduleDuration() == duration, 3);
         } else {
-            assertEq(_schedulerStateHash(), stateBefore, "failed scheduleConfig changed scheduler state");
+            _check(_schedulerStateHash() == stateBefore, 1);
         }
-        assertEq(_accountingStateHash(), accountingStateBefore, "scheduleConfig changed accounting cursors");
-        assertEq(
-            _assetBalance(address(scheduler)), schedulerBalanceBefore, "scheduleConfig changed scheduler token balance"
-        );
+        _check(_accountingStateHash() == accountingStateBefore, 4);
+        _check(_assetBalance(address(scheduler)) == schedulerBalanceBefore, 2);
         _afterAction();
     }
 
@@ -180,18 +180,12 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
 
         if (success != expectedSuccess) revert UnexpectedCallResult(expectedSuccess, success);
         if (success) {
-            assertEq(
-                ScheduledVe33EmissionRateConfig.unwrap(scheduler.scheduledConfigs(startTime)),
-                bytes32(0),
-                "cancelled config was not deleted"
-            );
+            _check(ScheduledVe33EmissionRateConfig.unwrap(scheduler.scheduledConfigs(startTime)) == bytes32(0), 5);
         } else {
-            assertEq(_schedulerStateHash(), stateBefore, "failed cancelConfig changed scheduler state");
+            _check(_schedulerStateHash() == stateBefore, 1);
         }
-        assertEq(_accountingStateHash(), accountingStateBefore, "cancelConfig changed accounting cursors");
-        assertEq(
-            _assetBalance(address(scheduler)), schedulerBalanceBefore, "cancelConfig changed scheduler token balance"
-        );
+        _check(_accountingStateHash() == accountingStateBefore, 4);
+        _check(_assetBalance(address(scheduler)) == schedulerBalanceBefore, 2);
         _afterAction();
     }
 
@@ -230,7 +224,7 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
             _assertPaymentDelta(schedulerBalanceBefore, totalPaid);
             expectedSchedulerBalance -= totalPaid;
         } else {
-            assertEq(_schedulerStateHash(), stateBefore, "failed multicall changed scheduler state");
+            _check(_schedulerStateHash() == stateBefore, 1);
             _assertPaymentDelta(schedulerBalanceBefore, 0);
         }
 
@@ -244,9 +238,9 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
             uint256 amount = _bound(uint256(amountSeed), 0, available);
             if (isNative) {
                 (bool success,) = address(scheduler).call{value: amount}("");
-                assertTrue(success, "native funding transfer failed");
+                _check(success, 12);
             } else {
-                assertTrue(stakeToken.transfer(address(scheduler), amount), "token funding transfer failed");
+                _check(stakeToken.transfer(address(scheduler), amount), 12);
             }
             expectedSchedulerBalance += amount;
         } else {
@@ -262,7 +256,7 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
             expectedSchedulerBalance -= amount;
         }
 
-        assertEq(_schedulerStateHash(), schedulerStateBefore, "funding transfer changed scheduler storage");
+        _check(_schedulerStateHash() == schedulerStateBefore, 1);
         _afterAction();
     }
 
@@ -293,18 +287,16 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
         if (!success) {
             if (!_isExternalSchedulingError(_selector(result))) revert UnexpectedError(result);
         }
-        assertEq(_schedulerStateHash(), schedulerStateBefore, "external emissions changed scheduler state");
-        assertEq(
-            _assetBalance(address(scheduler)), schedulerBalanceBefore, "external emissions changed scheduler balance"
-        );
+        _check(_schedulerStateHash() == schedulerStateBefore, 1);
+        _check(_assetBalance(address(scheduler)) == schedulerBalanceBefore, 2);
 
         _afterAction();
     }
 
     function checkSchedulerState() external view {
-        assertEq(scheduler.lastScheduledTime(), observedLastScheduledTime, "unobserved policy cursor change");
-        assertEq(scheduler.emissionEnd(), observedEmissionEnd, "unobserved execution cursor change");
-        assertEq(_assetBalance(address(scheduler)), expectedSchedulerBalance, "scheduler balance mismatch");
+        _check(scheduler.lastScheduledTime() == observedLastScheduledTime, 7);
+        _check(scheduler.emissionEnd() == observedEmissionEnd, 7);
+        _check(_assetBalance(address(scheduler)) == expectedSchedulerBalance, 2);
         _assertConfigList();
     }
 
@@ -332,21 +324,21 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
         }
 
         if (success) {
-            assertFalse(expected.overflows, "overflowing policy call succeeded");
-            assertEq(scheduler.lastScheduledTime(), expected.lastScheduledTime, "policy cursor mismatch");
-            assertEq(scheduler.rateRemainder(), expected.rateRemainder, "Q32 remainder mismatch");
-            assertEq(
-                ScheduledVe33EmissionRateConfig.unwrap(scheduler.config()),
-                ScheduledVe33EmissionRateConfig.unwrap(expected.finalConfig),
-                "active config mismatch"
+            _check(!expected.overflows, 7);
+            _check(scheduler.lastScheduledTime() == expected.lastScheduledTime, 7);
+            _check(scheduler.rateRemainder() == expected.rateRemainder, 7);
+            _check(
+                ScheduledVe33EmissionRateConfig.unwrap(scheduler.config())
+                    == ScheduledVe33EmissionRateConfig.unwrap(expected.finalConfig),
+                7
             );
             if (expected.activatedAtStart != 0) _assertConfigDeleted(expected.activatedAtStart);
             if (expected.activatedAtEnd != 0) _assertConfigDeleted(expected.activatedAtEnd);
-            if (expected.policyAmount == 0) assertEq(amount, 0, "paid without a whole policy amount");
+            if (expected.policyAmount == 0) _check(amount == 0, 7);
             _assertPaymentDelta(schedulerBalanceBefore, amount);
             expectedSchedulerBalance -= amount;
         } else {
-            assertEq(_schedulerStateHash(), stateBefore, "failed poke changed scheduler state");
+            _check(_schedulerStateHash() == stateBefore, 1);
             _assertPaymentDelta(schedulerBalanceBefore, 0);
         }
     }
@@ -393,69 +385,61 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
     }
 
     function _assertPaymentDelta(uint256 schedulerBalanceBefore, uint256 amount) private view {
-        assertEq(
-            _assetBalance(address(scheduler)) + amount,
-            schedulerBalanceBefore,
-            "scheduler payment does not match return value"
-        );
+        _check(_assetBalance(address(scheduler)) + amount == schedulerBalanceBefore, 6);
     }
 
     function _afterAction() private {
         uint64 lastScheduledTime_ = scheduler.lastScheduledTime();
         uint64 emissionEnd_ = scheduler.emissionEnd();
 
-        assertGe(lastScheduledTime_, observedLastScheduledTime, "policy cursor moved backward");
-        assertGe(emissionEnd_, observedEmissionEnd, "execution cursor moved backward");
+        _check(lastScheduledTime_ >= observedLastScheduledTime, 8);
+        _check(emissionEnd_ >= observedEmissionEnd, 8);
 
         observedLastScheduledTime = lastScheduledTime_;
         observedEmissionEnd = emissionEnd_;
 
         if (emissionEnd_ > vm.getBlockTimestamp()) {
-            assertTrue(isTimeValid(vm.getBlockTimestamp(), emissionEnd_), "future execution cursor is invalid");
+            _check(isTimeValid(vm.getBlockTimestamp(), emissionEnd_), 9);
         }
 
         _assertConfigList();
-        assertEq(_assetBalance(address(scheduler)), expectedSchedulerBalance, "scheduler balance mismatch");
+        _check(_assetBalance(address(scheduler)) == expectedSchedulerBalance, 2);
     }
 
     function _assertConfigList() private view {
         (ScheduledVe33EmissionRateConfig currentConfig, uint64[] memory times) = scheduler.getConfigState();
-        assertEq(
-            ScheduledVe33EmissionRateConfig.unwrap(currentConfig),
-            ScheduledVe33EmissionRateConfig.unwrap(scheduler.config()),
-            "getter current config mismatch"
+        _check(
+            ScheduledVe33EmissionRateConfig.unwrap(currentConfig)
+                == ScheduledVe33EmissionRateConfig.unwrap(scheduler.config()),
+            10
         );
-        assertLe(times.length, MAX_CONFIGS, "configuration list unexpectedly grew");
+        _check(times.length <= MAX_CONFIGS, 10);
 
         Ve33EmissionRateConfig activeRateConfig = currentConfig.emissionRateConfig();
         if (activeRateConfig.minEmissionsRate() != 0) {
-            assertNotEq(activeRateConfig.scheduleDuration(), 0, "nonzero active rate has zero duration");
+            _check(activeRateConfig.scheduleDuration() != 0, 10);
         } else {
-            assertEq(scheduler.rateRemainder(), 0, "zero-rate config retained a fractional remainder");
+            _check(scheduler.rateRemainder() == 0, 11);
         }
 
         uint64 expectedTime = currentConfig.nextConfigTime();
         uint64 previousTime;
         for (uint256 i; i < times.length; i++) {
             uint64 time = times[i];
-            assertEq(time, expectedTime, "getter did not follow linked-list head");
-            assertGt(time, previousTime, "configuration timestamps are not strictly increasing");
-            assertGt(time, scheduler.lastScheduledTime(), "queued config was already accounted");
+            _check(time == expectedTime, 10);
+            _check(time > previousTime, 10);
+            _check(time > scheduler.lastScheduledTime(), 10);
 
             ScheduledVe33EmissionRateConfig scheduledConfig = scheduler.scheduledConfigs(time);
-            assertNotEq(scheduledConfig.emissionRateConfig().scheduleDuration(), 0, "queued config has zero duration");
+            _check(scheduledConfig.emissionRateConfig().scheduleDuration() != 0, 10);
             expectedTime = scheduledConfig.nextConfigTime();
             previousTime = time;
         }
-        assertEq(expectedTime, 0, "configuration list does not terminate");
+        _check(expectedTime == 0, 10);
     }
 
     function _assertConfigDeleted(uint64 startTime) private view {
-        assertEq(
-            ScheduledVe33EmissionRateConfig.unwrap(scheduler.scheduledConfigs(startTime)),
-            bytes32(0),
-            "activated config was not deleted"
-        );
+        _check(ScheduledVe33EmissionRateConfig.unwrap(scheduler.scheduledConfigs(startTime)) == bytes32(0), 5);
     }
 
     function _canSetConfig(uint160 rate, uint32 duration) private view returns (bool) {
@@ -633,6 +617,10 @@ contract Ve33EmissionRateSchedulerInvariantHandler is StdUtils, StdAssertions {
         return selector == SafeTransferLib.TransferFromFailed.selector
             || selector == SafeTransferLib.ETHTransferFailed.selector || selector == ICore.SavedBalanceOverflow.selector
             || selector == IVe33.EmissionFundingOverflow.selector || selector == IVe33.MaxRateDeltaPerTime.selector;
+    }
+
+    function _check(bool condition, uint256 code) private pure {
+        if (!condition) revert InvariantViolation(code);
     }
 
     function _selector(bytes memory reason) private pure returns (bytes4 selector) {

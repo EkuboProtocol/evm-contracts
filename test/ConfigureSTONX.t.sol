@@ -17,6 +17,7 @@ import {VeToken} from "../src/VeToken.sol";
 import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
+import {ScheduledEmissionRateConfig} from "../src/types/scheduledEmissionRateConfig.sol";
 import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 import {VePoolSwapFeeState} from "../src/types/vePoolSwapFeeState.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -233,10 +234,8 @@ contract ConfigureSTONXTest is FullTest {
             address(ve33), address(stonx), address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
         );
         (uint64 nextVe33EmissionTime, int256 nextVe33RateDelta) = ve33.nextEmissionRateChangeTime(block.timestamp);
-        (uint160 initialRate, uint32 initialScheduleDuration, uint64 followingConfigTime) =
-            scheduler.scheduledConfigs(emissionStart);
-        (uint160 ongoingRate, uint32 ongoingScheduleDuration, uint64 finalConfigTime) =
-            scheduler.scheduledConfigs(emissionEnd);
+        ScheduledEmissionRateConfig initialScheduledConfig = scheduler.scheduledConfigs(emissionStart);
+        ScheduledEmissionRateConfig ongoingScheduledConfig = scheduler.scheduledConfigs(emissionEnd);
 
         assertEq(emissionStart, block.timestamp + INITIAL_EMISSION_DELAY);
         assertEq(emissionEnd, emissionStart + INITIAL_EMISSION_DURATION);
@@ -246,12 +245,12 @@ contract ConfigureSTONXTest is FullTest {
         assertEq(scheduler.nextConfigTime(), emissionEnd);
         assertEq(scheduler.lastScheduledTime(), emissionStart);
         assertGe(scheduler.emissionEnd(), emissionStart);
-        assertEq(initialRate, 0);
-        assertEq(initialScheduleDuration, 0);
-        assertEq(followingConfigTime, 0);
-        assertEq(ongoingRate, SCHEDULER_EMISSION_RATE);
-        assertEq(ongoingScheduleDuration, EMISSION_SCHEDULE_DURATION);
-        assertEq(finalConfigTime, 0);
+        assertEq(initialScheduledConfig.emissionRateConfig().targetRate(), 0);
+        assertEq(initialScheduledConfig.emissionRateConfig().scheduleDuration(), 0);
+        assertEq(initialScheduledConfig.nextConfigTime(), 0);
+        assertEq(ongoingScheduledConfig.emissionRateConfig().targetRate(), SCHEDULER_EMISSION_RATE);
+        assertEq(ongoingScheduledConfig.emissionRateConfig().scheduleDuration(), EMISSION_SCHEDULE_DURATION);
+        assertEq(ongoingScheduledConfig.nextConfigTime(), 0);
         assertEq(ve33.emissionRate(), 0);
         assertEq(nextVe33EmissionTime, 0);
         assertEq(nextVe33RateDelta, 0);

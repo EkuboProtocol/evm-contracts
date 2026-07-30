@@ -11,6 +11,7 @@ import {Ve33, VE33_STAKE_TOKEN_SAVED_BALANCE_ID, ve33CallPoints} from "../src/ex
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
 import {isTimeValid, nextValidTime} from "../src/math/time.sol";
+import {ScheduledEmissionRateConfig} from "../src/types/scheduledEmissionRateConfig.sol";
 import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 
 contract SchedulerCallRevertTarget {
@@ -446,11 +447,10 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         uint32 expectedDuration,
         uint64 expectedNextTime
     ) private view {
-        (uint160 targetRate, uint32 scheduleDuration, uint64 followingConfigTime) =
-            scheduler.scheduledConfigs(startTime);
-        assertEq(targetRate, expectedRate);
-        assertEq(scheduleDuration, expectedDuration);
-        assertEq(followingConfigTime, expectedNextTime);
+        ScheduledEmissionRateConfig scheduledConfig = scheduler.scheduledConfigs(startTime);
+        assertEq(scheduledConfig.emissionRateConfig().targetRate(), expectedRate);
+        assertEq(scheduledConfig.emissionRateConfig().scheduleDuration(), expectedDuration);
+        assertEq(scheduledConfig.nextConfigTime(), expectedNextTime);
     }
 
     function _validTimeAtOrAfter(uint64 minimumTime) private view returns (uint64) {

@@ -9,15 +9,8 @@ import {IFlashAccountant} from "./interfaces/IFlashAccountant.sol";
 import {IMintableERC20} from "./interfaces/IMintableERC20.sol";
 import {Ve33Lib} from "./libraries/Ve33Lib.sol";
 import {nextValidTime} from "./math/time.sol";
+import {ScheduledEmissionRateConfig, createScheduledEmissionRateConfig} from "./types/scheduledEmissionRateConfig.sol";
 import {Ve33EmissionRateConfig, createVe33EmissionRateConfig} from "./types/ve33EmissionRateConfig.sol";
-
-/// @notice A future emission-rate configuration stored in the scheduler's time-ordered linked list.
-/// @dev The fields occupy exactly one storage slot.
-struct ScheduledEmissionRateConfig {
-    uint160 targetRate;
-    uint32 scheduleDuration;
-    uint64 nextConfigTime;
-}
 
 /// @title Ve33 Emission Rate Scheduler
 /// @notice Policy contract that mints tokens according to timestamped emission-rate configurations.
@@ -126,7 +119,9 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     {
         if (scheduleDuration == 0) revert InvalidScheduleDuration();
         if (startTime <= block.timestamp || startTime <= lastScheduledTime) revert InvalidConfigTime(startTime);
-        if (scheduledConfigs[startTime].scheduleDuration != 0) revert ConfigAlreadyScheduled(startTime);
+        if (scheduledConfigs[startTime].emissionRateConfig().scheduleDuration() != 0) {
+            revert ConfigAlreadyScheduled(startTime);
+        }
 
         uint64 followingConfigTime;
         if (previousConfigTime == 0) {
@@ -136,21 +131,22 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
             }
             nextConfigTime = startTime;
         } else {
-            ScheduledEmissionRateConfig storage previousConfig = scheduledConfigs[previousConfigTime];
-            if (previousConfig.scheduleDuration == 0 || previousConfigTime >= startTime) {
+            ScheduledEmissionRateConfig previousConfig = scheduledConfigs[previousConfigTime];
+            Ve33EmissionRateConfig previousRateConfig = previousConfig.emissionRateConfig();
+            if (previousRateConfig.scheduleDuration() == 0 || previousConfigTime >= startTime) {
                 revert InvalidPreviousConfigTime(previousConfigTime);
             }
 
-            followingConfigTime = previousConfig.nextConfigTime;
+            followingConfigTime = previousConfig.nextConfigTime();
             if (followingConfigTime != 0 && startTime >= followingConfigTime) {
                 revert InvalidPreviousConfigTime(previousConfigTime);
             }
-            previousConfig.nextConfigTime = startTime;
+            scheduledConfigs[previousConfigTime] = createScheduledEmissionRateConfig(previousRateConfig, startTime);
         }
 
-        scheduledConfigs[startTime] = ScheduledEmissionRateConfig({
-            targetRate: targetRate, scheduleDuration: scheduleDuration, nextConfigTime: followingConfigTime
-        });
+        scheduledConfigs[startTime] = createScheduledEmissionRateConfig(
+            createVe33EmissionRateConfig(targetRate, scheduleDuration), followingConfigTime
+        );
 
         emit ConfigScheduled(startTime, targetRate, scheduleDuration);
     }
@@ -161,21 +157,24 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     function cancelConfig(uint64 startTime, uint64 previousConfigTime) external onlyOwner {
         if (startTime <= block.timestamp || startTime <= lastScheduledTime) revert InvalidConfigTime(startTime);
 
-        ScheduledEmissionRateConfig memory scheduledConfig = scheduledConfigs[startTime];
-        if (scheduledConfig.scheduleDuration == 0) revert ConfigNotScheduled(startTime);
+        ScheduledEmissionRateConfig scheduledConfig = scheduledConfigs[startTime];
+        Ve33EmissionRateConfig rateConfig = scheduledConfig.emissionRateConfig();
+        if (rateConfig.scheduleDuration() == 0) revert ConfigNotScheduled(startTime);
 
         if (previousConfigTime == 0) {
             if (nextConfigTime != startTime) revert InvalidPreviousConfigTime(previousConfigTime);
-            nextConfigTime = scheduledConfig.nextConfigTime;
+            nextConfigTime = scheduledConfig.nextConfigTime();
         } else {
-            ScheduledEmissionRateConfig storage previousConfig = scheduledConfigs[previousConfigTime];
-            if (previousConfig.scheduleDuration == 0 || previousConfig.nextConfigTime != startTime) {
+            ScheduledEmissionRateConfig previousConfig = scheduledConfigs[previousConfigTime];
+            Ve33EmissionRateConfig previousRateConfig = previousConfig.emissionRateConfig();
+            if (previousRateConfig.scheduleDuration() == 0 || previousConfig.nextConfigTime() != startTime) {
                 revert InvalidPreviousConfigTime(previousConfigTime);
             }
-            previousConfig.nextConfigTime = scheduledConfig.nextConfigTime;
+            scheduledConfigs[previousConfigTime] =
+                createScheduledEmissionRateConfig(previousRateConfig, scheduledConfig.nextConfigTime());
         }
 
-        delete scheduledConfigs[startTime];
+        scheduledConfigs[startTime] = ScheduledEmissionRateConfig.wrap(bytes32(0));
 
         emit ConfigCancelled(startTime);
     }
@@ -241,14 +240,15 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
 
     function _activateNextConfig() private {
         uint64 startTime = nextConfigTime;
-        ScheduledEmissionRateConfig memory scheduledConfig = scheduledConfigs[startTime];
+        ScheduledEmissionRateConfig scheduledConfig = scheduledConfigs[startTime];
+        Ve33EmissionRateConfig rateConfig = scheduledConfig.emissionRateConfig();
 
-        config = createVe33EmissionRateConfig(scheduledConfig.targetRate, scheduledConfig.scheduleDuration);
-        nextConfigTime = scheduledConfig.nextConfigTime;
+        config = rateConfig;
+        nextConfigTime = scheduledConfig.nextConfigTime();
         rateRemainder = 0;
-        delete scheduledConfigs[startTime];
+        scheduledConfigs[startTime] = ScheduledEmissionRateConfig.wrap(bytes32(0));
 
-        emit ConfigActivated(startTime, scheduledConfig.targetRate, scheduledConfig.scheduleDuration);
+        emit ConfigActivated(startTime, rateConfig.targetRate(), rateConfig.scheduleDuration());
     }
 
     function _validTimeAtOrAfter(uint64 minimumTime) private view returns (uint64 time) {

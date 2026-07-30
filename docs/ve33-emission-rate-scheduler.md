@@ -49,6 +49,10 @@ The active state is a single packed `ScheduledVe33EmissionRateConfig`. It contai
 
 Future configurations use the same packed type and are stored in `scheduledConfigs[startTime]`.
 
+`getConfigState()` returns the current packed configuration and every queued start timestamp in ascending order. This
+lets an offchain client discover the complete linked-list key set with one call before reading any desired
+`scheduledConfigs(timestamp)` values or raw storage slots.
+
 ## Arbitrary policy timestamps
 
 Governance can queue a configuration for any future Unix timestamp. The timestamp does not need to satisfy Ve33's
@@ -237,6 +241,7 @@ A node cannot be cancelled once its start timestamp has been reached or once pol
 Useful reads are:
 
 - `config()`: packed active `Ve33EmissionRateConfig` plus queue-head timestamp;
+- `getConfigState()`: packed active configuration plus all queued configuration timestamps in ascending order;
 - `config().nextConfigTime()`: queue-head timestamp read from the packed active state;
 - `scheduledConfigs(timestamp)`: packed linked-list node at a timestamp;
 - `lastScheduledTime()`: exact policy cursor;

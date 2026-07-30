@@ -330,6 +330,35 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         _assertScheduledConfig(time30, MIN_EMISSIONS_RATE, SCHEDULE_DURATION, 0);
     }
 
+    function test_getConfigStateReturnsCurrentConfigAndOrderedScheduledTimes() public {
+        _setConfig(DOUBLE_MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
+
+        (ScheduledVe33EmissionRateConfig currentConfig, uint64[] memory scheduledConfigTimes) =
+            scheduler.getConfigState();
+        assertEq(
+            ScheduledVe33EmissionRateConfig.unwrap(currentConfig),
+            ScheduledVe33EmissionRateConfig.unwrap(scheduler.config())
+        );
+        assertEq(scheduledConfigTimes.length, 0);
+
+        uint64 time10 = uint64(block.timestamp + 10 days);
+        uint64 time20 = uint64(block.timestamp + 20 days);
+        uint64 time30 = uint64(block.timestamp + 30 days);
+        _scheduleConfig(time30, MIN_EMISSIONS_RATE, SCHEDULE_DURATION, 0);
+        _scheduleConfig(time10, MIN_EMISSIONS_RATE, SCHEDULE_DURATION, 0);
+        _scheduleConfig(time20, DOUBLE_MIN_EMISSIONS_RATE, SCHEDULE_DURATION, time10);
+
+        (currentConfig, scheduledConfigTimes) = scheduler.getConfigState();
+        assertEq(
+            ScheduledVe33EmissionRateConfig.unwrap(currentConfig),
+            ScheduledVe33EmissionRateConfig.unwrap(scheduler.config())
+        );
+        assertEq(scheduledConfigTimes.length, 3);
+        assertEq(scheduledConfigTimes[0], time10);
+        assertEq(scheduledConfigTimes[1], time20);
+        assertEq(scheduledConfigTimes[2], time30);
+    }
+
     function test_scheduleConfigRejectsDuplicateTimestamp() public {
         uint64 startTime = uint64(block.timestamp + 10 days);
         _scheduleConfig(startTime, MIN_EMISSIONS_RATE, SCHEDULE_DURATION, 0);

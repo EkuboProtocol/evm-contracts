@@ -23,7 +23,7 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     using FlashAccountantLib for *;
     using Ve33Lib for Ve33;
 
-    /// @notice Thrown when a nonzero minimum rate is configured with a zero schedule duration.
+    /// @notice Thrown when a zero schedule duration is supplied where a nonzero duration is required.
     error InvalidScheduleDuration();
     /// @notice Thrown when a configuration timestamp is not both future and unaccounted.
     error InvalidConfigTime(uint64 startTime);
@@ -88,6 +88,29 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
         lastScheduledTime = uint64(block.timestamp);
     }
 
+    /// @notice Returns the current packed configuration and every queued configuration timestamp in ascending order.
+    /// @dev Traverses the timestamp-linked list twice: first to determine its length, then to populate the result.
+    function getConfigState()
+        external
+        view
+        returns (ScheduledVe33EmissionRateConfig currentConfig, uint64[] memory scheduledConfigTimes)
+    {
+        currentConfig = config;
+        uint64 nextConfigTime_ = currentConfig.nextConfigTime();
+        uint256 length;
+        while (nextConfigTime_ != 0) {
+            length++;
+            nextConfigTime_ = scheduledConfigs[nextConfigTime_].nextConfigTime();
+        }
+
+        scheduledConfigTimes = new uint64[](length);
+        nextConfigTime_ = currentConfig.nextConfigTime();
+        for (uint256 i; i < length; i++) {
+            scheduledConfigTimes[i] = nextConfigTime_;
+            nextConfigTime_ = scheduledConfigs[nextConfigTime_].nextConfigTime();
+        }
+    }
+
     /// @notice Immediately sets the minimum global Q32 emissions rate and maximum preschedule duration.
     /// @dev Reverts if a prior call has already accounted for future policy time or scheduled future emissions.
     /// @param minEmissionsRate Minimum global Q32 token emissions rate.
@@ -125,7 +148,7 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     ) external onlyOwner {
         if (scheduleDuration == 0) revert InvalidScheduleDuration();
         if (startTime <= block.timestamp || startTime <= lastScheduledTime) revert InvalidConfigTime(startTime);
-        if (scheduledConfigs[startTime].emissionRateConfig().scheduleDuration() != 0) {
+        if (ScheduledVe33EmissionRateConfig.unwrap(scheduledConfigs[startTime]) != bytes32(0)) {
             revert ConfigAlreadyScheduled(startTime);
         }
 

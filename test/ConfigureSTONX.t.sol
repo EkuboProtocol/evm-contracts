@@ -41,12 +41,13 @@ contract ConfigureSTONXHarness is ConfigureSTONX {
         positions.transferOwnership(governance);
     }
 
-    function configureScheduler(Ve33EmissionRateScheduler scheduler, address governance)
+    function configureScheduler(Ve33EmissionRateScheduler scheduler, MintableERC20 stonx, address governance)
         external
-        returns (uint64 emissionStart, uint64 emissionEnd)
+        returns (uint64 emissionStart, uint64 emissionEnd, uint256 remainingStonx)
     {
         (emissionStart, emissionEnd) = _initialEmissionTimes();
         _configureScheduler(scheduler, governance, emissionStart, emissionEnd);
+        remainingStonx = _transferRemainingStonxAndOwnership(stonx, address(this), governance);
     }
 }
 
@@ -148,14 +149,15 @@ contract ConfigureSTONXTest is FullTest {
 
         uint256 positionId;
         uint256 veId;
+        uint256 remainingStonx;
         uint64 emissionStart;
         uint64 emissionEnd;
         PoolKey memory poolKey;
         (poolKey, positionId, veId) = deployer.initialize(stonx, ve33, veToken, ve33Positions, core, usdgAddress, owner);
-        (emissionStart, emissionEnd) = deployer.configureScheduler(scheduler, owner);
+        (emissionStart, emissionEnd, remainingStonx) = deployer.configureScheduler(scheduler, stonx, owner);
         PoolId poolId = poolKey.toPoolId();
 
-        _assertDeploymentOwnership(positionId, veId);
+        _assertDeploymentOwnership(positionId, veId, remainingStonx);
         _assertPositionAndPoolState(poolKey, poolId, positionId, usdg);
         _assertStakeAndVoteState(poolId, veId);
         _assertEmissionConfig(emissionStart, emissionEnd);
@@ -163,10 +165,11 @@ contract ConfigureSTONXTest is FullTest {
         _assertEmissionsReachPosition(poolKey, positionId);
     }
 
-    function _assertDeploymentOwnership(uint256 positionId, uint256 veId) private view {
+    function _assertDeploymentOwnership(uint256 positionId, uint256 veId, uint256 remainingStonx) private view {
         assertEq(positionId, ve33Positions.saltToId(address(deployer), bytes32(0)));
         assertEq(veId, veToken.saltToId(address(deployer), bytes32(0)));
-        assertEq(stonx.owner(), address(deployer));
+        assertEq(stonx.owner(), owner);
+        assertEq(stonx.balanceOf(owner), remainingStonx);
         assertEq(scheduler.owner(), owner);
         assertEq(ve33Positions.owner(), owner);
         assertEq(ve33Positions.ownerOf(positionId), owner);
@@ -204,7 +207,7 @@ contract ConfigureSTONXTest is FullTest {
         assertGt(positionLiquidity, 0);
         assertGt(core.poolState(poolId).liquidity(), 0);
         assertEq(usdg.balanceOf(address(deployer)), 0);
-        assertLe(stonx.balanceOf(address(deployer)), STONX_AMOUNT);
+        assertEq(stonx.balanceOf(address(deployer)), 0);
     }
 
     function _assertStakeAndVoteState(PoolId poolId, uint256 veId) private view {
@@ -278,7 +281,7 @@ contract ConfigureSTONXTest is FullTest {
         assertEq(totalPaid, INITIAL_EMISSION_AMOUNT);
         assertEq(stonx.balanceOf(address(scheduler)), 0);
         assertEq(stonx.totalSupply(), uint256(STONX_AMOUNT) * 3);
-        assertEq(stonx.owner(), address(deployer));
+        assertEq(stonx.owner(), owner);
         assertEq(savedStakeAndEmissions, STONX_AMOUNT + INITIAL_EMISSION_AMOUNT);
         assertEq(scheduler.lastScheduledTime(), emissionEnd);
         assertEq(scheduler.config().emissionRateConfig().minEmissionsRate(), SCHEDULER_EMISSION_RATE);
@@ -289,6 +292,7 @@ contract ConfigureSTONXTest is FullTest {
 
     function _assertEmissionsReachPosition(PoolKey memory poolKey, uint256 positionId) private {
         vm.warp(block.timestamp + 1 days);
+        uint256 governanceBalanceBefore = stonx.balanceOf(owner);
 
         vm.expectRevert(
             abi.encodeWithSelector(BaseNonfungibleToken.NotUnauthorizedForToken.selector, address(this), positionId)
@@ -301,6 +305,6 @@ contract ConfigureSTONXTest is FullTest {
             ve33Positions.claimRewards(positionId, poolKey, POSITION_TICK_LOWER, POSITION_TICK_UPPER, owner);
 
         assertGt(claimed, 0);
-        assertEq(stonx.balanceOf(owner), claimed);
+        assertEq(stonx.balanceOf(owner), governanceBalanceBefore + claimed);
     }
 }

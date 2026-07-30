@@ -96,6 +96,7 @@ contract ConfigureSTONX is Script {
         system.positions.transferOwnership(governance);
         (address schedulerAddress, uint64 emissionStart, uint64 emissionEnd) =
             _deployScheduler(system.ve33, core, salt, deployer, governance);
+        uint256 remainingStonx = _transferRemainingStonxAndOwnership(stonx, deployer, governance);
 
         console2.log("STONX", address(stonx));
         console2.log("STONX/USDG Ve33 position", positionId);
@@ -103,6 +104,7 @@ contract ConfigureSTONX is Script {
         console2.log("Ve33EmissionRateScheduler", schedulerAddress);
         console2.log("Initial configured emissions", INITIAL_EMISSION_AMOUNT);
         console2.log("Initial scheduler STONX funding", INITIAL_EMISSION_AMOUNT);
+        console2.log("Remaining deployer STONX transferred to governance", remainingStonx);
         console2.log("Initial emissions start timestamp", emissionStart);
         console2.log("Initial emissions end timestamp", emissionEnd);
         console2.log(
@@ -228,6 +230,15 @@ contract ConfigureSTONX is Script {
         calls[4] = abi.encodeCall(scheduler.transferOwnership, (governance));
 
         scheduler.multicall(calls);
+    }
+
+    function _transferRemainingStonxAndOwnership(MintableERC20 stonx, address deployer, address governance)
+        internal
+        returns (uint256 remainingStonx)
+    {
+        remainingStonx = stonx.balanceOf(deployer);
+        if (remainingStonx != 0) SafeTransferLib.safeTransfer(address(stonx), governance, remainingStonx);
+        stonx.transferOwnership(governance);
     }
 
     function _stonxPoolKey(address stonx, address usdg, address ve33) internal pure returns (PoolKey memory poolKey) {

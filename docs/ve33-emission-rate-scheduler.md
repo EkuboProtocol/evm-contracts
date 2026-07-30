@@ -174,7 +174,7 @@ performed by one transaction.
 ## Launch funding and ownership
 
 `ConfigureSTONX` intentionally does not transfer STONX ownership to the scheduler. The scheduler does not need or use
-minting authority.
+minting authority. STONX ownership is transferred to governance after the scheduler is funded and configured.
 
 During deployment it:
 
@@ -185,9 +185,11 @@ During deployment it:
 5. Advances the zero-rate policy cursor to the launch timestamp, activating the initial configuration without paying
    or scheduling emissions.
 6. Transfers scheduler ownership to governance.
+7. Transfers the deployer's entire remaining STONX balance to governance.
+8. Transfers STONX ownership to governance.
 
-STONX ownership remains with the deployer. The scheduler is ready to pay for the full initial program from its own
-balance, so anyone can call `scheduleEmissions()` when the start timestamp is reached.
+The scheduler is ready to pay for the full initial program from its own balance, so anyone can call
+`scheduleEmissions()` when the start timestamp is reached.
 
 The initial funding is exhausted after the first 100 days if no other schedule contributes to the minimum. Fund the
 scheduler again before asking it to schedule the ongoing policy:

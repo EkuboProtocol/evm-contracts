@@ -22,7 +22,8 @@ nothing.
 The scheduler never calls a token mint interface. Its Ve33 stake token may be an ERC-20 or the native token:
 
 - ERC-20 payments are transferred directly from the scheduler to the flash accountant.
-- Native-token payments are sent as ETH from the scheduler to the flash accountant.
+- When `stakeToken()` is `address(0)`, native-token payments are sent as ETH from the scheduler to the flash
+  accountant.
 
 Every scheduling transaction reverts atomically if the scheduler does not have enough of the stake token.
 
@@ -93,9 +94,9 @@ Because the chosen interval is no longer than the ideal interval, its fitted min
 `minEmissionsRate`. This can make the physical stream slightly faster and shorter than the ideal policy interval.
 Policy accounting and configuration activation still happen at the exact arbitrary timestamps.
 
-## What `mintAndSchedule()` does
+## What `scheduleEmissions()` does
 
-`mintAndSchedule()` is permissionless. A successful call performs the following work atomically:
+`scheduleEmissions()` is permissionless. A successful call performs the following work atomically:
 
 1. Activate a queued configuration if the policy cursor is exactly at its start timestamp.
 2. Set the policy horizon to the earlier of:
@@ -144,7 +145,7 @@ stream.
 
 ## Expected keeper cadence
 
-For the launch configuration, call `mintAndSchedule()` at least once per week.
+For the launch configuration, call `scheduleEmissions()` at least once per week.
 
 A practical cadence is:
 
@@ -179,13 +180,14 @@ During deployment it:
 6. Transfers scheduler ownership to governance.
 
 STONX ownership remains with the deployer. The scheduler is ready to pay for the full initial program from its own
-balance, so anyone can call `mintAndSchedule()` when the start timestamp is reached.
+balance, so anyone can call `scheduleEmissions()` when the start timestamp is reached.
 
 The initial funding is exhausted after the first 100 days if no other schedule contributes to the minimum. Fund the
 scheduler again before asking it to schedule the ongoing policy:
 
 - transfer ERC-20 stake tokens directly to the scheduler; or
-- send ETH directly to the scheduler when Ve33 uses the native-token sentinel.
+- send ETH directly to the scheduler when `stakeToken()` is `address(0)`; the scheduler inherits a payable
+  `receive()` function from `BaseOwnableExecutor`.
 
 An underfunded call reverts atomically. It cannot leave behind scheduler state changes or an unpaid Ve33 schedule.
 
@@ -242,7 +244,7 @@ Useful reads are:
 - `rateRemainder()`: carried Q32 fractional policy amount;
 - the scheduler's stake-token balance: remaining funding;
 - `stakeToken()`: ERC-20 address or the native-token sentinel; and
-- `mintAndSchedule()` return value: actual amount paid for that call.
+- `scheduleEmissions()` return value: actual amount paid for that call.
 
 Useful events are:
 

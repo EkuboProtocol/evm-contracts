@@ -115,7 +115,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
 
     function test_setConfigFailsAfterFuturePolicyWasScheduled() public {
         _setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
-        scheduler.mintAndSchedule();
+        scheduler.scheduleEmissions();
         uint64 accountedUntil = scheduler.lastScheduledTime();
 
         vm.prank(owner);
@@ -135,10 +135,10 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         scheduler.setConfig(DOUBLE_MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
     }
 
-    function test_mintAndScheduleReturnsZeroWhenUnconfigured() public {
+    function test_scheduleEmissionsReturnsZeroWhenUnconfigured() public {
         uint64 initialCursor = scheduler.lastScheduledTime();
 
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
         assertEq(scheduler.lastScheduledTime(), initialCursor);
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING);
     }
@@ -148,7 +148,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         uint64 policyEnd = uint64(block.timestamp + SCHEDULE_DURATION);
         uint64 validEnd = _validTimeAtOrAfter(policyEnd);
 
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
         assertEq(scheduler.lastScheduledTime(), policyEnd);
         assertEq(scheduler.emissionEnd(), validEnd);
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING);
@@ -160,7 +160,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         scheduler.locked_6416899205(0);
     }
 
-    function test_mintAndSchedulePaysExactPolicyAmountFromBalanceIntoValidInterval() public {
+    function test_scheduleEmissionsPaysExactPolicyAmountFromBalanceIntoValidInterval() public {
         _setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
 
         uint64 policyStart = uint64(block.timestamp);
@@ -169,7 +169,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         uint128 expectedAmount = uint128(uint256(SCHEDULE_DURATION) * 1e12);
         uint160 fittedRate = uint160((uint256(expectedAmount) << 32) / (validEnd - policyStart));
 
-        uint128 amount = scheduler.mintAndSchedule();
+        uint128 amount = scheduler.scheduleEmissions();
 
         assertEq(amount, expectedAmount);
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING - expectedAmount);
@@ -184,7 +184,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertTrue(isTimeValid(policyStart, validEnd));
     }
 
-    function test_mintAndScheduleRevertsAtomicallyWhenSchedulerIsUnderfunded() public {
+    function test_scheduleEmissionsRevertsAtomicallyWhenSchedulerIsUnderfunded() public {
         Ve33EmissionRateScheduler unfundedScheduler = new Ve33EmissionRateScheduler(owner, core, ve);
         vm.prank(owner);
         unfundedScheduler.setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
@@ -192,7 +192,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         uint64 initialEmissionEnd = unfundedScheduler.emissionEnd();
 
         vm.expectRevert();
-        unfundedScheduler.mintAndSchedule();
+        unfundedScheduler.scheduleEmissions();
 
         assertEq(unfundedScheduler.lastScheduledTime(), initialPolicyCursor);
         assertEq(unfundedScheduler.emissionEnd(), initialEmissionEnd);
@@ -200,7 +200,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertEq(_rewardSavedBalance(), 0);
     }
 
-    function test_mintAndScheduleOnlyFundsShortfallBelowMinimum() public {
+    function test_scheduleEmissionsOnlyFundsShortfallBelowMinimum() public {
         uint160 existingRate = MIN_EMISSIONS_RATE / 4;
         _scheduleExternalEmissions(existingRate, _validTimeAtOrAfter(uint64(block.timestamp + 2 weeks)));
         uint256 balanceBefore = stakeToken.balanceOf(address(scheduler));
@@ -213,7 +213,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         uint160 shortfall = fittedMinRate - existingRate;
         uint128 expectedAmount = uint128((((expectedEnd - nowTime) * uint256(shortfall)) + type(uint32).max) >> 32);
 
-        uint128 amount = scheduler.mintAndSchedule();
+        uint128 amount = scheduler.scheduleEmissions();
 
         assertEq(amount, expectedAmount);
         assertEq(stakeToken.balanceOf(address(scheduler)), balanceBefore - amount);
@@ -223,31 +223,31 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertLt(amount, policyAmount);
     }
 
-    function test_mintAndSchedulePaysNothingWhenExistingRateIsAtMinimum() public {
+    function test_scheduleEmissionsPaysNothingWhenExistingRateIsAtMinimum() public {
         _scheduleExternalEmissions(MIN_EMISSIONS_RATE, _validTimeAtOrAfter(uint64(block.timestamp + 2 weeks)));
         uint256 balanceBefore = stakeToken.balanceOf(address(scheduler));
         _setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
 
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
         assertEq(stakeToken.balanceOf(address(scheduler)), balanceBefore);
         assertEq(ve.emissionRate(), MIN_EMISSIONS_RATE);
         assertEq(scheduler.lastScheduledTime(), block.timestamp + SCHEDULE_DURATION);
     }
 
-    function test_mintAndScheduleDoesNotDoubleScheduleSamePolicyHorizon() public {
+    function test_scheduleEmissionsDoesNotDoubleScheduleSamePolicyHorizon() public {
         _setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
-        uint128 firstAmount = scheduler.mintAndSchedule();
+        uint128 firstAmount = scheduler.scheduleEmissions();
 
         assertGt(firstAmount, 0);
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING - firstAmount);
     }
 
-    function test_mintAndScheduleAppendsAfterExistingValidEmissionEnd() public {
+    function test_scheduleEmissionsAppendsAfterExistingValidEmissionEnd() public {
         _setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
 
         uint64 initialTime = uint64(block.timestamp);
-        uint128 firstAmount = scheduler.mintAndSchedule();
+        uint128 firstAmount = scheduler.scheduleEmissions();
         uint64 firstPolicyEnd = initialTime + SCHEDULE_DURATION;
         uint64 firstEmissionEnd = scheduler.emissionEnd();
 
@@ -258,7 +258,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         uint64 realSecondStart = firstEmissionEnd > block.timestamp ? firstEmissionEnd : uint64(block.timestamp);
         uint64 expectedSecondEnd = _validTimeAtOrBefore(realSecondStart + (secondPolicyEnd - firstPolicyEnd));
 
-        uint128 secondAmount = scheduler.mintAndSchedule();
+        uint128 secondAmount = scheduler.scheduleEmissions();
 
         assertEq(secondAmount, expectedSecondAmount);
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING - uint256(firstAmount) - secondAmount);
@@ -268,19 +268,19 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertTrue(isTimeValid(block.timestamp, expectedSecondEnd));
     }
 
-    function test_mintAndScheduleCarriesFractionalQ32Amounts() public {
+    function test_scheduleEmissionsCarriesFractionalQ32Amounts() public {
         uint160 oneThirdWeiPerSecond = uint160((uint256(1) << 32) / 3);
         uint32 duration = 1 days;
         _setConfig(oneThirdWeiPerSecond, duration);
 
-        uint128 firstAmount = scheduler.mintAndSchedule();
+        uint128 firstAmount = scheduler.scheduleEmissions();
         uint32 firstRemainder = scheduler.rateRemainder();
         assertEq(firstAmount, (uint256(duration) * oneThirdWeiPerSecond) >> 32);
         assertEq(firstRemainder, uint32(uint256(duration) * oneThirdWeiPerSecond));
 
         vm.warp(block.timestamp + duration);
 
-        uint128 secondAmount = scheduler.mintAndSchedule();
+        uint128 secondAmount = scheduler.scheduleEmissions();
         assertEq(uint256(firstAmount) + secondAmount, (uint256(duration) * 2 * oneThirdWeiPerSecond) >> 32);
         assertEq(
             scheduler.rateRemainder(),
@@ -289,11 +289,11 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         );
     }
 
-    function test_mintAndScheduleRejectsPolicyAmountAboveUint128() public {
+    function test_scheduleEmissionsRejectsPolicyAmountAboveUint128() public {
         _setConfig(type(uint160).max, type(uint32).max);
 
         vm.expectRevert(Ve33EmissionRateScheduler.EmissionAmountOverflow.selector);
-        scheduler.mintAndSchedule();
+        scheduler.scheduleEmissions();
     }
 
     function test_scheduleConfigFailsIfNotOwner() public {
@@ -351,7 +351,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
 
     function test_scheduleConfigRejectsAlreadyAccountedFutureTime() public {
         _setConfig(0, SCHEDULE_DURATION);
-        scheduler.mintAndSchedule();
+        scheduler.scheduleEmissions();
         uint64 accountedTime = scheduler.lastScheduledTime();
 
         vm.prank(owner);
@@ -411,7 +411,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertFalse(isTimeValid(block.timestamp, policyStart));
         _scheduleConfig(policyStart, MIN_EMISSIONS_RATE, SCHEDULE_DURATION, 0);
 
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
         assertEq(scheduler.lastScheduledTime(), policyStart);
         assertEq(scheduler.config().nextConfigTime(), 0);
         assertEq(scheduler.config().emissionRateConfig().minEmissionsRate(), MIN_EMISSIONS_RATE);
@@ -424,7 +424,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
 
         uint64 policyEnd = uint64(block.timestamp + SCHEDULE_DURATION);
         uint128 expectedAmount = uint128(uint256(policyEnd - policyStart) * 1e12);
-        assertEq(scheduler.mintAndSchedule(), expectedAmount);
+        assertEq(scheduler.scheduleEmissions(), expectedAmount);
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING - expectedAmount);
         assertEq(ve.emissionRate(), 0);
 
@@ -435,14 +435,14 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         assertEq(ve.emissionRate(), uint160(uint256(startRateDelta)));
     }
 
-    function test_mintAndScheduleStopsAtArbitraryNextConfigBoundary() public {
+    function test_scheduleEmissionsStopsAtArbitraryNextConfigBoundary() public {
         _setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
         uint64 policyStart = uint64(block.timestamp);
         uint64 updateTime = policyStart + 3 days + 123;
         _scheduleConfig(updateTime, DOUBLE_MIN_EMISSIONS_RATE, SCHEDULE_DURATION, 0);
 
         uint128 firstExpectedAmount = uint128(uint256(updateTime - policyStart) * 1e12);
-        assertEq(scheduler.mintAndSchedule(), firstExpectedAmount);
+        assertEq(scheduler.scheduleEmissions(), firstExpectedAmount);
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING - firstExpectedAmount);
         assertEq(scheduler.lastScheduledTime(), updateTime);
         assertEq(scheduler.config().emissionRateConfig().minEmissionsRate(), DOUBLE_MIN_EMISSIONS_RATE);
@@ -450,7 +450,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
 
         uint64 secondPolicyEnd = policyStart + SCHEDULE_DURATION;
         uint128 secondExpectedAmount = uint128(uint256(secondPolicyEnd - updateTime) * 2e12);
-        assertEq(scheduler.mintAndSchedule(), secondExpectedAmount);
+        assertEq(scheduler.scheduleEmissions(), secondExpectedAmount);
         assertEq(
             stakeToken.balanceOf(address(scheduler)),
             SCHEDULER_FUNDING - uint256(firstExpectedAmount) - secondExpectedAmount
@@ -463,7 +463,7 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         uint64 updateTime = uint64(block.timestamp + 2);
         _scheduleConfig(updateTime, MIN_EMISSIONS_RATE, SCHEDULE_DURATION, 0);
 
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
         assertEq(scheduler.lastScheduledTime(), updateTime);
         assertEq(scheduler.config().emissionRateConfig().minEmissionsRate(), MIN_EMISSIONS_RATE);
         assertEq(scheduler.rateRemainder(), 0);
@@ -478,20 +478,20 @@ contract Ve33EmissionRateSchedulerTest is FullTest {
         _scheduleConfig(initialEnd, ONGOING_EMISSION_RATE, SCHEDULE_DURATION, initialStart);
 
         assertEq((uint256(100 days) * INITIAL_EMISSION_RATE) >> 32, INITIAL_EMISSION_AMOUNT);
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
 
         vm.warp(initialStart);
-        assertEq(scheduler.mintAndSchedule(), 0);
+        assertEq(scheduler.scheduleEmissions(), 0);
         assertEq(scheduler.config().emissionRateConfig().minEmissionsRate(), INITIAL_EMISSION_RATE);
 
-        assertGt(scheduler.mintAndSchedule(), 0);
+        assertGt(scheduler.scheduleEmissions(), 0);
         for (uint256 week = 1; week < 14; week++) {
             vm.warp(initialStart + week * 1 weeks);
-            assertGt(scheduler.mintAndSchedule(), 0);
+            assertGt(scheduler.scheduleEmissions(), 0);
         }
 
         vm.warp(initialStart + 14 weeks);
-        assertGt(scheduler.mintAndSchedule(), 0);
+        assertGt(scheduler.scheduleEmissions(), 0);
 
         assertEq(stakeToken.balanceOf(address(scheduler)), SCHEDULER_FUNDING - INITIAL_EMISSION_AMOUNT);
         assertEq(stakeToken.totalSupply(), SCHEDULER_FUNDING);
@@ -597,31 +597,33 @@ contract Ve33EmissionRateSchedulerNativeTest is FullTest {
         scheduler.setConfig(MIN_EMISSIONS_RATE, SCHEDULE_DURATION);
     }
 
-    function test_mintAndSchedulePaysNativeEmissionsFromSchedulerBalance() public {
+    function test_addressZeroStakeTokenReceivesEthAndSchedulesEmissions() public {
         uint128 expectedAmount = SCHEDULE_DURATION;
+        assertEq(scheduler.stakeToken(), address(0));
+
         vm.deal(address(this), expectedAmount);
         (bool success,) = address(scheduler).call{value: expectedAmount}("");
         assertTrue(success);
+        assertEq(address(scheduler).balance, expectedAmount);
 
-        uint128 amount = scheduler.mintAndSchedule();
+        uint128 amount = scheduler.scheduleEmissions();
 
         (uint128 saved,) = core.savedBalances(
             address(ve), NATIVE_TOKEN_ADDRESS, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
         );
-        assertEq(scheduler.stakeToken(), NATIVE_TOKEN_ADDRESS);
         assertEq(amount, expectedAmount);
         assertEq(address(scheduler).balance, 0);
         assertEq(saved, expectedAmount);
     }
 
-    function test_mintAndScheduleRevertsAtomicallyWhenNativeBalanceIsInsufficient() public {
+    function test_scheduleEmissionsRevertsAtomicallyWhenNativeBalanceIsInsufficient() public {
         uint256 funding = SCHEDULE_DURATION - 1;
         vm.deal(address(scheduler), funding);
         uint64 initialPolicyCursor = scheduler.lastScheduledTime();
         uint64 initialEmissionEnd = scheduler.emissionEnd();
 
         vm.expectRevert();
-        scheduler.mintAndSchedule();
+        scheduler.scheduleEmissions();
 
         (uint128 saved,) = core.savedBalances(
             address(ve), NATIVE_TOKEN_ADDRESS, address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID

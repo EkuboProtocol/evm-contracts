@@ -18,7 +18,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title Ve33 Emission Rate Scheduler
 /// @notice Policy contract that spends prefunded tokens according to timestamped emission-rate configurations.
-/// @dev Inherits Solady's non-value-forwarding Multicallable through BaseOwnableExecutor.
+/// @dev Inherits Solady's non-value-forwarding Multicallable and an ETH receive path through BaseOwnableExecutor.
 contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     using FlashAccountantLib for *;
     using Ve33Lib for Ve33;
@@ -47,7 +47,7 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     /// @notice Ve33 extension receiving scheduled emissions.
     Ve33 public immutable ve33;
 
-    /// @notice Token used as the Ve33 stake/reward token, or the native-token sentinel.
+    /// @notice Token used as the Ve33 stake/reward token, or address(0) for the native token.
     address public immutable stakeToken;
 
     /// @notice Packed active emission-rate configuration and head of the future-configuration linked list.
@@ -194,7 +194,7 @@ contract Ve33EmissionRateScheduler is BaseLocker, BaseOwnableExecutor {
     ///      fitted into a Ve33-valid interval at no less than the configured minimum rate. Existing emissions reduce
     ///      the amount this scheduler must fund.
     /// @return amount Amount of prefunded tokens paid and scheduled.
-    function mintAndSchedule() external returns (uint128 amount) {
+    function scheduleEmissions() external returns (uint128 amount) {
         amount = abi.decode(lock(""), (uint128));
     }
 

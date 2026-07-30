@@ -224,7 +224,7 @@ contract ConfigureSTONX is Script {
         calls[2] = abi.encodeCall(
             scheduler.scheduleConfig, (emissionEnd, SCHEDULER_EMISSION_RATE, EMISSION_SCHEDULE_DURATION, emissionStart)
         );
-        calls[3] = abi.encodeCall(scheduler.mintAndSchedule, ());
+        calls[3] = abi.encodeCall(scheduler.scheduleEmissions, ());
         calls[4] = abi.encodeCall(scheduler.transferOwnership, (governance));
 
         scheduler.multicall(calls);

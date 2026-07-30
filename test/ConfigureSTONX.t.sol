@@ -258,14 +258,14 @@ contract ConfigureSTONXTest is FullTest {
 
     function _scheduleInitialEmissions(uint64 emissionStart, uint64 emissionEnd) private {
         vm.warp(emissionStart);
-        uint256 totalPaid = scheduler.mintAndSchedule();
+        uint256 totalPaid = scheduler.scheduleEmissions();
         for (uint256 week = 1; week < 14; week++) {
             vm.warp(emissionStart + week * 1 weeks);
-            totalPaid += scheduler.mintAndSchedule();
+            totalPaid += scheduler.scheduleEmissions();
         }
 
         vm.warp(emissionStart + 14 weeks);
-        totalPaid += scheduler.mintAndSchedule();
+        totalPaid += scheduler.scheduleEmissions();
 
         (uint128 savedStakeAndEmissions,) = core.savedBalances(
             address(ve33), address(stonx), address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID

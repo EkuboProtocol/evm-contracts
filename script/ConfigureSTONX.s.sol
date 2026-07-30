@@ -58,8 +58,8 @@ contract ConfigureSTONX is Script {
     int32 internal constant POSITION_TICK_UPPER = 88_722_432;
     uint64 internal constant SWAP_FEE = 0;
     uint128 internal constant INITIAL_DAILY_EMISSION_AMOUNT = 333_333e16;
-    uint32 internal constant INITIAL_EMISSION_DELAY = 1 weeks;
-    uint32 internal constant INITIAL_EMISSION_DURATION = 100 days;
+    uint64 internal constant INITIAL_EMISSION_START = 1_785_513_600;
+    uint64 internal constant INITIAL_EMISSION_END = 1_794_153_600;
     uint160 internal constant INITIAL_EMISSION_RATE =
         uint160(((uint256(INITIAL_DAILY_EMISSION_AMOUNT) << 32) + 1 days - 1) / 1 days);
     uint32 internal constant EMISSION_SCHEDULE_DURATION = 1 weeks;
@@ -203,9 +203,9 @@ contract ConfigureSTONX is Script {
         _configureScheduler(scheduler, governance, emissionStart, emissionEnd);
     }
 
-    function _initialEmissionTimes() internal view returns (uint64 emissionStart, uint64 emissionEnd) {
-        emissionStart = uint64(block.timestamp + uint256(INITIAL_EMISSION_DELAY));
-        emissionEnd = emissionStart + INITIAL_EMISSION_DURATION;
+    function _initialEmissionTimes() internal pure returns (uint64 emissionStart, uint64 emissionEnd) {
+        emissionStart = INITIAL_EMISSION_START;
+        emissionEnd = INITIAL_EMISSION_END;
     }
 
     function _configureScheduler(

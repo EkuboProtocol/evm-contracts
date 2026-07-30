@@ -62,7 +62,8 @@ contract ConfigureSTONXTest is FullTest {
     uint64 private constant SWAP_FEE = 0;
     uint128 private constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint128 private constant INITIAL_DAILY_EMISSION_AMOUNT = 333_333e16;
-    uint32 private constant INITIAL_EMISSION_DELAY = 1 weeks;
+    uint64 private constant INITIAL_EMISSION_START = 1_785_513_600;
+    uint64 private constant INITIAL_EMISSION_END = 1_794_153_600;
     uint32 private constant INITIAL_EMISSION_DURATION = 100 days;
     uint160 private constant INITIAL_EMISSION_RATE =
         uint160(((uint256(INITIAL_DAILY_EMISSION_AMOUNT) << 32) + 1 days - 1) / 1 days);
@@ -138,6 +139,8 @@ contract ConfigureSTONXTest is FullTest {
     }
 
     function assertInitialize(address usdgAddress) external {
+        vm.warp(INITIAL_EMISSION_START - 1 days);
+
         deployCodeTo("MintableERC20.sol:MintableERC20", abi.encode(address(this), "USDG", "USDG", 6), usdgAddress);
         MintableERC20 usdg = MintableERC20(usdgAddress);
         assertEq(usdg.decimals(), 6);
@@ -232,8 +235,9 @@ contract ConfigureSTONXTest is FullTest {
         ScheduledVe33EmissionRateConfig initialScheduledConfig = scheduler.scheduledConfigs(emissionStart);
         ScheduledVe33EmissionRateConfig ongoingScheduledConfig = scheduler.scheduledConfigs(emissionEnd);
 
-        assertEq(emissionStart, block.timestamp + INITIAL_EMISSION_DELAY);
-        assertEq(emissionEnd, emissionStart + INITIAL_EMISSION_DURATION);
+        assertEq(emissionStart, INITIAL_EMISSION_START);
+        assertEq(emissionEnd, INITIAL_EMISSION_END);
+        assertEq(emissionEnd - emissionStart, INITIAL_EMISSION_DURATION);
         assertEq(savedStakeAndEmissions, STONX_AMOUNT);
         assertEq(config.minEmissionsRate(), INITIAL_EMISSION_RATE);
         assertEq(config.scheduleDuration(), EMISSION_SCHEDULE_DURATION);

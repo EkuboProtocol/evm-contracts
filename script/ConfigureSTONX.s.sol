@@ -5,11 +5,10 @@ import {console2} from "forge-std/console2.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Script} from "forge-std/Script.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {deployIfNeeded} from "./DeployAll.s.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {Ve33} from "../src/extensions/Ve33.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
-import {Ve33EmissionRateScheduler} from "../src/Ve33EmissionRateScheduler.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
@@ -42,28 +41,23 @@ contract ConfigureSTONX is Script {
     address internal constant DEFAULT_VE33_PERIPHERY_ADDRESS = 0x1D834b70c33FAceBdB05af3C9C78da396f5d0E26;
     address internal constant DEFAULT_VE33_POSITIONS_ADDRESS = 0xdA38ac72CE7220c4dd7719d114ef94eDadb8f068;
     address internal constant DEFAULT_VE_TOKEN_ADDRESS = 0x9d7008E169D040B6c0140eb92E7cA82B12643497;
-    bytes32 internal constant DEFAULT_DEPLOYMENT_SALT =
-        0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
     address internal constant DEFAULT_GOVERNANCE_ADDRESS = 0xcd87828F4f279D3C5fD7af531370298964B5EAAb;
 
     uint128 internal constant LIQUIDITY_TOKEN_AMOUNT = 333_333e18;
     uint128 internal constant LIQUIDITY_USDG_AMOUNT = 333_333e6;
     uint128 internal constant STAKE_TOKEN_AMOUNT = 333_333e18;
-    uint128 internal constant INITIAL_MINT_AMOUNT = LIQUIDITY_TOKEN_AMOUNT + STAKE_TOKEN_AMOUNT;
+    uint128 internal constant INITIAL_EMISSION_AMOUNT = 333_333e18;
+    uint128 internal constant REQUIRED_STONX_AMOUNT =
+        LIQUIDITY_TOKEN_AMOUNT + STAKE_TOKEN_AMOUNT + INITIAL_EMISSION_AMOUNT;
     uint32 internal constant TICK_SPACING = 1024;
     // Outermost usable ticks within Core's global bounds for this tick spacing.
     int32 internal constant POSITION_TICK_LOWER = -88_722_432;
     int32 internal constant POSITION_TICK_UPPER = 88_722_432;
     uint64 internal constant SWAP_FEE = 0;
-    uint128 internal constant INITIAL_EMISSION_AMOUNT = 333_333e18;
-    uint32 internal constant INITIAL_EMISSION_DELAY = 1 weeks;
     uint32 internal constant INITIAL_EMISSION_DURATION = 100 days;
-    uint32 internal constant EMISSION_SCHEDULE_DURATION = 3 days;
-    uint128 internal constant SCHEDULER_DAILY_EMISSION_AMOUNT = 333_333e15;
-    uint160 internal constant SCHEDULER_EMISSION_RATE =
-        uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
 
     error PoolHasNoLiquidity();
+    error NoValidEmissionTime();
     error NoEmissionsScheduled();
     error UnexpectedScheduledEmissionAmount(uint128 expected, uint128 actual);
     error USDGNotFullySpent(uint128 spent);
@@ -71,7 +65,6 @@ contract ConfigureSTONX is Script {
     error UnsupportedDecimalDifference(uint256 difference);
 
     function run() public {
-        bytes32 salt = vm.envOr("SALT", DEFAULT_DEPLOYMENT_SALT);
         bytes32 nftSalt = vm.envOr("NFT_SALT", bytes32(0));
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         address deployer = vm.getWallets()[0];
@@ -86,20 +79,30 @@ contract ConfigureSTONX is Script {
 
         vm.startBroadcast();
 
-        assert(stonx.balanceOf(deployer) >= INITIAL_MINT_AMOUNT);
+        assert(stonx.balanceOf(deployer) >= REQUIRED_STONX_AMOUNT);
 
         PoolKey memory poolKey = _stonxPoolKey(address(stonx), usdg, address(system.ve33));
         uint256 positionId = _seedLiquidity(stonx, system.positions, poolKey, usdg, deployer, governance, nftSalt);
         uint256 veId = _stakeAndVote(stonx, system.veToken, core, poolKey, deployer, nftSalt);
         system.positions.transferOwnership(governance);
-        (address schedulerAddress, uint128 scheduledAmount) =
-            _deployScheduler(stonx, system.ve33, system.periphery, core, salt, deployer, governance);
+        (uint64 emissionStart, uint64 emissionEnd, uint160 emissionRate, uint128 scheduledAmount) =
+            _scheduleInitialEmissions(stonx, system.periphery);
+        uint256 remainingStonx = _transferRemainingStonxAndOwnership(stonx, deployer, governance);
 
         console2.log("STONX", address(stonx));
         console2.log("STONX/USDG Ve33 position", positionId);
         console2.log("STONX VeToken stake", veId);
-        console2.log("Ve33EmissionRateScheduler", schedulerAddress);
         console2.log("Initial scheduled emissions", scheduledAmount);
+        console2.log("Remaining deployer STONX transferred to governance", remainingStonx);
+        console2.log("Initial emissions start timestamp", emissionStart);
+        console2.log("Initial emissions end timestamp", emissionEnd);
+        console2.log(
+            "Initial emissions duration (seconds)",
+            emissionEnd - (emissionStart == 0 ? uint64(block.timestamp) : emissionStart)
+        );
+        console2.log("Initial Q32 emissions rate", emissionRate);
+        console2.log("Initial daily STONX emissions", uint256(1 days) * emissionRate / (uint256(1) << 32) / 1e18);
+        console2.log("Initial daily STONX emissions (wei)", uint256(1 days) * emissionRate / (uint256(1) << 32));
 
         vm.stopBroadcast();
     }
@@ -177,55 +180,45 @@ contract ConfigureSTONX is Script {
         veToken.multicall(calls);
     }
 
-    function _deployScheduler(
-        MintableERC20 stonx,
-        Ve33 ve33,
-        Ve33Periphery periphery,
-        ICore core,
-        bytes32 salt,
-        address deployer,
-        address governance
-    ) internal returns (address schedulerAddress, uint128 scheduledAmount) {
-        (schedulerAddress,) = deployIfNeeded(
-            abi.encodePacked(type(Ve33EmissionRateScheduler).creationCode, abi.encode(deployer, core, ve33)),
-            salt,
-            address(0),
-            "Ve33EmissionRateScheduler"
-        );
-        Ve33EmissionRateScheduler scheduler = Ve33EmissionRateScheduler(payable(schedulerAddress));
-        scheduledAmount = _scheduleInitialEmissions(stonx, periphery, deployer);
-        _configureScheduler(scheduler, governance);
-    }
-
-    function _scheduleInitialEmissions(MintableERC20 stonx, Ve33Periphery periphery, address emissionFunder)
+    function _scheduleInitialEmissions(MintableERC20 stonx, Ve33Periphery periphery)
         internal
-        returns (uint128 scheduledAmount)
+        returns (uint64 emissionStart, uint64 emissionEnd, uint160 emissionRate, uint128 scheduledAmount)
     {
-        uint64 emissionStart =
-            uint64(nextValidTime(block.timestamp, block.timestamp + uint256(INITIAL_EMISSION_DELAY) - 1));
-        uint64 emissionEnd =
-            uint64(nextValidTime(block.timestamp, emissionStart + uint256(INITIAL_EMISSION_DURATION) - 1));
-        uint160 emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (emissionEnd - emissionStart));
+        (emissionStart, emissionEnd) = initialEmissionTimes(block.timestamp);
+        uint256 realStartTime = emissionStart == 0 ? block.timestamp : emissionStart;
+        emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (uint256(emissionEnd) - realStartTime));
 
-        stonx.mint(emissionFunder, INITIAL_EMISSION_AMOUNT);
         stonx.approve(address(periphery), INITIAL_EMISSION_AMOUNT);
         scheduledAmount = periphery.scheduleEmissions(emissionStart, emissionEnd, emissionRate);
         if (scheduledAmount == 0) revert NoEmissionsScheduled();
         if (scheduledAmount != INITIAL_EMISSION_AMOUNT) {
             revert UnexpectedScheduledEmissionAmount(INITIAL_EMISSION_AMOUNT, scheduledAmount);
         }
-
-        console2.log("Initial emissions start timestamp", emissionStart);
-        console2.log("Initial emissions end timestamp", emissionEnd);
-        console2.log("Initial daily STONX emissions", uint256(1 days) * emissionRate / (uint256(1) << 32) / 1e18);
     }
 
-    function _configureScheduler(Ve33EmissionRateScheduler scheduler, address governance) internal {
-        bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(scheduler.setConfig, (SCHEDULER_EMISSION_RATE, EMISSION_SCHEDULE_DURATION));
-        calls[1] = abi.encodeCall(scheduler.transferOwnership, (governance));
+    /// @notice Returns the shortest Ve33-valid interval whose real duration is at least 100 days.
+    /// @dev The end is the first valid time at or after `currentTime + 100 days`. The start is the greatest valid time
+    ///      no later than 100 days before that end. Zero represents an immediate start when no future valid time fits.
+    function initialEmissionTimes(uint256 currentTime) public pure returns (uint64 emissionStart, uint64 emissionEnd) {
+        uint256 endTime = nextValidTime(currentTime, currentTime + uint256(INITIAL_EMISSION_DURATION) - 1);
+        if (endTime == 0) revert NoValidEmissionTime();
+        emissionEnd = uint64(endTime);
 
-        scheduler.multicall(calls);
+        uint256 latestStartTime = endTime - INITIAL_EMISSION_DURATION;
+        uint256 candidate = nextValidTime(currentTime, currentTime);
+        while (candidate != 0 && candidate <= latestStartTime) {
+            emissionStart = uint64(candidate);
+            candidate = nextValidTime(currentTime, candidate);
+        }
+    }
+
+    function _transferRemainingStonxAndOwnership(MintableERC20 stonx, address deployer, address governance)
+        internal
+        returns (uint256 remainingStonx)
+    {
+        remainingStonx = stonx.balanceOf(deployer);
+        if (remainingStonx != 0) SafeTransferLib.safeTransfer(address(stonx), governance, remainingStonx);
+        stonx.transferOwnership(governance);
     }
 
     function _stonxPoolKey(address stonx, address usdg, address ve33) internal pure returns (PoolKey memory poolKey) {

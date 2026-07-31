@@ -67,6 +67,7 @@ contract ConfigureSTONXTest is FullTest {
     uint64 private constant SWAP_FEE = 0;
     uint128 private constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint32 private constant INITIAL_EMISSION_DURATION = 100 days;
+    uint32 private constant INITIAL_EMISSION_END_BUFFER = 6 days;
 
     ConfigureSTONXHarness private deployer;
     MintableERC20 private stonx;
@@ -132,25 +133,25 @@ contract ConfigureSTONXTest is FullTest {
         deployer.initialTick(address(1), 39, address(2), 0);
     }
 
-    function testFuzz_initialEmissionTimesChooseShortestValidIntervalAtLeast100Days(uint64 currentTimeSeed)
-        public
-        view
-    {
+    function testFuzz_initialEmissionTimesUseEndBufferAndClosestStart(uint64 currentTimeSeed) public view {
         uint256 currentTime = bound(uint256(currentTimeSeed), 1, uint256(type(uint64).max) - type(uint32).max);
         (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(currentTime);
         uint256 realStartTime = emissionStart == 0 ? currentTime : emissionStart;
-        uint256 latestStartTime = uint256(emissionEnd) - INITIAL_EMISSION_DURATION;
+        uint256 latestStartTime =
+            emissionEnd > INITIAL_EMISSION_DURATION ? uint256(emissionEnd) - INITIAL_EMISSION_DURATION : 0;
+        uint256 targetDuration = INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER;
 
         assertEq(
             emissionEnd,
-            nextValidTime(currentTime, currentTime + INITIAL_EMISSION_DURATION - 1),
-            "first valid end at or after 100 days"
+            nextValidTime(currentTime, currentTime + targetDuration - 1),
+            "first valid end at or after 94 days"
         );
         assertTrue(isTimeValid(currentTime, emissionEnd), "valid end");
-        assertGe(uint256(emissionEnd) - realStartTime, INITIAL_EMISSION_DURATION, "at least 100 days");
+        assertGe(uint256(emissionEnd) - realStartTime, targetDuration, "at least 94 days");
         if (emissionStart != 0) {
             assertGt(emissionStart, currentTime, "future start");
             assertTrue(isTimeValid(currentTime, emissionStart), "valid start");
+            assertGe(uint256(emissionEnd) - emissionStart, INITIAL_EMISSION_DURATION, "future start preserves 100 days");
         }
 
         uint256 followingStart = nextValidTime(currentTime, emissionStart == 0 ? currentTime : emissionStart);
@@ -160,6 +161,13 @@ contract ConfigureSTONXTest is FullTest {
         uint160 emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / duration);
         uint256 requiredAmount = (duration * emissionRate + type(uint32).max) >> 32;
         assertEq(requiredAmount, INITIAL_EMISSION_AMOUNT, "exact funded amount");
+    }
+
+    function test_initialEmissionTimesAtPlannedLaunch() public view {
+        (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(1_785_504_600);
+
+        assertEq(emissionStart, 0, "immediate start");
+        assertEq(emissionEnd, 1_794_113_536, "first valid end at or after 94 days");
     }
 
     function _testInitialize(address usdgAddress) private {
@@ -263,10 +271,18 @@ contract ConfigureSTONXTest is FullTest {
 
         assertEq(scheduledAmount, INITIAL_EMISSION_AMOUNT);
         assertEq(savedStakeAndEmissions, STONX_AMOUNT + scheduledAmount);
-        assertEq(emissionEnd, nextValidTime(scheduleTime, uint256(scheduleTime) + INITIAL_EMISSION_DURATION - 1));
-        assertGe(uint256(emissionEnd) - realStartTime, INITIAL_EMISSION_DURATION);
+        assertEq(
+            emissionEnd,
+            nextValidTime(
+                scheduleTime, uint256(scheduleTime) + INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER - 1
+            )
+        );
+        assertGe(uint256(emissionEnd) - realStartTime, INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER);
         assertTrue(isTimeValid(scheduleTime, emissionEnd));
-        if (emissionStart != 0) assertTrue(isTimeValid(scheduleTime, emissionStart));
+        if (emissionStart != 0) {
+            assertTrue(isTimeValid(scheduleTime, emissionStart));
+            assertGe(uint256(emissionEnd) - emissionStart, INITIAL_EMISSION_DURATION);
+        }
         assertEq(
             emissionRate, uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (uint256(emissionEnd) - realStartTime))
         );

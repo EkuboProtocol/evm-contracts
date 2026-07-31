@@ -55,6 +55,7 @@ contract ConfigureSTONX is Script {
     int32 internal constant POSITION_TICK_UPPER = 88_722_432;
     uint64 internal constant SWAP_FEE = 0;
     uint32 internal constant INITIAL_EMISSION_DURATION = 100 days;
+    uint32 internal constant INITIAL_EMISSION_END_BUFFER = 6 days;
 
     error PoolHasNoLiquidity();
     error NoValidEmissionTime();
@@ -94,12 +95,10 @@ contract ConfigureSTONX is Script {
         console2.log("STONX VeToken stake", veId);
         console2.log("Initial scheduled emissions", scheduledAmount);
         console2.log("Remaining deployer STONX transferred to governance", remainingStonx);
-        console2.log("Initial emissions start timestamp", emissionStart);
+        uint64 effectiveEmissionStart = emissionStart == 0 ? uint64(block.timestamp) : emissionStart;
+        console2.log("Initial emissions start timestamp", effectiveEmissionStart);
         console2.log("Initial emissions end timestamp", emissionEnd);
-        console2.log(
-            "Initial emissions duration (seconds)",
-            emissionEnd - (emissionStart == 0 ? uint64(block.timestamp) : emissionStart)
-        );
+        console2.log("Initial emissions duration (seconds)", emissionEnd - effectiveEmissionStart);
         console2.log("Initial Q32 emissions rate", emissionRate);
         console2.log("Initial daily STONX emissions", uint256(1 days) * emissionRate / (uint256(1) << 32) / 1e18);
         console2.log("Initial daily STONX emissions (wei)", uint256(1 days) * emissionRate / (uint256(1) << 32));
@@ -196,15 +195,18 @@ contract ConfigureSTONX is Script {
         }
     }
 
-    /// @notice Returns the shortest Ve33-valid interval whose real duration is at least 100 days.
-    /// @dev The end is the first valid time at or after `currentTime + 100 days`. The start is the greatest valid time
-    ///      no later than 100 days before that end. Zero represents an immediate start when no future valid time fits.
+    /// @notice Returns a Ve33-valid schedule targeting a duration close to 100 days.
+    /// @dev The end is the first valid time at or after `currentTime + 94 days`. The start is the greatest valid time no
+    ///      later than 100 days before that end. Zero represents an immediate start when the end is less than 100 days
+    ///      away or no future valid start fits.
     function initialEmissionTimes(uint256 currentTime) public pure returns (uint64 emissionStart, uint64 emissionEnd) {
-        uint256 endTime = nextValidTime(currentTime, currentTime + uint256(INITIAL_EMISSION_DURATION) - 1);
+        uint256 endTime = nextValidTime(
+            currentTime, currentTime + uint256(INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER) - 1
+        );
         if (endTime == 0) revert NoValidEmissionTime();
         emissionEnd = uint64(endTime);
 
-        uint256 latestStartTime = endTime - INITIAL_EMISSION_DURATION;
+        uint256 latestStartTime = endTime > INITIAL_EMISSION_DURATION ? endTime - INITIAL_EMISSION_DURATION : 0;
         uint256 candidate = nextValidTime(currentTime, currentTime);
         while (candidate != 0 && candidate <= latestStartTime) {
             emissionStart = uint64(candidate);

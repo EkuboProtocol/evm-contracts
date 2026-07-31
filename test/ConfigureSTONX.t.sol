@@ -24,6 +24,10 @@ contract ConfigureSTONXHarness is ConfigureSTONX {
         positions.setMetadata("Ekubo STONX Positions", "stonxPO", "https://prod-api.ekubo.org/positions/");
     }
 
+    function stonxPoolKey(address stonx, address usdg, address ve33) external pure returns (PoolKey memory) {
+        return _stonxPoolKey(stonx, usdg, ve33);
+    }
+
     function initialize(
         MintableERC20 stonx,
         Ve33 ve33,
@@ -68,6 +72,7 @@ contract ConfigureSTONXTest is FullTest {
     uint128 private constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint32 private constant INITIAL_EMISSION_DURATION = 100 days;
     uint32 private constant INITIAL_EMISSION_END_BUFFER = 6 days;
+    uint32 private constant INITIAL_EMISSION_START_DELAY = 1 hours;
 
     ConfigureSTONXHarness private deployer;
     MintableERC20 private stonx;
@@ -106,6 +111,20 @@ contract ConfigureSTONXTest is FullTest {
         _testInitialize(address(0x10000));
     }
 
+    function test_initializeRejectsHostilePreinitializedPool() public {
+        address usdgAddress = address(type(uint160).max - 1);
+        deployCodeTo("MintableERC20.sol:MintableERC20", abi.encode(address(this), "USDG", "USDG", 6), usdgAddress);
+        MintableERC20 usdg = MintableERC20(usdgAddress);
+        usdg.mint(address(deployer), USDG_AMOUNT);
+
+        PoolKey memory poolKey = deployer.stonxPoolKey(address(stonx), usdgAddress, address(ve33));
+        int32 expectedInitialTick = deployer.initialTick(address(stonx), stonx.decimals(), usdgAddress, usdg.decimals());
+        core.initializePool(poolKey, expectedInitialTick + 1_000_000);
+
+        vm.expectPartialRevert(Ve33Positions.DepositFailedDueToSlippage.selector);
+        deployer.initialize(stonx, ve33, veToken, ve33Positions, periphery, core, usdgAddress, owner);
+    }
+
     function test_initialTickFor18DecimalSTONXAnd6DecimalUSDG() public view {
         assertEq(deployer.initialTick(address(1), 18, address(2), 6), -27_631_034);
         assertEq(deployer.initialTick(address(2), 18, address(1), 6), 27_631_034);
@@ -136,10 +155,10 @@ contract ConfigureSTONXTest is FullTest {
     function testFuzz_initialEmissionTimesUseEndBufferAndClosestStart(uint64 currentTimeSeed) public view {
         uint256 currentTime = bound(uint256(currentTimeSeed), 1, uint256(type(uint64).max) - type(uint32).max);
         (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(currentTime);
-        uint256 realStartTime = emissionStart == 0 ? currentTime : emissionStart;
         uint256 latestStartTime =
             emissionEnd > INITIAL_EMISSION_DURATION ? uint256(emissionEnd) - INITIAL_EMISSION_DURATION : 0;
         uint256 targetDuration = INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER;
+        uint256 earliestStartTime = nextValidTime(currentTime, currentTime + INITIAL_EMISSION_START_DELAY - 1);
 
         assertEq(
             emissionEnd,
@@ -147,17 +166,20 @@ contract ConfigureSTONXTest is FullTest {
             "first valid end at or after 94 days"
         );
         assertTrue(isTimeValid(currentTime, emissionEnd), "valid end");
-        assertGe(uint256(emissionEnd) - realStartTime, targetDuration, "at least 94 days");
-        if (emissionStart != 0) {
-            assertGt(emissionStart, currentTime, "future start");
-            assertTrue(isTimeValid(currentTime, emissionStart), "valid start");
+        assertGe(emissionStart, earliestStartTime, "at least one hour in the future");
+        assertTrue(isTimeValid(currentTime, emissionStart), "valid start");
+
+        if (earliestStartTime <= latestStartTime) {
             assertGe(uint256(emissionEnd) - emissionStart, INITIAL_EMISSION_DURATION, "future start preserves 100 days");
+        } else {
+            assertEq(emissionStart, earliestStartTime, "earliest safe broadcast start");
         }
 
-        uint256 followingStart = nextValidTime(currentTime, emissionStart == 0 ? currentTime : emissionStart);
+        uint256 followingStart = nextValidTime(currentTime, emissionStart);
         assertTrue(followingStart == 0 || followingStart > latestStartTime, "greatest valid start");
 
-        uint256 duration = uint256(emissionEnd) - realStartTime;
+        uint256 duration = uint256(emissionEnd) - emissionStart;
+        assertGe(duration, targetDuration - INITIAL_EMISSION_START_DELAY - 255, "six-day buffer bound");
         uint160 emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / duration);
         uint256 requiredAmount = (duration * emissionRate + type(uint32).max) >> 32;
         assertEq(requiredAmount, INITIAL_EMISSION_AMOUNT, "exact funded amount");
@@ -166,8 +188,22 @@ contract ConfigureSTONXTest is FullTest {
     function test_initialEmissionTimesAtPlannedLaunch() public view {
         (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(1_785_504_600);
 
-        assertEq(emissionStart, 0, "immediate start");
+        assertEq(emissionStart, 1_785_508_352, "first valid start at least one hour later");
         assertEq(emissionEnd, 1_794_113_536, "first valid end at or after 94 days");
+    }
+
+    function test_initialEmissionFundingIsStableUntilPlannedStart() public view {
+        uint256 simulationTime = 1_785_504_600;
+        (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(simulationTime);
+        uint256 duration = uint256(emissionEnd) - emissionStart;
+        uint160 emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / duration);
+
+        uint256 broadcastTime = simulationTime + 30 minutes;
+        assertLt(broadcastTime, emissionStart);
+        uint256 realStartTime = broadcastTime > emissionStart ? broadcastTime : emissionStart;
+        uint256 actualRequiredAmount = ((uint256(emissionEnd) - realStartTime) * emissionRate + type(uint32).max) >> 32;
+
+        assertEq(actualRequiredAmount, INITIAL_EMISSION_AMOUNT);
     }
 
     function _testInitialize(address usdgAddress) private {
@@ -271,17 +307,16 @@ contract ConfigureSTONXTest is FullTest {
 
         assertEq(scheduledAmount, INITIAL_EMISSION_AMOUNT);
         assertEq(savedStakeAndEmissions, STONX_AMOUNT + scheduledAmount);
-        assertEq(
-            emissionEnd,
-            nextValidTime(
-                scheduleTime, uint256(scheduleTime) + INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER - 1
-            )
+        (uint64 expectedStart, uint64 expectedEnd) = deployer.initialEmissionTimes(scheduleTime);
+        assertEq(emissionStart, expectedStart);
+        assertEq(emissionEnd, expectedEnd);
+        assertGe(
+            uint256(emissionEnd) - realStartTime,
+            INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER - INITIAL_EMISSION_START_DELAY - 255
         );
-        assertGe(uint256(emissionEnd) - realStartTime, INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER);
         assertTrue(isTimeValid(scheduleTime, emissionEnd));
         if (emissionStart != 0) {
             assertTrue(isTimeValid(scheduleTime, emissionStart));
-            assertGe(uint256(emissionEnd) - emissionStart, INITIAL_EMISSION_DURATION);
         }
         assertEq(
             emissionRate, uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (uint256(emissionEnd) - realStartTime))

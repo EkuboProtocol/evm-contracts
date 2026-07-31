@@ -13,7 +13,8 @@ import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {sqrtRatioToTick} from "../src/math/ticks.sol";
+import {maxLiquidity} from "../src/math/liquidity.sol";
+import {sqrtRatioToTick, tickToSqrtRatio} from "../src/math/ticks.sol";
 import {nextValidTime} from "../src/math/time.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
@@ -56,6 +57,7 @@ contract ConfigureSTONX is Script {
     uint64 internal constant SWAP_FEE = 0;
     uint32 internal constant INITIAL_EMISSION_DURATION = 100 days;
     uint32 internal constant INITIAL_EMISSION_END_BUFFER = 6 days;
+    uint32 internal constant INITIAL_EMISSION_START_DELAY = 1 hours;
 
     error PoolHasNoLiquidity();
     error NoValidEmissionTime();
@@ -127,22 +129,23 @@ contract ConfigureSTONX is Script {
         stonx.approve(address(positions), LIQUIDITY_TOKEN_AMOUNT);
         IERC20(usdg).approve(address(positions), LIQUIDITY_USDG_AMOUNT);
 
-        bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(
-            positions.maybeInitializePool,
-            (poolKey, initialTick(address(stonx), stonx.decimals(), usdg, IERC20(usdg).decimals()))
+        bool stonxIsToken0 = address(stonx) < usdg;
+        uint128 maxAmount0 = stonxIsToken0 ? LIQUIDITY_TOKEN_AMOUNT : LIQUIDITY_USDG_AMOUNT;
+        uint128 maxAmount1 = stonxIsToken0 ? LIQUIDITY_USDG_AMOUNT : LIQUIDITY_TOKEN_AMOUNT;
+        int32 expectedInitialTick = initialTick(address(stonx), stonx.decimals(), usdg, IERC20(usdg).decimals());
+        uint128 expectedLiquidity = maxLiquidity(
+            tickToSqrtRatio(expectedInitialTick),
+            tickToSqrtRatio(POSITION_TICK_LOWER),
+            tickToSqrtRatio(POSITION_TICK_UPPER),
+            maxAmount0,
+            maxAmount1
         );
+
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(positions.maybeInitializePool, (poolKey, expectedInitialTick));
         calls[1] = abi.encodeCall(
             positions.mintAndDepositWithSalt,
-            (
-                nftSalt,
-                poolKey,
-                POSITION_TICK_LOWER,
-                POSITION_TICK_UPPER,
-                address(stonx) < usdg ? LIQUIDITY_TOKEN_AMOUNT : LIQUIDITY_USDG_AMOUNT,
-                address(stonx) < usdg ? LIQUIDITY_USDG_AMOUNT : LIQUIDITY_TOKEN_AMOUNT,
-                0
-            )
+            (nftSalt, poolKey, POSITION_TICK_LOWER, POSITION_TICK_UPPER, maxAmount0, maxAmount1, expectedLiquidity)
         );
 
         bytes[] memory results = positions.multicall(calls);
@@ -150,7 +153,7 @@ contract ConfigureSTONX is Script {
         uint128 amount1;
         (positionId,, amount0, amount1) = abi.decode(results[1], (uint256, uint128, uint128, uint128));
 
-        uint128 usdgSpent = address(stonx) < usdg ? amount1 : amount0;
+        uint128 usdgSpent = stonxIsToken0 ? amount1 : amount0;
         if (usdgSpent != LIQUIDITY_USDG_AMOUNT) revert USDGNotFullySpent(usdgSpent);
         positions.transferFrom(deployer, governance, positionId);
     }
@@ -197,8 +200,8 @@ contract ConfigureSTONX is Script {
 
     /// @notice Returns a Ve33-valid schedule targeting a duration close to 100 days.
     /// @dev The end is the first valid time at or after `currentTime + 94 days`. The start is the greatest valid time no
-    ///      later than 100 days before that end. Zero represents an immediate start when the end is less than 100 days
-    ///      away or no future valid start fits.
+    ///      later than 100 days before that end. If no such time exists, the first valid time at least one hour in the
+    ///      future is used so simulation-to-broadcast timestamp drift cannot change the funded amount.
     function initialEmissionTimes(uint256 currentTime) public pure returns (uint64 emissionStart, uint64 emissionEnd) {
         uint256 endTime = nextValidTime(
             currentTime, currentTime + uint256(INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER) - 1
@@ -207,7 +210,9 @@ contract ConfigureSTONX is Script {
         emissionEnd = uint64(endTime);
 
         uint256 latestStartTime = endTime > INITIAL_EMISSION_DURATION ? endTime - INITIAL_EMISSION_DURATION : 0;
-        uint256 candidate = nextValidTime(currentTime, currentTime);
+        uint256 candidate = nextValidTime(currentTime, currentTime + uint256(INITIAL_EMISSION_START_DELAY) - 1);
+        if (candidate == 0 || candidate >= endTime) revert NoValidEmissionTime();
+        emissionStart = uint64(candidate);
         while (candidate != 0 && candidate <= latestStartTime) {
             emissionStart = uint64(candidate);
             candidate = nextValidTime(currentTime, candidate);

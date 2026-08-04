@@ -40,6 +40,46 @@ contract CallbackTestToken is TestToken {
     }
 }
 
+contract BribeHoppingDepositor is ITokenTransferCallback {
+    VeTokenBribes private _bribes;
+    VeToken private _veToken;
+    BribeKey private _toKey;
+    uint256 private _veId;
+    address private _callbackToken;
+
+    bool public reentered;
+
+    function stake(VeTokenBribes bribes, VeToken veToken, BribeKey memory key, uint256 veId) external {
+        veToken.approve(address(bribes), veId);
+        bribes.stake(key, veId);
+    }
+
+    function refreshWithHop(
+        VeTokenBribes bribes,
+        VeToken veToken,
+        BribeKey memory fromKey,
+        BribeKey memory toKey,
+        uint256 veId,
+        CallbackTestToken callbackToken
+    ) external {
+        _bribes = bribes;
+        _veToken = veToken;
+        _toKey = toKey;
+        _veId = veId;
+        _callbackToken = address(callbackToken);
+        callbackToken.arm(address(this));
+        bribes.refreshVote(fromKey, veId);
+    }
+
+    function onTokenTransfer() external {
+        require(msg.sender == _callbackToken);
+        reentered = true;
+        _bribes.unstakeWithoutClaiming(_veId);
+        _veToken.approve(address(_bribes), _veId);
+        _bribes.stake(_toKey, _veId);
+    }
+}
+
 contract ReenteringBribeDepositor is ITokenTransferCallback {
     VeTokenBribes private _bribes;
     BribeKey private _key;
@@ -557,27 +597,23 @@ contract VeTokenBribesTest is FullTest {
         assertGt(token1.balanceOf(alice), balanceBefore);
     }
 
-    function test_reentrantFeeRecipientCannotDoubleApplyRefreshWeightDelta() public {
-        CallbackTestToken callbackToken = new CallbackTestToken(address(this));
+    function _createCallbackPool(CallbackTestToken callbackToken)
+        internal
+        returns (PoolKey memory callbackPool, BribeKey memory callbackKey)
+    {
         TestToken pairedToken = new TestToken(address(this));
         (address poolToken0, address poolToken1) = address(callbackToken) < address(pairedToken)
             ? (address(callbackToken), address(pairedToken))
             : (address(pairedToken), address(callbackToken));
-        PoolKey memory callbackPool =
-            createPool(poolToken0, poolToken1, 0, createConcentratedPoolConfig(0, 64, address(ve33)));
-        BribeKey memory callbackKey =
-            BribeKey({poolKey: callbackPool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
+        callbackPool = createPool(poolToken0, poolToken1, 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        callbackKey = BribeKey({poolKey: callbackPool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
         createPosition(callbackPool, -64, 64, 1e18, 1e18);
+    }
 
-        uint256 veId = _createVeToken(alice, 1e18);
-        ReenteringBribeDepositor depositor = new ReenteringBribeDepositor();
-        vm.prank(alice);
-        veToken.transferFrom(alice, address(depositor), veId);
-        depositor.stake(bribes, veToken, callbackKey, veId);
-
-        TestToken(poolToken0).approve(address(router), type(uint256).max);
-        TestToken(poolToken1).approve(address(router), type(uint256).max);
-        bool callbackIsToken1 = address(callbackToken) == poolToken1;
+    function _swapCallbackTokenIn(PoolKey memory callbackPool, CallbackTestToken callbackToken) internal {
+        TestToken(callbackPool.token0).approve(address(router), type(uint256).max);
+        TestToken(callbackPool.token1).approve(address(router), type(uint256).max);
+        bool callbackIsToken1 = address(callbackToken) == callbackPool.token1;
         router.swapAllowPartialFill(
             callbackPool,
             createSwapParameters({
@@ -588,15 +624,64 @@ contract VeTokenBribesTest is FullTest {
             }),
             address(this)
         );
+    }
+
+    function test_reentrantFeeRecipientCannotReenterRefreshVote() public {
+        CallbackTestToken callbackToken = new CallbackTestToken(address(this));
+        (PoolKey memory callbackPool, BribeKey memory callbackKey) = _createCallbackPool(callbackToken);
+
+        uint256 veId = _createVeToken(alice, 1e18);
+        ReenteringBribeDepositor depositor = new ReenteringBribeDepositor();
+        vm.prank(alice);
+        veToken.transferFrom(alice, address(depositor), veId);
+        depositor.stake(bribes, veToken, callbackKey, veId);
+
+        _swapCallbackTokenIn(callbackPool, callbackToken);
         vm.warp(vm.getBlockTimestamp() + 365 days);
 
+        (, uint128 weightBefore,,,) = bribes.deposits(veId);
+        vm.expectRevert();
         depositor.refreshWithCallback(bribes, callbackKey, veId, callbackToken);
 
-        (, uint128 depositWeight,,,) = bribes.deposits(veId);
-        (, uint128 appliedWeight,,,) = veToken.voteState(veId);
-        assertTrue(depositor.reentered());
+        (address owner, uint128 depositWeight, bytes32 depositBribeId,,) = bribes.deposits(veId);
+        assertEq(owner, address(depositor));
+        assertEq(depositWeight, weightBefore);
+        assertEq(depositBribeId, callbackKey.toBribeId());
         assertEq(bribes.totalWeight(callbackKey.toBribeId()), depositWeight);
-        assertEq(depositWeight, appliedWeight);
+    }
+
+    function test_reentrantFeeRecipientCannotHopDepositToAnotherBribe() public {
+        CallbackTestToken callbackToken = new CallbackTestToken(address(this));
+        (PoolKey memory callbackPool, BribeKey memory callbackKey) = _createCallbackPool(callbackToken);
+
+        // A second, honestly funded bribe on a different pool that the attacker tries to hop into
+        // while the outer refreshVote re-votes for the callback pool.
+        TestToken otherRewardToken = new TestToken(address(this));
+        BribeKey memory victimKey =
+            BribeKey({poolKey: poolKey, rewardToken: address(otherRewardToken), votingFee: VOTING_FEE});
+        otherRewardToken.approve(address(bribes), type(uint256).max);
+        uint64 endTime = _defaultRewardEnd();
+        bribes.scheduleRewards(victimKey, 0, endTime, _rewardRateForAmount(700e18, endTime));
+
+        uint256 veId = _createVeToken(alice, 1e18);
+        BribeHoppingDepositor depositor = new BribeHoppingDepositor();
+        vm.prank(alice);
+        veToken.transferFrom(alice, address(depositor), veId);
+        depositor.stake(bribes, veToken, callbackKey, veId);
+
+        _swapCallbackTokenIn(callbackPool, callbackToken);
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+
+        vm.expectRevert();
+        depositor.refreshWithHop(bribes, veToken, callbackKey, victimKey, veId, callbackToken);
+
+        // The deposit must remain bound to the callback-pool bribe and its vote.
+        (address owner,, bytes32 depositBribeId,,) = bribes.deposits(veId);
+        (PoolId votedPool,,,,) = veToken.voteState(veId);
+        assertEq(owner, address(depositor));
+        assertEq(depositBribeId, callbackKey.toBribeId());
+        assertEq(PoolId.unwrap(votedPool), PoolId.unwrap(callbackPool.toPoolId()));
+        assertEq(bribes.totalWeight(victimKey.toBribeId()), 0);
     }
 
     function test_expiredRefreshedVoteCanStillBeUnstaked() public {
@@ -661,13 +746,9 @@ contract VeTokenBribesTest is FullTest {
         bytes32 reentrantBribeId = reentrantKey.toBribeId();
         uint64 endTime = _defaultRewardEnd();
         uint160 rate = uint160(1 << 32);
-        uint128 expectedAmount = uint128(endTime - vm.getBlockTimestamp());
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                VeTokenBribes.UnexpectedRewardAmount.selector, expectedAmount, uint256(expectedAmount) * 2
-            )
-        );
+        // The nested scheduleRewards hits the reentrancy guard, which fails the outer funding transfer.
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
         fundingToken.fundWithReentry(bribes, reentrantKey, endTime, rate, rate);
 
         assertEq(bribes.rewardRate(reentrantBribeId), 0);
@@ -840,12 +921,108 @@ contract VeTokenBribesTest is FullTest {
     function test_onlyDepositorCanManageStake() public {
         uint256 veId = _stakeInBribe(alice, 1e18);
 
-        vm.prank(bob);
+        vm.startPrank(bob);
         vm.expectRevert(VeTokenBribes.DepositOwnerOnly.selector);
         bribes.claimReward(key, veId);
 
-        vm.prank(bob);
         vm.expectRevert(VeTokenBribes.DepositOwnerOnly.selector);
         bribes.unstake(key, veId);
+
+        vm.expectRevert(VeTokenBribes.DepositOwnerOnly.selector);
+        bribes.unstakeWithoutClaiming(veId);
+
+        vm.expectRevert(VeTokenBribes.DepositOwnerOnly.selector);
+        bribes.refreshVote(key, veId);
+
+        vm.expectRevert(VeTokenBribes.DepositOwnerOnly.selector);
+        bribes.claimVotingFees(key, veId, bob);
+        vm.stopPrank();
+
+        vm.expectRevert(VeTokenBribes.NotDeposited.selector);
+        bribes.unstakeWithoutClaiming(veId + 1);
+    }
+
+    function test_bribesSharingARewardTokenStaySolvent() public {
+        PoolKey memory otherPool =
+            createPool(address(token0), address(stakeToken), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        BribeKey memory otherKey =
+            BribeKey({poolKey: otherPool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
+
+        uint256 aliceVeId = _stakeInBribe(alice, 1e18);
+        uint256 bobVeId = _createVeToken(bob, 1e18);
+        vm.prank(bob);
+        bribes.stake(otherKey, bobVeId);
+
+        (, uint160 rate, uint128 fundedA) = _fund(700e18);
+        uint64 otherEnd = _defaultRewardEnd();
+        uint160 otherRate = _rewardRateForAmount(300e18, otherEnd);
+        vm.prank(distributor);
+        uint128 fundedB = bribes.scheduleRewards(otherKey, 0, otherEnd, otherRate);
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+
+        vm.prank(alice);
+        uint256 aliceClaimed = bribes.claimReward(key, aliceVeId);
+        vm.prank(bob);
+        uint256 bobClaimed = bribes.claimReward(otherKey, bobVeId);
+
+        assertApproxEqAbs(aliceClaimed, _emitted(rate, 1 days), 1);
+        assertApproxEqAbs(bobClaimed, _emitted(otherRate, 1 days), 1);
+        assertLe(aliceClaimed, fundedA);
+        assertLe(bobClaimed, fundedB);
+        assertEq(rewardToken.balanceOf(address(bribes)), uint256(fundedA) + fundedB - aliceClaimed - bobClaimed);
+    }
+
+    function test_createRejectsNonPowerOfFourTickSpacing() public {
+        PoolKey memory invalidPool = PoolKey({
+            token0: poolKey.token0, token1: poolKey.token1, config: createConcentratedPoolConfig(0, 63, address(ve33))
+        });
+        BribeKey memory invalidKey =
+            BribeKey({poolKey: invalidPool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
+
+        vm.prank(distributor);
+        vm.expectRevert(VeTokenBribes.InvalidPool.selector);
+        bribes.scheduleRewards(invalidKey, 0, _defaultRewardEnd(), uint160(1 << 32));
+    }
+
+    function test_unstakeWithoutClaimingEscapesBlockedPoolToken() public {
+        BlockingTransferToken blockingToken = new BlockingTransferToken(address(this));
+        TestToken pairedToken = new TestToken(address(this));
+        (address poolToken0, address poolToken1) = address(blockingToken) < address(pairedToken)
+            ? (address(blockingToken), address(pairedToken))
+            : (address(pairedToken), address(blockingToken));
+        PoolKey memory blockingPool =
+            createPool(poolToken0, poolToken1, 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        BribeKey memory blockingKey =
+            BribeKey({poolKey: blockingPool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
+        createPosition(blockingPool, -64, 64, 1e18, 1e18);
+
+        uint256 veId = _createVeToken(alice, 1e18);
+        vm.prank(alice);
+        bribes.stake(blockingKey, veId);
+
+        TestToken(poolToken0).approve(address(router), type(uint256).max);
+        TestToken(poolToken1).approve(address(router), type(uint256).max);
+        bool blockingIsToken1 = address(blockingToken) == poolToken1;
+        router.swapAllowPartialFill(
+            blockingPool,
+            createSwapParameters({
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _amount: int128(100_000),
+                _isToken1: !blockingIsToken1,
+                _skipAhead: 0
+            }),
+            address(this)
+        );
+        blockingToken.setTransfersBlocked(true);
+
+        vm.prank(alice);
+        vm.expectRevert();
+        bribes.unstake(blockingKey, veId);
+        assertEq(veToken.ownerOf(veId), address(bribes));
+
+        vm.prank(alice);
+        bribes.unstakeWithoutClaiming(veId);
+        assertEq(veToken.ownerOf(veId), alice);
     }
 }

@@ -2,10 +2,12 @@
 pragma solidity =0.8.33;
 
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {VeToken} from "./VeToken.sol";
+import {isPowerOfFour} from "./math/isPowerOfFour.sol";
 import {MAX_NUM_VALID_TIMES, isTimeValid, nextValidTime} from "./math/time.sol";
 import {bitmapWordAndIndexToTime, timeToBitmapWordAndIndex} from "./math/timeBitmap.sol";
 import {Bitmap} from "./types/bitmap.sol";
@@ -37,17 +39,19 @@ function toBribeId(BribeKey memory key) pure returns (bytes32 bribeId) {
 ///         applied vote weight. Each bribe is identified by its `BribeKey` and created lazily on first use.
 /// @dev A deposited NFT keeps the vote weight applied when it enters a bribe. Call `refreshVote` to checkpoint
 ///      incentives, collect its voter fees, and apply its current voting power and the bribe's voting fee again.
-contract VeTokenBribes {
+contract VeTokenBribes is ReentrancyGuardTransient {
     /// @notice VeToken collection accepted by every bribe.
     VeToken public immutable VE_TOKEN;
 
     struct Bribe {
+        /// @dev Set once when the bribe key is first validated.
+        bool created;
         /// @dev Sum of the applied vote weights earning this bribe's incentives.
         uint256 totalWeight;
         /// @dev Accumulated Q128 reward growth per unit of applied vote weight.
         uint256 rewardGrowthGlobalX128;
         /// @dev Packed Q32 reward rate and uint32 last-accrued timestamp, shared with Ve33's scheduler
-        ///      representation. Nonzero for every created bribe.
+        ///      representation.
         Ve33GlobalEmissionState globalRewardState;
         mapping(uint256 time => int256 delta) rewardRateDeltaAtTime;
         mapping(uint256 word => Bitmap bitmap) rewardInitializedTimeBitmap;
@@ -113,7 +117,7 @@ contract VeTokenBribes {
 
     /// @notice Returns whether a bribe has been created.
     function isCreated(bytes32 bribeId) public view returns (bool) {
-        return Ve33GlobalEmissionState.unwrap(_bribes[bribeId].globalRewardState) != bytes32(0);
+        return _bribes[bribeId].created;
     }
 
     /// @notice Returns the sum of the applied vote weights earning a bribe's incentives.
@@ -160,7 +164,7 @@ contract VeTokenBribes {
     /// @dev Creates the bribe if it does not exist. An existing vote is accepted only for the bribed pool. Its voter
     ///      fees are paid before the vote is reapplied, ensuring current voting power is read without discarding
     ///      previously earned fees.
-    function stake(BribeKey calldata key, uint256 veId) external {
+    function stake(BribeKey calldata key, uint256 veId) external nonReentrant {
         if (deposits[veId].owner != address(0)) revert AlreadyDeposited();
         bytes32 bribeId = key.toBribeId();
         Bribe storage bribe = _getOrCreateBribe(key, bribeId);
@@ -196,7 +200,7 @@ contract VeTokenBribes {
     }
 
     /// @notice Collects voter fees, reapplies current voting power and fee, and updates incentive weight.
-    function refreshVote(BribeKey calldata key, uint256 veId) external {
+    function refreshVote(BribeKey calldata key, uint256 veId) external nonReentrant {
         (bytes32 bribeId, Bribe storage bribe, Deposit storage deposit) = _authorizedDepositForKey(key, veId);
         _checkpoint(bribe, deposit);
 
@@ -214,7 +218,7 @@ contract VeTokenBribes {
     }
 
     /// @notice Claims the additional incentive for a deposited VeToken.
-    function claimReward(BribeKey calldata key, uint256 veId) external returns (uint256 amount) {
+    function claimReward(BribeKey calldata key, uint256 veId) external nonReentrant returns (uint256 amount) {
         (bytes32 bribeId, Bribe storage bribe, Deposit storage deposit) = _authorizedDepositForKey(key, veId);
         _checkpoint(bribe, deposit);
         amount = _payReward(bribeId, key.rewardToken, deposit, veId);
@@ -223,6 +227,7 @@ contract VeTokenBribes {
     /// @notice Claims the VeToken's underlying voter fees without removing it from the bribe.
     function claimVotingFees(BribeKey calldata key, uint256 veId, address recipient)
         external
+        nonReentrant
         returns (uint128 amount0, uint128 amount1)
     {
         (bytes32 bribeId,, Deposit storage deposit) = _authorizedDepositForKey(key, veId);
@@ -236,6 +241,7 @@ contract VeTokenBribes {
     /// @notice Claims all incentives and voter fees, clears the deposited NFT's vote, and returns the VeToken.
     function unstake(BribeKey calldata key, uint256 veId)
         external
+        nonReentrant
         returns (uint256 reward, uint128 votingFees0, uint128 votingFees1)
     {
         (bytes32 bribeId, Bribe storage bribe, Deposit storage deposit) = _authorizedDepositForKey(key, veId);
@@ -263,7 +269,7 @@ contract VeTokenBribes {
     /// @notice Clears the deposited NFT's vote and returns it without interacting with reward or pool tokens.
     /// @dev This custody escape forfeits all unclaimed bribe rewards and Ve33 voter fees for `veId`. It remains
     ///      available if an external token blocks the normal claim-and-unstake path.
-    function unstakeWithoutClaiming(uint256 veId) external {
+    function unstakeWithoutClaiming(uint256 veId) external nonReentrant {
         Deposit storage deposit = _authorizedDeposit(veId);
         bytes32 bribeId = deposit.bribeId;
         Bribe storage bribe = _bribes[bribeId];
@@ -290,6 +296,7 @@ contract VeTokenBribes {
     /// @return amount Reward-token amount required to back the schedule, rounded up.
     function scheduleRewards(BribeKey calldata key, uint64 startTime, uint64 endTime, uint160 rate)
         external
+        nonReentrant
         returns (uint128 amount)
     {
         if (rate == 0) return 0;
@@ -360,14 +367,19 @@ contract VeTokenBribes {
 
     function _getOrCreateBribe(BribeKey calldata key, bytes32 bribeId) private returns (Bribe storage bribe) {
         bribe = _bribes[bribeId];
-        if (Ve33GlobalEmissionState.unwrap(bribe.globalRewardState) == bytes32(0)) {
+        if (!bribe.created) {
             if (key.rewardToken == address(0)) revert InvalidAddress();
             PoolKey memory poolKey = key.poolKey;
             poolKey.validate();
-            if (poolKey.config.extension() != address(VE_TOKEN.ve33()) || poolKey.config.fee() != 0) {
+            // Mirrors Ve33's vote-time pool checks so a fundable bribe is always also stakeable.
+            if (
+                poolKey.config.extension() != address(VE_TOKEN.ve33()) || poolKey.config.fee() != 0
+                    || (poolKey.config.isConcentrated() && !isPowerOfFour(poolKey.config.concentratedTickSpacing()))
+            ) {
                 revert InvalidPool();
             }
 
+            bribe.created = true;
             bribe.globalRewardState = createVe33GlobalEmissionState({rate: 0, lastAccruedTime: uint32(block.timestamp)});
             emit BribeCreated(bribeId, key.poolKey.toPoolId(), key.rewardToken, key.poolKey, key.votingFee);
         }

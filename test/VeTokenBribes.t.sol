@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
+import {Vm} from "forge-std/Vm.sol";
 import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Router} from "../src/Router.sol";
 import {VeToken} from "../src/VeToken.sol";
-import {VeTokenBribe} from "../src/VeTokenBribe.sol";
+import {BribeKey, VeTokenBribes} from "../src/VeTokenBribes.sol";
 import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {Ve33, ve33CallPoints} from "../src/extensions/Ve33.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -40,53 +41,68 @@ contract CallbackTestToken is TestToken {
 }
 
 contract ReenteringBribeDepositor is ITokenTransferCallback {
-    VeTokenBribe private _bribe;
+    VeTokenBribes private _bribes;
+    BribeKey private _key;
     uint256 private _veId;
     address private _callbackToken;
 
     bool public reentered;
 
-    function stake(VeTokenBribe bribe, VeToken veToken, uint256 veId) external {
-        veToken.approve(address(bribe), veId);
-        bribe.stake(veId);
+    function stake(VeTokenBribes bribes, VeToken veToken, BribeKey memory key, uint256 veId) external {
+        veToken.approve(address(bribes), veId);
+        bribes.stake(key, veId);
     }
 
-    function refreshWithCallback(VeTokenBribe bribe, uint256 veId, CallbackTestToken callbackToken) external {
-        _bribe = bribe;
+    function refreshWithCallback(
+        VeTokenBribes bribes,
+        BribeKey memory key,
+        uint256 veId,
+        CallbackTestToken callbackToken
+    ) external {
+        _bribes = bribes;
+        _key = key;
         _veId = veId;
         _callbackToken = address(callbackToken);
         callbackToken.arm(address(this));
-        bribe.refreshVote(veId);
+        bribes.refreshVote(key, veId);
     }
 
     function onTokenTransfer() external {
         require(msg.sender == _callbackToken);
         reentered = true;
-        _bribe.refreshVote(_veId);
+        _bribes.refreshVote(_key, _veId);
     }
 }
 
 contract ReenteringFundingToken is TestToken {
-    VeTokenBribe private _bribe;
+    VeTokenBribes private _bribes;
+    BribeKey private _key;
     uint64 private _endTime;
     uint160 private _nestedRate;
     bool private _armed;
 
     constructor() TestToken(address(this)) {}
 
-    function fundWithReentry(VeTokenBribe bribe, uint64 endTime, uint160 rate, uint160 nestedRate) external {
-        _bribe = bribe;
+    function fundWithReentry(
+        VeTokenBribes bribes,
+        BribeKey memory key,
+        uint64 endTime,
+        uint160 rate,
+        uint160 nestedRate
+    ) external {
+        _bribes = bribes;
+        _key = key;
         _endTime = endTime;
         _nestedRate = nestedRate;
         _armed = true;
-        _approve(address(this), address(bribe), type(uint256).max);
-        bribe.scheduleRewards(0, endTime, rate);
+        _approve(address(this), address(bribes), type(uint256).max);
+        bribes.scheduleRewards(key, 0, endTime, rate);
     }
 
     function _afterTokenTransfer(address from, address to, uint256) internal override {
-        if (!_armed || from != address(this) || to != address(_bribe)) return;
+        if (!_armed || from != address(this) || to != address(_bribes)) return;
         _armed = false;
-        _bribe.scheduleRewards(0, _endTime, _nestedRate);
+        _bribes.scheduleRewards(_key, 0, _endTime, _nestedRate);
     }
 }
 
@@ -106,25 +122,7 @@ contract BlockingTransferToken is TestToken {
     }
 }
 
-contract OverriddenFeeVeTokenBribe is VeTokenBribe {
-    uint64 private immutable _OVERRIDDEN_FEE;
-
-    constructor(
-        VeToken veToken,
-        PoolKey memory poolKey,
-        address rewardToken,
-        address rewardDistributor,
-        uint64 overriddenFee
-    ) VeTokenBribe(veToken, poolKey, 0, rewardToken, rewardDistributor) {
-        _OVERRIDDEN_FEE = overriddenFee;
-    }
-
-    function votingFee() public view override returns (uint64) {
-        return _OVERRIDDEN_FEE;
-    }
-}
-
-contract VeTokenBribeTest is FullTest {
+contract VeTokenBribesTest is FullTest {
     using CoreLib for *;
 
     uint64 private constant VOTING_FEE = 1 << 62;
@@ -134,8 +132,10 @@ contract VeTokenBribeTest is FullTest {
     TestToken internal rewardToken;
     Ve33 internal ve33;
     VeToken internal veToken;
-    VeTokenBribe internal bribe;
+    VeTokenBribes internal bribes;
     PoolKey internal poolKey;
+    BribeKey internal key;
+    bytes32 internal bribeId;
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -157,7 +157,9 @@ contract VeTokenBribeTest is FullTest {
         veToken = new VeToken(core, ve33, metadata, "Vote Escrow Stake Token", "veSTK");
 
         poolKey = createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
-        bribe = new VeTokenBribe(veToken, poolKey, VOTING_FEE, address(rewardToken), distributor);
+        bribes = new VeTokenBribes(veToken);
+        key = BribeKey({poolKey: poolKey, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
+        bribeId = key.toBribeId();
 
         SafeTransferLib.safeTransfer(address(stakeToken), alice, 100e18);
         SafeTransferLib.safeTransfer(address(stakeToken), bob, 100e18);
@@ -166,7 +168,7 @@ contract VeTokenBribeTest is FullTest {
         vm.prank(bob);
         stakeToken.approve(address(veToken), type(uint256).max);
         vm.prank(distributor);
-        rewardToken.approve(address(bribe), type(uint256).max);
+        rewardToken.approve(address(bribes), type(uint256).max);
     }
 
     function _createVeToken(address account, uint128 amount) internal returns (uint256 veId) {
@@ -174,13 +176,13 @@ contract VeTokenBribeTest is FullTest {
         vm.prank(account);
         veId = veToken.stake(amount, end);
         vm.prank(account);
-        veToken.approve(address(bribe), veId);
+        veToken.approve(address(bribes), veId);
     }
 
     function _stakeInBribe(address account, uint128 amount) internal returns (uint256 veId) {
         veId = _createVeToken(account, amount);
         vm.prank(account);
-        bribe.stake(veId);
+        bribes.stake(key, veId);
     }
 
     function _defaultRewardEnd() internal view returns (uint64) {
@@ -195,26 +197,46 @@ contract VeTokenBribeTest is FullTest {
         endTime = _defaultRewardEnd();
         rate = _rewardRateForAmount(amount, endTime);
         vm.prank(distributor);
-        scheduledAmount = bribe.scheduleRewards(0, endTime, rate);
+        scheduledAmount = bribes.scheduleRewards(key, 0, endTime, rate);
     }
 
     function _emitted(uint160 rate, uint256 elapsed) internal pure returns (uint256) {
         return (uint256(rate) * elapsed) >> 32;
     }
 
-    function test_stakeTakesCustodyReadsWeightAndVotesForSinglePool() public {
+    function test_stakeTakesCustodyReadsWeightAndVotesForBribedPool() public {
         uint256 veId = _stakeInBribe(alice, 2e18);
 
-        (address depositor, uint128 weight,,) = bribe.deposits(veId);
+        (address depositor, uint128 weight, bytes32 depositBribeId,,) = bribes.deposits(veId);
         (PoolId votedPool, uint128 appliedWeight, uint64 swapFee,,) = veToken.voteState(veId);
 
         assertEq(depositor, alice);
         assertEq(weight, 2e18);
         assertEq(weight, appliedWeight);
-        assertEq(bribe.totalWeight(), weight);
-        assertEq(veToken.ownerOf(veId), address(bribe));
+        assertEq(depositBribeId, bribeId);
+        assertEq(bribes.totalWeight(bribeId), weight);
+        assertEq(veToken.ownerOf(veId), address(bribes));
         assertEq(PoolId.unwrap(votedPool), PoolId.unwrap(poolKey.toPoolId()));
         assertEq(swapFee, VOTING_FEE);
+    }
+
+    function test_bribeCreatedLazilyExactlyOnce() public {
+        assertFalse(bribes.isCreated(bribeId));
+
+        uint256 veId = _createVeToken(alice, 1e18);
+        vm.expectEmit(true, true, true, true);
+        emit VeTokenBribes.BribeCreated(bribeId, poolKey.toPoolId(), address(rewardToken), poolKey, VOTING_FEE);
+        vm.prank(alice);
+        bribes.stake(key, veId);
+        assertTrue(bribes.isCreated(bribeId));
+
+        // A second interaction must not re-create the bribe.
+        vm.recordLogs();
+        _fund(700e18);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; i++) {
+            assertNotEq(logs[i].topics[0], VeTokenBribes.BribeCreated.selector);
+        }
     }
 
     function test_rewardsAreDistributedByWeightAndTime() public {
@@ -225,12 +247,12 @@ contract VeTokenBribeTest is FullTest {
         vm.warp(block.timestamp + 1 days);
         uint256 streamed = _emitted(rate, 1 days);
 
-        assertApproxEqAbs(bribe.earned(aliceVeId), streamed / 4, 2);
-        assertApproxEqAbs(bribe.earned(bobVeId), (streamed * 3) / 4, 2);
+        assertApproxEqAbs(bribes.earned(aliceVeId), streamed / 4, 2);
+        assertApproxEqAbs(bribes.earned(bobVeId), (streamed * 3) / 4, 2);
 
         uint256 aliceBalanceBefore = rewardToken.balanceOf(alice);
         vm.prank(alice);
-        uint256 claimed = bribe.claimReward(aliceVeId);
+        uint256 claimed = bribes.claimReward(key, aliceVeId);
         assertApproxEqAbs(claimed, streamed / 4, 2);
         assertEq(rewardToken.balanceOf(alice), aliceBalanceBefore + claimed);
     }
@@ -251,7 +273,7 @@ contract VeTokenBribeTest is FullTest {
         (, uint160 rate, uint128 scheduledAmount) = _fund(rewardAmount);
         vm.warp(vm.getBlockTimestamp() + elapsed);
 
-        uint256 totalEarned = bribe.earned(aliceVeId) + bribe.earned(bobVeId);
+        uint256 totalEarned = bribes.earned(aliceVeId) + bribes.earned(bobVeId);
         uint256 streamed = _emitted(rate, elapsed);
         assertLe(totalEarned, streamed);
         assertLe(streamed, scheduledAmount);
@@ -266,8 +288,8 @@ contract VeTokenBribeTest is FullTest {
         vm.warp(vm.getBlockTimestamp() + 1 days);
         uint256 streamedPerDay = _emitted(rate, 1 days);
 
-        assertApproxEqAbs(bribe.earned(aliceVeId), streamedPerDay + streamedPerDay / 2, 2);
-        assertApproxEqAbs(bribe.earned(bobVeId), streamedPerDay / 2, 2);
+        assertApproxEqAbs(bribes.earned(aliceVeId), streamedPerDay + streamedPerDay / 2, 2);
+        assertApproxEqAbs(bribes.earned(bobVeId), streamedPerDay / 2, 2);
     }
 
     function test_unstakeClaimsRewardsClearsVoteAndReturnsNft() public {
@@ -277,12 +299,12 @@ contract VeTokenBribeTest is FullTest {
 
         uint256 rewardBalanceBefore = rewardToken.balanceOf(alice);
         vm.prank(alice);
-        (uint256 reward,,) = bribe.unstake(veId);
+        (uint256 reward,,) = bribes.unstake(key, veId);
 
         assertApproxEqAbs(reward, _emitted(rate, 1 days), 1);
         assertEq(rewardToken.balanceOf(alice), rewardBalanceBefore + reward);
         assertEq(veToken.ownerOf(veId), alice);
-        assertEq(bribe.totalWeight(), 0);
+        assertEq(bribes.totalWeight(bribeId), 0);
         (PoolId votedPool, uint128 weight,,,) = veToken.voteState(veId);
         assertEq(PoolId.unwrap(votedPool), bytes32(0));
         assertEq(weight, 0);
@@ -304,7 +326,7 @@ contract VeTokenBribeTest is FullTest {
         uint256 balance0Before = token0.balanceOf(alice);
         uint256 balance1Before = token1.balanceOf(alice);
         vm.prank(alice);
-        (, uint128 fees0, uint128 fees1) = bribe.unstake(veId);
+        (, uint128 fees0, uint128 fees1) = bribes.unstake(key, veId);
 
         assertGt(uint256(fees0) + fees1, 0);
         assertEq(token0.balanceOf(alice), balance0Before + fees0);
@@ -315,42 +337,40 @@ contract VeTokenBribeTest is FullTest {
         uint256 veId = _stakeInBribe(alice, 1e18);
         _fund(700e18);
         vm.warp(vm.getBlockTimestamp() + 1 days);
-        assertGt(bribe.earned(veId), 0);
+        assertGt(bribes.earned(veId), 0);
 
         uint256 rewardBalanceBefore = rewardToken.balanceOf(alice);
         vm.prank(alice);
-        bribe.unstakeWithoutClaiming(veId);
+        bribes.unstakeWithoutClaiming(veId);
 
         assertEq(veToken.ownerOf(veId), alice);
         assertEq(rewardToken.balanceOf(alice), rewardBalanceBefore);
-        assertEq(bribe.totalWeight(), 0);
-        (address depositor,,,) = bribe.deposits(veId);
+        assertEq(bribes.totalWeight(bribeId), 0);
+        (address depositor,,,,) = bribes.deposits(veId);
         assertEq(depositor, address(0));
     }
 
     function test_unstakeWithoutClaimingEscapesBlockedRewardToken() public {
         BlockingTransferToken blockingToken = new BlockingTransferToken(address(this));
-        VeTokenBribe blockingBribe =
-            new VeTokenBribe(veToken, poolKey, VOTING_FEE, address(blockingToken), address(this));
-        blockingToken.approve(address(blockingBribe), type(uint256).max);
+        BribeKey memory blockingKey =
+            BribeKey({poolKey: poolKey, rewardToken: address(blockingToken), votingFee: VOTING_FEE});
+        blockingToken.approve(address(bribes), type(uint256).max);
 
         uint256 veId = _createVeToken(alice, 1e18);
         vm.prank(alice);
-        veToken.approve(address(blockingBribe), veId);
-        vm.prank(alice);
-        blockingBribe.stake(veId);
+        bribes.stake(blockingKey, veId);
         uint64 endTime = _defaultRewardEnd();
-        blockingBribe.scheduleRewards(0, endTime, _rewardRateForAmount(700e18, endTime));
+        bribes.scheduleRewards(blockingKey, 0, endTime, _rewardRateForAmount(700e18, endTime));
         vm.warp(vm.getBlockTimestamp() + 1 days);
         blockingToken.setTransfersBlocked(true);
 
         vm.prank(alice);
         vm.expectRevert(SafeTransferLib.TransferFailed.selector);
-        blockingBribe.unstake(veId);
-        assertEq(veToken.ownerOf(veId), address(blockingBribe));
+        bribes.unstake(blockingKey, veId);
+        assertEq(veToken.ownerOf(veId), address(bribes));
 
         vm.prank(alice);
-        blockingBribe.unstakeWithoutClaiming(veId);
+        bribes.unstakeWithoutClaiming(veId);
         assertEq(veToken.ownerOf(veId), alice);
     }
 
@@ -376,7 +396,7 @@ contract VeTokenBribeTest is FullTest {
         uint256 balance1Before = token1.balanceOf(alice);
 
         vm.prank(alice);
-        bribe.stake(veId);
+        bribes.stake(key, veId);
         (, uint128 appliedWeight,, uint128 claimable0After, uint128 claimable1After) = veToken.voteState(veId);
 
         assertEq(token0.balanceOf(alice), balance0Before + claimable0Before);
@@ -394,7 +414,7 @@ contract VeTokenBribeTest is FullTest {
         veToken.vote(veId, poolKey, previousFee);
 
         vm.prank(alice);
-        bribe.stake(veId);
+        bribes.stake(key, veId);
 
         (,, uint64 appliedFee,,) = veToken.voteState(veId);
         assertEq(appliedFee, VOTING_FEE);
@@ -408,8 +428,8 @@ contract VeTokenBribeTest is FullTest {
         veToken.vote(veId, otherPool, VOTING_FEE);
 
         vm.prank(alice);
-        vm.expectRevert(VeTokenBribe.IncompatibleExistingVote.selector);
-        bribe.stake(veId);
+        vm.expectRevert(VeTokenBribes.IncompatibleExistingVote.selector);
+        bribes.stake(key, veId);
 
         assertEq(veToken.ownerOf(veId), alice);
     }
@@ -419,20 +439,103 @@ contract VeTokenBribeTest is FullTest {
         vm.prank(alice);
         uint256 veId = veToken.stake(1e18, end);
         vm.prank(alice);
-        veToken.approve(address(bribe), veId);
+        veToken.approve(address(bribes), veId);
         vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.prank(alice);
-        vm.expectRevert(VeTokenBribe.NoVotingPower.selector);
-        bribe.stake(veId);
+        vm.expectRevert(VeTokenBribes.NoVotingPower.selector);
+        bribes.stake(key, veId);
 
         assertEq(veToken.ownerOf(veId), alice);
+    }
+
+    function test_stakedVeTokenCannotEnterASecondBribe() public {
+        uint256 veId = _stakeInBribe(alice, 1e18);
+
+        TestToken otherRewardToken = new TestToken(address(this));
+        BribeKey memory otherKey =
+            BribeKey({poolKey: poolKey, rewardToken: address(otherRewardToken), votingFee: VOTING_FEE});
+
+        vm.prank(alice);
+        vm.expectRevert(VeTokenBribes.AlreadyDeposited.selector);
+        bribes.stake(otherKey, veId);
+    }
+
+    function test_depositOperationsRejectMismatchedBribeKey() public {
+        uint256 veId = _stakeInBribe(alice, 1e18);
+
+        TestToken otherRewardToken = new TestToken(address(this));
+        BribeKey memory otherKey =
+            BribeKey({poolKey: poolKey, rewardToken: address(otherRewardToken), votingFee: VOTING_FEE});
+
+        vm.startPrank(alice);
+        vm.expectRevert(VeTokenBribes.BribeKeyMismatch.selector);
+        bribes.claimReward(otherKey, veId);
+        vm.expectRevert(VeTokenBribes.BribeKeyMismatch.selector);
+        bribes.refreshVote(otherKey, veId);
+        vm.expectRevert(VeTokenBribes.BribeKeyMismatch.selector);
+        bribes.unstake(otherKey, veId);
+        vm.stopPrank();
+    }
+
+    function test_bribesOnTheSamePoolAreIsolated() public {
+        TestToken otherRewardToken = new TestToken(address(this));
+        BribeKey memory otherKey =
+            BribeKey({poolKey: poolKey, rewardToken: address(otherRewardToken), votingFee: VOTING_FEE});
+        bytes32 otherBribeId = otherKey.toBribeId();
+        otherRewardToken.approve(address(bribes), type(uint256).max);
+
+        // Alice stakes in the default bribe, bob stakes in the other bribe for the same pool.
+        uint256 aliceVeId = _stakeInBribe(alice, 1e18);
+        uint256 bobVeId = _createVeToken(bob, 1e18);
+        vm.prank(bob);
+        bribes.stake(otherKey, bobVeId);
+
+        (, uint160 rate,) = _fund(700e18);
+        uint64 otherEnd = _defaultRewardEnd();
+        uint160 otherRate = _rewardRateForAmount(300e18, otherEnd);
+        bribes.scheduleRewards(otherKey, 0, otherEnd, otherRate);
+
+        assertEq(bribes.totalWeight(bribeId), 1e18);
+        assertEq(bribes.totalWeight(otherBribeId), 1e18);
+        assertEq(bribes.rewardRate(bribeId), rate);
+        assertEq(bribes.rewardRate(otherBribeId), otherRate);
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+
+        // Each staker earns the full stream of their own bribe and nothing from the other.
+        assertApproxEqAbs(bribes.earned(aliceVeId), _emitted(rate, 1 days), 1);
+        assertApproxEqAbs(bribes.earned(bobVeId), _emitted(otherRate, 1 days), 1);
+
+        vm.prank(alice);
+        uint256 aliceClaimed = bribes.claimReward(key, aliceVeId);
+        vm.prank(bob);
+        uint256 bobClaimed = bribes.claimReward(otherKey, bobVeId);
+        assertEq(rewardToken.balanceOf(alice), aliceClaimed);
+        assertEq(otherRewardToken.balanceOf(bob), bobClaimed);
+        assertEq(rewardToken.balanceOf(bob), 0);
+        assertEq(otherRewardToken.balanceOf(alice), 0);
+    }
+
+    function test_bribesWithDifferentVotingFeesAreDistinct() public {
+        uint64 otherFee = 1 << 61;
+        BribeKey memory otherKey = BribeKey({poolKey: poolKey, rewardToken: address(rewardToken), votingFee: otherFee});
+        assertNotEq(otherKey.toBribeId(), bribeId);
+
+        uint256 veId = _createVeToken(alice, 1e18);
+        vm.prank(alice);
+        bribes.stake(otherKey, veId);
+
+        (,, uint64 appliedFee,,) = veToken.voteState(veId);
+        assertEq(appliedFee, otherFee);
+        assertEq(bribes.totalWeight(bribeId), 0);
+        assertEq(bribes.totalWeight(otherKey.toBribeId()), 1e18);
     }
 
     function test_refreshVoteUsesCurrentWeightWithoutDiscardingVotingFees() public {
         createPosition(poolKey, -64, 64, 1e18, 1e18);
         uint256 veId = _stakeInBribe(alice, 1e18);
-        uint128 initialWeight = uint128(bribe.totalWeight());
+        uint128 initialWeight = uint128(bribes.totalWeight(bribeId));
 
         token0.approve(address(router), type(uint256).max);
         router.swapAllowPartialFill(
@@ -446,11 +549,11 @@ contract VeTokenBribeTest is FullTest {
 
         uint256 balanceBefore = token1.balanceOf(alice);
         vm.prank(alice);
-        bribe.refreshVote(veId);
+        bribes.refreshVote(key, veId);
 
         (, uint128 refreshedWeight,,,) = veToken.voteState(veId);
         assertLt(refreshedWeight, initialWeight);
-        assertEq(bribe.totalWeight(), refreshedWeight);
+        assertEq(bribes.totalWeight(bribeId), refreshedWeight);
         assertGt(token1.balanceOf(alice), balanceBefore);
     }
 
@@ -462,15 +565,15 @@ contract VeTokenBribeTest is FullTest {
             : (address(pairedToken), address(callbackToken));
         PoolKey memory callbackPool =
             createPool(poolToken0, poolToken1, 0, createConcentratedPoolConfig(0, 64, address(ve33)));
-        VeTokenBribe callbackBribe =
-            new VeTokenBribe(veToken, callbackPool, VOTING_FEE, address(rewardToken), distributor);
+        BribeKey memory callbackKey =
+            BribeKey({poolKey: callbackPool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
         createPosition(callbackPool, -64, 64, 1e18, 1e18);
 
         uint256 veId = _createVeToken(alice, 1e18);
         ReenteringBribeDepositor depositor = new ReenteringBribeDepositor();
         vm.prank(alice);
         veToken.transferFrom(alice, address(depositor), veId);
-        depositor.stake(callbackBribe, veToken, veId);
+        depositor.stake(bribes, veToken, callbackKey, veId);
 
         TestToken(poolToken0).approve(address(router), type(uint256).max);
         TestToken(poolToken1).approve(address(router), type(uint256).max);
@@ -487,12 +590,12 @@ contract VeTokenBribeTest is FullTest {
         );
         vm.warp(vm.getBlockTimestamp() + 365 days);
 
-        depositor.refreshWithCallback(callbackBribe, veId, callbackToken);
+        depositor.refreshWithCallback(bribes, callbackKey, veId, callbackToken);
 
-        (, uint128 depositWeight,,) = callbackBribe.deposits(veId);
+        (, uint128 depositWeight,,,) = bribes.deposits(veId);
         (, uint128 appliedWeight,,,) = veToken.voteState(veId);
         assertTrue(depositor.reentered());
-        assertEq(callbackBribe.totalWeight(), depositWeight);
+        assertEq(bribes.totalWeight(callbackKey.toBribeId()), depositWeight);
         assertEq(depositWeight, appliedWeight);
     }
 
@@ -502,39 +605,49 @@ contract VeTokenBribeTest is FullTest {
         vm.warp(end);
 
         vm.prank(alice);
-        bribe.refreshVote(veId);
-        assertEq(bribe.totalWeight(), 0);
+        bribes.refreshVote(key, veId);
+        assertEq(bribes.totalWeight(bribeId), 0);
 
         vm.prank(alice);
-        bribe.unstake(veId);
+        bribes.unstake(key, veId);
         assertEq(veToken.ownerOf(veId), alice);
     }
 
-    function test_onlyDistributorCanScheduleRewards() public {
+    function test_anyoneCanScheduleRewards() public {
         uint64 endTime = _defaultRewardEnd();
+        uint160 rate = uint160(1 << 32);
+        uint128 expectedAmount = uint128(endTime - vm.getBlockTimestamp());
 
-        vm.expectRevert(VeTokenBribe.RewardDistributorOnly.selector);
-        bribe.scheduleRewards(0, endTime, uint160(1 << 32));
+        vm.prank(distributor);
+        rewardToken.transfer(alice, expectedAmount);
+        vm.startPrank(alice);
+        rewardToken.approve(address(bribes), type(uint256).max);
+        uint128 amount = bribes.scheduleRewards(key, 0, endTime, rate);
+        vm.stopPrank();
+
+        assertEq(amount, expectedAmount);
+        assertEq(bribes.rewardRate(bribeId), rate);
     }
 
     function test_reentrantFundingCannotCommitAnInconsistentSchedule() public {
         ReenteringFundingToken fundingToken = new ReenteringFundingToken();
-        VeTokenBribe reentrantBribe =
-            new VeTokenBribe(veToken, poolKey, VOTING_FEE, address(fundingToken), address(fundingToken));
+        BribeKey memory reentrantKey =
+            BribeKey({poolKey: poolKey, rewardToken: address(fundingToken), votingFee: VOTING_FEE});
+        bytes32 reentrantBribeId = reentrantKey.toBribeId();
         uint64 endTime = _defaultRewardEnd();
         uint160 rate = uint160(1 << 32);
         uint128 expectedAmount = uint128(endTime - vm.getBlockTimestamp());
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                VeTokenBribe.UnexpectedRewardAmount.selector, expectedAmount, uint256(expectedAmount) * 2
+                VeTokenBribes.UnexpectedRewardAmount.selector, expectedAmount, uint256(expectedAmount) * 2
             )
         );
-        fundingToken.fundWithReentry(reentrantBribe, endTime, rate, rate);
+        fundingToken.fundWithReentry(bribes, reentrantKey, endTime, rate, rate);
 
-        assertEq(reentrantBribe.rewardRate(), 0);
-        assertEq(fundingToken.balanceOf(address(reentrantBribe)), 0);
-        assertEq(reentrantBribe.rewardRateDeltaAtTime(endTime), 0);
+        assertEq(bribes.rewardRate(reentrantBribeId), 0);
+        assertEq(fundingToken.balanceOf(address(bribes)), 0);
+        assertEq(bribes.rewardRateDeltaAtTime(reentrantBribeId, endTime), 0);
     }
 
     function test_overlappingSchedulesAddTheirRates() public {
@@ -546,13 +659,13 @@ contract VeTokenBribeTest is FullTest {
         uint64 secondEnd = _defaultRewardEnd();
         uint160 secondRate = _rewardRateForAmount(600e18, secondEnd);
         vm.prank(distributor);
-        bribe.scheduleRewards(0, secondEnd, secondRate);
-        assertEq(bribe.rewardRate(), firstRate + secondRate);
+        bribes.scheduleRewards(key, 0, secondEnd, secondRate);
+        assertEq(bribes.rewardRate(bribeId), firstRate + secondRate);
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
         expected += _emitted(firstRate + secondRate, 1 days);
 
-        assertApproxEqAbs(bribe.earned(veId), expected, 2);
+        assertApproxEqAbs(bribes.earned(veId), expected, 2);
     }
 
     function test_schedulesStopIndependentlyAtTheirEndTimes() public {
@@ -562,23 +675,23 @@ contract VeTokenBribeTest is FullTest {
         uint160 secondRate = uint160(2 << 32);
 
         vm.prank(distributor);
-        bribe.scheduleRewards(0, firstEnd, firstRate);
+        bribes.scheduleRewards(key, 0, firstEnd, firstRate);
         vm.prank(distributor);
-        bribe.scheduleRewards(0, secondEnd, secondRate);
+        bribes.scheduleRewards(key, 0, secondEnd, secondRate);
 
-        assertEq(bribe.rewardRate(), firstRate + secondRate);
-        assertEq(bribe.rewardRateDeltaAtTime(firstEnd), -int256(uint256(firstRate)));
-        assertEq(bribe.rewardRateDeltaAtTime(secondEnd), -int256(uint256(secondRate)));
+        assertEq(bribes.rewardRate(bribeId), firstRate + secondRate);
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, firstEnd), -int256(uint256(firstRate)));
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, secondEnd), -int256(uint256(secondRate)));
 
         vm.warp(firstEnd);
-        bribe.accrueRewards();
-        assertEq(bribe.rewardRate(), secondRate);
-        assertEq(bribe.rewardRateDeltaAtTime(firstEnd), 0);
+        bribes.accrueRewards(key);
+        assertEq(bribes.rewardRate(bribeId), secondRate);
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, firstEnd), 0);
 
         vm.warp(secondEnd);
-        bribe.accrueRewards();
-        assertEq(bribe.rewardRate(), 0);
-        assertEq(bribe.rewardRateDeltaAtTime(secondEnd), 0);
+        bribes.accrueRewards(key);
+        assertEq(bribes.rewardRate(bribeId), 0);
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, secondEnd), 0);
     }
 
     function test_futureScheduleStartsAtItsConfiguredTime() public {
@@ -588,22 +701,56 @@ contract VeTokenBribeTest is FullTest {
         uint160 rate = uint160(1e18 << 32);
 
         vm.prank(distributor);
-        bribe.scheduleRewards(startTime, endTime, rate);
-        assertEq(bribe.rewardRate(), 0);
-        assertEq(bribe.rewardRateDeltaAtTime(startTime), int256(uint256(rate)));
+        bribes.scheduleRewards(key, startTime, endTime, rate);
+        assertEq(bribes.rewardRate(bribeId), 0);
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, startTime), int256(uint256(rate)));
 
         vm.warp(startTime);
-        assertEq(bribe.rewardRate(), rate);
-        assertEq(bribe.earned(veId), 0);
+        assertEq(bribes.rewardRate(bribeId), rate);
+        assertEq(bribes.earned(veId), 0);
 
         vm.warp(uint256(startTime) + 1 days);
-        assertApproxEqAbs(bribe.earned(veId), _emitted(rate, 1 days), 1);
+        assertApproxEqAbs(bribes.earned(veId), _emitted(rate, 1 days), 1);
     }
 
     function test_scheduleRewardsRejectsInvalidEndTime() public {
         vm.prank(distributor);
-        vm.expectRevert(VeTokenBribe.InvalidTimestamps.selector);
-        bribe.scheduleRewards(0, uint64(vm.getBlockTimestamp()), uint160(1 << 32));
+        vm.expectRevert(VeTokenBribes.InvalidTimestamps.selector);
+        bribes.scheduleRewards(key, 0, uint64(vm.getBlockTimestamp()), uint160(1 << 32));
+    }
+
+    function test_scheduleRewardsRejectsPoolFromAnotherExtension() public {
+        PoolKey memory invalidPool = PoolKey({
+            token0: poolKey.token0, token1: poolKey.token1, config: createConcentratedPoolConfig(0, 64, address(0))
+        });
+        BribeKey memory invalidKey =
+            BribeKey({poolKey: invalidPool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
+
+        vm.prank(distributor);
+        vm.expectRevert(VeTokenBribes.InvalidPool.selector);
+        bribes.scheduleRewards(invalidKey, 0, _defaultRewardEnd(), uint160(1 << 32));
+    }
+
+    function test_stakeRejectsPoolWithNonZeroFee() public {
+        PoolKey memory feePool = PoolKey({
+            token0: poolKey.token0,
+            token1: poolKey.token1,
+            config: createConcentratedPoolConfig(1 << 32, 64, address(ve33))
+        });
+        BribeKey memory feeKey = BribeKey({poolKey: feePool, rewardToken: address(rewardToken), votingFee: VOTING_FEE});
+
+        uint256 veId = _createVeToken(alice, 1e18);
+        vm.prank(alice);
+        vm.expectRevert(VeTokenBribes.InvalidPool.selector);
+        bribes.stake(feeKey, veId);
+    }
+
+    function test_scheduleRewardsRejectsZeroRewardToken() public {
+        BribeKey memory zeroTokenKey = BribeKey({poolKey: poolKey, rewardToken: address(0), votingFee: VOTING_FEE});
+
+        vm.prank(distributor);
+        vm.expectRevert(VeTokenBribes.InvalidAddress.selector);
+        bribes.scheduleRewards(zeroTokenKey, 0, _defaultRewardEnd(), uint160(1 << 32));
     }
 
     function test_scheduleRewardsRejectsFundingAboveUint128() public {
@@ -612,11 +759,11 @@ contract VeTokenBribeTest is FullTest {
         uint64 endTime = uint64(alignedTime + 256);
 
         vm.prank(distributor);
-        vm.expectRevert(VeTokenBribe.RewardFundingOverflow.selector);
-        bribe.scheduleRewards(0, endTime, uint160(1) << 152);
+        vm.expectRevert(VeTokenBribes.RewardFundingOverflow.selector);
+        bribes.scheduleRewards(key, 0, endTime, uint160(1) << 152);
 
-        assertEq(bribe.rewardRate(), 0);
-        assertEq(bribe.rewardRateDeltaAtTime(endTime), 0);
+        assertEq(bribes.rewardRate(bribeId), 0);
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, endTime), 0);
     }
 
     function test_scheduleRewardsAllowsUint128MaxFunding() public {
@@ -626,12 +773,12 @@ contract VeTokenBribeTest is FullTest {
         uint160 rate = uint160(uint256(type(uint128).max) << 24);
 
         vm.prank(distributor);
-        uint128 amount = bribe.scheduleRewards(0, endTime, rate);
+        uint128 amount = bribes.scheduleRewards(key, 0, endTime, rate);
 
         assertEq(amount, type(uint128).max);
-        assertEq(rewardToken.balanceOf(address(bribe)), type(uint128).max);
-        assertEq(bribe.rewardRate(), rate);
-        assertEq(bribe.rewardRateDeltaAtTime(endTime), -int256(uint256(rate)));
+        assertEq(rewardToken.balanceOf(address(bribes)), type(uint128).max);
+        assertEq(bribes.rewardRate(bribeId), rate);
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, endTime), -int256(uint256(rate)));
     }
 
     function test_rewardScheduleAccruesAcrossUint32Wrap() public {
@@ -642,16 +789,16 @@ contract VeTokenBribeTest is FullTest {
 
         assertGt(endTime, type(uint32).max);
         assertLt(uint32(endTime), uint32(vm.getBlockTimestamp()));
-        assertLt(bribe.rewardRateDeltaAtTime(endTime), int256(0));
-        assertEq(bribe.rewardRateDeltaAtTime(uint32(endTime)), 0);
+        assertLt(bribes.rewardRateDeltaAtTime(bribeId, endTime), int256(0));
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, uint32(endTime)), 0);
 
         vm.warp(endTime);
-        bribe.accrueRewards();
+        bribes.accrueRewards(key);
 
-        assertEq(bribe.rewardsLastAccrued(), uint32(endTime));
-        assertEq(bribe.rewardRate(), 0);
-        assertEq(bribe.rewardRateDeltaAtTime(endTime), 0);
-        assertApproxEqAbs(bribe.earned(veId), _emitted(rate, endTime - (uint256(type(uint32).max) - 1 days)), 1);
+        assertEq(bribes.rewardsLastAccrued(bribeId), uint32(endTime));
+        assertEq(bribes.rewardRate(bribeId), 0);
+        assertEq(bribes.rewardRateDeltaAtTime(bribeId, endTime), 0);
+        assertApproxEqAbs(bribes.earned(veId), _emitted(rate, endTime - (uint256(type(uint32).max) - 1 days)), 1);
     }
 
     function test_rewardsEmittedWithoutVotingWeightAreNotRetroactive() public {
@@ -659,46 +806,21 @@ contract VeTokenBribeTest is FullTest {
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
         uint256 veId = _stakeInBribe(alice, 1e18);
-        assertEq(bribe.earned(veId), 0);
+        assertEq(bribes.earned(veId), 0);
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
-        assertApproxEqAbs(bribe.earned(veId), _emitted(rate, 1 days), 1);
-    }
-
-    function test_virtualVotingFeeCanBeOverridden() public {
-        uint64 overriddenFee = 1 << 61;
-        OverriddenFeeVeTokenBribe overriddenBribe =
-            new OverriddenFeeVeTokenBribe(veToken, poolKey, address(rewardToken), distributor, overriddenFee);
-
-        uint256 veId = _createVeToken(alice, 1e18);
-        vm.prank(alice);
-        veToken.approve(address(overriddenBribe), veId);
-        vm.prank(alice);
-        overriddenBribe.stake(veId);
-
-        (,, uint64 appliedFee,,) = veToken.voteState(veId);
-        assertEq(overriddenBribe.votingFee(), overriddenFee);
-        assertEq(appliedFee, overriddenFee);
-    }
-
-    function test_constructorRejectsPoolFromAnotherExtension() public {
-        PoolKey memory invalidPool = PoolKey({
-            token0: poolKey.token0, token1: poolKey.token1, config: createConcentratedPoolConfig(0, 64, address(0))
-        });
-
-        vm.expectRevert(VeTokenBribe.InvalidPool.selector);
-        new VeTokenBribe(veToken, invalidPool, VOTING_FEE, address(rewardToken), distributor);
+        assertApproxEqAbs(bribes.earned(veId), _emitted(rate, 1 days), 1);
     }
 
     function test_onlyDepositorCanManageStake() public {
         uint256 veId = _stakeInBribe(alice, 1e18);
 
         vm.prank(bob);
-        vm.expectRevert(VeTokenBribe.DepositOwnerOnly.selector);
-        bribe.claimReward(veId);
+        vm.expectRevert(VeTokenBribes.DepositOwnerOnly.selector);
+        bribes.claimReward(key, veId);
 
         vm.prank(bob);
-        vm.expectRevert(VeTokenBribe.DepositOwnerOnly.selector);
-        bribe.unstake(veId);
+        vm.expectRevert(VeTokenBribes.DepositOwnerOnly.selector);
+        bribes.unstake(key, veId);
     }
 }

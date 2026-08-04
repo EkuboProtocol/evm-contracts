@@ -629,6 +629,31 @@ contract VeTokenBribesTest is FullTest {
         assertEq(bribes.rewardRate(bribeId), rate);
     }
 
+    function test_immediateScheduleEmitsEffectiveStartTime() public {
+        uint64 endTime = _defaultRewardEnd();
+        uint160 rate = uint160(1 << 32);
+        uint128 expectedAmount = uint128(endTime - vm.getBlockTimestamp());
+
+        vm.expectEmit(true, true, true, true);
+        emit VeTokenBribes.RewardsScheduled(
+            bribeId, distributor, uint64(vm.getBlockTimestamp()), endTime, rate, expectedAmount
+        );
+        vm.prank(distributor);
+        bribes.scheduleRewards(key, 0, endTime, rate);
+    }
+
+    function test_futureScheduleEmitsItsConfiguredStartTime() public {
+        uint64 startTime = uint64(nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 1 days - 1));
+        uint64 endTime = uint64(nextValidTime(vm.getBlockTimestamp(), uint256(startTime) + REWARD_DURATION - 1));
+        uint160 rate = uint160(1 << 32);
+        uint128 expectedAmount = uint128(((uint256(endTime) - startTime) * rate + type(uint32).max) >> 32);
+
+        vm.expectEmit(true, true, true, true);
+        emit VeTokenBribes.RewardsScheduled(bribeId, distributor, startTime, endTime, rate, expectedAmount);
+        vm.prank(distributor);
+        bribes.scheduleRewards(key, startTime, endTime, rate);
+    }
+
     function test_reentrantFundingCannotCommitAnInconsistentSchedule() public {
         ReenteringFundingToken fundingToken = new ReenteringFundingToken();
         BribeKey memory reentrantKey =

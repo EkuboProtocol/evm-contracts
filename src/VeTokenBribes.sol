@@ -88,6 +88,7 @@ contract VeTokenBribes {
         bytes32 indexed bribeId, address indexed owner, uint256 indexed veId, uint128 previousWeight, uint128 weight
     );
     event RewardPaid(bytes32 indexed bribeId, address indexed owner, uint256 indexed veId, uint256 amount);
+    /// @dev `startTime` is the effective schedule start: `block.timestamp` for immediate schedules.
     event RewardsScheduled(
         bytes32 indexed bribeId,
         address indexed funder,
@@ -329,7 +330,7 @@ contract VeTokenBribes {
         uint256 received = SafeTransferLib.balanceOf(key.rewardToken, address(this)) - balanceBefore;
         if (received != amount) revert UnexpectedRewardAmount(amount, received);
 
-        emit RewardsScheduled(bribeId, msg.sender, startTime, endTime, rate, amount);
+        emit RewardsScheduled(bribeId, msg.sender, uint64(realStartTime), endTime, rate, amount);
     }
 
     /// @notice Accrues a bribe's scheduled rewards into Q128 reward growth through the current timestamp.

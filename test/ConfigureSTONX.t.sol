@@ -10,19 +10,22 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Ve33Lib} from "../src/libraries/Ve33Lib.sol";
 import {Ve33DataFetcher} from "../src/lens/Ve33DataFetcher.sol";
-import {Ve33EmissionRateScheduler} from "../src/Ve33EmissionRateScheduler.sol";
+import {isTimeValid, nextValidTime} from "../src/math/time.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
 import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {Ve33EmissionRateConfig} from "../src/types/ve33EmissionRateConfig.sol";
 import {VePoolSwapFeeState} from "../src/types/vePoolSwapFeeState.sol";
 
 contract ConfigureSTONXHarness is ConfigureSTONX {
     function setPositionsMetadata(Ve33Positions positions) external {
         positions.setMetadata("Ekubo STONX Positions", "stonxPO", "https://prod-api.ekubo.org/positions/");
+    }
+
+    function stonxPoolKey(address stonx, address usdg, address ve33) external pure returns (PoolKey memory) {
+        return _stonxPoolKey(stonx, usdg, ve33);
     }
 
     function initialize(
@@ -31,17 +34,28 @@ contract ConfigureSTONXHarness is ConfigureSTONX {
         VeToken veToken,
         Ve33Positions positions,
         Ve33Periphery periphery,
-        Ve33EmissionRateScheduler scheduler,
         ICore core,
         address usdg,
         address governance
-    ) external returns (PoolKey memory poolKey, uint256 positionId, uint256 veId, uint128 scheduledAmount) {
+    )
+        external
+        returns (
+            PoolKey memory poolKey,
+            uint256 positionId,
+            uint256 veId,
+            uint64 emissionStart,
+            uint64 emissionEnd,
+            uint160 emissionRate,
+            uint128 scheduledAmount,
+            uint256 remainingStonx
+        )
+    {
         poolKey = _stonxPoolKey(address(stonx), usdg, address(ve33));
         positionId = _seedLiquidity(stonx, positions, poolKey, usdg, address(this), governance, bytes32(0));
         veId = _stakeAndVote(stonx, veToken, core, poolKey, address(this), bytes32(0));
         positions.transferOwnership(governance);
-        scheduledAmount = _scheduleInitialEmissions(stonx, periphery, address(this));
-        _configureScheduler(stonx, scheduler, governance);
+        (emissionStart, emissionEnd, emissionRate, scheduledAmount) = _scheduleInitialEmissions(stonx, periphery);
+        remainingStonx = _transferRemainingStonxAndOwnership(stonx, address(this), governance);
     }
 }
 
@@ -54,12 +68,11 @@ contract ConfigureSTONXTest is FullTest {
     uint128 private constant USDG_AMOUNT = 333_333e6;
     int32 private constant POSITION_TICK_LOWER = -88_722_432;
     int32 private constant POSITION_TICK_UPPER = 88_722_432;
-    uint64 private constant SWAP_FEE = uint64((uint256(type(uint64).max) * 30) / 10_000);
+    uint64 private constant SWAP_FEE = 0;
     uint128 private constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint32 private constant INITIAL_EMISSION_DURATION = 100 days;
-    uint128 private constant SCHEDULER_DAILY_EMISSION_AMOUNT = 333_333e15;
-    uint160 private constant SCHEDULER_EMISSION_RATE =
-        uint160((uint256(SCHEDULER_DAILY_EMISSION_AMOUNT) << 32) / 1 days);
+    uint32 private constant INITIAL_EMISSION_END_BUFFER = 6 days;
+    uint32 private constant INITIAL_EMISSION_START_DELAY = 1 hours;
 
     ConfigureSTONXHarness private deployer;
     MintableERC20 private stonx;
@@ -69,7 +82,6 @@ contract ConfigureSTONXTest is FullTest {
     Ve33Positions private ve33Positions;
     Ve33Periphery private periphery;
     Ve33DataFetcher private dataFetcher;
-    Ve33EmissionRateScheduler private scheduler;
 
     function setUp() public override {
         super.setUp();
@@ -86,9 +98,8 @@ contract ConfigureSTONXTest is FullTest {
         deployer.setPositionsMetadata(ve33Positions);
         periphery = new Ve33Periphery(core, ve33);
         dataFetcher = new Ve33DataFetcher(core, ve33);
-        scheduler = new Ve33EmissionRateScheduler(address(deployer), core, ve33);
 
-        stonx.mint(address(deployer), STONX_AMOUNT * 2);
+        stonx.mint(address(deployer), STONX_AMOUNT * 3);
         stonx.transferOwnership(address(deployer));
     }
 
@@ -98,6 +109,20 @@ contract ConfigureSTONXTest is FullTest {
 
     function test_initializeWhenSTONXIsToken1() public {
         _testInitialize(address(0x10000));
+    }
+
+    function test_initializeRejectsHostilePreinitializedPool() public {
+        address usdgAddress = address(type(uint160).max - 1);
+        deployCodeTo("MintableERC20.sol:MintableERC20", abi.encode(address(this), "USDG", "USDG", 6), usdgAddress);
+        MintableERC20 usdg = MintableERC20(usdgAddress);
+        usdg.mint(address(deployer), USDG_AMOUNT);
+
+        PoolKey memory poolKey = deployer.stonxPoolKey(address(stonx), usdgAddress, address(ve33));
+        int32 expectedInitialTick = deployer.initialTick(address(stonx), stonx.decimals(), usdgAddress, usdg.decimals());
+        core.initializePool(poolKey, expectedInitialTick + 1_000_000);
+
+        vm.expectPartialRevert(Ve33Positions.DepositFailedDueToSlippage.selector);
+        deployer.initialize(stonx, ve33, veToken, ve33Positions, periphery, core, usdgAddress, owner);
     }
 
     function test_initialTickFor18DecimalSTONXAnd6DecimalUSDG() public view {
@@ -127,33 +152,92 @@ contract ConfigureSTONXTest is FullTest {
         deployer.initialTick(address(1), 39, address(2), 0);
     }
 
+    function testFuzz_initialEmissionTimesUseEndBufferAndClosestStart(uint64 currentTimeSeed) public view {
+        uint256 currentTime = bound(uint256(currentTimeSeed), 1, uint256(type(uint64).max) - type(uint32).max);
+        (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(currentTime);
+        uint256 latestStartTime =
+            emissionEnd > INITIAL_EMISSION_DURATION ? uint256(emissionEnd) - INITIAL_EMISSION_DURATION : 0;
+        uint256 targetDuration = INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER;
+        uint256 earliestStartTime = nextValidTime(currentTime, currentTime + INITIAL_EMISSION_START_DELAY - 1);
+
+        assertEq(
+            emissionEnd,
+            nextValidTime(currentTime, currentTime + targetDuration - 1),
+            "first valid end at or after 94 days"
+        );
+        assertTrue(isTimeValid(currentTime, emissionEnd), "valid end");
+        assertGe(emissionStart, earliestStartTime, "at least one hour in the future");
+        assertTrue(isTimeValid(currentTime, emissionStart), "valid start");
+
+        if (earliestStartTime <= latestStartTime) {
+            assertGe(uint256(emissionEnd) - emissionStart, INITIAL_EMISSION_DURATION, "future start preserves 100 days");
+        } else {
+            assertEq(emissionStart, earliestStartTime, "earliest safe broadcast start");
+        }
+
+        uint256 followingStart = nextValidTime(currentTime, emissionStart);
+        assertTrue(followingStart == 0 || followingStart > latestStartTime, "greatest valid start");
+
+        uint256 duration = uint256(emissionEnd) - emissionStart;
+        assertGe(duration, targetDuration - INITIAL_EMISSION_START_DELAY - 255, "six-day buffer bound");
+        uint160 emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / duration);
+        uint256 requiredAmount = (duration * emissionRate + type(uint32).max) >> 32;
+        assertEq(requiredAmount, INITIAL_EMISSION_AMOUNT, "exact funded amount");
+    }
+
+    function test_initialEmissionTimesAtPlannedLaunch() public view {
+        (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(1_785_504_600);
+
+        assertEq(emissionStart, 1_785_508_352, "first valid start at least one hour later");
+        assertEq(emissionEnd, 1_794_113_536, "first valid end at or after 94 days");
+    }
+
+    function test_initialEmissionFundingIsStableUntilPlannedStart() public view {
+        uint256 simulationTime = 1_785_504_600;
+        (uint64 emissionStart, uint64 emissionEnd) = deployer.initialEmissionTimes(simulationTime);
+        uint256 duration = uint256(emissionEnd) - emissionStart;
+        uint160 emissionRate = uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / duration);
+
+        uint256 broadcastTime = simulationTime + 30 minutes;
+        assertLt(broadcastTime, emissionStart);
+        uint256 realStartTime = broadcastTime > emissionStart ? broadcastTime : emissionStart;
+        uint256 actualRequiredAmount = ((uint256(emissionEnd) - realStartTime) * emissionRate + type(uint32).max) >> 32;
+
+        assertEq(actualRequiredAmount, INITIAL_EMISSION_AMOUNT);
+    }
+
     function _testInitialize(address usdgAddress) private {
         deployCodeTo("MintableERC20.sol:MintableERC20", abi.encode(address(this), "USDG", "USDG", 6), usdgAddress);
         MintableERC20 usdg = MintableERC20(usdgAddress);
         assertEq(usdg.decimals(), 6);
         usdg.mint(address(deployer), USDG_AMOUNT);
 
+        PoolKey memory poolKey;
         uint256 positionId;
         uint256 veId;
+        uint64 emissionStart;
+        uint64 emissionEnd;
+        uint160 emissionRate;
         uint128 scheduledAmount;
-        PoolKey memory poolKey;
-        (poolKey, positionId, veId, scheduledAmount) =
-            deployer.initialize(stonx, ve33, veToken, ve33Positions, periphery, scheduler, core, usdgAddress, owner);
+        uint256 remainingStonx;
+        uint64 scheduleTime = uint64(block.timestamp);
+        (poolKey, positionId, veId, emissionStart, emissionEnd, emissionRate, scheduledAmount, remainingStonx) =
+            deployer.initialize(stonx, ve33, veToken, ve33Positions, periphery, core, usdgAddress, owner);
         PoolId poolId = poolKey.toPoolId();
 
-        _assertDeploymentOwnership(positionId, veId);
+        _assertDeploymentOwnership(positionId, veId, remainingStonx);
         _assertPositionAndPoolState(poolKey, poolId, positionId, usdg);
         _assertStakeAndVoteState(poolId, veId);
-        _assertEmissionState(scheduledAmount);
-        _assertSchedulerInitiallyNoops();
+        _assertEmissionState(scheduleTime, emissionStart, emissionEnd, emissionRate, scheduledAmount);
+        _assertEmissionsStart(emissionStart, emissionRate);
         _assertEmissionsReachPosition(poolKey, positionId);
     }
 
-    function _assertDeploymentOwnership(uint256 positionId, uint256 veId) private view {
+    function _assertDeploymentOwnership(uint256 positionId, uint256 veId, uint256 remainingStonx) private view {
         assertEq(positionId, ve33Positions.saltToId(address(deployer), bytes32(0)));
         assertEq(veId, veToken.saltToId(address(deployer), bytes32(0)));
-        assertEq(stonx.owner(), address(scheduler));
-        assertEq(scheduler.owner(), owner);
+        assertEq(stonx.owner(), owner);
+        assertEq(stonx.balanceOf(owner), remainingStonx);
         assertEq(ve33Positions.owner(), owner);
         assertEq(ve33Positions.ownerOf(positionId), owner);
         assertEq(veToken.ownerOf(veId), address(deployer));
@@ -163,9 +247,6 @@ contract ConfigureSTONXTest is FullTest {
         assertEq(address(ve33Positions.ve33()), address(ve33));
         assertEq(address(periphery.ve33()), address(ve33));
         assertEq(address(dataFetcher.VE33_EXTENSION()), address(ve33));
-        assertEq(address(scheduler.ve33()), address(ve33));
-        assertEq(address(scheduler.core()), address(core));
-        assertEq(address(scheduler.token()), address(stonx));
         assertEq(veToken.stakeToken(), address(stonx));
         assertEq(ve33Positions.stakeToken(), address(stonx));
         assertEq(periphery.stakeToken(), address(stonx));
@@ -190,7 +271,7 @@ contract ConfigureSTONXTest is FullTest {
         assertGt(positionLiquidity, 0);
         assertGt(core.poolState(poolId).liquidity(), 0);
         assertEq(usdg.balanceOf(address(deployer)), 0);
-        assertLe(stonx.balanceOf(address(deployer)), STONX_AMOUNT);
+        assertEq(stonx.balanceOf(address(deployer)), 0);
     }
 
     function _assertStakeAndVoteState(PoolId poolId, uint256 veId) private view {
@@ -212,50 +293,71 @@ contract ConfigureSTONXTest is FullTest {
         assertEq(ve33.totalVoteWeight(), STONX_AMOUNT);
     }
 
-    function _assertEmissionState(uint128 scheduledAmount) private view {
-        Ve33EmissionRateConfig config = scheduler.config();
-        (uint64 emissionEnd, int256 rateDelta) = ve33.nextEmissionRateChangeTime(block.timestamp);
-        uint160 initialEmissionRate = ve33.emissionRate();
+    function _assertEmissionState(
+        uint64 scheduleTime,
+        uint64 emissionStart,
+        uint64 emissionEnd,
+        uint160 emissionRate,
+        uint128 scheduledAmount
+    ) private view {
+        uint256 realStartTime = emissionStart == 0 ? scheduleTime : emissionStart;
         (uint128 savedStakeAndEmissions,) = core.savedBalances(
             address(ve33), address(stonx), address(type(uint160).max), VE33_STAKE_TOKEN_SAVED_BALANCE_ID
         );
 
         assertEq(scheduledAmount, INITIAL_EMISSION_AMOUNT);
         assertEq(savedStakeAndEmissions, STONX_AMOUNT + scheduledAmount);
-        assertEq(config.targetRate(), SCHEDULER_EMISSION_RATE);
-        assertEq(config.scheduleDuration(), 3 days);
-        assertGe(emissionEnd, block.timestamp + INITIAL_EMISSION_DURATION);
-        assertEq(
-            initialEmissionRate, uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (emissionEnd - block.timestamp))
+        (uint64 expectedStart, uint64 expectedEnd) = deployer.initialEmissionTimes(scheduleTime);
+        assertEq(emissionStart, expectedStart);
+        assertEq(emissionEnd, expectedEnd);
+        assertGe(
+            uint256(emissionEnd) - realStartTime,
+            INITIAL_EMISSION_DURATION - INITIAL_EMISSION_END_BUFFER - INITIAL_EMISSION_START_DELAY - 255
         );
-        assertEq(rateDelta, -int256(uint256(initialEmissionRate)));
-        assertApproxEqAbs((uint256(SCHEDULER_EMISSION_RATE) * 1 days) >> 32, SCHEDULER_DAILY_EMISSION_AMOUNT, 1);
-        assertEq(stonx.totalSupply(), uint256(STONX_AMOUNT) * 2 + scheduledAmount);
+        assertTrue(isTimeValid(scheduleTime, emissionEnd));
+        if (emissionStart != 0) {
+            assertTrue(isTimeValid(scheduleTime, emissionStart));
+        }
+        assertEq(
+            emissionRate, uint160((uint256(INITIAL_EMISSION_AMOUNT) << 32) / (uint256(emissionEnd) - realStartTime))
+        );
+        assertEq(stonx.totalSupply(), uint256(STONX_AMOUNT) * 3);
+        assertEq(stonx.balanceOf(address(deployer)), 0);
+
+        if (emissionStart == 0) {
+            assertEq(ve33.emissionRate(), emissionRate);
+            (uint64 nextTime, int256 nextDelta) = ve33.nextEmissionRateChangeTime(scheduleTime);
+            assertEq(nextTime, emissionEnd);
+            assertEq(nextDelta, -int256(uint256(emissionRate)));
+        } else {
+            assertEq(ve33.emissionRate(), 0);
+            (uint64 nextTime, int256 nextDelta) = ve33.nextEmissionRateChangeTime(scheduleTime);
+            assertEq(nextTime, emissionStart);
+            assertEq(nextDelta, int256(uint256(emissionRate)));
+            (nextTime, nextDelta) = ve33.nextEmissionRateChangeTime(emissionStart);
+            assertEq(nextTime, emissionEnd);
+            assertEq(nextDelta, -int256(uint256(emissionRate)));
+        }
     }
 
-    function _assertSchedulerInitiallyNoops() private {
-        uint256 initialTimestamp = block.timestamp;
-        uint256 initialSupply = stonx.totalSupply();
-        (uint64 initialEmissionEnd,) = ve33.nextEmissionRateChangeTime(initialTimestamp);
-        uint160 initialEmissionRate = ve33.emissionRate();
+    function _assertEmissionsStart(uint64 emissionStart, uint160 emissionRate) private {
+        if (emissionStart == 0) {
+            assertEq(ve33.emissionRate(), emissionRate);
+            return;
+        }
 
-        assertEq(scheduler.mintAndSchedule(), 0);
-
-        vm.warp(initialTimestamp + INITIAL_EMISSION_DURATION - 3 days);
-        assertEq(scheduler.mintAndSchedule(), 0);
-        assertEq(stonx.totalSupply(), initialSupply);
-        assertEq(ve33.emissionRate(), initialEmissionRate);
-
-        vm.warp(initialEmissionEnd);
+        vm.warp(emissionStart - 1);
         ve33.accrueEmissions();
         assertEq(ve33.emissionRate(), 0);
 
-        assertGt(scheduler.mintAndSchedule(), 0);
-        assertEq(ve33.emissionRate(), SCHEDULER_EMISSION_RATE);
+        vm.warp(emissionStart);
+        ve33.accrueEmissions();
+        assertEq(ve33.emissionRate(), emissionRate);
     }
 
     function _assertEmissionsReachPosition(PoolKey memory poolKey, uint256 positionId) private {
         vm.warp(block.timestamp + 1 days);
+        uint256 governanceBalanceBefore = stonx.balanceOf(owner);
 
         vm.expectRevert(
             abi.encodeWithSelector(BaseNonfungibleToken.NotUnauthorizedForToken.selector, address(this), positionId)
@@ -268,6 +370,6 @@ contract ConfigureSTONXTest is FullTest {
             ve33Positions.claimRewards(positionId, poolKey, POSITION_TICK_LOWER, POSITION_TICK_UPPER, owner);
 
         assertGt(claimed, 0);
-        assertEq(stonx.balanceOf(owner), claimed);
+        assertEq(stonx.balanceOf(owner), governanceBalanceBefore + claimed);
     }
 }

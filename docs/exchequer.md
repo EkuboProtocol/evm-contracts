@@ -318,6 +318,24 @@ whitepaper and the exposure is understood, not that it was overlooked.
 | Stale views quoting yesterday's rate to the first caller of a quiet day | Every view projects through the same `_walk`/stream release `accrue()` uses | None |
 | Rounding | Per-share credits round down, so a few wei of unclaimable dust remain on the ledger total | Harmless |
 
+## Open questions
+
+Things the whitepaper leaves genuinely unspecified, that this implementation does not decide for
+it:
+
+- **Reserves have no outlet.** §11 says the expansion vault "purchases hard reserve assets" and
+  "reserves are held by the bank", and stops there. Here the gold lands at `Exchequer` and there is
+  no code path that moves it out — the bank has no arbitrary call, and its owner can renounce.
+  That is the faithful reading, and the safe one, but a balance sheet nobody can ever draw on is
+  decorative. If reserves are meant to back anything — a redemption floor, a backstop for buybacks
+  in a crisis, a dividend — that is a mechanism the paper has not designed and this branch does not
+  invent.
+- **`minNetFlow` is a launch parameter, not a formula.** A fixed 1 ETH dead band is right for a
+  pool that starts ~100 ETH deep and wrong for one a thousand times deeper. A dead band scaled to
+  pool depth or to the epoch's gross volume would track the economy; it would also be one more
+  thing a trader can move. The parameter is the conservative choice until there is data.
+- **The stock `Router` needs the bank in its `ve33` slot**, as noted above.
+
 ## Genesis
 
 1. Deploy `Exchequer` at an address whose leading byte encodes its call points, which also deploys

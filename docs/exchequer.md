@@ -136,14 +136,40 @@ which is what makes "the bank turns defensive faster than it turns generous" tru
 | `Exchequer` | The extension. Issuance ledger, net flow, multiplier, fee routing, withdrawals, POL and buyback bids, its own price reference. |
 | `ExchequerAuctions` | Both daily falling-price Dutch auctions (licenses in `$ISSUE`, charters in ETH). |
 | `ExchequerVault` | The expansion vault: a `RevenueBuybacks` owned by the bank, so its gold can only land there. |
+| `ExchequerStorageLayout`, `ExchequerAuctionsStorageLayout` | Where every word of state lives, and how packed words are laid out. |
+| `ExchequerMath` | The whitepaper's arithmetic, pure, used by the bank to settle and by readers to project. |
+| `ExchequerLib`, `ExchequerAuctionsLib` | Exposed-storage readers and every derived quantity, for on-chain composition. |
+| `ExchequerDataFetcher` | External views over the two libraries, for off-chain readers and tests. |
+
+### Reading the bank
+
+`Exchequer` and `ExchequerAuctions` have **no view functions**. They inherit `ExposedStorage`, so
+any slot can be read with `sload`, and the two storage-layout libraries say what each slot holds.
+Everything derived — a holder's balance, the fee an exit would pay, the reference tick, the
+multiplier as of now, an auction's current price — is computed by `ExchequerLib` and
+`ExchequerAuctionsLib` from that storage, with the same `ExchequerMath` the contracts settle with.
+A projection therefore cannot disagree with a settlement, because there is one implementation of
+the arithmetic.
+
+This is the `Ve33` idiom, and it is what the "minimum set of operations" means: the bank's
+external surface is the state transitions the economy needs — `accrue`, `settleTransfer`,
+`withdraw`, `compound`, `defend`, `flush`, `openBranches`, the extension hooks, genesis and four
+owner knobs — and nothing that merely reports.
+
+Parameters that the hot path needs are immutables inside the bank, mirrored once into storage
+slots 4–11 so that a reader with only `sload` can recover them. The libraries read the mirror.
+
+One consequence for test authors: with `via_ir` the optimizer treats `block.timestamp` as
+invariant within a call, so an *inlined* library read taken before a `vm.warp` is reused after
+it. Tests read through `ExchequerDataFetcher`, whose external functions give every read its own
+call frame. On a real chain a transaction has one timestamp and the concern does not arise.
 
 The bank and its two tokens each need the other's address, so the tokens are deployed first,
 unbound, and bound to the bank once by the deployer; genesis refuses to run until both tokens
-answer to the bank and no other. This also keeps the tokens' creation code out of the bank's
-runtime: `Exchequer` sits just under the EIP-170 code size limit (24,195 of 24,576 bytes), is
-compiled under a size-oriented optimizer profile (`compilation_restrictions` in `foundry.toml`),
-and carries its own three-function owner rather than solady's `Ownable` for the same reason. Any
-further logic added to the bank has to earn its bytes.
+answer to the bank and no other. That keeps the tokens' creation code out of the bank's runtime.
+With no views, `Exchequer` is 19,405 bytes against the 24,576-byte EIP-170 limit (it was 33,882
+with getters and embedded tokens), compiled under a size-oriented optimizer profile
+(`compilation_restrictions` in `foundry.toml`) with its own three-function owner.
 
 ## Mechanics
 
@@ -325,7 +351,7 @@ whitepaper and the exposure is understood, not that it was overlooked.
 | Run first on the exit door | Fee locks at commitment and rises with trailing volume; half goes to stayers | Accepted: the whitepaper's own design; early exits pay less than late ones by construction |
 | Grief the license open by timing the first sale | The day's open is pinned by its first sale to 2× yesterday's close or 2× floor | Floor moves with supply and rate inside the day; marginal |
 | Drain a shared saved-balance pot (cf. Ekubo limit-orders incident) | The fee pot is keyed under the bank's own address with salt 0; nothing else writes it, and only the bank's lock can draw it | None |
-| Stale views quoting yesterday's rate to the first caller of a quiet day | Every view projects through the same `_walk`/stream release `accrue()` uses | None |
+| Stale reads quoting yesterday's rate to the first caller of a quiet day | The bank has no views; `ExchequerLib` projects through the same `ExchequerMath.walk` and stream release `accrue()` uses | None |
 | Rounding | Per-share credits round down, so a few wei of unclaimable dust remain on the ledger total | Harmless |
 | Mint `$BANK` for nothing through a zero-reserve charter auction, or through a second owner that survives the bank's renounce | Auction policy belongs to the bank's owner; an open auction needs a nonzero reserve; supply is capped per day | The bank's owner can still sell up to the cap at a real reserve: that is §8 |
 | Lump a whole position out in one call to pay the floor | An exit is priced with its own size in the window (`resolutionFeeRateFor`) | None; splitting and lumping now cost the same or more |
@@ -358,12 +384,13 @@ it:
 1. Deploy `IssueToken` and `BankToken`, unbound, then `Exchequer` at an address whose leading byte
    encodes its call points, then bind both tokens to it. `DeployExchequer` does all of this
    deterministically with the broadcaster as interim owner.
-2. Deploy the expansion vault and `ExchequerAuctions`; the owner wires them in once each (the
-   setters verify the vault is the bank's own and buys the reserve asset, and that the auctions
-   are for this bank). The script then transfers ownership to `OWNER_ADDRESS`.
-3. The owner calls `initialize{value: seedEth}(tick)`, which initializes the pool, mints the
-   100,000,000 `$ISSUE` genesis supply, and locks it with the seed ETH into the full-range POL
-   position. This is the only pre-mint.
+2. Deploy the expansion vault and `ExchequerAuctions`. The bank is constructed with
+   `OWNER_ADDRESS` as owner; nothing in the script needs the owner's key.
+3. The owner calls `initialize{value: seedEth}(tick, vault, auctions)`, which verifies the vault is
+   the bank's own and buys the reserve asset and that the auctions open branches for this bank in
+   this bank's currency, wires both in, initializes the pool, mints the 100,000,000 `$ISSUE` genesis
+   supply, and locks it with the seed ETH into the full-range POL position. This is the only
+   pre-mint, and the only wiring.
 4. The owner calls `configureExpansionVault` once an ETH/gold TWAMM pool exists at the chosen fee.
 5. The owner mints up to 1,000 `$BANK` for the founding distribution, pointing it at `Incentives`
    for a one-per-wallet merkle claim.

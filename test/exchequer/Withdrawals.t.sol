@@ -2,6 +2,8 @@
 pragma solidity =0.8.33;
 
 import {ExchequerBase} from "./ExchequerBase.sol";
+import {ExchequerAuctions} from "../../src/exchequer/ExchequerAuctions.sol";
+import {GENESIS_LIQUIDITY, ISSUANCE_BUDGET} from "../../src/libraries/ExchequerMath.sol";
 import {Exchequer} from "../../src/exchequer/Exchequer.sol";
 
 contract WithdrawalsTest is ExchequerBase {
@@ -11,7 +13,7 @@ contract WithdrawalsTest is ExchequerBase {
         giveShares(alice, 10 * BRANCH);
         advanceDays(1);
 
-        uint256 atBank = bank.balanceAtBank(alice);
+        uint256 atBank = lens.balanceAtBank(bank, alice);
         assertApproxEqRel(atBank, 1_000_000e18, 1e12, "a day's issue");
 
         vm.prank(alice);
@@ -30,18 +32,18 @@ contract WithdrawalsTest is ExchequerBase {
         bank.withdraw(2 * BRANCH, alice);
 
         assertEq(bankToken.balanceOf(alice), 0, "alice retired everything");
-        assertEq(bank.balanceAtBank(alice), 0, "and holds no ledger balance");
+        assertEq(lens.balanceAtBank(bank, alice), 0, "and holds no ledger balance");
 
         advanceDays(1);
-        assertEq(bank.balanceAtBank(alice), 0, "she earns nothing more");
-        assertGt(bank.balanceAtBank(bob), 0, "bob still earns");
+        assertEq(lens.balanceAtBank(bank, alice), 0, "she earns nothing more");
+        assertGt(lens.balanceAtBank(bank, bob), 0, "bob still earns");
     }
 
     function test_a_quiet_week_pays_the_floor_fee() public {
         giveShares(alice, 100 * BRANCH);
         advanceDays(1);
 
-        assertEq(bank.resolutionFeeRate(), bank.RESOLUTION_FEE_FLOOR(), "no exit pressure yet");
+        assertEq(lens.resolutionFeeRate(bank), lens.parameters(bank).resolutionFeeFloor, "no exit pressure yet");
 
         // Retiring one branch of a hundred is one percent of the bank: pressure barely registers
         vm.prank(alice);
@@ -57,13 +59,15 @@ contract WithdrawalsTest is ExchequerBase {
         giveShares(bob, BRANCH);
         advanceDays(7);
 
-        assertEq(bank.resolutionFeeRate(), bank.RESOLUTION_FEE_FLOOR(), "quiet, at the margin");
+        assertEq(lens.resolutionFeeRate(bank), lens.parameters(bank).resolutionFeeFloor, "quiet, at the margin");
 
         // Ninety percent of the bank leaving in one call is a run, and is priced as one
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(9 * BRANCH, alice);
 
-        assertApproxEqRel(released - minted, (released * bank.RESOLUTION_FEE_CEILING()) / 1e18, 1e12, "the ceiling");
+        assertApproxEqRel(
+            released - minted, (released * lens.parameters(bank).resolutionFeeCeiling) / 1e18, 1e12, "the ceiling"
+        );
     }
 
     function test_dust_exits_cannot_stretch_a_stream() public {
@@ -73,7 +77,7 @@ contract WithdrawalsTest is ExchequerBase {
 
         vm.prank(alice);
         bank.withdraw(BRANCH, alice);
-        uint64 end = bank.streamEndTime();
+        uint64 end = lens.streamEndTime(bank);
         assertEq(end, vm.getBlockTimestamp() + 7 days, "a seven day stream");
 
         // Bob retires one wei of his branch every day for three days
@@ -84,7 +88,7 @@ contract WithdrawalsTest is ExchequerBase {
         }
 
         // The weighted end has moved by the dust's weight, which is nothing
-        assertLe(bank.streamEndTime(), end + 1 minutes, "the stream still ends on time");
+        assertLe(lens.streamEndTime(bank), end + 1 minutes, "the stream still ends on time");
     }
 
     function test_half_of_every_fee_is_burned_and_half_pays_those_who_stayed() public {
@@ -94,9 +98,9 @@ contract WithdrawalsTest is ExchequerBase {
 
         // Book everything owed so far, so the counters below measure only what follows
         bank.accrue();
-        uint256 bobBefore = bank.balanceAtBank(bob);
+        uint256 bobBefore = lens.balanceAtBank(bank, bob);
         uint256 burnedBefore = issue.totalBurned();
-        uint256 issuedBefore = bank.cumulativeIssuance();
+        uint256 issuedBefore = lens.cumulativeIssuance(bank);
 
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
@@ -105,17 +109,19 @@ contract WithdrawalsTest is ExchequerBase {
         uint256 burned = issue.totalBurned() - burnedBefore;
 
         assertEq(burned, fee / 2, "half is destroyed");
-        assertEq(bank.streamRemaining(), fee - burned, "half is owed to the banker who stayed");
-        assertEq(bank.balanceAtBank(bob), bobBefore, "but not yet paid");
+        assertEq(lens.streamRemaining(bank), fee - burned, "half is owed to the banker who stayed");
+        assertEq(lens.balanceAtBank(bank, bob), bobBefore, "but not yet paid");
 
         // Bob is the only banker left, so everything credited after this is his: the stream, plus
         // whatever base issuance the intervening days produced
         advanceDays(8);
         bank.accrue();
-        uint256 baseIssued = bank.cumulativeIssuance() - issuedBefore;
+        uint256 baseIssued = lens.cumulativeIssuance(bank) - issuedBefore;
 
-        assertEq(bank.streamRemaining(), 0, "the stream has finished");
-        assertApproxEqAbs(bank.balanceAtBank(bob) - bobBefore - baseIssued, fee - burned, 2, "and bob received it all");
+        assertEq(lens.streamRemaining(bank), 0, "the stream has finished");
+        assertApproxEqAbs(
+            lens.balanceAtBank(bank, bob) - bobBefore - baseIssued, fee - burned, 2, "and bob received it all"
+        );
     }
 
     function test_the_redistribution_streams_linearly_over_the_window() public {
@@ -124,8 +130,8 @@ contract WithdrawalsTest is ExchequerBase {
         advanceDays(1);
 
         bank.accrue();
-        uint256 issuedBefore = bank.cumulativeIssuance();
-        uint256 bobBefore = bank.balanceAtBank(bob);
+        uint256 issuedBefore = lens.cumulativeIssuance(bank);
+        uint256 bobBefore = lens.balanceAtBank(bank, bob);
 
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
@@ -134,11 +140,11 @@ contract WithdrawalsTest is ExchequerBase {
         // Half the window in: half the stream, on top of bob's base issuance
         vm.warp(vm.getBlockTimestamp() + 3.5 days);
         bank.accrue();
-        uint256 baseIssued = bank.cumulativeIssuance() - issuedBefore;
+        uint256 baseIssued = lens.cumulativeIssuance(bank) - issuedBefore;
         assertApproxEqAbs(
-            bank.balanceAtBank(bob) - bobBefore - baseIssued, redistributed / 2, 2, "half way through the window"
+            lens.balanceAtBank(bank, bob) - bobBefore - baseIssued, redistributed / 2, 2, "half way through the window"
         );
-        assertApproxEqAbs(bank.streamRemaining(), redistributed / 2, 2, "half still to come");
+        assertApproxEqAbs(lens.streamRemaining(bank), redistributed / 2, 2, "half still to come");
     }
 
     function test_a_just_in_time_holder_cannot_capture_the_redistribution() public {
@@ -158,14 +164,14 @@ contract WithdrawalsTest is ExchequerBase {
         vm.prank(attacker);
         bankToken.transfer(carol, 100 * BRANCH);
 
-        assertEq(bank.balanceAtBank(attacker), 0, "nothing was captured");
+        assertEq(lens.balanceAtBank(bank, attacker), 0, "nothing was captured");
 
         // The stream pays whoever actually holds through the window
         advanceDays(8);
         bank.accrue();
-        assertEq(bank.balanceAtBank(attacker), 0, "still nothing");
-        assertGt(bank.balanceAtBank(carol), 0, "carol, who stayed, is paid");
-        assertGt(bank.balanceAtBank(bob), 0, "as is bob");
+        assertEq(lens.balanceAtBank(bank, attacker), 0, "still nothing");
+        assertGt(lens.balanceAtBank(bank, carol), 0, "carol, who stayed, is paid");
+        assertGt(lens.balanceAtBank(bank, bob), 0, "as is bob");
     }
 
     function test_the_burn_really_lowers_the_supply_ceiling() public {
@@ -197,15 +203,15 @@ contract WithdrawalsTest is ExchequerBase {
         giveShares(bob, BRANCH);
         advanceDays(4);
 
-        uint256 quietRate = bank.resolutionFeeRate();
-        assertEq(quietRate, bank.RESOLUTION_FEE_FLOOR(), "quiet");
+        uint256 quietRate = lens.resolutionFeeRate(bank);
+        assertEq(quietRate, lens.parameters(bank).resolutionFeeFloor, "quiet");
 
         vm.prank(alice);
         bank.withdraw(BRANCH, alice);
 
-        uint256 pressuredRate = bank.resolutionFeeRate();
+        uint256 pressuredRate = lens.resolutionFeeRate(bank);
         assertGt(pressuredRate, quietRate, "the door got more expensive");
-        assertLe(pressuredRate, bank.RESOLUTION_FEE_CEILING(), "but never past the ceiling");
+        assertLe(pressuredRate, lens.parameters(bank).resolutionFeeCeiling, "but never past the ceiling");
     }
 
     function test_a_bank_run_transfers_value_from_the_impatient_to_the_patient() public {
@@ -214,8 +220,8 @@ contract WithdrawalsTest is ExchequerBase {
         advanceDays(7);
 
         bank.accrue();
-        uint256 bobBefore = bank.balanceAtBank(bob);
-        uint256 issuedBefore = bank.cumulativeIssuance();
+        uint256 bobBefore = lens.balanceAtBank(bank, bob);
+        uint256 issuedBefore = lens.cumulativeIssuance(bank);
 
         // Alice runs for the door with ninety percent of the bank
         vm.prank(alice);
@@ -224,8 +230,8 @@ contract WithdrawalsTest is ExchequerBase {
         // Bob, the only banker left, collects half of what she paid over the following week
         advanceDays(8);
         bank.accrue();
-        uint256 baseIssued = bank.cumulativeIssuance() - issuedBefore;
-        uint256 bobAfter = bank.balanceAtBank(bob);
+        uint256 baseIssued = lens.cumulativeIssuance(bank) - issuedBefore;
+        uint256 bobAfter = lens.balanceAtBank(bank, bob);
 
         uint256 fee = released - minted;
         assertApproxEqAbs(bobAfter - bobBefore - baseIssued, fee - fee / 2, 2, "exactly half of what alice paid");
@@ -236,14 +242,14 @@ contract WithdrawalsTest is ExchequerBase {
         advanceDays(4);
 
         // Half of alice's ledger is about to leave, and that size is part of its own price
-        uint256 rateAtCall = bank.resolutionFeeRateFor(bank.balanceAtBank(alice) / 2);
-        assertGt(rateAtCall, bank.resolutionFeeRate(), "an exit of this size is dearer than a marginal one");
+        uint256 rateAtCall = lens.resolutionFeeRateFor(bank, lens.balanceAtBank(bank, alice) / 2);
+        assertGt(rateAtCall, lens.resolutionFeeRate(bank), "an exit of this size is dearer than a marginal one");
 
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
 
         assertApproxEqRel(released - minted, (released * rateAtCall) / 1e18, 1e12, "priced at the locked rate");
-        assertEq(bank.resolutionFeeRate(), rateAtCall, "and the next marginal exit starts where this one ended");
+        assertEq(lens.resolutionFeeRate(bank), rateAtCall, "and the next marginal exit starts where this one ended");
     }
 
     function test_exit_pressure_decays_out_of_the_window() public {
@@ -252,10 +258,10 @@ contract WithdrawalsTest is ExchequerBase {
 
         vm.prank(alice);
         bank.withdraw(BRANCH, alice);
-        assertGt(bank.resolutionFeeRate(), bank.RESOLUTION_FEE_FLOOR(), "elevated");
+        assertGt(lens.resolutionFeeRate(bank), lens.parameters(bank).resolutionFeeFloor, "elevated");
 
         advanceDays(8);
-        assertEq(bank.resolutionFeeRate(), bank.RESOLUTION_FEE_FLOOR(), "the window cleared");
+        assertEq(lens.resolutionFeeRate(bank), lens.parameters(bank).resolutionFeeFloor, "the window cleared");
     }
 
     function test_withdrawals_are_never_paused_at_any_fee_level() public {
@@ -269,7 +275,7 @@ contract WithdrawalsTest is ExchequerBase {
         }
 
         assertEq(bankToken.balanceOf(alice), 0, "every exit went through");
-        assertEq(bank.resolutionFeeRate(), bank.RESOLUTION_FEE_CEILING(), "at the ceiling, but open");
+        assertEq(lens.resolutionFeeRate(bank), lens.parameters(bank).resolutionFeeCeiling, "at the ceiling, but open");
     }
 
     function test_the_last_banker_out_burns_what_nobody_is_left_to_receive() public {
@@ -292,7 +298,7 @@ contract WithdrawalsTest is ExchequerBase {
 
         vm.prank(alice);
         bank.withdraw(BRANCH, alice);
-        uint256 streaming = bank.streamRemaining();
+        uint256 streaming = lens.streamRemaining(bank);
         assertGt(streaming, 0, "a stream is in flight");
 
         // Bob leaves a day later, before the stream has finished
@@ -301,17 +307,17 @@ contract WithdrawalsTest is ExchequerBase {
         vm.prank(bob);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, bob);
 
-        assertEq(bank.streamRemaining(), 0, "nothing left in flight");
+        assertEq(lens.streamRemaining(bank), 0, "nothing left in flight");
         assertGt(issue.totalBurned() - burnedBefore, released - minted, "his fee and the orphaned stream burned");
         // Per-share credits round down, so a wei or two of unclaimable dust can remain on the ledger
-        assertLe(bank.totalLedgerBalance(), 2, "the ledger is empty but for dust");
+        assertLe(lens.totalLedgerBalance(bank), 2, "the ledger is empty but for dust");
     }
 
     function test_parking_shares_elsewhere_cannot_liquidate_more_than_their_share() public {
         giveShares(alice, 10 * BRANCH);
         advanceDays(1);
 
-        uint256 ledger = bank.balanceAtBank(alice);
+        uint256 ledger = lens.balanceAtBank(bank, alice);
         address parking = makeAddr("parking");
 
         // Park all but one wei of the shares, retire that wei, and take the shares back
@@ -325,7 +331,7 @@ contract WithdrawalsTest is ExchequerBase {
         // One wei of ten whole branches is worth one wei's share of the ledger, and the rest of the
         // ledger travelled with the parked shares and came back with them
         assertLe(released, ledger / (10 * BRANCH) + 1, "one wei's worth, no more");
-        assertApproxEqAbs(bank.balanceAtBank(alice), ledger - released, 2, "the balance is intact");
+        assertApproxEqAbs(lens.balanceAtBank(bank, alice), ledger - released, 2, "the balance is intact");
         assertEq(bankToken.balanceOf(alice), 10 * BRANCH - 1, "and so are the branches");
     }
 

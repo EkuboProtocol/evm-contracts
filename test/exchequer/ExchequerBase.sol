@@ -11,10 +11,12 @@ import {TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {BankToken} from "../../src/exchequer/BankToken.sol";
-import {Exchequer, ExchequerParameters, exchequerCallPoints} from "../../src/exchequer/Exchequer.sol";
+import {Exchequer, exchequerCallPoints} from "../../src/exchequer/Exchequer.sol";
 import {ExchequerAuctions} from "../../src/exchequer/ExchequerAuctions.sol";
 import {IssueToken} from "../../src/exchequer/IssueToken.sol";
 import {ExchequerVault} from "../../src/exchequer/ExchequerVault.sol";
+import {ExchequerDataFetcher} from "../../src/lens/ExchequerDataFetcher.sol";
+import {ExchequerParameters} from "../../src/libraries/ExchequerMath.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolState} from "../../src/types/poolState.sol";
@@ -23,6 +25,10 @@ import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../../src/types/sqrtRat
 import {TestToken} from "../TestToken.sol";
 
 /// @notice Shared fixture for the Exchequer economy: one market, one bank, one vault, two auctions
+/// @dev The bank and the auctions expose no views. Every read in the tests goes through the
+///      `ExchequerDataFetcher` lens, in its own call frame: with `via_ir` the optimizer treats
+///      `block.timestamp` as invariant within a call, so an inlined library read taken before a
+///      `vm.warp` would be reused after it.
 abstract contract ExchequerBase is Test {
     /// @dev 0.30% expressed as the 0.64 fixed point fraction Core uses
     uint64 internal constant TRADING_FEE = uint64((uint256(3) << 64) / 1000);
@@ -58,12 +64,14 @@ abstract contract ExchequerBase is Test {
     BankToken internal bankToken;
     ExchequerAuctions internal auctions;
     ExchequerVault internal expansionVault;
+    ExchequerDataFetcher internal lens;
     TestToken internal gold;
 
     function setUp() public virtual {
         vm.warp(1_700_000_000);
 
         core = new Core();
+        lens = new ExchequerDataFetcher();
         positions = new Positions(core, owner, 0, 1);
 
         address twammAddress = address((uint160(twammCallPoints().toUint8()) << 152) + 0x7a33);
@@ -91,20 +99,13 @@ abstract contract ExchequerBase is Test {
         router = new Router(core, address(0), address(bank));
 
         expansionVault = new ExchequerVault(address(bank), orders, address(gold));
-
-        auctions = new ExchequerAuctions({
-            bank: bank, licensesPerDay: 100, licenseFloorYieldDays: 2, licenseFloorMinimum: 1e18, maxChartersPerDay: 100
-        });
+        auctions = newAuctions(bank);
 
         vm.startPrank(owner);
-        bank.setExpansionVault(address(expansionVault));
-        bank.setAuctions(address(auctions));
         bank.setTeamRecipient(team);
-        vm.stopPrank();
-
         vm.deal(owner, GENESIS_ETH);
-        vm.prank(owner);
-        bank.initialize{value: GENESIS_ETH}(GENESIS_TICK);
+        bank.initialize{value: GENESIS_ETH}(GENESIS_TICK, address(expansionVault), address(auctions));
+        vm.stopPrank();
 
         vm.deal(address(this), 100_000 ether);
         vm.deal(trader, 10_000 ether);
@@ -133,6 +134,18 @@ abstract contract ExchequerBase is Test {
         });
     }
 
+    /// @notice Auctions for `forBank`, with the fixture's launch settings
+    function newAuctions(Exchequer forBank) internal returns (ExchequerAuctions) {
+        return new ExchequerAuctions({
+            bank: forBank,
+            issue: IssueToken(lens.issueToken(forBank)),
+            licensesPerDay: 100,
+            licenseFloorYieldDays: 2,
+            licenseFloorMinimum: 1e18,
+            maxChartersPerDay: 100
+        });
+    }
+
     /// @notice Grants `to` `amount` of $BANK through the founding distribution
     function giveShares(address to, uint256 amount) internal {
         vm.prank(owner);
@@ -144,7 +157,7 @@ abstract contract ExchequerBase is Test {
     ///      contract is the swapper, because a pranked sender does not fund `msg.value`.
     function buy(address who, uint128 ethIn) internal returns (int128 delta0, int128 delta1) {
         PoolBalanceUpdate update = router.swap{value: ethIn}(
-            bank.poolKey(), createSwapParameters(MIN_SQRT_RATIO, int128(ethIn), false, 0), NO_SLIPPAGE_LIMIT, who
+            lens.poolKey(bank), createSwapParameters(MIN_SQRT_RATIO, int128(ethIn), false, 0), NO_SLIPPAGE_LIMIT, who
         );
         (delta0, delta1) = (update.delta0(), update.delta1());
     }
@@ -154,7 +167,7 @@ abstract contract ExchequerBase is Test {
         vm.startPrank(who);
         issue.approve(address(router), issueIn);
         PoolBalanceUpdate update = router.swap(
-            bank.poolKey(), createSwapParameters(MAX_SQRT_RATIO, int128(issueIn), true, 0), NO_SLIPPAGE_LIMIT, who
+            lens.poolKey(bank), createSwapParameters(MAX_SQRT_RATIO, int128(issueIn), true, 0), NO_SLIPPAGE_LIMIT, who
         );
         vm.stopPrank();
         (delta0, delta1) = (update.delta0(), update.delta1());

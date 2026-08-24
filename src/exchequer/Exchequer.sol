@@ -9,238 +9,91 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {BaseLocker} from "../base/BaseLocker.sol";
+import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
+import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
+import {ExchequerAuctionsStorageLayout as AL} from "../libraries/ExchequerAuctionsStorageLayout.sol";
+import {ExchequerStorageLayout as L} from "../libraries/ExchequerStorageLayout.sol";
+import {
+    ExchequerMath,
+    ExchequerParameters,
+    EXIT_BUCKETS,
+    FOUNDING_BANK_SUPPLY,
+    GENESIS_LIQUIDITY,
+    POL_SALT,
+    POL_SHARE_BPS,
+    BUYBACK_SALT,
+    VAULT_SHARE_BPS,
+    WAD
+} from "../libraries/ExchequerMath.sol";
 import {ICore} from "../interfaces/ICore.sol";
+import {IExposedStorage} from "../interfaces/IExposedStorage.sol";
 import {IRevenueBuybacks} from "../interfaces/IRevenueBuybacks.sol";
-import {IExchequerAuctions} from "./ExchequerAuctions.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {maxLiquidity} from "../math/liquidity.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {Locker} from "../types/locker.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
-import {PoolConfig, createConcentratedPoolConfig} from "../types/poolConfig.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
-import {Position} from "../types/position.sol";
 import {PositionId, createPositionId} from "../types/positionId.sol";
-import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 
 import {BankToken, IBankShareHook} from "./BankToken.sol";
 import {IssueToken} from "./IssueToken.sol";
 
-/// @notice Every monetary parameter the whitepaper redacts, supplied at construction
-struct ExchequerParameters {
-    /// @notice $ISSUE issued per day at a multiplier of exactly 1 (whitepaper §5)
-    uint128 baseIssuancePerDay;
-    /// @notice Multiplier floor, in 1e18 fixed point
-    uint64 multiplierMin;
-    /// @notice Multiplier ceiling, in 1e18 fixed point
-    uint64 multiplierMax;
-    /// @notice Multiplier at launch, in 1e18 fixed point
-    uint64 multiplierLaunch;
-    /// @notice Amount the multiplier falls per contraction epoch, in 1e18 fixed point
-    uint64 multiplierCutStep;
-    /// @notice Amount the multiplier rises per expansion epoch, in 1e18 fixed point
-    uint64 multiplierRaiseStep;
-    /// @notice Epoch length in seconds (whitepaper §4)
-    uint32 epochLength;
-    /// @notice Trading fee as a 0.64 fixed point fraction, always charged in ETH
-    uint64 tradingFee;
-    /// @notice Concentrated tick spacing of the one canonical pool
-    uint32 tickSpacing;
-    /// @notice Resolution fee at zero exit pressure, in 1e18 fixed point (whitepaper §9)
-    uint64 resolutionFeeFloor;
-    /// @notice Resolution fee at or above saturation, in 1e18 fixed point
-    uint64 resolutionFeeCeiling;
-    /// @notice Exit pressure at which the resolution fee reaches its ceiling, in 1e18 fixed point
-    uint64 exitPressureSaturation;
-    /// @notice Lower bound on the exit pressure denominator, per eq 9.1
-    uint128 exitPressureDenominatorFloor;
-    /// @notice Seconds a price must prevail to fully replace the bank's reference price
-    uint32 polReferenceWindow;
-    /// @notice Seconds over which the redistributed half of each resolution fee is streamed
-    uint32 redistributionStreamLength;
-    /// @notice Least net ETH inflow, in wei, for an epoch to count as expansion
-    uint128 minNetFlow;
-}
-
 /// @title Exchequer
 /// @notice The issuing authority of the Exchequer economy: it reads net flow through the one
 ///         canonical ETH/$ISSUE market, sets the issuance rate, and routes fees.
-/// @dev See docs/exchequer.md for the mapping from the whitepaper to this implementation and
-///      for the mechanisms deliberately dropped when charters and branches collapsed into one
-///      fungible share.
+/// @dev See docs/exchequer.md for the mapping from the whitepaper to this implementation.
+///
+///      The bank exposes no view functions. Every parameter and every word of state is readable
+///      through `sload`, laid out by `ExchequerStorageLayout`, and every derived quantity is
+///      computed by `ExchequerLib` with the same `ExchequerMath` the bank settles with. What
+///      remains here is the minimum set of state transitions the economy needs.
 ///
 ///      Swaps must arrive through `Core.forward`, which is what lets the bank charge its fee in ETH
 ///      on both buys and sells. The bank itself never swaps: protocol-owned liquidity and buybacks
 ///      are both placed as standing bids below the market, so there is nothing to sandwich.
-contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
+contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, ExposedStorage, IBankShareHook {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
-
-    /// @notice The only pre-mint: protocol-owned liquidity locked into the pool forever (§3)
-    uint256 public constant GENESIS_LIQUIDITY = 100_000_000e18;
-
-    /// @notice Cumulative base issuance available across all time (§3)
-    uint256 public constant ISSUANCE_BUDGET = 900_000_000e18;
-
-    /// @notice Total $BANK mintable through the free founding distribution (§6)
-    uint256 public constant FOUNDING_BANK_SUPPLY = 1_000e18;
-
-    /// @notice Share of protocol ETH routed to the active vault, in basis points (§11)
-    uint256 public constant VAULT_SHARE_BPS = 7000;
-
-    /// @notice Share of protocol ETH routed to protocol-owned liquidity, in basis points (§11)
-    uint256 public constant POL_SHARE_BPS = 1500;
-
-    /// @dev Fixed point scale for the multiplier and every fee fraction
-    uint256 private constant WAD = 1e18;
-
-    /// @dev Number of daily buckets in the trailing exit pressure window (§9)
-    uint256 private constant EXIT_BUCKETS = 7;
+    using ExposedStorageLib for IExposedStorage;
 
     /// @dev Saved balance salt under which the bank's unrouted fee ETH sits in Core
     bytes32 private constant FEE_SALT = bytes32(0);
-
-    /// @dev Salt of every protocol-owned liquidity position: the genesis range and each bid bucket
-    bytes24 private constant POL_SALT = bytes24(0);
-
-    /// @dev Salt of the single active buyback bid bucket
-    bytes24 private constant BUYBACK_SALT = bytes24(uint192(1));
 
     uint256 private constant CALL_TYPE_GENESIS = 0;
     uint256 private constant CALL_TYPE_SWEEP = 1;
     uint256 private constant CALL_TYPE_COMPOUND = 2;
     uint256 private constant CALL_TYPE_DEFEND = 3;
 
-    /// @notice The currency
-    IssueToken public immutable ISSUE_TOKEN;
-
-    /// @notice The branch share. One whole token is one branch.
-    BankToken public immutable BANK_TOKEN;
-
-    /// @notice The hard reserve asset the expansion vault accumulates, fixed at construction (§11)
-    address public immutable RESERVE_ASSET;
-
-    /// @notice Configuration of the one canonical ETH/$ISSUE pool
-    PoolConfig public immutable POOL_CONFIG;
-
-    /// @notice Lower bound of the protocol-owned liquidity position, the lowest aligned tick
-    int32 public immutable POL_TICK_LOWER;
-
-    /// @notice Upper bound of the protocol-owned liquidity position, the highest aligned tick
-    int32 public immutable POL_TICK_UPPER;
-
-    /// @notice Spacing of the grid on which bid buckets are placed, ten tick spacings
-    int32 public immutable POL_BID_GRID;
-
-    uint128 public immutable BASE_ISSUANCE_PER_DAY;
-    uint64 public immutable MULTIPLIER_MIN;
-    uint64 public immutable MULTIPLIER_MAX;
-    uint64 public immutable MULTIPLIER_CUT_STEP;
-    uint64 public immutable MULTIPLIER_RAISE_STEP;
-    uint32 public immutable EPOCH_LENGTH;
-    uint64 public immutable TRADING_FEE;
-    uint64 public immutable RESOLUTION_FEE_FLOOR;
-    uint64 public immutable RESOLUTION_FEE_CEILING;
-    uint64 public immutable EXIT_PRESSURE_SATURATION;
-    uint128 public immutable EXIT_PRESSURE_DENOMINATOR_FLOOR;
-    uint32 public immutable POL_REFERENCE_WINDOW;
-    uint32 public immutable REDISTRIBUTION_STREAM_LENGTH;
-    uint128 public immutable MIN_NET_FLOW;
-
-    /// @notice The policy multiplier in force, in 1e18 fixed point (§5)
-    uint64 public multiplier;
-
-    /// @notice Start of the epoch currently in progress
-    uint64 public epochStartTime;
-
-    /// @notice Timestamp through which issuance has been accrued
-    uint64 public lastAccrualTime;
-
-    /// @notice Cumulative $ISSUE per whole $BANK, in Q128
-    uint256 public issuanceGrowthPerShareX128;
-
-    /// @notice Cumulative base issuance credited so far, capped at `ISSUANCE_BUDGET`
-    uint256 public cumulativeIssuance;
-
-    /// @notice Everything still held at the bank as a ledger entry: `D` in eq 9.1
-    uint256 public totalLedgerBalance;
-
-    /// @notice Settled ledger balance of each holder, in $ISSUE
-    mapping(address holder => uint256 balance) public ledgerBalance;
-
-    /// @notice Issuance growth already settled into `ledgerBalance` for each holder
-    mapping(address holder => uint256 snapshot) public growthSnapshotX128;
-
-    /// @notice Fee ETH held inside Core under this contract's saved balance
-    uint128 public savedEth;
-
-    /// @notice Protocol ETH earned this epoch and not yet routed by regime
-    uint128 public epochRevenueEth;
-
-    /// @notice ETH awaiting delivery to the expansion vault
-    uint128 public pendingExpansionEth;
-
-    /// @notice ETH awaiting placement as buyback bids
-    uint128 public pendingContractionEth;
-
-    /// @notice ETH awaiting conversion into protocol-owned liquidity
-    uint128 public pendingPolEth;
-
-    /// @notice ETH awaiting delivery to the team recipient
-    uint128 public pendingTeamEth;
-
-    /// @notice The expansion vault, which stacks hard reserves
-    address public expansionVault;
-
-    /// @notice Redistributed resolution fees not yet released to the bankers who stayed
-    uint128 public streamRemaining;
-
-    /// @notice Time at which `streamRemaining` will have been fully released
-    uint64 public streamEndTime;
-
-    /// @notice Lower tick of the active buyback bid bucket, meaningful when `buybackBidActive`
-    int32 public buybackBidLowerTick;
-
-    /// @notice Whether a buyback bid bucket is currently placed
-    bool public buybackBidActive;
-
-    /// @notice The daily Dutch auctions, the only address permitted to open new branches
-    address public auctions;
-
-    /// @notice Recipient of the 15% team share
-    address public teamRecipient;
-
-    /// @notice $BANK minted so far through the free founding distribution
-    uint256 public foundingBankMinted;
-
-    /// @notice Whether genesis has run
-    bool public initialized;
-
-    /// @dev The one authority, until it renounces. A minimal owner rather than solady's `Ownable`
-    ///      because nothing here needs a handover, and the bank is close to the code size limit.
-    address private _owner;
-
-    uint128 private _epochEthIn;
-    uint128 private _epochEthOut;
-    int128 private _prevNetFlow;
-    int128 private _prevPrevNetFlow;
-
-    uint64 private _lastBucketDay;
-    uint256[EXIT_BUCKETS] private _withdrawalBuckets;
-
-    // The bank's own price reference, packed into one slot. Every trade in this economy passes
-    // through the bank, so it can be its own oracle: a time-weighted tick that a single block
-    // cannot move, below which the bank never places a bid.
-    int64 private _referenceTickX24;
-    int32 private _lastObservedTick;
-    uint32 private _lastObservationTime;
+    // Hot-path values are immutables, mirrored once into storage so that a reader with only
+    // `sload` can recover them. None of them has a getter.
+    IssueToken private immutable ISSUE_TOKEN;
+    BankToken private immutable BANK_TOKEN;
+    address private immutable RESERVE_ASSET;
+    PoolId private immutable POOL_ID;
+    uint128 private immutable BASE_ISSUANCE_PER_DAY;
+    uint128 private immutable MIN_NET_FLOW;
+    uint64 private immutable MULTIPLIER_MIN;
+    uint64 private immutable MULTIPLIER_MAX;
+    uint64 private immutable MULTIPLIER_CUT_STEP;
+    uint64 private immutable MULTIPLIER_RAISE_STEP;
+    uint32 private immutable EPOCH_LENGTH;
+    uint64 private immutable TRADING_FEE;
+    uint32 private immutable TICK_SPACING;
+    uint64 private immutable RESOLUTION_FEE_FLOOR;
+    uint64 private immutable RESOLUTION_FEE_CEILING;
+    uint64 private immutable EXIT_PRESSURE_SATURATION;
+    uint128 private immutable EXIT_PRESSURE_DENOMINATOR_FLOOR;
+    uint32 private immutable POL_REFERENCE_WINDOW;
+    uint32 private immutable REDISTRIBUTION_STREAM_LENGTH;
 
     error Unauthorized();
     error SwapMustHappenThroughForward();
@@ -249,8 +102,6 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
     error GenesisAlreadyRan();
     error GenesisDidNotAbsorbSupply();
     error TokensNotBoundToBank();
-    error NotInitialized();
-    error AlreadySet();
     error VaultNotOwnedByBank();
     error VaultBuysWrongAsset();
     error AuctionsNotForThisBank();
@@ -261,11 +112,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
     error FoundingSupplyExceeded();
     error NothingToCompound();
     error NothingToDefend();
-    error NothingToCollect();
-    error NoRoomAboveThePrice();
-    error UnknownVault();
     error NothingToFlush();
-    error CompoundExceededAvailableAmounts();
+    error BidExceededAvailableAmounts();
     error InvalidParameters();
 
     event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
@@ -285,8 +133,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         uint256 burned,
         uint256 redistributed
     );
-    event Flushed(uint128 expansion);
-    event TeamShareCollected(uint128 amount);
+    event Flushed(uint128 expansion, uint128 team);
     event Compounded(int32 lowerTick, uint128 eth, uint128 liquidity);
     event BuybackSettled(int32 lowerTick, uint128 ethRecovered, uint256 issueBurned);
     event BuybackBidsPlaced(int32 lowerTick, uint128 eth, uint128 liquidity);
@@ -315,91 +162,86 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
                 || params.redistributionStreamLength == 0 || reserveAsset == NATIVE_TOKEN_ADDRESS
         ) revert InvalidParameters();
 
-        _owner = owner;
-        emit OwnershipTransferred(address(0), owner);
-
+        ISSUE_TOKEN = issue;
+        BANK_TOKEN = bankToken;
         RESERVE_ASSET = reserveAsset;
-        teamRecipient = owner;
+        // The pool charges no fee of its own; the bank takes the whole trading fee, in ETH.
+        POOL_ID = ExchequerMath.poolKey(address(issue), params.tickSpacing, address(this)).toPoolId();
 
         BASE_ISSUANCE_PER_DAY = params.baseIssuancePerDay;
+        MIN_NET_FLOW = params.minNetFlow;
         MULTIPLIER_MIN = params.multiplierMin;
         MULTIPLIER_MAX = params.multiplierMax;
         MULTIPLIER_CUT_STEP = params.multiplierCutStep;
         MULTIPLIER_RAISE_STEP = params.multiplierRaiseStep;
         EPOCH_LENGTH = params.epochLength;
         TRADING_FEE = params.tradingFee;
+        TICK_SPACING = params.tickSpacing;
         RESOLUTION_FEE_FLOOR = params.resolutionFeeFloor;
         RESOLUTION_FEE_CEILING = params.resolutionFeeCeiling;
         EXIT_PRESSURE_SATURATION = params.exitPressureSaturation;
         EXIT_PRESSURE_DENOMINATOR_FLOOR = params.exitPressureDenominatorFloor;
         POL_REFERENCE_WINDOW = params.polReferenceWindow;
         REDISTRIBUTION_STREAM_LENGTH = params.redistributionStreamLength;
-        MIN_NET_FLOW = params.minNetFlow;
 
-        multiplier = params.multiplierLaunch;
+        // The storage mirror, written once
+        _storeAddress(L.OWNER_SLOT, owner);
+        _storeAddress(L.TEAM_RECIPIENT_SLOT, owner);
+        _storeAddress(L.ISSUE_TOKEN_SLOT, address(issue));
+        _storeAddress(L.BANK_TOKEN_SLOT, address(bankToken));
+        _storeAddress(L.RESERVE_ASSET_SLOT, reserveAsset);
+        L.slot(L.PARAMETERS_A_SLOT).store(L.packTwo128(params.baseIssuancePerDay, params.minNetFlow));
+        L.slot(L.PARAMETERS_B_SLOT)
+            .store(
+                L.packFour64(
+                    params.multiplierMin, params.multiplierMax, params.multiplierCutStep, params.multiplierRaiseStep
+                )
+            );
+        L.slot(L.PARAMETERS_C_SLOT)
+            .store(
+                L.packParametersC(
+                    params.epochLength,
+                    params.tradingFee,
+                    params.polReferenceWindow,
+                    params.redistributionStreamLength,
+                    params.tickSpacing
+                )
+            );
+        L.slot(L.PARAMETERS_D_SLOT)
+            .store(
+                L.packFour64(params.resolutionFeeFloor, params.resolutionFeeCeiling, params.exitPressureSaturation, 0)
+            );
+        L.slot(L.PARAMETERS_E_SLOT).store(bytes32(uint256(params.exitPressureDenominatorFloor)));
+        L.slot(L.POLICY_SLOT).store(L.packPolicy(params.multiplierLaunch, 0, 0, false));
 
-        ISSUE_TOKEN = issue;
-        BANK_TOKEN = bankToken;
-
-        // The pool charges no fee of its own; the bank takes the whole trading fee, in ETH.
-        POOL_CONFIG = createConcentratedPoolConfig(0, params.tickSpacing, address(this));
-
-        int32 spacing = int32(params.tickSpacing);
-        POL_TICK_LOWER = (MIN_TICK / spacing) * spacing;
-        POL_TICK_UPPER = (MAX_TICK / spacing) * spacing;
-        POL_BID_GRID = spacing * 10;
+        emit OwnershipTransferred(address(0), owner);
     }
+
+    /// OWNERSHIP
 
     modifier onlyOwner() {
-        if (msg.sender != _owner) revert Unauthorized();
+        if (msg.sender != _loadAddress(L.OWNER_SLOT)) revert Unauthorized();
         _;
-    }
-
-    /// @notice The one authority over policy, or zero once it has renounced
-    function owner() public view returns (address) {
-        return _owner;
     }
 
     /// @notice Hands the policy knobs to `newOwner`
     function transferOwnership(address newOwner) external onlyOwner {
-        emit OwnershipTransferred(_owner, newOwner);
-        _owner = newOwner;
+        emit OwnershipTransferred(msg.sender, newOwner);
+        _storeAddress(L.OWNER_SLOT, newOwner);
     }
 
     /// @notice Gives the policy knobs up forever: the bank then answers to no board
     function renounceOwnership() external onlyOwner {
-        emit OwnershipTransferred(_owner, address(0));
-        _owner = address(0);
+        emit OwnershipTransferred(msg.sender, address(0));
+        _storeAddress(L.OWNER_SLOT, address(0));
     }
+
+    /// EXTENSION CALL POINTS
 
     /// @inheritdoc BaseExtension
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return exchequerCallPoints();
     }
-
-    /// @notice The one canonical market: ETH against $ISSUE
-    function poolKey() public view returns (PoolKey memory key) {
-        key.token0 = NATIVE_TOKEN_ADDRESS;
-        key.token1 = address(ISSUE_TOKEN);
-        key.config = POOL_CONFIG;
-    }
-
-    /// @notice The full-range genesis position, which has no withdrawal path
-    function polPositionId() public view returns (PositionId) {
-        return createPositionId(POL_SALT, POL_TICK_LOWER, POL_TICK_UPPER);
-    }
-
-    /// @notice A protocol-owned bid bucket, which likewise has no withdrawal path
-    function polBidPositionId(int32 lowerTick) public view returns (PositionId) {
-        return createPositionId(POL_SALT, lowerTick, POL_TICK_UPPER);
-    }
-
-    /// @notice The active buyback bid bucket
-    function buybackPositionId() public view returns (PositionId) {
-        return createPositionId(BUYBACK_SALT, buybackBidLowerTick, POL_TICK_UPPER);
-    }
-
-    /// EXTENSION CALL POINTS
 
     /// @inheritdoc BaseExtension
     /// @dev There is exactly one market in this economy and only genesis may open it. Core does not
@@ -430,165 +272,41 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
     /// @dev Permissionless and idempotent within a block. Called by every swap, every $BANK balance
     ///      change and every withdrawal, so the economy never needs a keeper.
     function accrue() public {
-        uint256 last = lastAccrualTime;
+        (uint64 m, uint64 epochStart, uint64 last, bool initialized) = L.unpackPolicy(L.slot(L.POLICY_SLOT).load());
         if (last == 0 || block.timestamp == last) return;
 
-        int256 currentFlow = int256(uint256(_epochEthIn)) - int256(uint256(_epochEthOut));
+        (bytes32 flowWord, bytes32 historyWord) = L.slot(L.EPOCH_FLOW_SLOT).loadTwo();
+        int256 currentFlow;
+        {
+            (uint128 ethIn, uint128 ethOut) = L.unpackTwo128(flowWord);
+            currentFlow = int256(uint256(ethIn)) - int256(uint256(ethOut));
+        }
+        (int128 prevFlow, int128 prevPrevFlow) = L.unpackSigned128Pair(historyWord);
 
-        (uint256 weightedSeconds, uint256 m, uint256 epochStart, uint256 rolls) =
-            _walk(multiplier, epochStart_(), last, currentFlow, _prevNetFlow);
+        (uint256 weightedSeconds, uint256 nextM, uint256 nextEpochStart, uint256 rolls) =
+            ExchequerMath.walk(_parameters(), m, epochStart, last, currentFlow, prevFlow, block.timestamp);
 
         if (rolls != 0) {
             // Fee routing follows the epoch that just closed alone: the fast lever (§4)
-            bool expansion = _isExpansion(currentFlow);
+            bool expansion = ExchequerMath.isExpansion(currentFlow, MIN_NET_FLOW);
             _routeRevenue(expansion);
-
-            _epochEthIn = 0;
-            _epochEthOut = 0;
 
             // Every epoch after the first saw no interaction, hence no flow
             if (rolls == 1) {
-                _prevPrevNetFlow = _prevNetFlow;
-                _prevNetFlow = SafeCastLib.toInt128(currentFlow);
+                (prevPrevFlow, prevFlow) = (prevFlow, SafeCastLib.toInt128(currentFlow));
             } else if (rolls == 2) {
-                _prevPrevNetFlow = SafeCastLib.toInt128(currentFlow);
-                _prevNetFlow = 0;
+                (prevPrevFlow, prevFlow) = (SafeCastLib.toInt128(currentFlow), 0);
             } else {
-                _prevPrevNetFlow = 0;
-                _prevNetFlow = 0;
+                (prevPrevFlow, prevFlow) = (0, 0);
             }
+            L.slot(L.EPOCH_FLOW_SLOT).storeTwo(bytes32(0), L.packSigned128Pair(prevFlow, prevPrevFlow));
 
-            epochStartTime = uint64(epochStart);
-            multiplier = uint64(m);
-
-            emit EpochRolled(uint64(epochStart), currentFlow, rolls, uint64(m), expansion);
+            emit EpochRolled(uint64(nextEpochStart), currentFlow, rolls, uint64(nextM), expansion);
         }
 
         _bookIssuance(weightedSeconds, last, BANK_TOKEN.totalSupply());
-        lastAccrualTime = uint64(block.timestamp);
-    }
-
-    /// @dev Reads `epochStartTime` as a word, kept separate so `accrue` stays within stack limits
-    function epochStart_() private view returns (uint256) {
-        return epochStartTime;
-    }
-
-    /// @notice Walks the epoch clock forward to now without writing anything
-    /// @dev The single source of truth for how much issuance a span of time is worth, shared by
-    ///      `accrue` and by the views, so a projection can never disagree with a settlement
-    /// @param m Multiplier in force at `last`
-    /// @param epochStart Start of the epoch in progress at `last`
-    /// @param last Timestamp through which issuance has already been accrued
-    /// @param currentFlow Net flow of the epoch in progress
-    /// @param prevFlow Net flow of the previously completed epoch
-    /// @return weightedSeconds Sum over segments of (duration) * (multiplier in force)
-    /// @return finalM Multiplier in force at the current block
-    /// @return finalEpochStart Start of the epoch in progress at the current block
-    /// @return rolls Number of epoch boundaries crossed
-    function _walk(uint256 m, uint256 epochStart, uint256 last, int256 currentFlow, int256 prevFlow)
-        private
-        view
-        returns (uint256 weightedSeconds, uint256 finalM, uint256 finalEpochStart, uint256 rolls)
-    {
-        uint256 epochLength = EPOCH_LENGTH;
-
-        unchecked {
-            uint256 epochEnd = epochStart + epochLength;
-
-            if (block.timestamp >= epochEnd) {
-                weightedSeconds += (epochEnd - last) * m;
-
-                // Issuance follows the two most recently completed epochs: the slow lever (§4)
-                m = _nextMultiplier(m, currentFlow + prevFlow);
-                prevFlow = currentFlow;
-                epochStart = epochEnd;
-                rolls = 1;
-
-                // Nothing touched the bank at any later boundary, so those epochs saw zero flow
-                uint256 skipped = (block.timestamp - epochStart) / epochLength;
-
-                // The first two still carry pre-gap flow in their signal, so they roll individually
-                uint256 individual = skipped < 2 ? skipped : 2;
-                for (uint256 i; i < individual; ++i) {
-                    weightedSeconds += epochLength * m;
-                    m = _nextMultiplier(m, prevFlow);
-                    prevFlow = 0;
-                    epochStart += epochLength;
-                }
-                rolls += individual;
-
-                uint256 remaining = skipped - individual;
-                if (remaining != 0) {
-                    // Every remaining epoch has a zero signal, so the multiplier is cut each time.
-                    // Closed form, so catching up after months of silence stays O(1).
-                    (uint256 sumM, uint256 mAfter) = _decayMultiplier(m, remaining);
-                    weightedSeconds += epochLength * sumM;
-                    m = mAfter;
-                    epochStart += remaining * epochLength;
-                    rolls += remaining;
-                }
-
-                last = epochStart;
-            }
-
-            weightedSeconds += (block.timestamp - last) * m;
-        }
-
-        finalM = m;
-        finalEpochStart = epochStart;
-    }
-
-    /// @notice Whether a net flow is large enough to count as expansion
-    /// @dev §4 says the signal is "denominated in real capital", which a pure sign test is not: a
-    ///      one-wei buy would make an epoch expansionary. Anything below `MIN_NET_FLOW` is treated
-    ///      as zero, and zero is a contraction, per §5.
-    function _isExpansion(int256 flow) private view returns (bool) {
-        return flow > 0 && uint256(flow) >= MIN_NET_FLOW;
-    }
-
-    /// @notice The multiplier for the next epoch given the trailing two-epoch signal
-    /// @dev A zero or sub-threshold signal is a contraction, per §5
-    function _nextMultiplier(uint256 m, int256 signal) private view returns (uint256 next) {
-        unchecked {
-            if (_isExpansion(signal)) {
-                uint256 raised = m + MULTIPLIER_RAISE_STEP;
-                next = raised > MULTIPLIER_MAX ? MULTIPLIER_MAX : raised;
-            } else {
-                next = m > uint256(MULTIPLIER_MIN) + MULTIPLIER_CUT_STEP ? m - MULTIPLIER_CUT_STEP : MULTIPLIER_MIN;
-            }
-        }
-    }
-
-    /// @notice Sum of the multiplier over `count` consecutive contraction epochs, and its end value
-    /// @dev The multiplier falls by `MULTIPLIER_CUT_STEP` per epoch and holds at the floor
-    function _decayMultiplier(uint256 m, uint256 count) private view returns (uint256 sum, uint256 mAfter) {
-        uint256 floor_ = MULTIPLIER_MIN;
-        uint256 cut = MULTIPLIER_CUT_STEP;
-        uint256 span = m - floor_;
-
-        if (cut == 0) return (m * count, m);
-
-        unchecked {
-            // Number of whole steps the multiplier can take before reaching the floor
-            uint256 steps = span / cut;
-            uint256 remainder = span % cut;
-
-            uint256 full = count < steps ? count : steps;
-            sum = full * (floor_ + span) - cut * ((full * (full - 1)) / 2);
-
-            if (count > full) {
-                // The step at index `steps` lands `remainder` above the floor; every later one is at it
-                sum += floor_ * (count - full) + remainder;
-            }
-
-            if (count < steps) {
-                mAfter = floor_ + span - count * cut;
-            } else if (count == steps) {
-                mAfter = floor_ + remainder;
-            } else {
-                mAfter = floor_;
-            }
-        }
+        L.slot(L.POLICY_SLOT)
+            .store(L.packPolicy(uint64(nextM), uint64(nextEpochStart), uint64(block.timestamp), initialized));
     }
 
     /// @notice Credits `weightedSeconds` worth of base issuance, plus whatever the redistribution
@@ -596,70 +314,52 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
     function _bookIssuance(uint256 weightedSeconds, uint256 last, uint256 supply) private {
         if (supply == 0) return;
 
-        uint256 amount = _baseIssuance(weightedSeconds);
+        uint256 cumulative = uint256(L.slot(L.CUMULATIVE_ISSUANCE_SLOT).load());
+        uint256 amount = ExchequerMath.baseIssuance(weightedSeconds, BASE_ISSUANCE_PER_DAY, cumulative);
         if (amount != 0) {
-            cumulativeIssuance += amount;
-            totalLedgerBalance += amount;
+            L.slot(L.CUMULATIVE_ISSUANCE_SLOT).store(bytes32(cumulative + amount));
+            _addTotalLedger(amount);
         }
 
-        uint256 streamed = _streamRelease(last);
+        (uint128 remaining, uint64 end) = L.unpackStream(L.slot(L.STREAM_SLOT).load());
+        uint256 streamed = ExchequerMath.streamRelease(remaining, end, last, block.timestamp);
         if (streamed != 0) {
             unchecked {
-                streamRemaining -= uint128(streamed);
+                L.slot(L.STREAM_SLOT).store(L.packStream(remaining - uint128(streamed), end));
             }
         }
 
         uint256 credit = amount + streamed;
         if (credit == 0) return;
 
-        uint256 growth = issuanceGrowthPerShareX128 + FixedPointMathLib.fullMulDiv(credit, 1 << 128, supply);
-        issuanceGrowthPerShareX128 = growth;
+        StorageSlot growthSlot = L.slot(L.ISSUANCE_GROWTH_PER_SHARE_X128_SLOT);
+        uint256 growth = uint256(growthSlot.load()) + FixedPointMathLib.fullMulDiv(credit, 1 << 128, supply);
+        growthSlot.store(bytes32(growth));
 
         emit Accrued(amount, streamed, growth);
     }
 
-    /// @notice Base issuance owed for `weightedSeconds`, capped at what is left of the budget
-    function _baseIssuance(uint256 weightedSeconds) private view returns (uint256 amount) {
-        if (weightedSeconds == 0) return 0;
-        amount = FixedPointMathLib.fullMulDiv(weightedSeconds, BASE_ISSUANCE_PER_DAY, WAD * 1 days);
-        unchecked {
-            uint256 headroom = ISSUANCE_BUDGET - cumulativeIssuance;
-            if (amount > headroom) amount = headroom;
-        }
-    }
-
-    /// @notice Share of the redistribution stream released between `last` and now
-    /// @dev Linear over the remaining life of the stream. Half of every resolution fee is paid to
-    ///      the bankers who stayed, and paying it over `REDISTRIBUTION_STREAM_LENGTH` rather than at
-    ///      once means "stayed" is measured in time: a share bought in front of a large exit and
-    ///      sold behind it collects nothing.
-    function _streamRelease(uint256 last) private view returns (uint256) {
-        uint256 remaining = streamRemaining;
-        if (remaining == 0) return 0;
-
-        uint256 end = streamEndTime;
-        if (block.timestamp >= end) return remaining;
-
-        unchecked {
-            return (remaining * (block.timestamp - last)) / (end - last);
-        }
-    }
-
     /// @notice Splits the epoch's protocol ETH 70/15/15 and assigns the vault share by regime (§11)
     function _routeRevenue(bool expansion) private {
-        uint128 revenue = epochRevenueEth;
+        StorageSlot feeSlot = L.slot(L.FEE_ETH_SLOT);
+        (uint128 saved, uint128 revenue) = L.unpackTwo128(feeSlot.load());
         if (revenue == 0) return;
-        epochRevenueEth = 0;
+        feeSlot.store(L.packTwo128(saved, 0));
 
         unchecked {
             uint128 toVault = uint128((uint256(revenue) * VAULT_SHARE_BPS) / 10000);
             uint128 toPol = uint128((uint256(revenue) * POL_SHARE_BPS) / 10000);
             uint128 toTeam = revenue - toVault - toPol;
 
-            if (expansion) pendingExpansionEth += toVault;
-            else pendingContractionEth += toVault;
-            pendingPolEth += toPol;
-            pendingTeamEth += toTeam;
+            StorageSlot vaultSlot = L.slot(L.VAULT_ETH_SLOT);
+            (uint128 pendingExpansion, uint128 pendingContraction) = L.unpackTwo128(vaultSlot.load());
+            if (expansion) pendingExpansion += toVault;
+            else pendingContraction += toVault;
+            vaultSlot.store(L.packTwo128(pendingExpansion, pendingContraction));
+
+            StorageSlot polSlot = L.slot(L.POL_ETH_SLOT);
+            (uint128 pendingPol, uint128 pendingTeam) = L.unpackTwo128(polSlot.load());
+            polSlot.store(L.packTwo128(pendingPol + toPol, pendingTeam + toTeam));
 
             emit RevenueRouted(toVault, toPol, toTeam, expansion);
         }
@@ -682,12 +382,15 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         uint256 balance = BANK_TOKEN.balanceOf(from);
         if (balance == 0 || amount > balance) return;
 
-        uint256 moved = FixedPointMathLib.fullMulDiv(ledgerBalance[from], amount, balance);
+        StorageSlot fromSlot = L.holderSlot(from);
+        uint256 fromLedger = uint256(fromSlot.load());
+        uint256 moved = FixedPointMathLib.fullMulDiv(fromLedger, amount, balance);
         if (moved == 0) return;
 
+        StorageSlot toSlot = L.holderSlot(to);
         unchecked {
-            ledgerBalance[from] -= moved;
-            ledgerBalance[to] += moved;
+            fromSlot.store(bytes32(fromLedger - moved));
+            toSlot.store(bytes32(uint256(toSlot.load()) + moved));
         }
         emit LedgerMoved(from, to, moved);
     }
@@ -696,69 +399,21 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
     function _settle(address holder) private {
         if (holder == address(0)) return;
 
-        uint256 growth = issuanceGrowthPerShareX128;
-        uint256 snapshot = growthSnapshotX128[holder];
+        uint256 growth = uint256(L.slot(L.ISSUANCE_GROWTH_PER_SHARE_X128_SLOT).load());
+        StorageSlot holderSlot = L.holderSlot(holder);
+        StorageSlot snapshotSlot = holderSlot.next();
+        uint256 snapshot = uint256(snapshotSlot.load());
         if (snapshot == growth) return;
 
-        growthSnapshotX128[holder] = growth;
+        snapshotSlot.store(bytes32(growth));
 
         uint256 balance = BANK_TOKEN.balanceOf(holder);
         if (balance == 0) return;
 
         unchecked {
-            ledgerBalance[holder] += FixedPointMathLib.fullMulDivN(growth - snapshot, balance, 128);
-        }
-    }
-
-    /// @notice Base issuance that would be credited if `accrue` were called right now
-    /// @dev Projected through the same walk `accrue` uses, so a view can never disagree with a
-    ///      settlement, and a caller reading this after a week of silence sees the real number
-    function pendingIssuance() public view returns (uint256 amount) {
-        uint256 last = lastAccrualTime;
-        if (last == 0 || block.timestamp == last) return 0;
-        if (BANK_TOKEN.totalSupply() == 0) return 0;
-
-        (uint256 weightedSeconds,,,) = _walk(
-            multiplier, epochStartTime, last, int256(uint256(_epochEthIn)) - int256(uint256(_epochEthOut)), _prevNetFlow
-        );
-
-        amount = _baseIssuance(weightedSeconds);
-    }
-
-    /// @notice Redistributed fees that would be released if `accrue` were called right now
-    function pendingStreamRelease() public view returns (uint256) {
-        uint256 last = lastAccrualTime;
-        if (last == 0 || block.timestamp == last) return 0;
-        if (BANK_TOKEN.totalSupply() == 0) return 0;
-        return _streamRelease(last);
-    }
-
-    /// @notice The issuance growth accumulator brought up to the current block
-    function currentGrowthPerShareX128() public view returns (uint256) {
-        uint256 credit = pendingIssuance() + pendingStreamRelease();
-        if (credit == 0) return issuanceGrowthPerShareX128;
-
-        unchecked {
-            return issuanceGrowthPerShareX128 + FixedPointMathLib.fullMulDiv(credit, 1 << 128, BANK_TOKEN.totalSupply());
-        }
-    }
-
-    /// @notice A holder's full ledger balance, including issuance not yet accrued or settled
-    function balanceAtBank(address holder) public view returns (uint256) {
-        unchecked {
-            uint256 growth = currentGrowthPerShareX128();
-            uint256 snapshot = growthSnapshotX128[holder];
-            uint256 pending = growth == snapshot
-                ? 0
-                : FixedPointMathLib.fullMulDivN(growth - snapshot, BANK_TOKEN.balanceOf(holder), 128);
-            return ledgerBalance[holder] + pending;
-        }
-    }
-
-    /// @notice Everything still held at the bank, brought up to the current block: `D` in eq 9.1
-    function currentTotalLedgerBalance() public view returns (uint256) {
-        unchecked {
-            return totalLedgerBalance + pendingIssuance();
+            holderSlot.store(
+                bytes32(uint256(holderSlot.load()) + FixedPointMathLib.fullMulDivN(growth - snapshot, balance, 128))
+            );
         }
     }
 
@@ -777,21 +432,23 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         uint256 balance = BANK_TOKEN.balanceOf(msg.sender);
         if (bankAmount == 0 || bankAmount > balance) revert InvalidWithdrawalAmount();
 
-        uint256 accrued = ledgerBalance[msg.sender];
+        StorageSlot holderSlot = L.holderSlot(msg.sender);
+        uint256 accrued = uint256(holderSlot.load());
         // Pro rata rule: retiring one branch of ten liquidates one tenth of the balance
         released = FixedPointMathLib.fullMulDiv(accrued, bankAmount, balance);
 
         // Priced at the margin, with this exit's own size in the window: lumping an exit into one
         // call must never be cheaper than splitting it
-        uint256 feeRate = resolutionFeeRateFor(released);
+        uint256 totalLedger = uint256(L.slot(L.TOTAL_LEDGER_BALANCE_SLOT).load());
+        uint256 feeRate = ExchequerMath.resolutionFeeRate(_parameters(), _trailingWithdrawals(), released, totalLedger);
         uint256 fee = FixedPointMathLib.fullMulDiv(released, feeRate, WAD);
         uint256 burned = fee / 2;
         uint256 redistributed = fee - burned;
         minted = released - fee;
 
         unchecked {
-            ledgerBalance[msg.sender] = accrued - released;
-            totalLedgerBalance -= released;
+            holderSlot.store(bytes32(accrued - released));
+            totalLedger -= released;
         }
         _recordWithdrawal(released);
 
@@ -807,74 +464,41 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
             ISSUE_TOKEN.burn(burned);
         }
 
+        (uint128 streamRemaining, uint64 streamEnd) = L.unpackStream(L.slot(L.STREAM_SLOT).load());
         if (remainingSupply != 0) {
             if (redistributed != 0) {
-                // Paid to every banker who stays, streamed so that staying is measured in time.
-                // The end time is weighted by amount, so a dust exit cannot stretch a stream already
-                // in flight, and no stream is ever brought forward.
-                uint256 remaining = streamRemaining;
-                uint256 end = block.timestamp + REDISTRIBUTION_STREAM_LENGTH;
-                if (remaining != 0) {
-                    uint256 current = streamEndTime;
-                    if (current < block.timestamp) current = block.timestamp;
-                    end = (remaining * current + redistributed * end) / (remaining + redistributed);
-                }
-                streamRemaining = SafeCastLib.toUint128(remaining + redistributed);
-                streamEndTime = uint64(end);
-                totalLedgerBalance += redistributed;
+                // Paid to every banker who stays, streamed so that staying is measured in time
+                uint256 end = ExchequerMath.streamEndAfterDeposit(
+                    streamRemaining, streamEnd, redistributed, REDISTRIBUTION_STREAM_LENGTH, block.timestamp
+                );
+                L.slot(L.STREAM_SLOT)
+                    .store(L.packStream(SafeCastLib.toUint128(streamRemaining + redistributed), uint64(end)));
+                totalLedger += redistributed;
                 emit RedistributionStreamed(redistributed, uint64(end));
             }
         } else {
             // Nobody stayed, so there is nobody to pay, now or from an earlier stream
             uint256 orphaned = redistributed + streamRemaining;
             if (streamRemaining != 0) {
-                totalLedgerBalance -= streamRemaining;
-                streamRemaining = 0;
+                totalLedger -= streamRemaining;
+                L.slot(L.STREAM_SLOT).store(bytes32(0));
             }
             if (orphaned != 0) {
                 ISSUE_TOKEN.mint(address(this), orphaned);
                 ISSUE_TOKEN.burn(orphaned);
             }
         }
+        L.slot(L.TOTAL_LEDGER_BALANCE_SLOT).store(bytes32(totalLedger));
 
         if (minted != 0) ISSUE_TOKEN.mint(recipient, minted);
 
         emit Withdrawn(msg.sender, bankAmount, released, feeRate, burned, redistributed);
     }
 
-    /// @notice The resolution fee a marginal exit would pay right now, in 1e18 fixed point (eq 9.1)
-    function resolutionFeeRate() external view returns (uint256) {
-        return resolutionFeeRateFor(0);
-    }
-
-    /// @notice The resolution fee an exit of `exiting` would pay right now, in 1e18 fixed point
-    /// @dev Quadratic between the floor and the ceiling, saturating once `EXIT_PRESSURE_SATURATION`
-    ///      of the bank has tried to leave inside the trailing window. The exit being priced counts
-    ///      toward the window, so an exit large enough to be a run on its own is priced as one.
-    function resolutionFeeRateFor(uint256 exiting) public view returns (uint256 rate) {
-        uint256 w = trailingWithdrawals() + exiting;
-        if (w == 0) return RESOLUTION_FEE_FLOOR;
-
-        // `D` after this exit plus `W` including it is the same sum as before it
-        uint256 denominator = currentTotalLedgerBalance() + trailingWithdrawals();
-        if (denominator < EXIT_PRESSURE_DENOMINATOR_FLOOR) denominator = EXIT_PRESSURE_DENOMINATOR_FLOOR;
-
-        uint256 pressure = FixedPointMathLib.fullMulDiv(w, WAD, denominator);
-        uint256 x = pressure >= EXIT_PRESSURE_SATURATION
-            ? WAD
-            : FixedPointMathLib.fullMulDiv(pressure, WAD, EXIT_PRESSURE_SATURATION);
-
-        unchecked {
-            rate = RESOLUTION_FEE_FLOOR
-                + FixedPointMathLib.fullMulDiv(uint256(RESOLUTION_FEE_CEILING) - RESOLUTION_FEE_FLOOR, x * x, WAD * WAD);
-        }
-    }
-
     /// @notice System-wide withdrawals over the trailing window: `W` in eq 9.1
-    /// @dev Bucketed by calendar day, so the window covers between six and seven days of history
-    function trailingWithdrawals() public view returns (uint256 total) {
+    function _trailingWithdrawals() private view returns (uint256 total) {
         uint256 today = block.timestamp / 1 days;
-        uint256 last = _lastBucketDay;
+        uint256 last = uint256(L.slot(L.LAST_BUCKET_DAY_SLOT).load());
         if (today - last >= EXIT_BUCKETS) return 0;
 
         unchecked {
@@ -882,7 +506,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
                 uint256 day = today - i;
                 // Buckets for days after the last write still hold data from a previous cycle
                 if (day > last) continue;
-                total += _withdrawalBuckets[day % EXIT_BUCKETS];
+                total += uint256(L.withdrawalBucketSlot(day % EXIT_BUCKETS).load());
             }
         }
     }
@@ -890,24 +514,26 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
     /// @notice Books a withdrawal into today's bucket, expiring anything that fell out of the window
     function _recordWithdrawal(uint256 amount) private {
         uint256 today = block.timestamp / 1 days;
-        uint256 last = _lastBucketDay;
+        StorageSlot lastSlot = L.slot(L.LAST_BUCKET_DAY_SLOT);
+        uint256 last = uint256(lastSlot.load());
 
         unchecked {
             if (today != last) {
                 uint256 gap = today - last;
                 if (gap >= EXIT_BUCKETS) {
                     for (uint256 i; i < EXIT_BUCKETS; ++i) {
-                        _withdrawalBuckets[i] = 0;
+                        L.withdrawalBucketSlot(i).store(bytes32(0));
                     }
                 } else {
                     for (uint256 i = 1; i <= gap; ++i) {
-                        _withdrawalBuckets[(last + i) % EXIT_BUCKETS] = 0;
+                        L.withdrawalBucketSlot((last + i) % EXIT_BUCKETS).store(bytes32(0));
                     }
                 }
-                _lastBucketDay = uint64(today);
+                lastSlot.store(bytes32(today));
             }
 
-            _withdrawalBuckets[today % EXIT_BUCKETS] += amount;
+            StorageSlot bucket = L.withdrawalBucketSlot(today % EXIT_BUCKETS);
+            bucket.store(bytes32(uint256(bucket.load()) + amount));
         }
     }
 
@@ -920,7 +546,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         private
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
-        _checkPoolKey(key);
+        if (PoolId.unwrap(key.toPoolId()) != PoolId.unwrap(POOL_ID)) revert IncorrectPoolKey();
         accrue();
 
         uint64 tradingFee = TRADING_FEE;
@@ -974,9 +600,14 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         // let a round trip register its own two fees as capital entering, which is the cheapest
         // possible way to buy an expansion epoch.
         int128 poolDelta = balanceUpdate.delta0();
-        unchecked {
-            if (poolDelta > 0) _epochEthIn += uint128(poolDelta);
-            else if (poolDelta < 0) _epochEthOut += uint128(uint256(-int256(poolDelta)));
+        {
+            StorageSlot flowSlot = L.slot(L.EPOCH_FLOW_SLOT);
+            (uint128 ethIn, uint128 ethOut) = L.unpackTwo128(flowSlot.load());
+            unchecked {
+                if (poolDelta > 0) ethIn += uint128(poolDelta);
+                else if (poolDelta < 0) ethOut += uint128(uint256(-int256(poolDelta)));
+            }
+            flowSlot.store(L.packTwo128(ethIn, ethOut));
         }
 
         int128 ethDelta = SafeCastLib.toInt128(int256(poolDelta) + int256(uint256(feeAmount)));
@@ -984,68 +615,105 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
 
         if (feeAmount != 0) {
             CORE.updateSavedBalances(key.token0, key.token1, FEE_SALT, int256(uint256(feeAmount)), 0);
+            StorageSlot feeSlot = L.slot(L.FEE_ETH_SLOT);
+            (uint128 saved, uint128 revenue) = L.unpackTwo128(feeSlot.load());
             unchecked {
-                savedEth += feeAmount;
-                epochRevenueEth += feeAmount;
+                feeSlot.store(L.packTwo128(saved + feeAmount, revenue + feeAmount));
             }
             emit TradingFeeCollected(feeAmount, ethDelta);
         }
     }
 
+    /// @notice Records the pool tick after a trade, folding in the price that prevailed until now
+    function _observe(int32 tickAfter) private {
+        StorageSlot slot = L.slot(L.REFERENCE_SLOT);
+        (int64 refX24, int32 lastTick, uint32 lastTime) = L.unpackReference(slot.load());
+        if (block.timestamp != lastTime) {
+            refX24 = int64(
+                ExchequerMath.foldedReferenceX24(refX24, lastTick, lastTime, POL_REFERENCE_WINDOW, block.timestamp)
+            );
+            lastTime = uint32(block.timestamp);
+        }
+        slot.store(L.packReference(refX24, tickAfter, lastTime));
+    }
+
+    /// @notice The bank's reference price as a tick, brought up to the current block
+    function _referenceTick() private view returns (int32) {
+        (int64 refX24, int32 lastTick, uint32 lastTime) = L.unpackReference(L.slot(L.REFERENCE_SLOT).load());
+        return int32(
+            ExchequerMath.foldedReferenceX24(refX24, lastTick, lastTime, POL_REFERENCE_WINDOW, block.timestamp) >> 24
+        );
+    }
+
     /// FEE ENGINE
 
-    /// @notice Books ETH from the charter auction into the same fee engine as trading fees (§2)
-    function receiveRevenue() external payable {
-        if (msg.sender != auctions) revert AuctionsOnly();
+    /// @notice Opens `amount` of new branches for an auction buyer, booking any ETH paid into the
+    ///         same fee engine as trading fees (§2). Auctions only.
+    /// @dev The bank does not know what the auctions should have charged; it books what arrives.
+    ///      That the price was real rests on the auctions' own policy: a nonzero reserve while any
+    ///      charter supply is offered, and a hard cap on that supply. A bug there is a mint bug here.
+    function openBranches(address recipient, uint256 amount) external payable {
+        if (msg.sender != _loadAddress(L.AUCTIONS_SLOT)) revert AuctionsOnly();
         accrue();
-        unchecked {
-            epochRevenueEth += SafeCastLib.toUint128(msg.value);
+        if (msg.value != 0) {
+            StorageSlot feeSlot = L.slot(L.FEE_ETH_SLOT);
+            (uint128 saved, uint128 revenue) = L.unpackTwo128(feeSlot.load());
+            feeSlot.store(L.packTwo128(saved, revenue + SafeCastLib.toUint128(msg.value)));
         }
+        BANK_TOKEN.mint(recipient, amount);
     }
 
-    /// @notice Delivers routed ETH to the expansion vault. Permissionless.
-    function flush() external returns (uint128 expansion) {
+    /// @notice Delivers routed ETH to the expansion vault and the team. Permissionless.
+    /// @dev The vault always accepts ETH. The team's delivery is attempted and, if the recipient
+    ///      refuses it, simply left pending, so no recipient can ever hold up the vault.
+    function flush() external returns (uint128 expansion, uint128 team) {
         accrue();
         _sweep();
 
-        expansion = pendingExpansionEth;
-        if (expansion == 0) revert NothingToFlush();
-        pendingExpansionEth = 0;
+        StorageSlot vaultSlot = L.slot(L.VAULT_ETH_SLOT);
+        uint128 pendingContraction;
+        (expansion, pendingContraction) = L.unpackTwo128(vaultSlot.load());
 
-        SafeTransferLib.safeTransferETH(expansionVault, expansion);
-        emit Flushed(expansion);
-    }
+        StorageSlot polSlot = L.slot(L.POL_ETH_SLOT);
+        uint128 pendingPol;
+        (pendingPol, team) = L.unpackTwo128(polSlot.load());
 
-    /// @notice Delivers the team's share. Permissionless, and separate from `flush` so a recipient
-    ///         that cannot receive ETH can never hold up the vault.
-    function collectTeamShare() external returns (uint128 amount) {
-        accrue();
-        _sweep();
+        if (expansion == 0 && team == 0) revert NothingToFlush();
 
-        amount = pendingTeamEth;
-        if (amount == 0) revert NothingToCollect();
-        pendingTeamEth = 0;
+        if (expansion != 0) {
+            vaultSlot.store(L.packTwo128(0, pendingContraction));
+            SafeTransferLib.safeTransferETH(_loadAddress(L.EXPANSION_VAULT_SLOT), expansion);
+        }
 
-        SafeTransferLib.safeTransferETH(teamRecipient, amount);
-        emit TeamShareCollected(amount);
+        if (team != 0) {
+            polSlot.store(L.packTwo128(pendingPol, 0));
+            (bool delivered,) = _loadAddress(L.TEAM_RECIPIENT_SLOT).call{value: team}("");
+            if (!delivered) {
+                polSlot.store(L.packTwo128(pendingPol, team));
+                team = 0;
+            }
+        }
+
+        emit Flushed(expansion, team);
     }
 
     /// @notice Places accumulated POL ETH as permanent protocol-owned bids. Permissionless.
     /// @dev The ETH goes in as single-sided liquidity from the first grid tick above
-    ///      `max(spot, referenceTick())` up to the top of the range: a standing bid for $ISSUE at
-    ///      every price below the market. No swap happens, so there is nothing to sandwich, and
-    ///      the bank pays no premium: it buys only when sellers come down to it. Because the bids
-    ///      never sit above the reference, a pump in front of this call finds nothing to sell into.
-    ///      Buckets accumulate on a grid, each with no withdrawal path.
+    ///      `max(spot, reference)` up to the top of the range: a standing bid for $ISSUE at every
+    ///      price below the market. No swap happens, so there is nothing to sandwich, and the bank
+    ///      pays no premium: it buys only when sellers come down to it. Because the bids never sit
+    ///      above the reference, a pump in front of this call finds nothing to sell into. Buckets
+    ///      accumulate on a grid, each with no withdrawal path.
     /// @return liquidity Liquidity added to the bucket
     /// @return lowerTick Lower tick of the bucket the ETH went into
     function compound() external returns (uint128 liquidity, int32 lowerTick) {
         accrue();
         _sweep();
 
-        uint128 amount = pendingPolEth;
+        StorageSlot polSlot = L.slot(L.POL_ETH_SLOT);
+        (uint128 amount, uint128 pendingTeam) = L.unpackTwo128(polSlot.load());
         if (amount == 0) revert NothingToCompound();
-        pendingPolEth = 0;
+        polSlot.store(L.packTwo128(0, pendingTeam));
 
         (liquidity, lowerTick) = abi.decode(lock(abi.encode(CALL_TYPE_COMPOUND, amount)), (uint128, int32));
     }
@@ -1065,8 +733,9 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         accrue();
         _sweep();
 
-        uint128 amount = pendingContractionEth;
-        pendingContractionEth = 0;
+        StorageSlot vaultSlot = L.slot(L.VAULT_ETH_SLOT);
+        (uint128 pendingExpansion, uint128 amount) = L.unpackTwo128(vaultSlot.load());
+        vaultSlot.store(L.packTwo128(pendingExpansion, 0));
 
         (liquidity, lowerTick, issueBurned) =
             abi.decode(lock(abi.encode(CALL_TYPE_DEFEND, amount)), (uint128, int32, uint256));
@@ -1074,46 +743,45 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
 
     /// @notice Draws all fee ETH out of Core so the pending buckets are backed by real balance
     function _sweep() private {
-        uint128 saved = savedEth;
+        StorageSlot feeSlot = L.slot(L.FEE_ETH_SLOT);
+        (uint128 saved, uint128 revenue) = L.unpackTwo128(feeSlot.load());
         if (saved == 0) return;
-        savedEth = 0;
+        feeSlot.store(L.packTwo128(0, revenue));
         lock(abi.encode(CALL_TYPE_SWEEP, saved));
     }
 
     /// GENESIS AND ADMINISTRATION
 
-    /// @notice Initializes the one market and locks the genesis liquidity into it forever
+    /// @notice Wires in the vault and the auctions, initializes the one market, and locks the
+    ///         genesis liquidity into it forever. One shot.
     /// @param tick Starting tick of the pool
-    function initialize(int32 tick) external payable onlyOwner {
+    /// @param vault The expansion vault: must be owned by this bank and buy the reserve asset
+    /// @param auctions The auctions: must open branches for this bank, in this bank's currency
+    function initialize(int32 tick, address vault, address auctions) external payable onlyOwner {
+        (uint64 m,,, bool initialized) = L.unpackPolicy(L.slot(L.POLICY_SLOT).load());
         if (initialized) revert GenesisAlreadyRan();
-        if (expansionVault == address(0)) revert NotInitialized();
+
         // Both tokens must answer to this bank and no other before a single unit exists
         if (ISSUE_TOKEN.minter() != address(this) || BANK_TOKEN.bank() != address(this)) revert TokensNotBoundToBank();
-        initialized = true;
+        // A mis-wired vault would strand every expansion epoch
+        if (Ownable(vault).owner() != address(this)) revert VaultNotOwnedByBank();
+        if (IRevenueBuybacks(vault).BUY_TOKEN() != RESERVE_ASSET) revert VaultBuysWrongAsset();
+        // The auctions are read through their exposed storage, as everything else is
+        (bytes32 auctionsBank, bytes32 auctionsIssue) =
+            IExposedStorage(auctions).sload(AL.slot(AL.BANK_SLOT), AL.slot(AL.ISSUE_TOKEN_SLOT));
+        if (
+            address(uint160(uint256(auctionsBank))) != address(this)
+                || address(uint160(uint256(auctionsIssue))) != address(ISSUE_TOKEN)
+        ) revert AuctionsNotForThisBank();
 
-        epochStartTime = uint64(block.timestamp);
-        lastAccrualTime = uint64(block.timestamp);
-        _lastBucketDay = uint64(block.timestamp / 1 days);
+        _storeAddress(L.EXPANSION_VAULT_SLOT, vault);
+        _storeAddress(L.AUCTIONS_SLOT, auctions);
+        L.slot(L.POLICY_SLOT).store(L.packPolicy(m, uint64(block.timestamp), uint64(block.timestamp), true));
+        L.slot(L.LAST_BUCKET_DAY_SLOT).store(bytes32(block.timestamp / 1 days));
 
         ISSUE_TOKEN.mint(address(this), GENESIS_LIQUIDITY);
 
         lock(abi.encode(CALL_TYPE_GENESIS, tick, msg.value));
-    }
-
-    /// @notice Wires in the expansion vault. One shot, and only a vault this bank owns that buys
-    ///         the reserve asset, since a mis-wired vault would strand every expansion epoch.
-    function setExpansionVault(address vault) external onlyOwner {
-        if (expansionVault != address(0)) revert AlreadySet();
-        if (Ownable(vault).owner() != address(this)) revert VaultNotOwnedByBank();
-        if (IRevenueBuybacks(vault).BUY_TOKEN() != RESERVE_ASSET) revert VaultBuysWrongAsset();
-        expansionVault = vault;
-    }
-
-    /// @notice Wires in the auction contract, the only address that may open new branches. One shot.
-    function setAuctions(address _auctions) external onlyOwner {
-        if (auctions != address(0)) revert AlreadySet();
-        if (IExchequerAuctions(_auctions).BANK() != address(this)) revert AuctionsNotForThisBank();
-        auctions = _auctions;
     }
 
     /// @notice Configures the expansion vault's TWAMM order duration and fee tier
@@ -1124,97 +792,23 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         external
         onlyOwner
     {
-        address vault = expansionVault;
-        if (vault == address(0)) revert UnknownVault();
-        IRevenueBuybacks(vault).configure(NATIVE_TOKEN_ADDRESS, targetOrderDuration, minOrderDuration, fee);
+        IRevenueBuybacks(_loadAddress(L.EXPANSION_VAULT_SLOT))
+            .configure(NATIVE_TOKEN_ADDRESS, targetOrderDuration, minOrderDuration, fee);
     }
 
     /// @notice Updates the recipient of the 15% team share
     function setTeamRecipient(address recipient) external onlyOwner {
-        teamRecipient = recipient;
+        _storeAddress(L.TEAM_RECIPIENT_SLOT, recipient);
     }
 
     /// @notice Mints part of the free founding distribution, capped at `FOUNDING_BANK_SUPPLY` (§6)
     /// @dev Typically pointed at `Incentives` for a one-per-wallet merkle claim
     function mintFoundingBank(address recipient, uint256 amount) external onlyOwner {
-        uint256 minted = foundingBankMinted + amount;
+        StorageSlot slot = L.slot(L.FOUNDING_BANK_MINTED_SLOT);
+        uint256 minted = uint256(slot.load()) + amount;
         if (minted > FOUNDING_BANK_SUPPLY) revert FoundingSupplyExceeded();
-        foundingBankMinted = minted;
+        slot.store(bytes32(minted));
         BANK_TOKEN.mint(recipient, amount);
-    }
-
-    /// @notice Opens `amount` of new branches for an auction buyer
-    function mintShares(address recipient, uint256 amount) external {
-        if (msg.sender != auctions) revert AuctionsOnly();
-        BANK_TOKEN.mint(recipient, amount);
-    }
-
-    /// VIEWS
-
-    /// @notice Daily issuance accruing to one whole $BANK at the multiplier in force
-    /// @dev The license auction floor is a multiple of this (§8)
-    function dailyYieldPerShare() external view returns (uint256) {
-        uint256 supply = BANK_TOKEN.totalSupply();
-        if (supply == 0) return 0;
-
-        uint256 perDay = uint256(BASE_ISSUANCE_PER_DAY) * currentMultiplier() / WAD;
-        // Once the budget is spent there is no yield to price, whatever the rate says
-        uint256 headroom = ISSUANCE_BUDGET - cumulativeIssuance - pendingIssuance();
-        if (perDay > headroom) perDay = headroom;
-
-        return FixedPointMathLib.fullMulDiv(perDay, 1e18, supply);
-    }
-
-    /// @notice The multiplier as of the current block, including boundaries not yet settled
-    /// @dev Storage lags across an un-accrued epoch boundary, so pricing off `multiplier` directly
-    ///      would quote the first caller of a quiet day at yesterday's rate
-    function currentMultiplier() public view returns (uint256 m) {
-        uint256 last = lastAccrualTime;
-        if (last == 0 || block.timestamp == last) return multiplier;
-
-        (, m,,) = _walk(
-            multiplier, epochStartTime, last, int256(uint256(_epochEthIn)) - int256(uint256(_epochEthOut)), _prevNetFlow
-        );
-    }
-
-    /// @notice The bank's reference price as a tick, brought up to the current block
-    /// @dev A time-weighted average of the pool tick: every observed price pulls the reference toward
-    ///      itself in proportion to how long it prevailed, and a price that lasts a full
-    ///      `POL_REFERENCE_WINDOW` replaces it outright. A price that exists only inside one block
-    ///      has prevailed for zero seconds and moves nothing, which is what lets `compound` and
-    ///      `defend` place bids in the same block as a pump without ever bidding above it.
-    function referenceTick() public view returns (int32) {
-        return int32(_foldedReferenceX24() >> 24);
-    }
-
-    /// @notice Folds the time the last observed tick has prevailed into the reference
-    function _foldedReferenceX24() private view returns (int256 refX24) {
-        refX24 = _referenceTickX24;
-        uint256 elapsed = block.timestamp - _lastObservationTime;
-        if (elapsed == 0) return refX24;
-
-        uint256 window = POL_REFERENCE_WINDOW;
-        if (elapsed > window) elapsed = window;
-
-        int256 target = int256(_lastObservedTick) << 24;
-        refX24 += ((target - refX24) * int256(elapsed)) / int256(window);
-    }
-
-    /// @notice Records the pool tick after a trade, folding in the price that prevailed until now
-    function _observe(int32 tickAfter) private {
-        if (block.timestamp != _lastObservationTime) {
-            int256 folded = _foldedReferenceX24();
-            _referenceTickX24 = int64(folded);
-            _lastObservationTime = uint32(block.timestamp);
-        }
-        if (tickAfter != _lastObservedTick) _lastObservedTick = tickAfter;
-    }
-
-    /// @notice Net flow of the epoch in progress, and of the two most recently completed epochs
-    function netFlows() external view returns (int256 current, int128 previous, int128 beforePrevious) {
-        current = int256(uint256(_epochEthIn)) - int256(uint256(_epochEthOut));
-        previous = _prevNetFlow;
-        beforePrevious = _prevPrevNetFlow;
     }
 
     /// LOCK HANDLING
@@ -1228,7 +822,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
 
         if (callType == CALL_TYPE_SWEEP) {
             (, uint128 amount) = abi.decode(data, (uint256, uint128));
-            PoolKey memory key = poolKey();
+            PoolKey memory key = _poolKey();
             CORE.updateSavedBalances(key.token0, key.token1, FEE_SALT, -int256(uint256(amount)), 0);
             ACCOUNTANT.withdraw(NATIVE_TOKEN_ADDRESS, address(this), amount);
             result = "";
@@ -1249,15 +843,31 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
 
     /// @notice Initializes the pool and locks the genesis position, which can never be withdrawn
     function _genesis(int32 tick, uint128 ethAmount) private {
-        PoolKey memory key = poolKey();
+        PoolKey memory key = _poolKey();
         CORE.initializePool(key, tick);
 
-        _referenceTickX24 = int64(tick) << 24;
-        _lastObservedTick = tick;
-        _lastObservationTime = uint32(block.timestamp);
+        L.slot(L.REFERENCE_SLOT).store(L.packReference(int64(tick) << 24, tick, uint32(block.timestamp)));
 
-        (uint128 liquidity, uint128 amount0, uint128 amount1) =
-            _addGenesisLiquidity(key, ethAmount, SafeCastLib.toUint128(GENESIS_LIQUIDITY));
+        PoolState state = CORE.poolState(POOL_ID);
+        uint128 issueAmount = SafeCastLib.toUint128(GENESIS_LIQUIDITY);
+        uint128 liquidity = maxLiquidity(
+            state.sqrtRatio(),
+            tickToSqrtRatio(ExchequerMath.polTickLower(TICK_SPACING)),
+            tickToSqrtRatio(ExchequerMath.polTickUpper(TICK_SPACING)),
+            ethAmount,
+            issueAmount
+        );
+
+        uint128 amount0;
+        uint128 amount1;
+        if (liquidity != 0) {
+            PoolBalanceUpdate update = CORE.updatePosition(
+                key, ExchequerMath.polPositionId(TICK_SPACING), SafeCastLib.toInt128(int256(uint256(liquidity)))
+            );
+            amount0 = uint128(update.delta0());
+            amount1 = uint128(update.delta1());
+            if (amount0 > ethAmount || amount1 > issueAmount) revert BidExceededAvailableAmounts();
+        }
 
         // Genesis is one shot and the supply is minted once, so a seed the chosen tick cannot pair
         // with the whole 100,000,000 is refused rather than silently burned
@@ -1272,7 +882,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
 
         unchecked {
             uint128 leftoverEth = ethAmount - amount0;
-            if (leftoverEth != 0) pendingPolEth += leftoverEth;
+            if (leftoverEth != 0) _addPendingPol(leftoverEth);
         }
 
         emit Genesis(tick, amount0, amount1, leftoverIssue);
@@ -1289,7 +899,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         unchecked {
             // Rounding dust waits for the next call
             uint128 leftover = amount - placed;
-            if (leftover != 0) pendingPolEth += leftover;
+            if (leftover != 0) _addPendingPol(leftover);
         }
 
         emit Compounded(lowerTick, placed, liquidity);
@@ -1297,24 +907,24 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
 
     /// @notice Settles the previous buyback bucket and places the next one
     function _defend(uint128 newEth) private returns (uint128 liquidity, int32 lowerTick, uint256 issueBurned) {
-        PoolKey memory key = poolKey();
-        PoolId poolId = key.toPoolId();
+        PoolKey memory key = _poolKey();
+        StorageSlot buybackSlot = L.slot(L.BUYBACK_SLOT);
+        (int32 oldLower, bool active) = L.unpackBuyback(buybackSlot.load());
 
         uint128 recovered;
-        if (buybackBidActive) {
-            int32 oldLower = buybackBidLowerTick;
+        if (active) {
             // A bucket the price has not reached holds only ETH, so there is nothing to settle
-            if (newEth == 0 && CORE.poolState(poolId).tick() < oldLower) revert NothingToDefend();
+            if (newEth == 0 && CORE.poolState(POOL_ID).tick() < oldLower) revert NothingToDefend();
 
-            PositionId oldId = createPositionId(BUYBACK_SALT, oldLower, POL_TICK_UPPER);
-            uint128 oldLiquidity = CORE.poolPositions(poolId, address(this), oldId).liquidity;
+            PositionId oldId = ExchequerMath.buybackPositionId(oldLower, TICK_SPACING);
+            uint128 oldLiquidity = CORE.poolPositions(POOL_ID, address(this), oldId).liquidity;
             if (oldLiquidity != 0) {
                 PoolBalanceUpdate update =
                     CORE.updatePosition(key, oldId, -SafeCastLib.toInt128(int256(uint256(oldLiquidity))));
                 recovered = uint128(uint256(-int256(update.delta0())));
                 issueBurned = uint256(-int256(update.delta1()));
             }
-            buybackBidActive = false;
+            buybackSlot.store(L.packBuyback(oldLower, false));
 
             emit BuybackSettled(oldLower, recovered, issueBurned);
         } else if (newEth == 0) {
@@ -1331,8 +941,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         uint128 placed;
         (liquidity, lowerTick, placed) = _placeBids(BUYBACK_SALT, available);
         if (liquidity != 0) {
-            buybackBidLowerTick = lowerTick;
-            buybackBidActive = true;
+            buybackSlot.store(L.packBuyback(lowerTick, true));
             emit BuybackBidsPlaced(lowerTick, placed, liquidity);
         }
 
@@ -1345,7 +954,11 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
 
         unchecked {
             uint128 leftover = available - placed;
-            if (leftover != 0) pendingContractionEth += leftover;
+            if (leftover != 0) {
+                StorageSlot vaultSlot = L.slot(L.VAULT_ETH_SLOT);
+                (uint128 pendingExpansion, uint128 pendingContraction) = L.unpackTwo128(vaultSlot.load());
+                vaultSlot.store(L.packTwo128(pendingExpansion, pendingContraction + leftover));
+            }
         }
     }
 
@@ -1357,67 +970,61 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
         private
         returns (uint128 liquidity, int32 lowerTick, uint128 amount0)
     {
-        PoolKey memory key = poolKey();
-        PoolState state = CORE.poolState(key.toPoolId());
+        PoolState state = CORE.poolState(POOL_ID);
+        int32 upper = ExchequerMath.polTickUpper(TICK_SPACING);
 
-        lowerTick = _bidLowerTick(state.tick());
+        lowerTick =
+            ExchequerMath.bidLowerTick(state.tick(), _referenceTick(), ExchequerMath.polBidGrid(TICK_SPACING), upper);
         if (ethAmount == 0) return (0, lowerTick, 0);
 
-        liquidity =
-            maxLiquidity(state.sqrtRatio(), tickToSqrtRatio(lowerTick), tickToSqrtRatio(POL_TICK_UPPER), ethAmount, 0);
+        liquidity = maxLiquidity(state.sqrtRatio(), tickToSqrtRatio(lowerTick), tickToSqrtRatio(upper), ethAmount, 0);
         if (liquidity == 0) return (0, lowerTick, 0);
 
         PoolBalanceUpdate update = CORE.updatePosition(
-            key, createPositionId(salt, lowerTick, POL_TICK_UPPER), SafeCastLib.toInt128(int256(uint256(liquidity)))
+            _poolKey(), createPositionId(salt, lowerTick, upper), SafeCastLib.toInt128(int256(uint256(liquidity)))
         );
 
         amount0 = uint128(update.delta0());
-        if (update.delta1() != 0 || amount0 > ethAmount) revert CompoundExceededAvailableAmounts();
+        if (update.delta1() != 0 || amount0 > ethAmount) revert BidExceededAvailableAmounts();
     }
 
-    /// @notice The first grid tick strictly above both the market and the bank's reference
-    /// @dev Never below the reference, so a same-block pump cannot pull a bid up to meet it
-    function _bidLowerTick(int32 spot) private view returns (int32) {
-        int256 floorTick = int256(spot);
-        int256 anchor = referenceTick();
-        if (anchor > floorTick) floorTick = anchor;
+    /// STORAGE HELPERS
 
-        int256 grid = POL_BID_GRID;
-        // Floor division, so that negative ticks round toward the lower grid line as well
-        int256 line = floorTick / grid;
-        if (floorTick < 0 && floorTick % grid != 0) line -= 1;
-
-        int256 lowerTick = (line + 1) * grid;
-        if (lowerTick >= POL_TICK_UPPER) revert NoRoomAboveThePrice();
-        return int32(lowerTick);
+    function _parameters() private view returns (ExchequerParameters memory p) {
+        p.baseIssuancePerDay = BASE_ISSUANCE_PER_DAY;
+        p.minNetFlow = MIN_NET_FLOW;
+        p.multiplierMin = MULTIPLIER_MIN;
+        p.multiplierMax = MULTIPLIER_MAX;
+        p.multiplierCutStep = MULTIPLIER_CUT_STEP;
+        p.multiplierRaiseStep = MULTIPLIER_RAISE_STEP;
+        p.epochLength = EPOCH_LENGTH;
+        p.resolutionFeeFloor = RESOLUTION_FEE_FLOOR;
+        p.resolutionFeeCeiling = RESOLUTION_FEE_CEILING;
+        p.exitPressureSaturation = EXIT_PRESSURE_SATURATION;
+        p.exitPressureDenominatorFloor = EXIT_PRESSURE_DENOMINATOR_FLOOR;
     }
 
-    /// @notice Adds as much of `ethAmount` and `issueAmount` as the full-range genesis position can take
-    function _addGenesisLiquidity(PoolKey memory key, uint128 ethAmount, uint128 issueAmount)
-        private
-        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        PoolState state = CORE.poolState(key.toPoolId());
-
-        liquidity = maxLiquidity(
-            state.sqrtRatio(), tickToSqrtRatio(POL_TICK_LOWER), tickToSqrtRatio(POL_TICK_UPPER), ethAmount, issueAmount
-        );
-        if (liquidity == 0) return (0, 0, 0);
-
-        PoolBalanceUpdate update =
-            CORE.updatePosition(key, polPositionId(), SafeCastLib.toInt128(int256(uint256(liquidity))));
-
-        amount0 = uint128(update.delta0());
-        amount1 = uint128(update.delta1());
-        if (amount0 > ethAmount || amount1 > issueAmount) revert CompoundExceededAvailableAmounts();
+    function _poolKey() private view returns (PoolKey memory) {
+        return ExchequerMath.poolKey(address(ISSUE_TOKEN), TICK_SPACING, address(this));
     }
 
-    /// @notice Rejects any pool but the single canonical ETH/$ISSUE market
-    function _checkPoolKey(PoolKey memory key) private view {
-        if (
-            key.token0 != NATIVE_TOKEN_ADDRESS || key.token1 != address(ISSUE_TOKEN)
-                || PoolConfig.unwrap(key.config) != PoolConfig.unwrap(POOL_CONFIG)
-        ) revert IncorrectPoolKey();
+    function _loadAddress(uint256 index) private view returns (address) {
+        return address(uint160(uint256(L.slot(index).load())));
+    }
+
+    function _storeAddress(uint256 index, address value) private {
+        L.slot(index).store(bytes32(uint256(uint160(value))));
+    }
+
+    function _addTotalLedger(uint256 amount) private {
+        StorageSlot slot = L.slot(L.TOTAL_LEDGER_BALANCE_SLOT);
+        slot.store(bytes32(uint256(slot.load()) + amount));
+    }
+
+    function _addPendingPol(uint128 amount) private {
+        StorageSlot slot = L.slot(L.POL_ETH_SLOT);
+        (uint128 pendingPol, uint128 pendingTeam) = L.unpackTwo128(slot.load());
+        slot.store(L.packTwo128(pendingPol + amount, pendingTeam));
     }
 
     /// @dev Only Core returns ETH here, when fee balances are drawn out of saved balances

@@ -2,6 +2,8 @@
 pragma solidity =0.8.33;
 
 import {ExchequerBase} from "./ExchequerBase.sol";
+import {ExchequerAuctions} from "../../src/exchequer/ExchequerAuctions.sol";
+import {GENESIS_LIQUIDITY, ISSUANCE_BUDGET} from "../../src/libraries/ExchequerMath.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {Exchequer} from "../../src/exchequer/Exchequer.sol";
@@ -20,26 +22,26 @@ contract ReservesAndLiquidityTest is ExchequerBase {
     uint64 internal constant VAULT_POOL_FEE = uint64((uint256(1) << 64) / 100);
 
     function _liquidityOf(PositionId positionId) internal view returns (uint128) {
-        Position memory position = core.poolPositions(bank.poolKey().toPoolId(), address(bank), positionId);
+        Position memory position = core.poolPositions(lens.poolKey(bank).toPoolId(), address(bank), positionId);
         return position.liquidity;
     }
 
     function _genesisLiquidity() internal view returns (uint128) {
-        return _liquidityOf(bank.polPositionId());
+        return _liquidityOf(lens.polPositionId(bank));
     }
 
     function _spotTick() internal view returns (int32) {
-        return core.poolState(bank.poolKey().toPoolId()).tick();
+        return core.poolState(lens.poolKey(bank).toPoolId()).tick();
     }
 
     /// @dev Routes fee ETH into the POL and contraction buckets: a buy in one epoch, a larger sell
     ///      in the next, so the second epoch closes as a contraction
     function _earnRevenue() internal {
         buy(trader, 50 ether);
-        vm.warp(bank.epochStartTime() + bank.EPOCH_LENGTH());
+        vm.warp(lens.epochStartTime(bank) + lens.parameters(bank).epochLength);
         bank.accrue();
         sell(trader, uint128(issue.balanceOf(trader)));
-        vm.warp(bank.epochStartTime() + bank.EPOCH_LENGTH());
+        vm.warp(lens.epochStartTime(bank) + lens.parameters(bank).epochLength);
         bank.accrue();
         vm.warp(vm.getBlockTimestamp() + 2 hours);
     }
@@ -56,29 +58,29 @@ contract ReservesAndLiquidityTest is ExchequerBase {
     }
 
     function test_compounding_places_a_bid_bucket_above_the_market() public {
-        uint128 pending = bank.pendingPolEth();
+        uint128 pending = lens.pendingPolEth(bank);
         assertGt(pending, 90 ether, "genesis left a great deal of ETH to place");
 
         (uint128 liquidity, int32 lower) = bank.compound();
 
         assertGt(liquidity, 0, "a bucket was placed");
         assertGt(lower, _spotTick(), "strictly above the market, so it holds only ETH");
-        assertEq(lower % bank.POL_BID_GRID(), 0, "on the grid");
-        assertEq(_liquidityOf(bank.polBidPositionId(lower)), liquidity, "recorded under the POL salt");
-        assertLt(bank.pendingPolEth(), 1e9, "all but rounding dust was placed");
+        assertEq(lower % lens.polBidGrid(bank), 0, "on the grid");
+        assertEq(_liquidityOf(lens.polBidPositionId(bank, lower)), liquidity, "recorded under the POL salt");
+        assertLt(lens.pendingPolEth(bank), 1e9, "all but rounding dust was placed");
     }
 
     function test_compounding_never_swaps() public {
         int32 before = _spotTick();
-        (int256 flowBefore,,) = bank.netFlows();
-        uint128 savedBefore = bank.savedEth();
+        (int256 flowBefore,,) = lens.netFlows(bank);
+        uint128 savedBefore = lens.savedEth(bank);
 
         bank.compound();
 
         assertEq(_spotTick(), before, "the price did not move");
-        (int256 flowAfter,,) = bank.netFlows();
+        (int256 flowAfter,,) = lens.netFlows(bank);
         assertEq(flowAfter, flowBefore, "no flow was registered");
-        assertEq(bank.savedEth(), savedBefore, "and no fee was charged");
+        assertEq(lens.savedEth(bank), savedBefore, "and no fee was charged");
     }
 
     function test_compounding_with_nothing_pending_reverts() public {
@@ -98,7 +100,7 @@ contract ReservesAndLiquidityTest is ExchequerBase {
         sell(trader, uint128(issue.balanceOf(trader)));
 
         assertGt(_spotTick(), lower, "the market fell into the bucket");
-        assertGt(_liquidityOf(bank.polBidPositionId(lower)), 0, "which still stands");
+        assertGt(_liquidityOf(lens.polBidPositionId(bank, lower)), 0, "which still stands");
 
         // The bank now holds $ISSUE it bought below the market: protocol-owned liquidity
         assertGt(_genesisLiquidity(), 0, "alongside the genesis range");
@@ -121,30 +123,30 @@ contract ReservesAndLiquidityTest is ExchequerBase {
     /// THE REFERENCE PRICE AND WHERE BIDS MAY SIT
 
     function test_the_reference_starts_at_the_genesis_tick() public view {
-        assertEq(bank.referenceTick(), GENESIS_TICK, "seeded at genesis");
+        assertEq(lens.referenceTick(bank), GENESIS_TICK, "seeded at genesis");
     }
 
     function test_a_price_that_exists_only_inside_a_block_does_not_move_the_reference() public {
-        int32 before = bank.referenceTick();
+        int32 before = lens.referenceTick(bank);
 
         buy(trader, 300 ether);
         assertLt(_spotTick(), before - 10_000, "spot moved");
-        assertEq(bank.referenceTick(), before, "the reference did not");
+        assertEq(lens.referenceTick(bank), before, "the reference did not");
 
         sell(trader, uint128(issue.balanceOf(trader)));
-        assertEq(bank.referenceTick(), before, "and still has not");
+        assertEq(lens.referenceTick(bank), before, "and still has not");
     }
 
     function test_a_price_that_prevails_for_the_window_replaces_the_reference() public {
-        int32 before = bank.referenceTick();
+        int32 before = lens.referenceTick(bank);
         buy(trader, 300 ether);
         int32 spot = _spotTick();
 
         vm.warp(vm.getBlockTimestamp() + 30 minutes);
-        assertApproxEqAbs(int256(bank.referenceTick()), (int256(before) + int256(spot)) / 2, 2, "halfway");
+        assertApproxEqAbs(int256(lens.referenceTick(bank)), (int256(before) + int256(spot)) / 2, 2, "halfway");
 
         vm.warp(vm.getBlockTimestamp() + 30 minutes);
-        assertApproxEqAbs(int256(bank.referenceTick()), int256(spot), 1, "fully replaced");
+        assertApproxEqAbs(int256(lens.referenceTick(bank)), int256(spot), 1, "fully replaced");
     }
 
     function test_a_pump_in_front_of_compound_finds_no_bids_to_sell_into() public {
@@ -153,26 +155,26 @@ contract ReservesAndLiquidityTest is ExchequerBase {
         vm.deal(attacker, 1_000 ether);
         buy(attacker, 300 ether);
         int32 pumped = _spotTick();
-        assertLt(pumped, bank.referenceTick() - 10_000, "well above the reference price");
+        assertLt(pumped, lens.referenceTick(bank) - 10_000, "well above the reference price");
 
         (, int32 lower) = bank.compound();
 
         // The bucket is placed above the reference, not just above the pumped spot
-        assertGt(lower, bank.referenceTick(), "bids never sit above the reference");
+        assertGt(lower, lens.referenceTick(bank), "bids never sit above the reference");
 
         // Selling back into the pool finds only the genesis range, and the round trip lost money:
         // the buy cost 300 ETH, and the sell's proceeds land with the attacker
         uint256 attackerBefore = attacker.balance;
         sell(attacker, uint128(issue.balanceOf(attacker)));
         assertLt(attacker.balance - attackerBefore, 300 ether, "the attacker got back less than they put in");
-        assertEq(_liquidityOf(bank.polBidPositionId(lower)) > 0, true, "the bucket stands, untouched");
+        assertEq(_liquidityOf(lens.polBidPositionId(bank, lower)) > 0, true, "the bucket stands, untouched");
     }
 
     function test_a_dump_in_front_of_compound_only_places_the_bids_lower() public {
         buy(trader, 300 ether);
         vm.warp(vm.getBlockTimestamp() + 2 hours);
         sell(trader, uint128(issue.balanceOf(trader)));
-        assertGt(_spotTick(), bank.referenceTick(), "$ISSUE is cheap");
+        assertGt(_spotTick(), lens.referenceTick(bank), "$ISSUE is cheap");
 
         (uint128 liquidity, int32 lower) = bank.compound();
         assertGt(liquidity, 0, "the bank bids anyway");
@@ -183,16 +185,16 @@ contract ReservesAndLiquidityTest is ExchequerBase {
 
     function test_defend_places_contraction_eth_as_a_bid_bucket() public {
         _earnRevenue();
-        uint128 pending = bank.pendingContractionEth();
+        uint128 pending = lens.pendingContractionEth(bank);
         assertGt(pending, 0, "a contraction epoch funded defense");
 
         (uint128 liquidity, int32 lower,) = bank.defend();
 
         assertGt(liquidity, 0, "bids placed");
-        assertTrue(bank.buybackBidActive(), "one active bucket");
-        assertEq(bank.buybackBidLowerTick(), lower, "at the recorded tick");
+        assertTrue(lens.buybackBidActive(bank), "one active bucket");
+        assertEq(lens.buybackBidLowerTick(bank), lower, "at the recorded tick");
         assertGt(lower, _spotTick(), "below the market");
-        assertEq(bank.pendingContractionEth() < 1e9, true, "all but dust placed");
+        assertEq(lens.pendingContractionEth(bank) < 1e9, true, "all but dust placed");
     }
 
     function test_defend_burns_what_the_bids_bought_and_re_bids_the_rest() public {
@@ -210,7 +212,7 @@ contract ReservesAndLiquidityTest is ExchequerBase {
 
         uint256 burnedBefore = issue.totalBurned();
         uint256 ceilingBefore = issue.maxSupply();
-        PositionId oldBucket = bank.buybackPositionId();
+        PositionId oldBucket = lens.buybackPositionId(bank);
         assertGt(_liquidityOf(oldBucket), 0, "the bucket stood");
 
         (uint128 liquidity, int32 newLower, uint256 issueBurned) = bank.defend();
@@ -220,7 +222,7 @@ contract ReservesAndLiquidityTest is ExchequerBase {
         assertLt(issue.maxSupply(), ceilingBefore, "permanently");
         assertEq(_liquidityOf(oldBucket), 0, "the old bucket is gone entirely");
         assertGt(newLower, _spotTick(), "and the remaining ETH bids again below the new market");
-        if (liquidity != 0) assertEq(bank.buybackBidLowerTick(), newLower, "recorded");
+        if (liquidity != 0) assertEq(lens.buybackBidLowerTick(bank), newLower, "recorded");
         assertEq(issue.balanceOf(address(bank)), 0, "the bank holds no currency");
     }
 
@@ -250,8 +252,8 @@ contract ReservesAndLiquidityTest is ExchequerBase {
         vm.expectRevert(Exchequer.NothingToDefend.selector);
         bank.defend();
 
-        assertEq(_liquidityOf(bank.buybackPositionId()) > 0, true, "the bucket stands where it was");
-        assertEq(bank.buybackBidLowerTick(), lower, "unchanged");
+        assertEq(_liquidityOf(lens.buybackPositionId(bank)) > 0, true, "the bucket stands where it was");
+        assertEq(lens.buybackBidLowerTick(bank), lower, "unchanged");
     }
 
     /// THE EXPANSION VAULT
@@ -276,10 +278,10 @@ contract ReservesAndLiquidityTest is ExchequerBase {
         _seedVaultPool(address(gold));
 
         buy(trader, 10 ether);
-        vm.warp(bank.epochStartTime() + bank.EPOCH_LENGTH());
+        vm.warp(lens.epochStartTime(bank) + lens.parameters(bank).epochLength);
         bank.accrue();
 
-        assertGt(bank.pendingExpansionEth(), 0, "expansion routes to reserves");
+        assertGt(lens.pendingExpansionEth(bank), 0, "expansion routes to reserves");
         bank.flush();
 
         vm.prank(owner);
@@ -297,7 +299,7 @@ contract ReservesAndLiquidityTest is ExchequerBase {
     }
 
     function test_the_reserve_asset_is_fixed_at_construction() public view {
-        assertEq(bank.RESERVE_ASSET(), address(gold), "immutable");
+        assertEq(lens.reserveAsset(bank), address(gold), "immutable");
         assertEq(expansionVault.BUY_TOKEN(), address(gold), "the expansion vault buys it");
     }
 

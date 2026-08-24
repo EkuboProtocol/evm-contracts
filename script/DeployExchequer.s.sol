@@ -7,26 +7,29 @@ import {console2} from "forge-std/console2.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
 import {BankToken} from "../src/exchequer/BankToken.sol";
-import {Exchequer, ExchequerParameters, exchequerCallPoints} from "../src/exchequer/Exchequer.sol";
-import {IssueToken} from "../src/exchequer/IssueToken.sol";
+import {Exchequer, exchequerCallPoints} from "../src/exchequer/Exchequer.sol";
 import {ExchequerAuctions} from "../src/exchequer/ExchequerAuctions.sol";
 import {ExchequerVault} from "../src/exchequer/ExchequerVault.sol";
+import {IssueToken} from "../src/exchequer/IssueToken.sol";
+import {ExchequerParameters} from "../src/libraries/ExchequerMath.sol";
 import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 
 /// @title DeployExchequer
-/// @notice Deploys the Exchequer economy: the central bank extension, the expansion vault, and the
-///         auctions, deterministically, and hands the bank to its owner once wired
+/// @notice Deploys the Exchequer economy deterministically: the two tokens, the central bank
+///         extension, the expansion vault, and the auctions
 /// @dev The whitepaper redacts every monetary parameter and says final values arrive closer to
 ///      launch, so the values below are documented defaults rather than authoritative ones. See
 ///      docs/exchequer.md for the reasoning behind each.
 ///
-///      The bank is constructed with the broadcaster as owner so the one-shot wiring can happen in
-///      the same run, then ownership is transferred to `OWNER_ADDRESS`. Every contract is deployed
-///      through CREATE2 at a salt derived from the deployment salt, so a re-run is a no-op.
+///      Every contract is deployed through CREATE2 at a salt derived from the deployment salt, so
+///      a re-run is a no-op. The bank is constructed with `OWNER_ADDRESS` as owner; the only thing
+///      the broadcaster does after deployment is bind the two tokens to the bank, which it alone
+///      may do. Nothing here needs the owner's key.
 ///
-///      After this script runs, genesis still requires four owner actions:
-///        1. `bank.initialize{value: seedEth}(tick)`, which mints the 100,000,000 genesis supply and
-///           locks it into the full-range protocol-owned position;
+///      Genesis then requires four owner actions:
+///        1. `bank.initialize{value: seedEth}(tick, vault, auctions)`, which wires in the vault and
+///           the auctions, mints the 100,000,000 genesis supply, and locks it into the full-range
+///           protocol-owned position;
 ///        2. `bank.configureExpansionVault(targetOrderDuration, minOrderDuration, fee)`, once the
 ///           ETH/reserve-asset TWAMM pool at that fee tier exists;
 ///        3. `bank.mintFoundingBank(...)` for the free founding distribution, up to 1,000 $BANK,
@@ -93,22 +96,21 @@ contract DeployExchequer is Script {
             "BankToken"
         );
 
-        // The extension address must encode its call points, so the salt is mined. The broadcaster
-        // owns the bank until it is wired.
+        // The extension address must encode its call points, so the salt is mined
         (address bankAddress,) = deployExtension(
             abi.encodePacked(
                 type(Exchequer).creationCode,
-                abi.encode(core, deployer, reserveAsset, issueAddress, bankTokenAddress, launchParameters())
+                abi.encode(core, owner, reserveAsset, issueAddress, bankTokenAddress, launchParameters())
             ),
             salt,
             exchequerCallPoints(),
             address(0),
             "Exchequer"
         );
+        bank = Exchequer(payable(bankAddress));
 
         if (IssueToken(issueAddress).minter() == address(0)) IssueToken(issueAddress).bind(bankAddress);
         if (BankToken(bankTokenAddress).bank() == address(0)) BankToken(bankTokenAddress).bind(bankAddress);
-        bank = Exchequer(payable(bankAddress));
 
         // The bank owns the vault, so nothing it buys can land anywhere else
         (address vaultAddress,) = deployIfNeeded(
@@ -123,7 +125,8 @@ contract DeployExchequer is Script {
             abi.encodePacked(
                 type(ExchequerAuctions).creationCode,
                 abi.encode(
-                    bank,
+                    bankAddress,
+                    issueAddress,
                     // 100 expansion licenses a day
                     uint256(100),
                     // The floor is worth about two days of one branch's yield
@@ -140,16 +143,12 @@ contract DeployExchequer is Script {
         );
         auctions = ExchequerAuctions(auctionsAddress);
 
-        if (bank.expansionVault() == address(0)) bank.setExpansionVault(vaultAddress);
-        if (bank.auctions() == address(0)) bank.setAuctions(auctionsAddress);
-        if (owner != deployer && bank.owner() == deployer) bank.transferOwnership(owner);
-
         vm.stopBroadcast();
 
         console2.log("Exchequer", bankAddress);
-        console2.log("ISSUE", address(bank.ISSUE_TOKEN()));
-        console2.log("BANK", address(bank.BANK_TOKEN()));
-        console2.log("ExpansionVault", address(expansion));
-        console2.log("ExchequerAuctions", address(auctions));
+        console2.log("ISSUE", issueAddress);
+        console2.log("BANK", bankTokenAddress);
+        console2.log("ExpansionVault", vaultAddress);
+        console2.log("ExchequerAuctions", auctionsAddress);
     }
 }

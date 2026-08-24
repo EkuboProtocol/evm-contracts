@@ -160,10 +160,11 @@ contract ReservesAndLiquidityTest is ExchequerBase {
         // The bucket is placed above the reference, not just above the pumped spot
         assertGt(lower, bank.referenceTick(), "bids never sit above the reference");
 
-        // Selling back into the pool finds only the genesis range, and the round trip lost money
-        uint256 before = address(this).balance;
+        // Selling back into the pool finds only the genesis range, and the round trip lost money:
+        // the buy cost 300 ETH, and the sell's proceeds land with the attacker
+        uint256 attackerBefore = attacker.balance;
         sell(attacker, uint128(issue.balanceOf(attacker)));
-        assertLt(address(this).balance, before + 300 ether, "the attacker got back less than they put in");
+        assertLt(attacker.balance - attackerBefore, 300 ether, "the attacker got back less than they put in");
         assertEq(_liquidityOf(bank.polBidPositionId(lower)) > 0, true, "the bucket stands, untouched");
     }
 

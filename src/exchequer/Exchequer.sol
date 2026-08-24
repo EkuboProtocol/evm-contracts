@@ -640,8 +640,9 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
 
         if (from == address(0) || to == address(0) || from == to || amount == 0) return;
 
+        // The token reverts an over-balance transfer after this hook; nothing to move in that case
         uint256 balance = BANK_TOKEN.balanceOf(from);
-        if (balance == 0) return;
+        if (balance == 0 || amount > balance) return;
 
         uint256 moved = FixedPointMathLib.fullMulDiv(ledgerBalance[from], amount, balance);
         if (moved == 0) return;

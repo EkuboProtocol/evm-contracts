@@ -32,9 +32,6 @@ abstract contract ExchequerBase is Test {
 
     uint32 internal constant TICK_SPACING = 1000;
 
-    /// @dev About half a percent: the most the bank will pay above its reference when compounding
-    uint32 internal constant POL_MAX_PREMIUM_TICKS = 5000;
-
     /// @dev Permissive slippage bound; the sentinel `type(int256).min` is reserved by the router
     int256 internal constant NO_SLIPPAGE_LIMIT = type(int256).min + 1;
 
@@ -58,7 +55,6 @@ abstract contract ExchequerBase is Test {
     BankToken internal bankToken;
     ExchequerAuctions internal auctions;
     ExchequerVault internal expansionVault;
-    ExchequerVault internal contractionVault;
     TestToken internal gold;
 
     function setUp() public virtual {
@@ -86,14 +82,13 @@ abstract contract ExchequerBase is Test {
         router = new Router(core, address(0), address(bank));
 
         expansionVault = new ExchequerVault(address(bank), orders, address(gold));
-        contractionVault = new ExchequerVault(address(bank), orders, address(issue));
 
         auctions = new ExchequerAuctions({
             owner: owner, bank: bank, licensesPerDay: 100, licenseFloorYieldDays: 2, licenseFloorMinimum: 1e18
         });
 
         vm.startPrank(owner);
-        bank.setVaults(address(expansionVault), address(contractionVault));
+        bank.setExpansionVault(address(expansionVault));
         bank.setAuctions(address(auctions));
         bank.setTeamRecipient(team);
         vm.stopPrank();
@@ -124,7 +119,7 @@ abstract contract ExchequerBase is Test {
             exitPressureSaturation: 0.25e18,
             exitPressureDenominatorFloor: 1_000_000e18,
             polReferenceWindow: 1 hours,
-            polMaxPremiumTicks: POL_MAX_PREMIUM_TICKS
+            redistributionStreamLength: 7 days
         });
     }
 

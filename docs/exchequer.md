@@ -39,8 +39,10 @@ arrive through `Core.forward`, exactly as `Ve33` does. That is what lets the ban
 fee in ETH on both buys and sells and measure net flow on the same pass.
 
 The extension deliberately does *not* fire its own hooks when it is the locker (Ekubo skips a call
-point when `locker == extension`). Protocol-owned-liquidity buys therefore pay no fee and are not
-counted as trader inflow, which is correct: POL compounding is not capital entering the economy.
+point when `locker == extension`). The bank itself never swaps — protocol-owned liquidity and
+buybacks are both placed as standing bids — so the only thing this exempts is its own position
+management, which pays no fee and registers no flow. That is correct: placing a bid is not capital
+entering the economy.
 
 One integration consequence: the stock `Router` only forwards to the addresses in its `MEV_CAPTURE`
 and `VE33` slots and calls `Core.swap` directly for every other extension, which this pool rejects.
@@ -48,23 +50,27 @@ The bank's forward payload is identical to `Ve33`'s, so a `Router` deployed with
 `ve33` slot drives the pool unmodified; a production deployment wants either that dedicated router
 or a router that knows the bank's address.
 
-### The hourly buyback tick is a TWAMM order
+### Buybacks are standing bids, not market orders
 
-§11 rate-limits contraction-vault buybacks with an hourly `spend_tick = min(0.10 * V, 0.002 * R)` so
-that "defense cannot be baited into one blockable shot". A TWAMM order already *is* that rate
-limiter, executed continuously rather than hourly and with no keeper to bait. Both vaults are
-`RevenueBuybacks` instances, so the spend rate is set by the order duration: a balance sold over a
-`targetOrderDuration` of 10 days spends ~10%/day, matching the launch intent of §11 without the
-hand-rolled tick.
+§11 has the contraction vault "buy $ISSUE on the open market" in hourly rate-limited steps,
+`spend_tick = min(0.10 * V, 0.002 * R)`, so that "defense cannot be baited into one blockable shot".
+Any market buy the protocol makes on a schedule is a target for whoever can see it coming. Here the
+bank *is* the market, so it does not need to buy on it: contraction ETH is placed as a single-sided
+bid bucket just below the price, sellers who push `$ISSUE` down into it are bought out at the bid,
+and a permissionless `defend()` withdraws whatever the bucket acquired, burns it, and re-bids the
+rest from the current price. Defense executes exactly when there is sell pressure to absorb and
+never at a price the bank did not set, so there is nothing to bait. The expansion vault, which
+buys gold, keeps a TWAMM order — there is no canonical market for the reserve asset — and that
+order's duration is its rate limit.
 
 ### A minimal owner, with a one-way exit
 
 The whitepaper claims the bank "answers to no board" while also describing a "policy-controlled"
 charters-per-day count and an "admin-set reserve price". Both cannot be true at once. `Exchequer`
 resolves it with a solady `Ownable` holding exactly five knobs — charters per day, the charter
-auction reserve price, the team fee recipient, the vaults' TWAMM order configuration, and the
-one-time genesis `$BANK` mint — and an irreversible `renounceOwnership()`. The immutability claim
-is reachable rather than false at launch.
+auction reserve price, the team fee recipient, the expansion vault's TWAMM order configuration,
+and the one-time genesis `$BANK` mint — and an irreversible `renounceOwnership()`. The immutability
+claim is reachable rather than false at launch.
 
 Everything else, including every monetary parameter below, is immutable from construction.
 
@@ -109,9 +115,10 @@ Configurable, with launch defaults:
 | Resolution fee ceiling | 30% | §9 |
 | Exit pressure saturation | 25% of the bank in 7 days | §9 |
 | Exit pressure denominator floor | 1,000,000 `$ISSUE` | §9, eq 9.1 |
-| POL reference window | 1 hour | a price must prevail this long to fully replace the bank's reference |
-| POL max premium | 5,000 ticks (~0.5%) | the most `compound()` pays above the reference |
-| Vault order duration | 10 days | §11 |
+| Reference window | 1 hour | a price must prevail this long to fully replace the bank's reference |
+| Bid grid | 10 tick spacings (~1%) | bid buckets start on the first grid line above the market |
+| Redistribution stream | 7 days | the stayers' half of each exit fee streams over the exit window |
+| Vault order duration | 10 days | §11, expansion vault only |
 
 `m` is stored as a `uint64` in `1e18` fixed point. `cutStep` is four times `raiseStep` by default,
 which is what makes "the bank turns defensive faster than it turns generous" true in code: from the
@@ -125,7 +132,7 @@ which is what makes "the bank turns defensive faster than it turns generous" tru
 | `BankToken` | `$BANK`. ERC-20 branch share. Settles both sides' accrued issuance on every transfer. |
 | `Exchequer` | The extension. Issuance ledger, net flow, multiplier, fee routing, withdrawals, POL. |
 | `ExchequerAuctions` | Both daily falling-price Dutch auctions (licenses in `$ISSUE`, charters in ETH). |
-| `ExchequerVault` | A `RevenueBuybacks` owned by the bank, so its proceeds can only land there. Deployed twice. |
+| `ExchequerVault` | The expansion vault: a `RevenueBuybacks` owned by the bank, so its gold can only land there. |
 
 ## Mechanics
 
@@ -150,7 +157,7 @@ can be skipped. `accrue()` accrues in segments up to each boundary, rolls, and c
 At each rollover, with `F` the net flow of the epoch that just ended:
 
 - Fee routing uses `sign(F)` alone — the fast lever. `F > 0` sends the 70% share to the expansion
-  vault; `F <= 0` sends it to the contraction vault. Zero counts as contraction, per §5.
+  vault; `F <= 0` funds buyback bids instead. Zero counts as contraction, per §5.
 - The multiplier uses `signal = F + F_previous`, the two most recently completed epochs — the slow
   lever. `signal > 0` raises `m` by `raiseStep` up to the ceiling; otherwise it cuts by `cutStep`
   down to the floor.
@@ -191,94 +198,125 @@ fee = feeFloor + (feeCeiling - feeFloor) * min(P / saturation, 1)^2
 ```
 
 The rate locks at the moment of the call. Half the fee is minted and immediately burned, which is
-what makes it a real burn under eq 3.2 rather than un-issuance; half is credited back to everyone
-who stayed by advancing `growthPerShareX128` over the *post-burn* supply. If the last holder exits,
-there is nobody to pay, and that half is burned too.
+what makes it a real burn under eq 3.2 rather than un-issuance. The other half is paid to everyone
+who stayed — but *streamed* over `redistributionStreamLength` (the exit window) rather than
+credited at once. `$BANK` is transferable, so an instant credit would be capturable by anyone who
+bought shares in the block before a large exit and sold them in the block after; streaming makes
+"stayed" a statement about time. If the last holder exits, there is nobody to pay, and that half
+— along with anything still in flight from earlier exits — is burned too.
 
 ### Protocol-owned liquidity
 
-`compound()` is permissionless. Inside one Core lock it draws the accumulated POL share out of the
-bank's saved balance, swaps half of it to `$ISSUE` through the canonical pool (paying no fee and
-registering no flow, because the bank is the locker), and adds both sides as full-range liquidity to
-a position owned by the bank.
+`compound()` is permissionless. It draws the accumulated POL share out of the bank's saved balance
+and places it as **single-sided ETH liquidity** in the range from the first grid tick above the
+market up to the top of the pool. ETH is `token0`, and `token0` liquidity sits above the current
+tick, where the pool sells it for `$ISSUE` as the price rises through it — which in this pool means
+as `$ISSUE` cheapens. A bucket is therefore a standing bid for `$ISSUE` at every price below the
+market: exactly the "floor of exit liquidity that no one can pull" the whitepaper describes, placed
+directly rather than by swapping first.
 
-There is no code path anywhere in `Exchequer` that decreases that position's liquidity. POL only
-grows.
+No swap happens, so there is nothing to sandwich and no premium is ever paid. The bank buys
+`$ISSUE` only when sellers come down to its bids, at prices it set. Buckets accumulate on a grid
+(`10 × tickSpacing`, about 1%) and there is no code path in `Exchequer` that decreases the
+liquidity of any position under the POL salt — the genesis range or any bucket. POL only grows.
+
+The whitepaper's "half swapped, paired, added forever" would have put two-sided depth at the
+current price immediately; this puts one-sided depth just below it and lets the market convert it.
+That is the deliberate trade: two-sided depth at spot is what a sandwich needs, and the whitepaper's
+own reason for POL — exit liquidity — is served better by bids.
 
 #### The bank is its own oracle
 
-A permissionless function that buys at spot is an invitation: pump `$ISSUE`, call `compound()`, sell
-back into the bank's bids. The usual defences — a TWAMM order, or an external oracle — either delay
-the liquidity or import a dependency. This implementation uses something the bank already has:
-**every trade in this economy passes through it**, so it can keep its own price reference.
-
-`Exchequer` records the pool tick after every swap and folds it into a time-weighted reference:
+There is still one thing a front-runner could try: pump `$ISSUE` in the same block, so the bank's
+"just below the market" bucket lands above the real price, then sell into it. The bank defends
+against this with something it already has — **every trade in this economy passes through it** —
+so it keeps its own price reference. After every swap it folds the pool tick into a time-weighted
+value:
 
 ```
 reference += (lastObservedTick - reference) * min(elapsed, WINDOW) / WINDOW
 ```
 
-A price pulls the reference toward itself in proportion to how long it prevailed. A price that
-lasts a full `polReferenceWindow` replaces the reference outright; a price that exists only inside
-one block has prevailed for zero seconds and moves nothing. That last property is the whole point.
+A price pulls the reference toward itself in proportion to how long it prevailed; a price that
+lasts a full `polReferenceWindow` replaces it outright; a price that exists only inside one block
+has prevailed for zero seconds and moves nothing. Bid buckets start on the first grid line above
+`max(spot, reference)`, so a same-block pump cannot pull a bid up to meet it — the bucket lands
+above the *reference*, the pumper finds only the genesis range to sell into, and their round trip
+paid two fees and price impact for nothing. A same-block dump only places the bids lower, which
+costs the dumper and gives the bank a cheaper bid.
 
-`compound()` then buys `$ISSUE` with a price bound `polMaxPremiumTicks` below the reference. Three
-things follow:
+The residual exposure is the standard one for any time-weighted reference: hold the price up for
+the whole window, exposed to arbitrage the entire time, so that the reference itself rises before
+the next `compound()`. The prize is bounded by one tranche's ETH times the premium the bids then
+carry above the true price; the cost is fees and impact on the volume needed to move a pool this
+deep for an hour, and it grows with the POL position.
 
-- **A pump is refused.** If spot is already dearer than the bound, `compound()` reverts with
-  `IssuePricedAboveReference` and the ETH waits. The front-runner has paid two fees and price impact
-  to move a price the bank then declines to buy at, and has nothing to sell into.
-- **A dip is bought.** If spot is cheaper than the reference, the bank buys down to the bound. A
-  dump in front of `compound()` gives the bank a discount; the dumper cannot profit from it.
-- **The bank's own impact is bounded.** The swap stops at the bound, so a large tranche is placed
-  over several calls as the reference catches up — about `polMaxPremiumTicks` of impact per
-  `polReferenceWindow` at most. The spend cap §11 wanted for buybacks falls out of this for POL.
+Alternatives considered and not taken: a reference-bounded market buy (leaks up to the bound to
+arbitrageurs on every tranche, and the bank's own buy feeds back into its reference); routing the
+POL share through a TWAMM order (works, but executes in a separate TWAMM pool and reaches the
+canonical price by arbitrage); and a reverse Dutch auction where the bank's bid rises and sellers
+step in (market-set, but a third auction's worth of surface for the same result as a standing bid).
 
-The residual exposure is the standard one for any time-weighted reference: an attacker who holds
-the price elevated across the whole window can move the reference, and is exposed to arbitrage the
-entire time. The prize is bounded by the pending POL tranche times the premium; the cost is fees
-and impact on the volume needed to move a pool this deep for an hour. As the POL position grows,
-that trade gets worse for the attacker in both directions.
+### Buybacks
 
-Alternatives considered and not taken: routing the POL share through a TWAMM order (works, but
-liquidity then lands in steps and the pairing needs a second permissionless trigger); a reverse
-Dutch auction where the bank's bid rises from zero and sellers step in (elegant, market-set, but a
-third auction's worth of surface); and single-sided ETH bid liquidity with no swap at all (turns
-out to be the same sandwich, since the bids sit at the pumped tick).
+`defend()` is permissionless and does two things in one call. If a buyback bucket is standing and
+the price has fallen into it, the bucket is withdrawn, every `$ISSUE` it bought is burned, and the
+recovered ETH is re-bid from the current price. Then any newly routed contraction ETH is added to
+that bid. There is only ever one active buyback bucket, so nothing needs enumerating.
 
-### Vaults
+The bucket sits on the same grid, above the same `max(spot, reference)` floor, for the same
+reason. Buybacks therefore execute only into sell pressure, only at a price the bank set, and only
+in the canonical market — no TWAMM sidecar pool, no arbitrage leg between that pool and this one,
+and no schedule to front-run. Burned `$ISSUE` lowers the eq 3.2 ceiling permanently.
 
-Both vaults receive ETH and sell it through a TWAMM order.
+### The expansion vault
 
-- The **expansion vault** buys the reserve asset — a tokenized gold token, fixed at construction —
-  and collects it to the `Exchequer`, which holds the reserves.
-- The **contraction vault** buys `$ISSUE` and collects it to the `Exchequer`. Anyone may then
-  call `burnReserves()` to burn every `$ISSUE` the bank holds. The vault can never sell.
+The expansion vault receives ETH from expansion epochs and sells it through a TWAMM order for the
+reserve asset — a tokenized gold token, fixed at construction — which it collects to the
+`Exchequer`. The bank holds the reserves.
 
 "Can never sell" is structural rather than promised. `RevenueBuybacks.collect` is permissionless
-and delivers to the vault's *owner*, and its owner also holds an arbitrary `call`. Both vaults are
+and delivers to the vault's *owner*, and its owner also holds an arbitrary `call`. The vault is
 therefore owned by `Exchequer` itself: whatever anyone collects lands at the bank, and the
 arbitrary call is reachable by nobody, because the bank exposes no way to make it. The only thing
-the bank's owner can do to a vault is `configureVault` — order duration and fee tier — and once
-the owner renounces, even that is frozen.
+the bank's owner can do to the vault is `configureExpansionVault` — order duration and fee tier —
+and once the owner renounces, even that is frozen.
 
-One consequence of using TWAMM is worth stating plainly: a TWAMM order executes against a pool whose
-extension is TWAMM, not against the canonical market, whose extension is the bank. Buybacks therefore
-run through a separate ETH/`$ISSUE` TWAMM pool on the same pair and reach the canonical price
-through arbitrage rather than directly. This is how Ekubo's own revenue buybacks work, and it is why
-the buyback bid is structural rather than a mechanical push on the canonical pool. §11's claim that
-the vault "buys $ISSUE on the open market and burns everything it buys" holds. Its claim that the
-spend is bounded as a fraction of *canonical* pool depth does not translate, and is replaced by the
-order duration.
+A TWAMM order executes against a pool whose extension is TWAMM, so the vault trades an ETH/gold
+TWAMM pool, and its execution quality is that pool's depth. That is an accepted dependency for the
+gold leg, where there is no canonical market to defend in; it is exactly why the `$ISSUE` leg does
+not use one.
+
+## Threat model
+
+Every vector considered, with what was done about it. "Accepted" means the mechanism is per the
+whitepaper and the exposure is understood, not that it was overlooked.
+
+| Vector | Mitigation | Residual |
+| --- | --- | --- |
+| Sandwich `compound()` — pump, let the bank buy, sell into it | The bank never swaps. Bids sit above `max(spot, reference)`; a same-block pump cannot move the reference | Hold the price up for the full window while exposed to arbitrage; prize bounded by one tranche × the premium |
+| Bait `defend()` into buying high | Same bids, same floor; a bucket the price has not reached is left alone (`NothingToDefend`) | None found |
+| Front-run the buyback TWAMM in a thin sidecar pool | No `$ISSUE` TWAMM exists; buybacks are bids in the canonical market | The gold leg still executes in a TWAMM pool: accepted |
+| JIT-capture the stayers' half of an exit fee | Streamed over the exit window; a share held for one block collects nothing | A holder must stay the window; that is the intent |
+| Divert vault proceeds via `collect()` to the owner, or the owner's `call` | The bank owns the vault; the bank has no passthrough for `call` | None |
+| Brick `flush()` with a reverting team recipient | Team share is a separate pull | A bricked recipient forfeits only its own share |
+| Wash-trade the net-flow signal to raise the rate | Flow is gross ETH, fee-inclusive; a raise needs net inflow *held* across two epochs, and unwinding it is a cut | Accepted: per §4, and the cost is two fees plus the carry |
+| Flip an epoch's regime with a last-second trade | Fee routing keys on the closed epoch's sign alone, as §4 specifies ("fast lever") | Accepted: the flipper pays a fee to redirect 70% of one epoch's revenue between two protocol-owned uses |
+| Run first on the exit door | Fee locks at commitment and rises with trailing volume; half goes to stayers | Accepted: the whitepaper's own design; early exits pay less than late ones by construction |
+| Grief the license open by timing the first sale | The day's open is pinned by its first sale to 2× yesterday's close or 2× floor | Floor moves with supply and rate inside the day; marginal |
+| Drain a shared saved-balance pot (cf. Ekubo limit-orders incident) | The fee pot is keyed under the bank's own address with salt 0; nothing else writes it, and only the bank's lock can draw it | None |
+| Stale views quoting yesterday's rate to the first caller of a quiet day | Every view projects through the same `_walk`/stream release `accrue()` uses | None |
+| Rounding | Per-share credits round down, so a few wei of unclaimable dust remain on the ledger total | Harmless |
 
 ## Genesis
 
 1. Deploy `Exchequer` at an address whose leading byte encodes its call points, which also deploys
    `$ISSUE` and `$BANK`.
-2. Deploy both vaults and `ExchequerAuctions`; the owner wires them in once each.
+2. Deploy the expansion vault and `ExchequerAuctions`; the owner wires them in once each.
 3. The owner calls `initialize{value: seedEth}(tick)`, which initializes the pool, mints the
    100,000,000 `$ISSUE` genesis supply, and locks it with the seed ETH into the full-range POL
    position. This is the only pre-mint.
-4. The owner mints up to 1,000 `$BANK` for the founding distribution, pointing it at `Incentives`
+4. The owner calls `configureExpansionVault` once an ETH/gold TWAMM pool exists at the chosen fee.
+5. The owner mints up to 1,000 `$BANK` for the founding distribution, pointing it at `Incentives`
    for a one-per-wallet merkle claim.
-5. The owner renounces.
+6. The owner renounces.

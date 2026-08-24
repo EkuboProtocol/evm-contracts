@@ -56,8 +56,11 @@ contract WithdrawalsTest is ExchequerBase {
         giveShares(bob, BRANCH);
         advanceDays(1);
 
+        // Book everything owed so far, so the counters below measure only what follows
+        bank.accrue();
         uint256 bobBefore = bank.balanceAtBank(bob);
         uint256 burnedBefore = issue.totalBurned();
+        uint256 issuedBefore = bank.cumulativeIssuance();
 
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
@@ -66,7 +69,67 @@ contract WithdrawalsTest is ExchequerBase {
         uint256 burned = issue.totalBurned() - burnedBefore;
 
         assertEq(burned, fee / 2, "half is destroyed");
-        assertApproxEqAbs(bank.balanceAtBank(bob) - bobBefore, fee - burned, 2, "half pays the banker who stayed");
+        assertEq(bank.streamRemaining(), fee - burned, "half is owed to the banker who stayed");
+        assertEq(bank.balanceAtBank(bob), bobBefore, "but not yet paid");
+
+        // Bob is the only banker left, so everything credited after this is his: the stream, plus
+        // whatever base issuance the intervening days produced
+        advanceDays(8);
+        bank.accrue();
+        uint256 baseIssued = bank.cumulativeIssuance() - issuedBefore;
+
+        assertEq(bank.streamRemaining(), 0, "the stream has finished");
+        assertApproxEqAbs(bank.balanceAtBank(bob) - bobBefore - baseIssued, fee - burned, 2, "and bob received it all");
+    }
+
+    function test_the_redistribution_streams_linearly_over_the_window() public {
+        giveShares(alice, BRANCH);
+        giveShares(bob, BRANCH);
+        advanceDays(1);
+
+        bank.accrue();
+        uint256 issuedBefore = bank.cumulativeIssuance();
+        uint256 bobBefore = bank.balanceAtBank(bob);
+
+        vm.prank(alice);
+        (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
+        uint256 redistributed = (released - minted) - (released - minted) / 2;
+
+        // Half the window in: half the stream, on top of bob's base issuance
+        vm.warp(vm.getBlockTimestamp() + 3.5 days);
+        bank.accrue();
+        uint256 baseIssued = bank.cumulativeIssuance() - issuedBefore;
+        assertApproxEqAbs(
+            bank.balanceAtBank(bob) - bobBefore - baseIssued, redistributed / 2, 2, "half way through the window"
+        );
+        assertApproxEqAbs(bank.streamRemaining(), redistributed / 2, 2, "half still to come");
+    }
+
+    function test_a_just_in_time_holder_cannot_capture_the_redistribution() public {
+        giveShares(alice, BRANCH);
+        giveShares(bob, BRANCH);
+        advanceDays(7);
+
+        // An attacker takes a large position in the block alice exits, and leaves in the same block
+        address attacker = makeAddr("attacker");
+        address carol = makeAddr("carol");
+        giveShares(attacker, 100 * BRANCH);
+
+        vm.prank(alice);
+        (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
+        assertGt(released - minted, 0, "a real fee was paid");
+
+        vm.prank(attacker);
+        bankToken.transfer(carol, 100 * BRANCH);
+
+        assertEq(bank.balanceAtBank(attacker), 0, "nothing was captured");
+
+        // The stream pays whoever actually holds through the window
+        advanceDays(8);
+        bank.accrue();
+        assertEq(bank.balanceAtBank(attacker), 0, "still nothing");
+        assertGt(bank.balanceAtBank(carol), 0, "carol, who stayed, is paid");
+        assertGt(bank.balanceAtBank(bob), 0, "as is bob");
     }
 
     function test_the_burn_really_lowers_the_supply_ceiling() public {
@@ -114,17 +177,22 @@ contract WithdrawalsTest is ExchequerBase {
         giveShares(bob, BRANCH);
         advanceDays(7);
 
+        bank.accrue();
         uint256 bobBefore = bank.balanceAtBank(bob);
+        uint256 issuedBefore = bank.cumulativeIssuance();
 
         // Alice runs for the door with ninety percent of the bank
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(9 * BRANCH, alice);
 
+        // Bob, the only banker left, collects half of what she paid over the following week
+        advanceDays(8);
+        bank.accrue();
+        uint256 baseIssued = bank.cumulativeIssuance() - issuedBefore;
         uint256 bobAfter = bank.balanceAtBank(bob);
-        assertGt(bobAfter, bobBefore, "the banker who stayed is paid");
 
         uint256 fee = released - minted;
-        assertApproxEqAbs(bobAfter - bobBefore, fee - fee / 2, 2, "with exactly half of what alice paid");
+        assertApproxEqAbs(bobAfter - bobBefore - baseIssued, fee - fee / 2, 2, "exactly half of what alice paid");
     }
 
     function test_the_fee_locks_at_the_moment_of_commitment() public {
@@ -178,6 +246,28 @@ contract WithdrawalsTest is ExchequerBase {
 
         assertEq(bankToken.totalSupply(), 0, "nobody stayed");
         assertEq(issue.totalBurned() - burnedBefore, released - minted, "the whole fee burns");
+    }
+
+    function test_the_last_banker_out_also_burns_an_unfinished_stream() public {
+        giveShares(alice, BRANCH);
+        giveShares(bob, BRANCH);
+        advanceDays(1);
+
+        vm.prank(alice);
+        bank.withdraw(BRANCH, alice);
+        uint256 streaming = bank.streamRemaining();
+        assertGt(streaming, 0, "a stream is in flight");
+
+        // Bob leaves a day later, before the stream has finished
+        advanceDays(1);
+        uint256 burnedBefore = issue.totalBurned();
+        vm.prank(bob);
+        (uint256 released, uint256 minted) = bank.withdraw(BRANCH, bob);
+
+        assertEq(bank.streamRemaining(), 0, "nothing left in flight");
+        assertGt(issue.totalBurned() - burnedBefore, released - minted, "his fee and the orphaned stream burned");
+        // Per-share credits round down, so a wei or two of unclaimable dust can remain on the ledger
+        assertLe(bank.totalLedgerBalance(), 2, "the ledger is empty but for dust");
     }
 
     function test_cannot_withdraw_more_than_held() public {

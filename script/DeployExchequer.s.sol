@@ -20,8 +20,8 @@ import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 ///      After this script runs, genesis still requires four owner actions:
 ///        1. `bank.initialize{value: seedEth}(tick)`, which mints the 100,000,000 genesis supply and
 ///           locks it into the full-range protocol-owned position;
-///        2. `bank.configureVault(vault, targetOrderDuration, minOrderDuration, fee)` for each vault,
-///           once the ETH/$ISSUE and ETH/reserve-asset TWAMM pools at that fee tier exist;
+///        2. `bank.configureExpansionVault(targetOrderDuration, minOrderDuration, fee)`, once the
+///           ETH/reserve-asset TWAMM pool at that fee tier exists;
 ///        3. `bank.mintFoundingBank(...)` for the free founding distribution, up to 1,000 $BANK,
 ///           normally pointed at `Incentives` for a one-per-wallet merkle claim;
 ///        4. `bank.renounceOwnership()`.
@@ -52,15 +52,12 @@ contract DeployExchequer is Script {
             exitPressureDenominatorFloor: 1_000_000e18,
             // A price must prevail for an hour to fully replace the bank's reference price
             polReferenceWindow: 1 hours,
-            // and the bank never compounds more than about half a percent above that reference
-            polMaxPremiumTicks: 5000
+            // The redistributed half of each resolution fee streams to stayers over the exit window
+            redistributionStreamLength: 7 days
         });
     }
 
-    function run()
-        public
-        returns (Exchequer bank, ExchequerVault expansion, ExchequerVault contraction, ExchequerAuctions auctions)
-    {
+    function run() public returns (Exchequer bank, ExchequerVault expansion, ExchequerAuctions auctions) {
         bytes32 salt = vm.envOr("SALT", DEFAULT_DEPLOYMENT_SALT);
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
         IOrders orders = IOrders(vm.envAddress("ORDERS_ADDRESS"));
@@ -80,9 +77,8 @@ contract DeployExchequer is Script {
         );
         bank = Exchequer(payable(bankAddress));
 
-        // The bank owns both vaults, so nothing they buy can land anywhere else
+        // The bank owns the vault, so nothing it buys can land anywhere else
         expansion = new ExchequerVault(bankAddress, orders, reserveAsset);
-        contraction = new ExchequerVault(bankAddress, orders, address(bank.ISSUE_TOKEN()));
 
         auctions = new ExchequerAuctions({
             owner: owner,
@@ -95,7 +91,7 @@ contract DeployExchequer is Script {
             licenseFloorMinimum: 1e18
         });
 
-        bank.setVaults(address(expansion), address(contraction));
+        bank.setExpansionVault(address(expansion));
         bank.setAuctions(address(auctions));
 
         vm.stopBroadcast();
@@ -104,7 +100,6 @@ contract DeployExchequer is Script {
         console2.log("ISSUE", address(bank.ISSUE_TOKEN()));
         console2.log("BANK", address(bank.BANK_TOKEN()));
         console2.log("ExpansionVault", address(expansion));
-        console2.log("ContractionVault", address(contraction));
         console2.log("ExchequerAuctions", address(auctions));
     }
 }

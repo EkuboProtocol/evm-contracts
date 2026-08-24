@@ -174,35 +174,52 @@ contract SwapsTest is ExchequerBase {
         assertEq(routed, uint256(fees) + bank.pendingPolEth() - ((uint256(fees) * 15) / 100), "no wei is lost");
     }
 
-    function test_flush_delivers_eth_to_both_vaults_and_the_team() public {
+    function test_flush_delivers_eth_to_the_expansion_vault() public {
         buy(trader, 10 ether);
         vm.warp(bank.epochStartTime() + bank.EPOCH_LENGTH());
         bank.accrue();
 
         uint128 expected = bank.pendingExpansionEth();
-        uint128 expectedTeam = bank.pendingTeamEth();
 
         bank.flush();
 
         assertEq(address(expansionVault).balance, expected, "the expansion vault is funded");
-        assertEq(team.balance, expectedTeam, "the team is paid");
-        assertEq(bank.pendingExpansionEth(), 0, "buckets are cleared");
+        assertEq(bank.pendingExpansionEth(), 0, "the bucket is cleared");
         assertEq(bank.savedEth(), 0, "the fee balance was drawn out of Core");
     }
 
-    function test_the_banks_own_liquidity_swaps_pay_no_fee_and_register_no_flow() public {
-        // Genesis left unabsorbed ETH in the POL bucket, which `compound` swaps through the pool
-        uint128 polBefore = bank.pendingPolEth();
-        assertGt(polBefore, 0, "there is something to compound");
+    function test_the_team_share_is_pulled_separately() public {
+        buy(trader, 10 ether);
+        vm.warp(bank.epochStartTime() + bank.EPOCH_LENGTH());
+        bank.accrue();
 
-        (int256 flowBefore,,) = bank.netFlows();
-        uint128 savedBefore = bank.savedEth();
+        uint128 expectedTeam = bank.pendingTeamEth();
+        assertGt(expectedTeam, 0, "the team earned something");
 
-        bank.compound();
+        vm.prank(bob);
+        bank.collectTeamShare();
 
-        (int256 flowAfter,,) = bank.netFlows();
-        assertEq(flowAfter, flowBefore, "protocol compounding is not trader inflow");
-        assertEq(bank.savedEth(), savedBefore, "the bank does not charge itself");
+        assertEq(team.balance, expectedTeam, "anyone may deliver it");
+        assertEq(bank.pendingTeamEth(), 0, "and it is cleared");
+    }
+
+    function test_a_team_recipient_that_rejects_eth_cannot_block_the_vault() public {
+        // A recipient with no receive function
+        vm.prank(owner);
+        bank.setTeamRecipient(address(issue));
+
+        buy(trader, 10 ether);
+        vm.warp(bank.epochStartTime() + bank.EPOCH_LENGTH());
+        bank.accrue();
+
+        // The vault is still funded
+        bank.flush();
+        assertGt(address(expansionVault).balance, 0, "flush is unaffected");
+
+        // Only the team's own delivery fails, and their share simply waits
+        vm.expectRevert();
+        bank.collectTeamShare();
+        assertGt(bank.pendingTeamEth(), 0, "held for a recipient that can take it");
     }
 
     receive() external payable {}

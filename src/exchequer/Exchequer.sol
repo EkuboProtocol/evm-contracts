@@ -24,6 +24,7 @@ import {PoolConfig, createConcentratedPoolConfig} from "../types/poolConfig.sol"
 import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
+import {Position} from "../types/position.sol";
 import {PositionId, createPositionId} from "../types/positionId.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
@@ -61,8 +62,8 @@ struct ExchequerParameters {
     uint128 exitPressureDenominatorFloor;
     /// @notice Seconds a price must prevail to fully replace the bank's reference price
     uint32 polReferenceWindow;
-    /// @notice Most ticks above its reference the bank will pay when compounding liquidity
-    uint32 polMaxPremiumTicks;
+    /// @notice Seconds over which the redistributed half of each resolution fee is streamed
+    uint32 redistributionStreamLength;
 }
 
 /// @title Exchequer
@@ -73,8 +74,8 @@ struct ExchequerParameters {
 ///      fungible share.
 ///
 ///      Swaps must arrive through `Core.forward`, which is what lets the bank charge its fee in ETH
-///      on both buys and sells. Core skips a call point when the locker is the extension itself, so
-///      the bank's own protocol-owned-liquidity swaps pay no fee and register no flow.
+///      on both buys and sells. The bank itself never swaps: protocol-owned liquidity and buybacks
+///      are both placed as standing bids below the market, so there is nothing to sandwich.
 contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankShareHook {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
@@ -103,12 +104,16 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// @dev Saved balance salt under which the bank's unrouted fee ETH sits in Core
     bytes32 private constant FEE_SALT = bytes32(0);
 
-    /// @dev Salt of the single protocol-owned liquidity position
+    /// @dev Salt of every protocol-owned liquidity position: the genesis range and each bid bucket
     bytes24 private constant POL_SALT = bytes24(0);
+
+    /// @dev Salt of the single active buyback bid bucket
+    bytes24 private constant BUYBACK_SALT = bytes24(uint192(1));
 
     uint256 private constant CALL_TYPE_GENESIS = 0;
     uint256 private constant CALL_TYPE_SWEEP = 1;
     uint256 private constant CALL_TYPE_COMPOUND = 2;
+    uint256 private constant CALL_TYPE_DEFEND = 3;
 
     /// @notice The currency
     IssueToken public immutable ISSUE_TOKEN;
@@ -128,6 +133,9 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// @notice Upper bound of the protocol-owned liquidity position, the highest aligned tick
     int32 public immutable POL_TICK_UPPER;
 
+    /// @notice Spacing of the grid on which bid buckets are placed, ten tick spacings
+    int32 public immutable POL_BID_GRID;
+
     uint128 public immutable BASE_ISSUANCE_PER_DAY;
     uint64 public immutable MULTIPLIER_MIN;
     uint64 public immutable MULTIPLIER_MAX;
@@ -140,7 +148,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     uint64 public immutable EXIT_PRESSURE_SATURATION;
     uint128 public immutable EXIT_PRESSURE_DENOMINATOR_FLOOR;
     uint32 public immutable POL_REFERENCE_WINDOW;
-    uint32 public immutable POL_MAX_PREMIUM_TICKS;
+    uint32 public immutable REDISTRIBUTION_STREAM_LENGTH;
 
     /// @notice The policy multiplier in force, in 1e18 fixed point (§5)
     uint64 public multiplier;
@@ -175,7 +183,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// @notice ETH awaiting delivery to the expansion vault
     uint128 public pendingExpansionEth;
 
-    /// @notice ETH awaiting delivery to the contraction vault
+    /// @notice ETH awaiting placement as buyback bids
     uint128 public pendingContractionEth;
 
     /// @notice ETH awaiting conversion into protocol-owned liquidity
@@ -187,8 +195,17 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// @notice The expansion vault, which stacks hard reserves
     address public expansionVault;
 
-    /// @notice The contraction vault, which buys back and burns
-    address public contractionVault;
+    /// @notice Redistributed resolution fees not yet released to the bankers who stayed
+    uint128 public streamRemaining;
+
+    /// @notice Time at which `streamRemaining` will have been fully released
+    uint64 public streamEndTime;
+
+    /// @notice Lower tick of the active buyback bid bucket, meaningful when `buybackBidActive`
+    int32 public buybackBidLowerTick;
+
+    /// @notice Whether a buyback bid bucket is currently placed
+    bool public buybackBidActive;
 
     /// @notice The daily Dutch auctions, the only address permitted to open new branches
     address public auctions;
@@ -212,7 +229,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
 
     // The bank's own price reference, packed into one slot. Every trade in this economy passes
     // through the bank, so it can be its own oracle: a time-weighted tick that a single block
-    // cannot move, which `compound` refuses to buy above.
+    // cannot move, below which the bank never places a bid.
     int64 private _referenceTickX24;
     int32 private _lastObservedTick;
     uint32 private _lastObservationTime;
@@ -228,13 +245,16 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     error InvalidWithdrawalAmount();
     error FoundingSupplyExceeded();
     error NothingToCompound();
-    error IssuePricedAboveReference();
+    error NothingToDefend();
+    error NothingToCollect();
+    error NoRoomAboveThePrice();
     error UnknownVault();
     error NothingToFlush();
     error CompoundExceededAvailableAmounts();
     error InvalidParameters();
 
-    event Accrued(uint256 amount, uint256 growthPerShareX128);
+    event Accrued(uint256 issued, uint256 streamed, uint256 growthPerShareX128);
+    event RedistributionStreamed(uint256 amount, uint64 endTime);
     event EpochRolled(
         uint64 epochStart, int256 closedEpochNetFlow, uint256 boundariesCrossed, uint64 multiplier, bool expansion
     );
@@ -248,8 +268,11 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         uint256 burned,
         uint256 redistributed
     );
-    event Flushed(uint128 expansion, uint128 contraction, uint128 team);
-    event Compounded(uint128 ethSwapped, uint128 ethPaired, uint128 liquidityAdded, uint256 issueBurned);
+    event Flushed(uint128 expansion);
+    event TeamShareCollected(uint128 amount);
+    event Compounded(int32 lowerTick, uint128 eth, uint128 liquidity);
+    event BuybackSettled(int32 lowerTick, uint128 ethRecovered, uint256 issueBurned);
+    event BuybackBidsPlaced(int32 lowerTick, uint128 eth, uint128 liquidity);
     event PriceObserved(int32 tick, int32 referenceTick);
     event Genesis(int32 tick, uint128 ethAdded, uint256 issueAdded, uint256 issueBurned);
     event ReservesBurned(uint256 amount);
@@ -269,6 +292,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
                 || params.resolutionFeeFloor > params.resolutionFeeCeiling || params.resolutionFeeCeiling > WAD
                 || params.exitPressureSaturation == 0 || params.exitPressureSaturation > WAD
                 || params.baseIssuancePerDay == 0 || params.tickSpacing == 0 || params.polReferenceWindow == 0
+                || params.redistributionStreamLength == 0
         ) revert InvalidParameters();
 
         _initializeOwner(owner);
@@ -288,7 +312,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         EXIT_PRESSURE_SATURATION = params.exitPressureSaturation;
         EXIT_PRESSURE_DENOMINATOR_FLOOR = params.exitPressureDenominatorFloor;
         POL_REFERENCE_WINDOW = params.polReferenceWindow;
-        POL_MAX_PREMIUM_TICKS = params.polMaxPremiumTicks;
+        REDISTRIBUTION_STREAM_LENGTH = params.redistributionStreamLength;
 
         multiplier = params.multiplierLaunch;
 
@@ -301,6 +325,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         int32 spacing = int32(params.tickSpacing);
         POL_TICK_LOWER = (MIN_TICK / spacing) * spacing;
         POL_TICK_UPPER = (MAX_TICK / spacing) * spacing;
+        POL_BID_GRID = spacing * 10;
     }
 
     /// @inheritdoc BaseExtension
@@ -315,9 +340,19 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         key.config = POOL_CONFIG;
     }
 
-    /// @notice The single protocol-owned liquidity position, which has no withdrawal path
+    /// @notice The full-range genesis position, which has no withdrawal path
     function polPositionId() public view returns (PositionId) {
         return createPositionId(POL_SALT, POL_TICK_LOWER, POL_TICK_UPPER);
+    }
+
+    /// @notice A protocol-owned bid bucket, which likewise has no withdrawal path
+    function polBidPositionId(int32 lowerTick) public view returns (PositionId) {
+        return createPositionId(POL_SALT, lowerTick, POL_TICK_UPPER);
+    }
+
+    /// @notice The active buyback bid bucket
+    function buybackPositionId() public view returns (PositionId) {
+        return createPositionId(BUYBACK_SALT, buybackBidLowerTick, POL_TICK_UPPER);
     }
 
     /// EXTENSION CALL POINTS
@@ -383,7 +418,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
             emit EpochRolled(uint64(epochStart), currentFlow, rolls, uint64(m), expansion);
         }
 
-        _bookIssuance(weightedSeconds, BANK_TOKEN.totalSupply());
+        _bookIssuance(weightedSeconds, last, BANK_TOKEN.totalSupply());
         lastAccrualTime = uint64(block.timestamp);
     }
 
@@ -502,24 +537,58 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         }
     }
 
-    /// @notice Credits `weightedSeconds` worth of issuance across every outstanding share
-    function _bookIssuance(uint256 weightedSeconds, uint256 supply) private {
-        if (weightedSeconds == 0 || supply == 0) return;
+    /// @notice Credits `weightedSeconds` worth of base issuance, plus whatever the redistribution
+    ///         stream has released since `last`, across every outstanding share
+    function _bookIssuance(uint256 weightedSeconds, uint256 last, uint256 supply) private {
+        if (supply == 0) return;
 
-        uint256 amount = FixedPointMathLib.fullMulDiv(weightedSeconds, BASE_ISSUANCE_PER_DAY, WAD * 1 days);
-        if (amount == 0) return;
+        uint256 amount = _baseIssuance(weightedSeconds);
+        if (amount != 0) {
+            cumulativeIssuance += amount;
+            totalLedgerBalance += amount;
+        }
 
-        uint256 issued = cumulativeIssuance;
-        uint256 headroom = ISSUANCE_BUDGET - issued;
-        if (amount > headroom) amount = headroom;
-        if (amount == 0) return;
+        uint256 streamed = _streamRelease(last);
+        if (streamed != 0) {
+            unchecked {
+                streamRemaining -= uint128(streamed);
+            }
+        }
 
-        cumulativeIssuance = issued + amount;
-        uint256 growth = issuanceGrowthPerShareX128 + FixedPointMathLib.fullMulDiv(amount, 1 << 128, supply);
+        uint256 credit = amount + streamed;
+        if (credit == 0) return;
+
+        uint256 growth = issuanceGrowthPerShareX128 + FixedPointMathLib.fullMulDiv(credit, 1 << 128, supply);
         issuanceGrowthPerShareX128 = growth;
-        totalLedgerBalance += amount;
 
-        emit Accrued(amount, growth);
+        emit Accrued(amount, streamed, growth);
+    }
+
+    /// @notice Base issuance owed for `weightedSeconds`, capped at what is left of the budget
+    function _baseIssuance(uint256 weightedSeconds) private view returns (uint256 amount) {
+        if (weightedSeconds == 0) return 0;
+        amount = FixedPointMathLib.fullMulDiv(weightedSeconds, BASE_ISSUANCE_PER_DAY, WAD * 1 days);
+        unchecked {
+            uint256 headroom = ISSUANCE_BUDGET - cumulativeIssuance;
+            if (amount > headroom) amount = headroom;
+        }
+    }
+
+    /// @notice Share of the redistribution stream released between `last` and now
+    /// @dev Linear over the remaining life of the stream. Half of every resolution fee is paid to
+    ///      the bankers who stayed, and paying it over `REDISTRIBUTION_STREAM_LENGTH` rather than at
+    ///      once means "stayed" is measured in time: a share bought in front of a large exit and
+    ///      sold behind it collects nothing.
+    function _streamRelease(uint256 last) private view returns (uint256) {
+        uint256 remaining = streamRemaining;
+        if (remaining == 0) return 0;
+
+        uint256 end = streamEndTime;
+        if (block.timestamp >= end) return remaining;
+
+        unchecked {
+            return (remaining * (block.timestamp - last)) / (end - last);
+        }
     }
 
     /// @notice Splits the epoch's protocol ETH 70/15/15 and assigns the vault share by regime (§11)
@@ -568,35 +637,36 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         }
     }
 
-    /// @notice Issuance that would be credited if `accrue` were called right now
+    /// @notice Base issuance that would be credited if `accrue` were called right now
     /// @dev Projected through the same walk `accrue` uses, so a view can never disagree with a
     ///      settlement, and a caller reading this after a week of silence sees the real number
     function pendingIssuance() public view returns (uint256 amount) {
         uint256 last = lastAccrualTime;
         if (last == 0 || block.timestamp == last) return 0;
-
-        uint256 supply = BANK_TOKEN.totalSupply();
-        if (supply == 0) return 0;
+        if (BANK_TOKEN.totalSupply() == 0) return 0;
 
         (uint256 weightedSeconds,,,) = _walk(
             multiplier, epochStartTime, last, int256(uint256(_epochEthIn)) - int256(uint256(_epochEthOut)), _prevNetFlow
         );
 
-        amount = FixedPointMathLib.fullMulDiv(weightedSeconds, BASE_ISSUANCE_PER_DAY, WAD * 1 days);
+        amount = _baseIssuance(weightedSeconds);
+    }
 
-        unchecked {
-            uint256 headroom = ISSUANCE_BUDGET - cumulativeIssuance;
-            if (amount > headroom) amount = headroom;
-        }
+    /// @notice Redistributed fees that would be released if `accrue` were called right now
+    function pendingStreamRelease() public view returns (uint256) {
+        uint256 last = lastAccrualTime;
+        if (last == 0 || block.timestamp == last) return 0;
+        if (BANK_TOKEN.totalSupply() == 0) return 0;
+        return _streamRelease(last);
     }
 
     /// @notice The issuance growth accumulator brought up to the current block
     function currentGrowthPerShareX128() public view returns (uint256) {
-        uint256 amount = pendingIssuance();
-        if (amount == 0) return issuanceGrowthPerShareX128;
+        uint256 credit = pendingIssuance() + pendingStreamRelease();
+        if (credit == 0) return issuanceGrowthPerShareX128;
 
         unchecked {
-            return issuanceGrowthPerShareX128 + FixedPointMathLib.fullMulDiv(amount, 1 << 128, BANK_TOKEN.totalSupply());
+            return issuanceGrowthPerShareX128 + FixedPointMathLib.fullMulDiv(credit, 1 << 128, BANK_TOKEN.totalSupply());
         }
     }
 
@@ -662,17 +732,25 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
             ISSUE_TOKEN.burn(burned);
         }
 
-        if (redistributed != 0) {
-            if (remainingSupply != 0) {
-                // Paid to every banker who stayed, by advancing growth over the post-burn supply
-                unchecked {
-                    issuanceGrowthPerShareX128 += FixedPointMathLib.fullMulDiv(redistributed, 1 << 128, remainingSupply);
-                    totalLedgerBalance += redistributed;
-                }
-            } else {
-                // Nobody stayed, so there is nobody to pay
-                ISSUE_TOKEN.mint(address(this), redistributed);
-                ISSUE_TOKEN.burn(redistributed);
+        if (remainingSupply != 0) {
+            if (redistributed != 0) {
+                // Paid to every banker who stays, streamed so that staying is measured in time
+                streamRemaining += SafeCastLib.toUint128(redistributed);
+                uint64 end = uint64(block.timestamp + REDISTRIBUTION_STREAM_LENGTH);
+                streamEndTime = end;
+                totalLedgerBalance += redistributed;
+                emit RedistributionStreamed(redistributed, end);
+            }
+        } else {
+            // Nobody stayed, so there is nobody to pay, now or from an earlier stream
+            uint256 orphaned = redistributed + streamRemaining;
+            if (streamRemaining != 0) {
+                totalLedgerBalance -= streamRemaining;
+                streamRemaining = 0;
+            }
+            if (orphaned != 0) {
+                ISSUE_TOKEN.mint(address(this), orphaned);
+                ISSUE_TOKEN.burn(orphaned);
             }
         }
 
@@ -832,30 +910,35 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         }
     }
 
-    /// @notice Delivers routed ETH to both vaults and the team. Permissionless.
-    function flush() external returns (uint128 expansion, uint128 contraction, uint128 team) {
+    /// @notice Delivers routed ETH to the expansion vault. Permissionless.
+    function flush() external returns (uint128 expansion) {
         accrue();
         _sweep();
 
         expansion = pendingExpansionEth;
-        contraction = pendingContractionEth;
-        team = pendingTeamEth;
-        if (expansion == 0 && contraction == 0 && team == 0) revert NothingToFlush();
-
+        if (expansion == 0) revert NothingToFlush();
         pendingExpansionEth = 0;
-        pendingContractionEth = 0;
-        pendingTeamEth = 0;
 
-        if (expansion != 0) SafeTransferLib.safeTransferETH(expansionVault, expansion);
-        if (contraction != 0) SafeTransferLib.safeTransferETH(contractionVault, contraction);
-        if (team != 0) SafeTransferLib.safeTransferETH(teamRecipient, team);
-
-        emit Flushed(expansion, contraction, team);
+        SafeTransferLib.safeTransferETH(expansionVault, expansion);
+        emit Flushed(expansion);
     }
 
-    /// @notice Burns every $ISSUE the bank holds, which is whatever the contraction vault bought
-    /// @dev Permissionless. The contraction vault buys on the open market and burns everything it
-    ///      buys; this is the burn half of that sentence.
+    /// @notice Delivers the team's share. Permissionless, and separate from `flush` so a recipient
+    ///         that cannot receive ETH can never hold up the vault.
+    function collectTeamShare() external returns (uint128 amount) {
+        accrue();
+        _sweep();
+
+        amount = pendingTeamEth;
+        if (amount == 0) revert NothingToCollect();
+        pendingTeamEth = 0;
+
+        SafeTransferLib.safeTransferETH(teamRecipient, amount);
+        emit TeamShareCollected(amount);
+    }
+
+    /// @notice Burns any $ISSUE the bank happens to hold. Permissionless.
+    /// @dev Buybacks burn inline in `defend`; this catches anything sent to the bank directly.
     function burnReserves() external returns (uint256 amount) {
         amount = ISSUE_TOKEN.balanceOf(address(this));
         if (amount != 0) {
@@ -864,26 +947,46 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         }
     }
 
-    /// @notice Converts accumulated POL ETH into permanent full-range liquidity. Permissionless.
-    /// @dev Half the ETH is swapped to $ISSUE and both sides are added to a position the bank
-    ///      owns and can never decrease. No fee is charged and no flow is recorded, because the bank
-    ///      is the locker and Core skips a call point when the locker is the extension.
-    ///
-    ///      The bank never pays more than `POL_MAX_PREMIUM_TICKS` above its own reference price
-    ///      (see `referenceTick`). If the market is dearer than that, nothing is bought and the ETH
-    ///      waits; if the swap runs into the bound part way, whatever did not fit waits. This is
-    ///      what makes a permissionless compound safe to call in front of: a pump cannot move the
-    ///      reference inside a block, so the bank buys the dip or does not buy at all.
-    /// @return liquidity Liquidity added to the protocol-owned position
-    function compound() external returns (uint128 liquidity) {
+    /// @notice Places accumulated POL ETH as permanent protocol-owned bids. Permissionless.
+    /// @dev The ETH goes in as single-sided liquidity from the first grid tick above
+    ///      `max(spot, referenceTick())` up to the top of the range: a standing bid for $ISSUE at
+    ///      every price below the market. No swap happens, so there is nothing to sandwich, and
+    ///      the bank pays no premium: it buys only when sellers come down to it. Because the bids
+    ///      never sit above the reference, a pump in front of this call finds nothing to sell into.
+    ///      Buckets accumulate on a grid, each with no withdrawal path.
+    /// @return liquidity Liquidity added to the bucket
+    /// @return lowerTick Lower tick of the bucket the ETH went into
+    function compound() external returns (uint128 liquidity, int32 lowerTick) {
         accrue();
         _sweep();
 
         uint128 amount = pendingPolEth;
-        if (amount < 2) revert NothingToCompound();
+        if (amount == 0) revert NothingToCompound();
         pendingPolEth = 0;
 
-        liquidity = abi.decode(lock(abi.encode(CALL_TYPE_COMPOUND, amount)), (uint128));
+        (liquidity, lowerTick) = abi.decode(lock(abi.encode(CALL_TYPE_COMPOUND, amount)), (uint128, int32));
+    }
+
+    /// @notice Turns contraction ETH into a standing bid for $ISSUE, and burns whatever the previous
+    ///         bid bucket bought. Permissionless.
+    /// @dev The whitepaper's contraction vault buys on the open market in rate-limited steps. Here
+    ///      the bank *is* the market, so it defends in it directly: contraction ETH is placed as a
+    ///      bid bucket just below the market, sellers who push the price down into it are bought
+    ///      out, and the next call withdraws the bucket, burns every $ISSUE it acquired, and re-bids
+    ///      the remaining ETH from the current price. Defense is never a market order, so it cannot
+    ///      be baited, and it executes exactly when there is sell pressure to absorb.
+    /// @return liquidity Liquidity in the freshly placed bucket
+    /// @return lowerTick Lower tick of the freshly placed bucket
+    /// @return issueBurned $ISSUE the previous bucket bought and this call destroyed
+    function defend() external returns (uint128 liquidity, int32 lowerTick, uint256 issueBurned) {
+        accrue();
+        _sweep();
+
+        uint128 amount = pendingContractionEth;
+        pendingContractionEth = 0;
+
+        (liquidity, lowerTick, issueBurned) =
+            abi.decode(lock(abi.encode(CALL_TYPE_DEFEND, amount)), (uint128, int32, uint256));
     }
 
     /// @notice Draws all fee ETH out of Core so the pending buckets are backed by real balance
@@ -900,7 +1003,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// @param tick Starting tick of the pool
     function initialize(int32 tick) external payable onlyOwner {
         if (initialized) revert GenesisAlreadyRan();
-        if (expansionVault == address(0) || contractionVault == address(0)) revert NotInitialized();
+        if (expansionVault == address(0)) revert NotInitialized();
         initialized = true;
 
         epochStartTime = uint64(block.timestamp);
@@ -912,11 +1015,10 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         lock(abi.encode(CALL_TYPE_GENESIS, tick, msg.value));
     }
 
-    /// @notice Wires in the two vaults. One shot.
-    function setVaults(address expansion, address contraction) external onlyOwner {
-        if (expansionVault != address(0) || contractionVault != address(0)) revert AlreadySet();
-        expansionVault = expansion;
-        contractionVault = contraction;
+    /// @notice Wires in the expansion vault. One shot.
+    function setExpansionVault(address vault) external onlyOwner {
+        if (expansionVault != address(0)) revert AlreadySet();
+        expansionVault = vault;
     }
 
     /// @notice Wires in the auction contract, the only address that may open new branches. One shot.
@@ -925,15 +1027,16 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         auctions = _auctions;
     }
 
-    /// @notice Configures one vault's TWAMM order duration and fee tier
-    /// @dev The vaults are owned by the bank, so this is the only way to configure them, and the
-    ///      only thing the bank can do to them. Nothing can pull what a vault has bought anywhere but
+    /// @notice Configures the expansion vault's TWAMM order duration and fee tier
+    /// @dev The vault is owned by the bank, so this is the only way to configure it, and the only
+    ///      thing the bank can do to it. Nothing can pull what the vault has bought anywhere but
     ///      here, and once the bank's owner renounces the configuration is frozen.
-    function configureVault(address vault, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
+    function configureExpansionVault(uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
         external
         onlyOwner
     {
-        if (vault != expansionVault && vault != contractionVault) revert UnknownVault();
+        address vault = expansionVault;
+        if (vault == address(0)) revert UnknownVault();
         IRevenueBuybacks(vault).configure(NATIVE_TOKEN_ADDRESS, targetOrderDuration, minOrderDuration, fee);
     }
 
@@ -983,7 +1086,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// @dev A time-weighted average of the pool tick: every observed price pulls the reference toward
     ///      itself in proportion to how long it prevailed, and a price that lasts a full
     ///      `POL_REFERENCE_WINDOW` replaces it outright. A price that exists only inside one block
-    ///      has prevailed for zero seconds and moves nothing, which is the property `compound` needs.
+    ///      has prevailed for zero seconds and moves nothing, which is what lets `compound` and
+    ///      `defend` place bids in the same block as a pump without ever bidding above it.
     function referenceTick() public view returns (int32) {
         return int32(_foldedReferenceX24() >> 24);
     }
@@ -1038,7 +1142,12 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
             result = "";
         } else if (callType == CALL_TYPE_COMPOUND) {
             (, uint128 amount) = abi.decode(data, (uint256, uint128));
-            result = abi.encode(_compound(amount));
+            (uint128 liquidity, int32 lowerTick) = _compound(amount);
+            result = abi.encode(liquidity, lowerTick);
+        } else if (callType == CALL_TYPE_DEFEND) {
+            (, uint128 amount) = abi.decode(data, (uint256, uint128));
+            (uint128 liquidity, int32 lowerTick, uint256 issueBurned) = _defend(amount);
+            result = abi.encode(liquidity, lowerTick, issueBurned);
         } else {
             (, int32 tick, uint256 value) = abi.decode(data, (uint256, int32, uint256));
             _genesis(tick, SafeCastLib.toUint128(value));
@@ -1055,7 +1164,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         _lastObservedTick = tick;
         _lastObservationTime = uint32(block.timestamp);
 
-        (, uint128 amount0, uint128 amount1) = _addLiquidity(key, ethAmount, SafeCastLib.toUint128(GENESIS_LIQUIDITY));
+        (, uint128 amount0, uint128 amount1) =
+            _addGenesisLiquidity(key, ethAmount, SafeCastLib.toUint128(GENESIS_LIQUIDITY));
 
         if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
         if (amount1 != 0) ACCOUNTANT.pay(address(ISSUE_TOKEN), amount1);
@@ -1072,58 +1182,122 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         emit Genesis(tick, amount0, amount1, leftoverIssue);
     }
 
-    /// @notice Swaps half the POL ETH to $ISSUE, never above the reference, and pairs what it bought
-    function _compound(uint128 amount) private returns (uint128 liquidity) {
-        PoolKey memory key = poolKey();
-
-        // Buying $ISSUE with ETH pushes the tick down, so the bound is a floor a fixed distance
-        // below the reference. Spot already under it means the market is too dear right now.
-        int256 limitTick = int256(referenceTick()) - int256(uint256(POL_MAX_PREMIUM_TICKS));
-        if (limitTick < MIN_TICK) limitTick = MIN_TICK;
-        SqrtRatio limit = tickToSqrtRatio(int32(limitTick));
-        if (CORE.poolState(key.toPoolId()).sqrtRatio() <= limit) revert IssuePricedAboveReference();
-
-        uint128 half = amount / 2;
-        (PoolBalanceUpdate swapUpdate, PoolState stateAfter) =
-            CORE.swap(0, key, createSwapParameters(limit, SafeCastLib.toInt128(int256(uint256(half))), false, 0));
-        _observe(stateAfter.tick());
-
-        // The swap stops at the bound, so it may have consumed less than was offered
-        uint128 ethSwapped = uint128(swapUpdate.delta0());
-        uint128 issueOut = uint128(uint256(-int256(swapUpdate.delta1())));
-        if (ethSwapped == 0) revert IssuePricedAboveReference();
-
-        uint128 ethLeft;
-        unchecked {
-            ethLeft = amount - ethSwapped;
-        }
-
-        uint128 amount0;
-        uint128 amount1;
-        (liquidity, amount0, amount1) = _addLiquidity(key, ethLeft, issueOut);
+    /// @notice Places `amount` of POL ETH as a bid bucket that can never be withdrawn
+    function _compound(uint128 amount) private returns (uint128 liquidity, int32 lowerTick) {
+        uint128 placed;
+        (liquidity, lowerTick, placed) = _placeBids(POL_SALT, amount);
         if (liquidity == 0) revert NothingToCompound();
 
-        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(ethSwapped) + amount0);
+        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), placed);
 
-        uint256 issueBurned;
         unchecked {
-            // The side the position could not absorb is protocol-owned, so it is burned
-            issueBurned = issueOut - amount1;
-            if (issueBurned != 0) {
-                ACCOUNTANT.withdraw(address(ISSUE_TOKEN), address(this), uint128(issueBurned));
-                ISSUE_TOKEN.burn(issueBurned);
-            }
-
-            // Whatever the bound or the position left unspent waits for the next call
-            uint128 leftoverEth = ethLeft - amount0;
-            if (leftoverEth != 0) pendingPolEth += leftoverEth;
+            // Rounding dust waits for the next call
+            uint128 leftover = amount - placed;
+            if (leftover != 0) pendingPolEth += leftover;
         }
 
-        emit Compounded(ethSwapped, amount0, liquidity, issueBurned);
+        emit Compounded(lowerTick, placed, liquidity);
     }
 
-    /// @notice Adds as much of `ethAmount` and `issueAmount` as the full-range position can take
-    function _addLiquidity(PoolKey memory key, uint128 ethAmount, uint128 issueAmount)
+    /// @notice Settles the previous buyback bucket and places the next one
+    function _defend(uint128 newEth) private returns (uint128 liquidity, int32 lowerTick, uint256 issueBurned) {
+        PoolKey memory key = poolKey();
+        PoolId poolId = key.toPoolId();
+
+        uint128 recovered;
+        if (buybackBidActive) {
+            int32 oldLower = buybackBidLowerTick;
+            // A bucket the price has not reached holds only ETH, so there is nothing to settle
+            if (newEth == 0 && CORE.poolState(poolId).tick() < oldLower) revert NothingToDefend();
+
+            PositionId oldId = createPositionId(BUYBACK_SALT, oldLower, POL_TICK_UPPER);
+            uint128 oldLiquidity = CORE.poolPositions(poolId, address(this), oldId).liquidity;
+            if (oldLiquidity != 0) {
+                PoolBalanceUpdate update =
+                    CORE.updatePosition(key, oldId, -SafeCastLib.toInt128(int256(uint256(oldLiquidity))));
+                recovered = uint128(uint256(-int256(update.delta0())));
+                issueBurned = uint256(-int256(update.delta1()));
+            }
+            buybackBidActive = false;
+
+            emit BuybackSettled(oldLower, recovered, issueBurned);
+        } else if (newEth == 0) {
+            revert NothingToDefend();
+        }
+
+        // Everything the bids bought is destroyed
+        if (issueBurned != 0) {
+            ACCOUNTANT.withdraw(address(ISSUE_TOKEN), address(this), uint128(issueBurned));
+            ISSUE_TOKEN.burn(issueBurned);
+        }
+
+        uint128 available = newEth + recovered;
+        uint128 placed;
+        (liquidity, lowerTick, placed) = _placeBids(BUYBACK_SALT, available);
+        if (liquidity != 0) {
+            buybackBidLowerTick = lowerTick;
+            buybackBidActive = true;
+            emit BuybackBidsPlaced(lowerTick, placed, liquidity);
+        }
+
+        // The bank is owed `recovered` by the accountant and owes it `placed`; settle the difference
+        if (placed > recovered) {
+            SafeTransferLib.safeTransferETH(address(ACCOUNTANT), placed - recovered);
+        } else if (recovered > placed) {
+            ACCOUNTANT.withdraw(NATIVE_TOKEN_ADDRESS, address(this), recovered - placed);
+        }
+
+        unchecked {
+            uint128 leftover = available - placed;
+            if (leftover != 0) pendingContractionEth += leftover;
+        }
+    }
+
+    /// @notice Adds `ethAmount` as single-sided liquidity from the next grid tick above the market
+    /// @dev ETH is token0, and token0 liquidity sits above the current tick, where it is sold for
+    ///      $ISSUE as the price rises through it, which in this pool means as $ISSUE cheapens. A
+    ///      bucket is therefore a standing bid for $ISSUE at every price below the market.
+    function _placeBids(bytes24 salt, uint128 ethAmount)
+        private
+        returns (uint128 liquidity, int32 lowerTick, uint128 amount0)
+    {
+        PoolKey memory key = poolKey();
+        PoolState state = CORE.poolState(key.toPoolId());
+
+        lowerTick = _bidLowerTick(state.tick());
+        if (ethAmount == 0) return (0, lowerTick, 0);
+
+        liquidity =
+            maxLiquidity(state.sqrtRatio(), tickToSqrtRatio(lowerTick), tickToSqrtRatio(POL_TICK_UPPER), ethAmount, 0);
+        if (liquidity == 0) return (0, lowerTick, 0);
+
+        PoolBalanceUpdate update = CORE.updatePosition(
+            key, createPositionId(salt, lowerTick, POL_TICK_UPPER), SafeCastLib.toInt128(int256(uint256(liquidity)))
+        );
+
+        amount0 = uint128(update.delta0());
+        if (update.delta1() != 0 || amount0 > ethAmount) revert CompoundExceededAvailableAmounts();
+    }
+
+    /// @notice The first grid tick strictly above both the market and the bank's reference
+    /// @dev Never below the reference, so a same-block pump cannot pull a bid up to meet it
+    function _bidLowerTick(int32 spot) private view returns (int32) {
+        int256 floorTick = int256(spot);
+        int256 anchor = referenceTick();
+        if (anchor > floorTick) floorTick = anchor;
+
+        int256 grid = POL_BID_GRID;
+        // Floor division, so that negative ticks round toward the lower grid line as well
+        int256 line = floorTick / grid;
+        if (floorTick < 0 && floorTick % grid != 0) line -= 1;
+
+        int256 lowerTick = (line + 1) * grid;
+        if (lowerTick >= POL_TICK_UPPER) revert NoRoomAboveThePrice();
+        return int32(lowerTick);
+    }
+
+    /// @notice Adds as much of `ethAmount` and `issueAmount` as the full-range genesis position can take
+    function _addGenesisLiquidity(PoolKey memory key, uint128 ethAmount, uint128 issueAmount)
         private
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {

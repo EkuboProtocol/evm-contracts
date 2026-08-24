@@ -73,13 +73,19 @@ abstract contract ExchequerBase is Test {
 
         gold = new TestToken(address(this));
 
+        // The tokens are deployed first and bound to the bank's address once it exists
+        issue = new IssueToken(address(this));
+        bankToken = new BankToken(address(this));
+
         address bankAddress = address((uint160(exchequerCallPoints().toUint8()) << 152) + 0xba4e);
         deployCodeTo(
-            "Exchequer.sol:Exchequer", abi.encode(core, owner, address(gold), defaultParameters()), bankAddress
+            "Exchequer.sol:Exchequer",
+            abi.encode(core, owner, address(gold), issue, bankToken, defaultParameters()),
+            bankAddress
         );
         bank = Exchequer(payable(bankAddress));
-        issue = bank.ISSUE_TOKEN();
-        bankToken = bank.BANK_TOKEN();
+        issue.bind(bankAddress);
+        bankToken.bind(bankAddress);
 
         // The stock router drives this pool unmodified when the bank occupies the ve33 slot
         router = new Router(core, address(0), address(bank));

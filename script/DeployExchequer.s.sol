@@ -6,7 +6,9 @@ import {console2} from "forge-std/console2.sol";
 
 import {ICore} from "../src/interfaces/ICore.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
+import {BankToken} from "../src/exchequer/BankToken.sol";
 import {Exchequer, ExchequerParameters, exchequerCallPoints} from "../src/exchequer/Exchequer.sol";
+import {IssueToken} from "../src/exchequer/IssueToken.sol";
 import {ExchequerAuctions} from "../src/exchequer/ExchequerAuctions.sol";
 import {ExchequerVault} from "../src/exchequer/ExchequerVault.sol";
 import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
@@ -77,17 +79,35 @@ contract DeployExchequer is Script {
 
         address deployer = msg.sender;
 
+        // The tokens come first, unbound; the broadcaster binds them to the bank once it exists
+        (address issueAddress,) = deployIfNeeded(
+            abi.encodePacked(type(IssueToken).creationCode, abi.encode(deployer)),
+            keccak256(abi.encode(salt, "IssueToken")),
+            address(0),
+            "IssueToken"
+        );
+        (address bankTokenAddress,) = deployIfNeeded(
+            abi.encodePacked(type(BankToken).creationCode, abi.encode(deployer)),
+            keccak256(abi.encode(salt, "BankToken")),
+            address(0),
+            "BankToken"
+        );
+
         // The extension address must encode its call points, so the salt is mined. The broadcaster
         // owns the bank until it is wired.
         (address bankAddress,) = deployExtension(
             abi.encodePacked(
-                type(Exchequer).creationCode, abi.encode(core, deployer, reserveAsset, launchParameters())
+                type(Exchequer).creationCode,
+                abi.encode(core, deployer, reserveAsset, issueAddress, bankTokenAddress, launchParameters())
             ),
             salt,
             exchequerCallPoints(),
             address(0),
             "Exchequer"
         );
+
+        if (IssueToken(issueAddress).minter() == address(0)) IssueToken(issueAddress).bind(bankAddress);
+        if (BankToken(bankTokenAddress).bank() == address(0)) BankToken(bankTokenAddress).bind(bankAddress);
         bank = Exchequer(payable(bankAddress));
 
         // The bank owns the vault, so nothing it buys can land anywhere else

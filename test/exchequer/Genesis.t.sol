@@ -5,6 +5,8 @@ import {ExchequerBase} from "./ExchequerBase.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {Exchequer, exchequerCallPoints} from "../../src/exchequer/Exchequer.sol";
 import {ExchequerVault} from "../../src/exchequer/ExchequerVault.sol";
+import {IssueToken} from "../../src/exchequer/IssueToken.sol";
+import {BankToken} from "../../src/exchequer/BankToken.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -61,11 +63,49 @@ contract GenesisTest is ExchequerBase {
         core.initializePool(key, 0);
     }
 
-    /// @dev A second bank whose genesis has not run yet
+    /// @dev A second bank whose genesis has not run yet, with its own bound tokens
     function _freshBank(uint160 tag) internal returns (Exchequer fresh) {
+        IssueToken freshIssue = new IssueToken(address(this));
+        BankToken freshBank = new BankToken(address(this));
         address at = address((uint160(exchequerCallPoints().toUint8()) << 152) + tag);
-        deployCodeTo("Exchequer.sol:Exchequer", abi.encode(core, owner, address(gold), defaultParameters()), at);
+        deployCodeTo(
+            "Exchequer.sol:Exchequer",
+            abi.encode(core, owner, address(gold), freshIssue, freshBank, defaultParameters()),
+            at
+        );
         fresh = Exchequer(payable(at));
+        freshIssue.bind(at);
+        freshBank.bind(at);
+    }
+
+    function test_genesis_refuses_to_run_on_tokens_bound_elsewhere() public {
+        // A bank constructed over the main fixture's tokens, which answer to the main bank
+        address at = address((uint160(exchequerCallPoints().toUint8()) << 152) + 0xf011);
+        deployCodeTo(
+            "Exchequer.sol:Exchequer", abi.encode(core, owner, address(gold), issue, bankToken, defaultParameters()), at
+        );
+        Exchequer impostor = Exchequer(payable(at));
+        ExchequerVault vault = new ExchequerVault(at, orders, address(gold));
+        vm.prank(owner);
+        impostor.setExpansionVault(address(vault));
+
+        vm.deal(owner, 1 ether);
+        vm.prank(owner);
+        vm.expectRevert(Exchequer.TokensNotBoundToBank.selector);
+        impostor.initialize{value: 1 ether}(GENESIS_TICK);
+    }
+
+    function test_tokens_bind_once_and_only_by_their_binder() public {
+        IssueToken token = new IssueToken(address(this));
+
+        vm.prank(alice);
+        vm.expectRevert(IssueToken.CannotBind.selector);
+        token.bind(alice);
+
+        token.bind(address(bank));
+        vm.expectRevert(IssueToken.CannotBind.selector);
+        token.bind(alice);
+        assertEq(token.minter(), address(bank), "bound once");
     }
 
     function test_nobody_can_open_the_canonical_pool_ahead_of_genesis() public {

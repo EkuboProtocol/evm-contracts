@@ -16,8 +16,11 @@ contract IssueToken is ERC20 {
     /// @notice The maximum quantity that may ever be minted, cumulatively, across all time
     uint256 public constant HARD_CAP = 1_000_000_000e18;
 
-    /// @notice The central bank, the only address permitted to mint
-    address public immutable MINTER;
+    /// @notice The address permitted to bind this token to its bank, once
+    address public immutable BINDER;
+
+    /// @notice The central bank, the only address permitted to mint. Zero until bound.
+    address public minter;
 
     /// @notice Cumulative quantity ever minted. Never decreases, so burns do not free headroom.
     uint256 public totalMinted;
@@ -28,15 +31,31 @@ contract IssueToken is ERC20 {
     /// @notice Thrown when an address other than the central bank attempts to mint
     error MinterOnly();
 
+    /// @notice Thrown when anyone but the binder binds, or when the token is already bound
+    error CannotBind();
+
     /// @notice Thrown when a mint would push cumulative issuance past the hard cap
     error HardCapExceeded();
 
     /// @notice Emitted whenever supply is permanently destroyed
     event Burned(address indexed from, uint256 amount);
 
-    /// @dev The deployer is the central bank
-    constructor() {
-        MINTER = msg.sender;
+    /// @notice Emitted once, when the token is bound to its bank
+    event Bound(address indexed minter);
+
+    /// @dev The bank and its tokens each need the other's address at construction, so the tokens
+    ///      are deployed first, unbound, and bound to the bank once by `binder`. The bank refuses
+    ///      to run genesis until both of its tokens point back at it.
+    /// @param binder The address permitted to bind this token, once
+    constructor(address binder) {
+        BINDER = binder;
+    }
+
+    /// @notice Binds this token to the central bank. One shot.
+    function bind(address minter_) external {
+        if (msg.sender != BINDER || minter != address(0) || minter_ == address(0)) revert CannotBind();
+        minter = minter_;
+        emit Bound(minter_);
     }
 
     /// @inheritdoc ERC20
@@ -53,7 +72,7 @@ contract IssueToken is ERC20 {
     /// @param to Recipient of the newly minted currency
     /// @param amount Quantity to mint
     function mint(address to, uint256 amount) external {
-        if (msg.sender != MINTER) revert MinterOnly();
+        if (msg.sender != minter) revert MinterOnly();
 
         uint256 minted = totalMinted + amount;
         if (minted > HARD_CAP) revert HardCapExceeded();

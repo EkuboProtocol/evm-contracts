@@ -79,7 +79,7 @@ struct ExchequerParameters {
 ///      Swaps must arrive through `Core.forward`, which is what lets the bank charge its fee in ETH
 ///      on both buys and sells. The bank itself never swaps: protocol-owned liquidity and buybacks
 ///      are both placed as standing bids below the market, so there is nothing to sandwich.
-contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankShareHook {
+contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, IBankShareHook {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
 
@@ -223,6 +223,10 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// @notice Whether genesis has run
     bool public initialized;
 
+    /// @dev The one authority, until it renounces. A minimal owner rather than solady's `Ownable`
+    ///      because nothing here needs a handover, and the bank is close to the code size limit.
+    address private _owner;
+
     uint128 private _epochEthIn;
     uint128 private _epochEthOut;
     int128 private _prevNetFlow;
@@ -238,11 +242,13 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     int32 private _lastObservedTick;
     uint32 private _lastObservationTime;
 
+    error Unauthorized();
     error SwapMustHappenThroughForward();
     error OnlyGenesisMayInitializeThePool();
     error IncorrectPoolKey();
     error GenesisAlreadyRan();
     error GenesisDidNotAbsorbSupply();
+    error TokensNotBoundToBank();
     error NotInitialized();
     error AlreadySet();
     error VaultNotOwnedByBank();
@@ -262,6 +268,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     error CompoundExceededAvailableAmounts();
     error InvalidParameters();
 
+    event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
     event Accrued(uint256 issued, uint256 streamed, uint256 growthPerShareX128);
     event RedistributionStreamed(uint256 amount, uint64 endTime);
     event LedgerMoved(address indexed from, address indexed to, uint256 amount);
@@ -283,19 +290,22 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     event Compounded(int32 lowerTick, uint128 eth, uint128 liquidity);
     event BuybackSettled(int32 lowerTick, uint128 ethRecovered, uint256 issueBurned);
     event BuybackBidsPlaced(int32 lowerTick, uint128 eth, uint128 liquidity);
-    event PriceObserved(int32 tick, int32 referenceTick);
     event Genesis(int32 tick, uint128 ethAdded, uint256 issueAdded, uint256 issueBurned);
-    event ReservesBurned(uint256 amount);
 
     /// @param core The Ekubo Core singleton
     /// @param owner Holder of the policy knobs, able to renounce irreversibly
     /// @param reserveAsset The tokenized gold (or comparable) asset the expansion vault accumulates
+    /// @param issue The currency, deployed ahead of the bank and bound to it before genesis
+    /// @param bankToken The share, likewise
     /// @param params Every monetary parameter the whitepaper leaves blank
-    constructor(ICore core, address owner, address reserveAsset, ExchequerParameters memory params)
-        BaseExtension(core)
-        BaseForwardee(core)
-        BaseLocker(core)
-    {
+    constructor(
+        ICore core,
+        address owner,
+        address reserveAsset,
+        IssueToken issue,
+        BankToken bankToken,
+        ExchequerParameters memory params
+    ) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
         if (
             params.multiplierMin == 0 || params.multiplierMin > params.multiplierLaunch
                 || params.multiplierLaunch > params.multiplierMax || params.epochLength == 0
@@ -305,7 +315,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
                 || params.redistributionStreamLength == 0 || reserveAsset == NATIVE_TOKEN_ADDRESS
         ) revert InvalidParameters();
 
-        _initializeOwner(owner);
+        _owner = owner;
+        emit OwnershipTransferred(address(0), owner);
 
         RESERVE_ASSET = reserveAsset;
         teamRecipient = owner;
@@ -327,8 +338,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
 
         multiplier = params.multiplierLaunch;
 
-        ISSUE_TOKEN = new IssueToken();
-        BANK_TOKEN = new BankToken();
+        ISSUE_TOKEN = issue;
+        BANK_TOKEN = bankToken;
 
         // The pool charges no fee of its own; the bank takes the whole trading fee, in ETH.
         POOL_CONFIG = createConcentratedPoolConfig(0, params.tickSpacing, address(this));
@@ -337,6 +348,28 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         POL_TICK_LOWER = (MIN_TICK / spacing) * spacing;
         POL_TICK_UPPER = (MAX_TICK / spacing) * spacing;
         POL_BID_GRID = spacing * 10;
+    }
+
+    modifier onlyOwner() {
+        if (msg.sender != _owner) revert Unauthorized();
+        _;
+    }
+
+    /// @notice The one authority over policy, or zero once it has renounced
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    /// @notice Hands the policy knobs to `newOwner`
+    function transferOwnership(address newOwner) external onlyOwner {
+        emit OwnershipTransferred(_owner, newOwner);
+        _owner = newOwner;
+    }
+
+    /// @notice Gives the policy knobs up forever: the bank then answers to no board
+    function renounceOwnership() external onlyOwner {
+        emit OwnershipTransferred(_owner, address(0));
+        _owner = address(0);
     }
 
     /// @inheritdoc BaseExtension
@@ -997,16 +1030,6 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         emit TeamShareCollected(amount);
     }
 
-    /// @notice Burns any $ISSUE the bank happens to hold. Permissionless.
-    /// @dev Buybacks burn inline in `defend`; this catches anything sent to the bank directly.
-    function burnReserves() external returns (uint256 amount) {
-        amount = ISSUE_TOKEN.balanceOf(address(this));
-        if (amount != 0) {
-            ISSUE_TOKEN.burn(amount);
-            emit ReservesBurned(amount);
-        }
-    }
-
     /// @notice Places accumulated POL ETH as permanent protocol-owned bids. Permissionless.
     /// @dev The ETH goes in as single-sided liquidity from the first grid tick above
     ///      `max(spot, referenceTick())` up to the top of the range: a standing bid for $ISSUE at
@@ -1064,6 +1087,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     function initialize(int32 tick) external payable onlyOwner {
         if (initialized) revert GenesisAlreadyRan();
         if (expansionVault == address(0)) revert NotInitialized();
+        // Both tokens must answer to this bank and no other before a single unit exists
+        if (ISSUE_TOKEN.minter() != address(this) || BANK_TOKEN.bank() != address(this)) revert TokensNotBoundToBank();
         initialized = true;
 
         epochStartTime = uint64(block.timestamp);
@@ -1182,10 +1207,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
             _referenceTickX24 = int64(folded);
             _lastObservationTime = uint32(block.timestamp);
         }
-        if (tickAfter != _lastObservedTick) {
-            _lastObservedTick = tickAfter;
-            emit PriceObserved(tickAfter, int32(_referenceTickX24 >> 24));
-        }
+        if (tickAfter != _lastObservedTick) _lastObservedTick = tickAfter;
     }
 
     /// @notice Net flow of the epoch in progress, and of the two most recently completed epochs

@@ -67,10 +67,12 @@ order's duration is its rate limit.
 
 The whitepaper claims the bank "answers to no board" while also describing a "policy-controlled"
 charters-per-day count and an "admin-set reserve price". Both cannot be true at once. `Exchequer`
-resolves it with a solady `Ownable` holding exactly five knobs — charters per day, the charter
-auction reserve price, the team fee recipient, the expansion vault's TWAMM order configuration,
-and the one-time genesis `$BANK` mint — and an irreversible `renounceOwnership()`. The immutability
-claim is reachable rather than false at launch.
+resolves it with one owner holding exactly five knobs — charter supply and reserve price (capped
+per day, and never a zero reserve while open), the team fee recipient, the expansion vault's TWAMM
+order configuration, and the one-time genesis `$BANK` mint — and an irreversible
+`renounceOwnership()`. The auctions have no owner of their own: their policy is set by whoever owns
+the bank, so renouncing the bank freezes them too. There is one authority in this economy, and the
+immutability claim is reachable rather than false at launch.
 
 Everything else, including every monetary parameter below, is immutable from construction.
 
@@ -109,8 +111,8 @@ Configurable, with launch defaults:
 | Trading fee | 0.30% | §11, always taken in ETH |
 | License supply | 100/day | §7 |
 | License floor | 2 days of one branch's yield | §8 |
-| Charter supply | 0/day (owner-enabled) | §8 |
-| Charter reserve price | 0.01 ETH | §8, owner-set |
+| Charter supply | 0/day at launch, at most 100/day | §8; a post-deploy owner action, `setCharterPolicy` |
+| Charter reserve price | none until the auction opens | §8; set with the supply, and must be nonzero while any supply is offered |
 | Resolution fee floor | 1% | §9 |
 | Resolution fee ceiling | 30% | §9 |
 | Exit pressure saturation | 25% of the bank in 7 days | §9 |
@@ -119,7 +121,7 @@ Configurable, with launch defaults:
 | Reference window | 1 hour | a price must prevail this long to fully replace the bank's reference |
 | Bid grid | 10 tick spacings (~1%) | bid buckets start on the first grid line above the market |
 | Redistribution stream | 7 days | the stayers' half of each exit fee streams over the exit window |
-| Vault order duration | 10 days | §11, expansion vault only |
+| Vault order duration | unset until configured | §11, expansion vault only; a post-deploy owner action, `configureExpansionVault`, once an ETH/gold TWAMM pool exists |
 
 `m` is stored as a `uint64` in `1e18` fixed point. `cutStep` is four times `raiseStep` by default,
 which is what makes "the bank turns defensive faster than it turns generous" true in code: from the
@@ -130,10 +132,18 @@ which is what makes "the bank turns defensive faster than it turns generous" tru
 | Contract | Role |
 | --- | --- |
 | `IssueToken` | `$ISSUE`. ERC-20, 1B cumulative-mint cap. Only the bank mints. Anyone burns their own. |
-| `BankToken` | `$BANK`. ERC-20 branch share. Settles both sides' accrued issuance on every transfer. |
-| `Exchequer` | The extension. Issuance ledger, net flow, multiplier, fee routing, withdrawals, POL. |
+| `BankToken` | `$BANK`. ERC-20 branch share. Settles both sides' accrued issuance on every transfer, and carries the ledger with it. |
+| `Exchequer` | The extension. Issuance ledger, net flow, multiplier, fee routing, withdrawals, POL and buyback bids, its own price reference. |
 | `ExchequerAuctions` | Both daily falling-price Dutch auctions (licenses in `$ISSUE`, charters in ETH). |
 | `ExchequerVault` | The expansion vault: a `RevenueBuybacks` owned by the bank, so its gold can only land there. |
+
+The bank and its two tokens each need the other's address, so the tokens are deployed first,
+unbound, and bound to the bank once by the deployer; genesis refuses to run until both tokens
+answer to the bank and no other. This also keeps the tokens' creation code out of the bank's
+runtime: `Exchequer` sits just under the EIP-170 code size limit (24,195 of 24,576 bytes), is
+compiled under a size-oriented optimizer profile (`compilation_restrictions` in `foundry.toml`),
+and carries its own three-function owner rather than solady's `Ownable` for the same reason. Any
+further logic added to the bank has to earn its bytes.
 
 ## Mechanics
 
@@ -317,6 +327,13 @@ whitepaper and the exposure is understood, not that it was overlooked.
 | Drain a shared saved-balance pot (cf. Ekubo limit-orders incident) | The fee pot is keyed under the bank's own address with salt 0; nothing else writes it, and only the bank's lock can draw it | None |
 | Stale views quoting yesterday's rate to the first caller of a quiet day | Every view projects through the same `_walk`/stream release `accrue()` uses | None |
 | Rounding | Per-share credits round down, so a few wei of unclaimable dust remain on the ledger total | Harmless |
+| Mint `$BANK` for nothing through a zero-reserve charter auction, or through a second owner that survives the bank's renounce | Auction policy belongs to the bank's owner; an open auction needs a nonzero reserve; supply is capped per day | The bank's owner can still sell up to the cap at a real reserve: that is §8 |
+| Lump a whole position out in one call to pay the floor | An exit is priced with its own size in the window (`resolutionFeeRateFor`) | None; splitting and lumping now cost the same or more |
+| Stretch the redistribution stream with dust exits | The stream's end is amount-weighted, so dust barely moves it, and no stream is ever brought forward | A large exit legitimately re-times the pool it joins |
+| Book a round trip's own fees as inflow | Net flow is the pool-facing delta, before the fee | A round trip still leaves its price impact behind; with the dead band that is far from a signal |
+| Burn the genesis supply with a seed the tick cannot pair | `initialize` refuses unless the whole 100,000,000 is absorbed | Owner must seed enough ETH for the chosen tick; it can retry |
+| Wire a foreign vault, the wrong asset, or another bank's auctions | Setters verify ownership, `BUY_TOKEN`, and `BANK()` | None |
+| Price licenses off yield that no longer exists once the budget is spent | `dailyYieldPerShare` clamps to the remaining budget | None |
 
 ## Open questions
 
@@ -338,9 +355,12 @@ it:
 
 ## Genesis
 
-1. Deploy `Exchequer` at an address whose leading byte encodes its call points, which also deploys
-   `$ISSUE` and `$BANK`.
-2. Deploy the expansion vault and `ExchequerAuctions`; the owner wires them in once each.
+1. Deploy `IssueToken` and `BankToken`, unbound, then `Exchequer` at an address whose leading byte
+   encodes its call points, then bind both tokens to it. `DeployExchequer` does all of this
+   deterministically with the broadcaster as interim owner.
+2. Deploy the expansion vault and `ExchequerAuctions`; the owner wires them in once each (the
+   setters verify the vault is the bank's own and buys the reserve asset, and that the auctions
+   are for this bank). The script then transfers ownership to `OWNER_ADDRESS`.
 3. The owner calls `initialize{value: seedEth}(tick)`, which initializes the pool, mints the
    100,000,000 `$ISSUE` genesis supply, and locks it with the seed ETH into the full-range POL
    position. This is the only pre-mint.

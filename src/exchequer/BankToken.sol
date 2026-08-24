@@ -24,19 +24,36 @@ interface IBankShareHook {
 ///      worth what it has earned wherever it goes, which is what makes retiring one share liquidate
 ///      exactly one share's worth and nothing more.
 contract BankToken is ERC20 {
-    /// @notice The central bank, the only address permitted to mint or burn
-    address public immutable BANK;
+    /// @notice The address permitted to bind this token to its bank, once
+    address public immutable BINDER;
+
+    /// @notice The central bank, the only address permitted to mint or burn. Zero until bound.
+    address public bank;
 
     /// @notice Thrown when an address other than the central bank attempts to mint or burn
     error ExchequerOnly();
 
-    /// @dev The deployer is the central bank
-    constructor() {
-        BANK = msg.sender;
+    /// @notice Thrown when anyone but the binder binds, or when the token is already bound
+    error CannotBind();
+
+    /// @notice Emitted once, when the token is bound to its bank
+    event Bound(address indexed bank);
+
+    /// @dev See `IssueToken` for why the token is bound after construction
+    /// @param binder The address permitted to bind this token, once
+    constructor(address binder) {
+        BINDER = binder;
+    }
+
+    /// @notice Binds this token to the central bank. One shot.
+    function bind(address bank_) external {
+        if (msg.sender != BINDER || bank != address(0) || bank_ == address(0)) revert CannotBind();
+        bank = bank_;
+        emit Bound(bank_);
     }
 
     modifier onlyBank() {
-        if (msg.sender != BANK) revert ExchequerOnly();
+        if (msg.sender != bank) revert ExchequerOnly();
         _;
     }
 
@@ -64,6 +81,6 @@ contract BankToken is ERC20 {
     /// @dev Fires for transfers, mints (`from == address(0)`) and burns (`to == address(0)`) alike.
     ///      The bank ignores the zero address.
     function _beforeTokenTransfer(address from, address to, uint256 amount) internal override {
-        IBankShareHook(BANK).settleTransfer(from, to, amount);
+        IBankShareHook(bank).settleTransfer(from, to, amount);
     }
 }

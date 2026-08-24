@@ -6,16 +6,16 @@ import {console2} from "forge-std/console2.sol";
 
 import {ICore} from "../src/interfaces/ICore.sol";
 import {IOrders} from "../src/interfaces/IOrders.sol";
-import {CentralBank, StandardParameters, standardCallPoints} from "../src/standard/CentralBank.sol";
-import {StandardAuctions} from "../src/standard/StandardAuctions.sol";
-import {StandardVault} from "../src/standard/StandardVault.sol";
+import {Exchequer, ExchequerParameters, exchequerCallPoints} from "../src/exchequer/Exchequer.sol";
+import {ExchequerAuctions} from "../src/exchequer/ExchequerAuctions.sol";
+import {ExchequerVault} from "../src/exchequer/ExchequerVault.sol";
 import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 
-/// @title DeployStandard
-/// @notice Deploys the Standard economy: the central bank extension, both vaults, and both auctions
+/// @title DeployExchequer
+/// @notice Deploys the Exchequer economy: the central bank extension, both vaults, and both auctions
 /// @dev The whitepaper redacts every monetary parameter and says final values arrive closer to
 ///      launch, so the values below are documented defaults rather than authoritative ones. See
-///      docs/standard-reserve.md for the reasoning behind each.
+///      docs/exchequer.md for the reasoning behind each.
 ///
 ///      After this script runs, genesis still requires four owner actions:
 ///        1. `bank.initialize{value: seedEth}(tick)`, which mints the 100,000,000 genesis supply and
@@ -25,14 +25,14 @@ import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 ///        3. `bank.mintFoundingBank(...)` for the free founding distribution, up to 1,000 $BANK,
 ///           normally pointed at `Incentives` for a one-per-wallet merkle claim;
 ///        4. `bank.renounceOwnership()`.
-contract DeployStandard is Script {
+contract DeployExchequer is Script {
     address internal constant DEFAULT_CORE_ADDRESS = 0x00000000000014aA86C5d3c41765bb24e11bd701;
     bytes32 internal constant DEFAULT_DEPLOYMENT_SALT =
         0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
 
-    /// @notice The launch parameters documented in docs/standard-reserve.md
-    function launchParameters() public pure returns (StandardParameters memory) {
-        return StandardParameters({
+    /// @notice The launch parameters documented in docs/exchequer.md
+    function launchParameters() public pure returns (ExchequerParameters memory) {
+        return ExchequerParameters({
             // 1,000,000 $ISSUE a day at a neutral multiplier
             baseIssuancePerDay: 1_000_000e18,
             multiplierMin: 0.25e18,
@@ -59,7 +59,7 @@ contract DeployStandard is Script {
 
     function run()
         public
-        returns (CentralBank bank, StandardVault expansion, StandardVault contraction, StandardAuctions auctions)
+        returns (Exchequer bank, ExchequerVault expansion, ExchequerVault contraction, ExchequerAuctions auctions)
     {
         bytes32 salt = vm.envOr("SALT", DEFAULT_DEPLOYMENT_SALT);
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", payable(DEFAULT_CORE_ADDRESS))));
@@ -72,19 +72,19 @@ contract DeployStandard is Script {
 
         // The extension address must encode its call points, so the salt is mined
         (address bankAddress,) = deployExtension(
-            abi.encodePacked(type(CentralBank).creationCode, abi.encode(core, owner, reserveAsset, launchParameters())),
+            abi.encodePacked(type(Exchequer).creationCode, abi.encode(core, owner, reserveAsset, launchParameters())),
             salt,
-            standardCallPoints(),
+            exchequerCallPoints(),
             address(0),
-            "CentralBank"
+            "Exchequer"
         );
-        bank = CentralBank(payable(bankAddress));
+        bank = Exchequer(payable(bankAddress));
 
         // The bank owns both vaults, so nothing they buy can land anywhere else
-        expansion = new StandardVault(bankAddress, orders, reserveAsset);
-        contraction = new StandardVault(bankAddress, orders, address(bank.ISSUE_TOKEN()));
+        expansion = new ExchequerVault(bankAddress, orders, reserveAsset);
+        contraction = new ExchequerVault(bankAddress, orders, address(bank.ISSUE_TOKEN()));
 
-        auctions = new StandardAuctions({
+        auctions = new ExchequerAuctions({
             owner: owner,
             bank: bank,
             // 100 expansion licenses a day
@@ -100,11 +100,11 @@ contract DeployStandard is Script {
 
         vm.stopBroadcast();
 
-        console2.log("CentralBank", bankAddress);
+        console2.log("Exchequer", bankAddress);
         console2.log("ISSUE", address(bank.ISSUE_TOKEN()));
         console2.log("BANK", address(bank.BANK_TOKEN()));
         console2.log("ExpansionVault", address(expansion));
         console2.log("ContractionVault", address(contraction));
-        console2.log("StandardAuctions", address(auctions));
+        console2.log("ExchequerAuctions", address(auctions));
     }
 }

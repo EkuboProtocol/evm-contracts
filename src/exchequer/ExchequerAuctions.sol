@@ -5,11 +5,11 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-import {CentralBank} from "./CentralBank.sol";
+import {Exchequer} from "./Exchequer.sol";
 import {IssueToken} from "./IssueToken.sol";
 
-/// @title Standard Auctions
-/// @notice The two daily falling-price Dutch auctions of the Standard economy (whitepaper §8)
+/// @title Exchequer Auctions
+/// @notice The two daily falling-price Dutch auctions of the Exchequer economy (whitepaper §8)
 /// @dev Both sales run on one mechanism: the price opens high, decays exponentially toward a floor
 ///      over 24 hours, and purchases execute instantly at the current price, first come first
 ///      served. There are no bids, no escrow, no refunds and nothing to snipe.
@@ -24,8 +24,8 @@ import {IssueToken} from "./IssueToken.sol";
 ///
 ///      §7's per-charter limit of three licenses per day is not enforced. Over a freely transferable
 ///      share a per-address cap is evaded with a second address, so the daily supply cap is what
-///      actually rations expansion. See docs/standard-reserve.md.
-contract StandardAuctions is Ownable {
+///      actually rations expansion. See docs/exchequer.md.
+contract ExchequerAuctions is Ownable {
     /// @dev One whole share, which is one branch
     uint256 private constant ONE_SHARE = 1e18;
 
@@ -33,7 +33,7 @@ contract StandardAuctions is Ownable {
     uint256 private constant WAD = 1e18;
 
     /// @notice The issuing authority
-    CentralBank public immutable BANK;
+    Exchequer public immutable BANK;
 
     /// @notice The currency licenses are paid in
     IssueToken public immutable ISSUE_TOKEN;
@@ -106,7 +106,7 @@ contract StandardAuctions is Ownable {
     /// @param licenseFloorMinimum Absolute lower bound on the license floor
     constructor(
         address owner,
-        CentralBank bank,
+        Exchequer bank,
         uint256 licensesPerDay,
         uint256 licenseFloorYieldDays,
         uint256 licenseFloorMinimum

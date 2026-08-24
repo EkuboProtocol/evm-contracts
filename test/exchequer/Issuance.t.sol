@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StandardBase} from "./StandardBase.sol";
-import {CentralBank} from "../../src/standard/CentralBank.sol";
+import {ExchequerBase} from "./ExchequerBase.sol";
+import {Exchequer} from "../../src/exchequer/Exchequer.sol";
 
-contract IssuanceTest is StandardBase {
+contract IssuanceTest is ExchequerBase {
     /// @dev One whole share is one branch
     uint256 internal constant BRANCH = 1e18;
 

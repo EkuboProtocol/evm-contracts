@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StandardBase} from "./StandardBase.sol";
-import {CentralBank} from "../../src/standard/CentralBank.sol";
+import {ExchequerBase} from "./ExchequerBase.sol";
+import {Exchequer} from "../../src/exchequer/Exchequer.sol";
 
-contract WithdrawalsTest is StandardBase {
+contract WithdrawalsTest is ExchequerBase {
     uint256 internal constant BRANCH = 1e18;
 
     function test_retiring_one_branch_of_ten_liquidates_one_tenth() public {
@@ -185,7 +185,7 @@ contract WithdrawalsTest is StandardBase {
         advanceDays(1);
 
         vm.prank(alice);
-        vm.expectRevert(CentralBank.InvalidWithdrawalAmount.selector);
+        vm.expectRevert(Exchequer.InvalidWithdrawalAmount.selector);
         bank.withdraw(BRANCH + 1, alice);
     }
 
@@ -193,7 +193,7 @@ contract WithdrawalsTest is StandardBase {
         giveShares(alice, BRANCH);
 
         vm.prank(alice);
-        vm.expectRevert(CentralBank.InvalidWithdrawalAmount.selector);
+        vm.expectRevert(Exchequer.InvalidWithdrawalAmount.selector);
         bank.withdraw(0, alice);
     }
 }

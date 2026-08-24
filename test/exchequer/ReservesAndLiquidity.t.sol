@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StandardBase} from "./StandardBase.sol";
+import {ExchequerBase} from "./ExchequerBase.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
-import {CentralBank} from "../../src/standard/CentralBank.sol";
+import {Exchequer} from "../../src/exchequer/Exchequer.sol";
 import {Position} from "../../src/types/position.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {createFullRangePoolConfig} from "../../src/types/poolConfig.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
-contract ReservesAndLiquidityTest is StandardBase {
+contract ReservesAndLiquidityTest is ExchequerBase {
     using CoreLib for *;
 
     uint256 internal constant BRANCH = 1e18;
@@ -83,7 +83,7 @@ contract ReservesAndLiquidityTest is StandardBase {
     function test_compounding_reverts_when_there_is_nothing_to_place() public {
         bank.compound();
         if (bank.pendingPolEth() < 2) {
-            vm.expectRevert(CentralBank.NothingToCompound.selector);
+            vm.expectRevert(Exchequer.NothingToCompound.selector);
             bank.compound();
         }
     }
@@ -196,7 +196,7 @@ contract ReservesAndLiquidityTest is StandardBase {
         bank.configureVault(address(expansionVault), 10 days, 1 days, VAULT_POOL_FEE);
 
         vm.prank(owner);
-        vm.expectRevert(CentralBank.UnknownVault.selector);
+        vm.expectRevert(Exchequer.UnknownVault.selector);
         bank.configureVault(address(gold), 10 days, 1 days, VAULT_POOL_FEE);
     }
 
@@ -241,7 +241,7 @@ contract ReservesAndLiquidityTest is StandardBase {
         assertLt(_spotTick(), bank.referenceTick() - int32(POL_MAX_PREMIUM_TICKS), "dearer than the bound");
 
         uint128 pending = bank.pendingPolEth();
-        vm.expectRevert(CentralBank.IssuePricedAboveReference.selector);
+        vm.expectRevert(Exchequer.IssuePricedAboveReference.selector);
         bank.compound();
 
         assertEq(bank.pendingPolEth(), pending, "the ETH simply waits");
@@ -278,7 +278,7 @@ contract ReservesAndLiquidityTest is StandardBase {
         assertLt(bank.pendingPolEth(), pendingBefore, "but some was placed");
 
         // A second call in the same block finds spot already at the bound and does nothing
-        vm.expectRevert(CentralBank.IssuePricedAboveReference.selector);
+        vm.expectRevert(Exchequer.IssuePricedAboveReference.selector);
         bank.compound();
     }
 
@@ -298,7 +298,7 @@ contract ReservesAndLiquidityTest is StandardBase {
 
         buy(attacker, 200 ether);
 
-        vm.expectRevert(CentralBank.IssuePricedAboveReference.selector);
+        vm.expectRevert(Exchequer.IssuePricedAboveReference.selector);
         bank.compound();
 
         sell(attacker, uint128(issue.balanceOf(attacker)));

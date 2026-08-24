@@ -4,8 +4,8 @@ pragma solidity =0.8.33;
 import {RevenueBuybacks} from "../base/RevenueBuybacks.sol";
 import {IOrders} from "../interfaces/IOrders.sol";
 
-/// @title Standard Vault
-/// @notice One of the two vaults where the Standard fee engine lands (whitepaper §11)
+/// @title Exchequer Vault
+/// @notice One of the two vaults where the Exchequer fee engine lands (whitepaper §11)
 /// @dev Deployed twice against the same machinery, differing only in what they buy:
 ///
 ///      - the **expansion vault** buys the hard reserve asset (tokenized gold and comparable
@@ -22,8 +22,8 @@ import {IOrders} from "../interfaces/IOrders.sol";
 ///      delivers to the owner, so everything a vault buys can only ever land at the bank, and the
 ///      owner's arbitrary `call` is reachable by nobody, because the bank exposes no way to make it.
 ///      The bank's own owner can configure the order duration and fee through
-///      `CentralBank.configureVault`, and nothing else.
-contract StandardVault is RevenueBuybacks {
+///      `Exchequer.configureVault`, and nothing else.
+contract ExchequerVault is RevenueBuybacks {
     /// @param bank The central bank, which owns the vault and receives everything it buys
     /// @param orders The TWAMM orders contract used to execute buybacks
     /// @param buyToken The asset this vault accumulates

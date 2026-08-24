@@ -32,7 +32,7 @@ import {BankToken, IBankShareHook} from "./BankToken.sol";
 import {IssueToken} from "./IssueToken.sol";
 
 /// @notice Every monetary parameter the whitepaper redacts, supplied at construction
-struct StandardParameters {
+struct ExchequerParameters {
     /// @notice $ISSUE issued per day at a multiplier of exactly 1 (whitepaper §5)
     uint128 baseIssuancePerDay;
     /// @notice Multiplier floor, in 1e18 fixed point
@@ -65,17 +65,17 @@ struct StandardParameters {
     uint32 polMaxPremiumTicks;
 }
 
-/// @title Central Bank
-/// @notice The issuing authority of the Standard economy: it reads net flow through the one
+/// @title Exchequer
+/// @notice The issuing authority of the Exchequer economy: it reads net flow through the one
 ///         canonical ETH/$ISSUE market, sets the issuance rate, and routes fees.
-/// @dev See docs/standard-reserve.md for the mapping from the whitepaper to this implementation and
+/// @dev See docs/exchequer.md for the mapping from the whitepaper to this implementation and
 ///      for the mechanisms deliberately dropped when charters and branches collapsed into one
 ///      fungible share.
 ///
 ///      Swaps must arrive through `Core.forward`, which is what lets the bank charge its fee in ETH
 ///      on both buys and sells. Core skips a call point when the locker is the extension itself, so
 ///      the bank's own protocol-owned-liquidity swaps pay no fee and register no flow.
-contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankShareHook {
+contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankShareHook {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
 
@@ -258,7 +258,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     /// @param owner Holder of the four policy knobs, able to renounce irreversibly
     /// @param reserveAsset The tokenized gold (or comparable) asset the expansion vault accumulates
     /// @param params Every monetary parameter the whitepaper leaves blank
-    constructor(ICore core, address owner, address reserveAsset, StandardParameters memory params)
+    constructor(ICore core, address owner, address reserveAsset, ExchequerParameters memory params)
         BaseExtension(core)
         BaseForwardee(core)
         BaseLocker(core)
@@ -305,7 +305,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
 
     /// @inheritdoc BaseExtension
     function getCallPoints() internal pure override returns (CallPoints memory) {
-        return standardCallPoints();
+        return exchequerCallPoints();
     }
 
     /// @notice The one canonical market: ETH against $ISSUE
@@ -1156,8 +1156,8 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     }
 }
 
-/// @notice The Core hooks enabled by `CentralBank`
-function standardCallPoints() pure returns (CallPoints memory) {
+/// @notice The Core hooks enabled by `Exchequer`
+function exchequerCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         // so that no second pool can adopt this extension
         beforeInitializePool: true,

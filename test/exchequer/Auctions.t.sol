@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StandardBase} from "./StandardBase.sol";
-import {StandardAuctions} from "../../src/standard/StandardAuctions.sol";
+import {ExchequerBase} from "./ExchequerBase.sol";
+import {ExchequerAuctions} from "../../src/exchequer/ExchequerAuctions.sol";
 
-contract AuctionsTest is StandardBase {
+contract AuctionsTest is ExchequerBase {
     uint256 internal constant BRANCH = 1e18;
 
     function setUp() public override {
@@ -95,7 +95,7 @@ contract AuctionsTest is StandardBase {
         assertEq(auctions.licensesRemaining(), 0, "sold out");
 
         vm.prank(alice);
-        vm.expectRevert(StandardAuctions.SoldOutForToday.selector);
+        vm.expectRevert(ExchequerAuctions.SoldOutForToday.selector);
         auctions.buyLicenses(1, type(uint256).max);
     }
 
@@ -154,7 +154,7 @@ contract AuctionsTest is StandardBase {
         uint256 price = auctions.licensePrice();
 
         vm.prank(alice);
-        vm.expectRevert(StandardAuctions.PriceExceededLimit.selector);
+        vm.expectRevert(ExchequerAuctions.PriceExceededLimit.selector);
         auctions.buyLicenses(1, price - 1);
     }
 
@@ -173,7 +173,7 @@ contract AuctionsTest is StandardBase {
     function test_the_charter_auction_starts_disabled() public {
         assertEq(auctions.chartersPerDay(), 0, "the count per day starts at zero");
 
-        vm.expectRevert(StandardAuctions.CharterAuctionDisabled.selector);
+        vm.expectRevert(ExchequerAuctions.CharterAuctionDisabled.selector);
         auctions.buyCharters{value: 1 ether}(1, type(uint256).max);
     }
 
@@ -237,7 +237,7 @@ contract AuctionsTest is StandardBase {
         assertEq(auctions.chartersRemaining(), 0, "sold out for today");
 
         vm.prank(bob);
-        vm.expectRevert(StandardAuctions.SoldOutForToday.selector);
+        vm.expectRevert(ExchequerAuctions.SoldOutForToday.selector);
         auctions.buyCharters{value: 10 ether}(1, type(uint256).max);
     }
 

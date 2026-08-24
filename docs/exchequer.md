@@ -1,11 +1,11 @@
-# Standard — a sovereign onchain central bank on Ekubo
+# Exchequer — a sovereign onchain central bank on Ekubo
 
 An implementation of the [Standard whitepaper](https://www.standardreserve.xyz/whitepaper/) (v0.1)
 built as an Ekubo Core extension rather than a Uniswap v4 hook.
 
-Standard is a closed monetary economy with one currency (`$ISSUE`), one market (an ETH/`$ISSUE`
+Exchequer is a closed monetary economy with one currency (`$ISSUE`), one market (an ETH/`$ISSUE`
 pool whose extension is the central bank), one policy signal (net ETH flow through that market), and
-one authority (the `CentralBank` contract). Capital flowing in loosens policy, raises issuance, and
+one authority (the `Exchequer` contract). Capital flowing in loosens policy, raises issuance, and
 stacks hard reserves. Capital flowing out tightens policy, flips fee routing into buybacks, and
 prices the exits.
 
@@ -34,7 +34,7 @@ specified.
 
 ### Ekubo Core extension, not a Uniswap v4 hook
 
-`CentralBank` is a `BaseExtension` + `BaseForwardee`. Its `beforeSwap` reverts, so every trade must
+`Exchequer` is a `BaseExtension` + `BaseForwardee`. Its `beforeSwap` reverts, so every trade must
 arrive through `Core.forward`, exactly as `Ve33` does. That is what lets the bank take its trading
 fee in ETH on both buys and sells and measure net flow on the same pass.
 
@@ -60,7 +60,7 @@ hand-rolled tick.
 ### A minimal owner, with a one-way exit
 
 The whitepaper claims the bank "answers to no board" while also describing a "policy-controlled"
-charters-per-day count and an "admin-set reserve price". Both cannot be true at once. `CentralBank`
+charters-per-day count and an "admin-set reserve price". Both cannot be true at once. `Exchequer`
 resolves it with a solady `Ownable` holding exactly five knobs — charters per day, the charter
 auction reserve price, the team fee recipient, the vaults' TWAMM order configuration, and the
 one-time genesis `$BANK` mint — and an irreversible `renounceOwnership()`. The immutability claim
@@ -72,7 +72,7 @@ Everything else, including every monetary parameter below, is immutable from con
 
 The whitepaper redacts every numeric parameter (§5, §7, §9 and the §14 launch table render as blank
 boxes) and says final values "will be announced closer to launch". Every one of them is therefore a
-constructor argument. The values below are the defaults in `script/DeployStandard.s.sol`; they are
+constructor argument. The values below are the defaults in `script/DeployExchequer.s.sol`; they are
 consistent with the prose but are not authoritative.
 
 Values stated in the whitepaper's own prose, and fixed in code:
@@ -123,15 +123,15 @@ which is what makes "the bank turns defensive faster than it turns generous" tru
 | --- | --- |
 | `IssueToken` | `$ISSUE`. ERC-20, 1B cumulative-mint cap. Only the bank mints. Anyone burns their own. |
 | `BankToken` | `$BANK`. ERC-20 branch share. Settles both sides' accrued issuance on every transfer. |
-| `CentralBank` | The extension. Issuance ledger, net flow, multiplier, fee routing, withdrawals, POL. |
-| `StandardAuctions` | Both daily falling-price Dutch auctions (licenses in `$ISSUE`, charters in ETH). |
-| `StandardVault` | A `RevenueBuybacks` owned by the bank, so its proceeds can only land there. Deployed twice. |
+| `Exchequer` | The extension. Issuance ledger, net flow, multiplier, fee routing, withdrawals, POL. |
+| `ExchequerAuctions` | Both daily falling-price Dutch auctions (licenses in `$ISSUE`, charters in ETH). |
+| `ExchequerVault` | A `RevenueBuybacks` owned by the bank, so its proceeds can only land there. Deployed twice. |
 
 ## Mechanics
 
 ### Issuance
 
-`$ISSUE` is issued as a ledger entry, never as tokens, until a holder withdraws. `CentralBank`
+`$ISSUE` is issued as a ledger entry, never as tokens, until a holder withdraws. `Exchequer`
 keeps a `growthPerShareX128` accumulator in the style of `Ve33`'s `emissionGrowthGlobalX128`: each
 `accrue()` advances `issuanceGrowthPerShareX128` by `(amount << 128) / bankSupply` and each holder's
 claim is `balance * (growth - snapshot) >> 128` plus anything already settled.
@@ -202,7 +202,7 @@ bank's saved balance, swaps half of it to `$ISSUE` through the canonical pool (p
 registering no flow, because the bank is the locker), and adds both sides as full-range liquidity to
 a position owned by the bank.
 
-There is no code path anywhere in `CentralBank` that decreases that position's liquidity. POL only
+There is no code path anywhere in `Exchequer` that decreases that position's liquidity. POL only
 grows.
 
 #### The bank is its own oracle
@@ -212,7 +212,7 @@ back into the bank's bids. The usual defences — a TWAMM order, or an external 
 the liquidity or import a dependency. This implementation uses something the bank already has:
 **every trade in this economy passes through it**, so it can keep its own price reference.
 
-`CentralBank` records the pool tick after every swap and folds it into a time-weighted reference:
+`Exchequer` records the pool tick after every swap and folds it into a time-weighted reference:
 
 ```
 reference += (lastObservedTick - reference) * min(elapsed, WINDOW) / WINDOW
@@ -251,13 +251,13 @@ out to be the same sandwich, since the bids sit at the pumped tick).
 Both vaults receive ETH and sell it through a TWAMM order.
 
 - The **expansion vault** buys the reserve asset — a tokenized gold token, fixed at construction —
-  and collects it to the `CentralBank`, which holds the reserves.
-- The **contraction vault** buys `$ISSUE` and collects it to the `CentralBank`. Anyone may then
+  and collects it to the `Exchequer`, which holds the reserves.
+- The **contraction vault** buys `$ISSUE` and collects it to the `Exchequer`. Anyone may then
   call `burnReserves()` to burn every `$ISSUE` the bank holds. The vault can never sell.
 
 "Can never sell" is structural rather than promised. `RevenueBuybacks.collect` is permissionless
 and delivers to the vault's *owner*, and its owner also holds an arbitrary `call`. Both vaults are
-therefore owned by `CentralBank` itself: whatever anyone collects lands at the bank, and the
+therefore owned by `Exchequer` itself: whatever anyone collects lands at the bank, and the
 arbitrary call is reachable by nobody, because the bank exposes no way to make it. The only thing
 the bank's owner can do to a vault is `configureVault` — order duration and fee tier — and once
 the owner renounces, even that is frozen.
@@ -273,9 +273,9 @@ order duration.
 
 ## Genesis
 
-1. Deploy `CentralBank` at an address whose leading byte encodes its call points, which also deploys
+1. Deploy `Exchequer` at an address whose leading byte encodes its call points, which also deploys
    `$ISSUE` and `$BANK`.
-2. Deploy both vaults and `StandardAuctions`; the owner wires them in once each.
+2. Deploy both vaults and `ExchequerAuctions`; the owner wires them in once each.
 3. The owner calls `initialize{value: seedEth}(tick)`, which initializes the pool, mints the
    100,000,000 `$ISSUE` genesis supply, and locks it with the seed ETH into the full-range POL
    position. This is the only pre-mint.

@@ -12,7 +12,7 @@ interface IBankShareHook {
 }
 
 /// @title Bank
-/// @notice The branch share of the Standard economy. One whole token is one branch.
+/// @notice The branch share of the Exchequer economy. One whole token is one branch.
 /// @dev The whitepaper wraps branches in a soulbound charter NFT; this implementation collapses both
 ///      into a single fungible share, so a balance is a bank and every whole unit of it is a branch.
 ///      Selling shares is therefore §12's "seat sale": an exit with zero sell pressure on $ISSUE,
@@ -25,7 +25,7 @@ contract BankToken is ERC20 {
     address public immutable BANK;
 
     /// @notice Thrown when an address other than the central bank attempts to mint or burn
-    error CentralBankOnly();
+    error ExchequerOnly();
 
     /// @dev The deployer is the central bank
     constructor() {
@@ -33,7 +33,7 @@ contract BankToken is ERC20 {
     }
 
     modifier onlyBank() {
-        if (msg.sender != BANK) revert CentralBankOnly();
+        if (msg.sender != BANK) revert ExchequerOnly();
         _;
     }
 

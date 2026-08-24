@@ -10,11 +10,11 @@ import {Router} from "../../src/Router.sol";
 import {TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
-import {BankToken} from "../../src/standard/BankToken.sol";
-import {CentralBank, StandardParameters, standardCallPoints} from "../../src/standard/CentralBank.sol";
-import {StandardAuctions} from "../../src/standard/StandardAuctions.sol";
-import {IssueToken} from "../../src/standard/IssueToken.sol";
-import {StandardVault} from "../../src/standard/StandardVault.sol";
+import {BankToken} from "../../src/exchequer/BankToken.sol";
+import {Exchequer, ExchequerParameters, exchequerCallPoints} from "../../src/exchequer/Exchequer.sol";
+import {ExchequerAuctions} from "../../src/exchequer/ExchequerAuctions.sol";
+import {IssueToken} from "../../src/exchequer/IssueToken.sol";
+import {ExchequerVault} from "../../src/exchequer/ExchequerVault.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolState} from "../../src/types/poolState.sol";
@@ -22,8 +22,8 @@ import {SwapParameters, createSwapParameters} from "../../src/types/swapParamete
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {TestToken} from "../TestToken.sol";
 
-/// @notice Shared fixture for the Standard economy: one market, one bank, two vaults, two auctions
-abstract contract StandardBase is Test {
+/// @notice Shared fixture for the Exchequer economy: one market, one bank, two vaults, two auctions
+abstract contract ExchequerBase is Test {
     /// @dev 0.30% expressed as the 0.64 fixed point fraction Core uses
     uint64 internal constant TRADING_FEE = uint64((uint256(3) << 64) / 1000);
 
@@ -53,12 +53,12 @@ abstract contract StandardBase is Test {
     Positions internal positions;
     Router internal router;
 
-    CentralBank internal bank;
+    Exchequer internal bank;
     IssueToken internal issue;
     BankToken internal bankToken;
-    StandardAuctions internal auctions;
-    StandardVault internal expansionVault;
-    StandardVault internal contractionVault;
+    ExchequerAuctions internal auctions;
+    ExchequerVault internal expansionVault;
+    ExchequerVault internal contractionVault;
     TestToken internal gold;
 
     function setUp() public virtual {
@@ -74,21 +74,21 @@ abstract contract StandardBase is Test {
 
         gold = new TestToken(address(this));
 
-        address bankAddress = address((uint160(standardCallPoints().toUint8()) << 152) + 0xba4e);
+        address bankAddress = address((uint160(exchequerCallPoints().toUint8()) << 152) + 0xba4e);
         deployCodeTo(
-            "CentralBank.sol:CentralBank", abi.encode(core, owner, address(gold), defaultParameters()), bankAddress
+            "Exchequer.sol:Exchequer", abi.encode(core, owner, address(gold), defaultParameters()), bankAddress
         );
-        bank = CentralBank(payable(bankAddress));
+        bank = Exchequer(payable(bankAddress));
         issue = bank.ISSUE_TOKEN();
         bankToken = bank.BANK_TOKEN();
 
         // The stock router drives this pool unmodified when the bank occupies the ve33 slot
         router = new Router(core, address(0), address(bank));
 
-        expansionVault = new StandardVault(address(bank), orders, address(gold));
-        contractionVault = new StandardVault(address(bank), orders, address(issue));
+        expansionVault = new ExchequerVault(address(bank), orders, address(gold));
+        contractionVault = new ExchequerVault(address(bank), orders, address(issue));
 
-        auctions = new StandardAuctions({
+        auctions = new ExchequerAuctions({
             owner: owner, bank: bank, licensesPerDay: 100, licenseFloorYieldDays: 2, licenseFloorMinimum: 1e18
         });
 
@@ -108,8 +108,8 @@ abstract contract StandardBase is Test {
         vm.deal(bob, 1_000 ether);
     }
 
-    function defaultParameters() internal pure returns (StandardParameters memory) {
-        return StandardParameters({
+    function defaultParameters() internal pure returns (ExchequerParameters memory) {
+        return ExchequerParameters({
             baseIssuancePerDay: 1_000_000e18,
             multiplierMin: 0.25e18,
             multiplierMax: 4e18,

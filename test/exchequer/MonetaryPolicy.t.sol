@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StandardBase} from "./StandardBase.sol";
+import {ExchequerBase} from "./ExchequerBase.sol";
 
-contract MonetaryPolicyTest is StandardBase {
+contract MonetaryPolicyTest is ExchequerBase {
     uint256 internal constant BRANCH = 1e18;
 
     /// @dev Forty silent epochs from the launch multiplier issue this much, whichever path is taken:

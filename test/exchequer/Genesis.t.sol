@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StandardBase} from "./StandardBase.sol";
+import {ExchequerBase} from "./ExchequerBase.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
-import {CentralBank} from "../../src/standard/CentralBank.sol";
+import {Exchequer} from "../../src/exchequer/Exchequer.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
-contract GenesisTest is StandardBase {
+contract GenesisTest is ExchequerBase {
     using CoreLib for *;
 
     function test_genesis_initializes_the_one_market() public view {
         PoolKey memory key = bank.poolKey();
         assertEq(key.token0, address(0), "eth is token0");
-        assertEq(key.token1, address(issue), "standard is token1");
+        assertEq(key.token1, address(issue), "issue is token1");
 
         PoolState state = core.poolState(key.toPoolId());
         assertTrue(state.isInitialized(), "pool initialized");
@@ -42,7 +42,7 @@ contract GenesisTest is StandardBase {
     function test_genesis_cannot_run_twice() public {
         vm.deal(owner, 1 ether);
         vm.prank(owner);
-        vm.expectRevert(CentralBank.GenesisAlreadyRan.selector);
+        vm.expectRevert(Exchequer.GenesisAlreadyRan.selector);
         bank.initialize{value: 1 ether}(GENESIS_TICK);
     }
 
@@ -56,7 +56,7 @@ contract GenesisTest is StandardBase {
         key.config = bank.POOL_CONFIG();
         key.token1 = address(gold);
 
-        vm.expectRevert(CentralBank.IncorrectPoolKey.selector);
+        vm.expectRevert(Exchequer.IncorrectPoolKey.selector);
         core.initializePool(key, 0);
     }
 

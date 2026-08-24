@@ -4,7 +4,7 @@ pragma solidity =0.8.33;
 import {ERC20} from "solady/tokens/ERC20.sol";
 
 /// @title Issue
-/// @notice The single currency of the Standard closed monetary economy
+/// @notice The single currency of the Exchequer closed monetary economy
 /// @dev Minted only by the central bank, and only at a withdrawal or at genesis. Burned by expansion
 ///      licenses, open market buybacks, and half of every resolution fee.
 ///

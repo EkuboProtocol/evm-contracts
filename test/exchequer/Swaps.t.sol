@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {StandardBase} from "./StandardBase.sol";
+import {ExchequerBase} from "./ExchequerBase.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {amountBeforeFee, computeFee} from "../../src/math/fee.sol";
-import {CentralBank} from "../../src/standard/CentralBank.sol";
+import {Exchequer} from "../../src/exchequer/Exchequer.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolState} from "../../src/types/poolState.sol";
@@ -36,7 +36,7 @@ contract DirectSwapper is BaseLocker {
     }
 }
 
-contract SwapsTest is StandardBase {
+contract SwapsTest is ExchequerBase {
     using CoreLib for *;
 
     uint256 internal constant BRANCH = 1e18;
@@ -52,7 +52,7 @@ contract SwapsTest is StandardBase {
         PoolKey memory key = bank.poolKey();
         SwapParameters params = createSwapParameters(MIN_SQRT_RATIO, 1 ether, false, 0);
 
-        vm.expectRevert(CentralBank.SwapMustHappenThroughForward.selector);
+        vm.expectRevert(Exchequer.SwapMustHappenThroughForward.selector);
         swapper.swapDirectly(key, params);
     }
 

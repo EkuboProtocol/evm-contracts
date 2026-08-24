@@ -38,17 +38,53 @@ contract WithdrawalsTest is ExchequerBase {
     }
 
     function test_a_quiet_week_pays_the_floor_fee() public {
-        giveShares(alice, BRANCH);
+        giveShares(alice, 100 * BRANCH);
         advanceDays(1);
 
         assertEq(bank.resolutionFeeRate(), bank.RESOLUTION_FEE_FLOOR(), "no exit pressure yet");
 
+        // Retiring one branch of a hundred is one percent of the bank: pressure barely registers
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
 
         uint256 fee = released - minted;
-        assertApproxEqRel(fee, released / 100, 1e12, "one percent");
+        assertApproxEqRel(fee, released / 100, 0.05e18, "about one percent");
         assertEq(issue.balanceOf(alice), minted, "the rest is minted to the banker");
+    }
+
+    function test_a_whale_cannot_lump_out_at_the_floor() public {
+        giveShares(alice, 9 * BRANCH);
+        giveShares(bob, BRANCH);
+        advanceDays(7);
+
+        assertEq(bank.resolutionFeeRate(), bank.RESOLUTION_FEE_FLOOR(), "quiet, at the margin");
+
+        // Ninety percent of the bank leaving in one call is a run, and is priced as one
+        vm.prank(alice);
+        (uint256 released, uint256 minted) = bank.withdraw(9 * BRANCH, alice);
+
+        assertApproxEqRel(released - minted, (released * bank.RESOLUTION_FEE_CEILING()) / 1e18, 1e12, "the ceiling");
+    }
+
+    function test_dust_exits_cannot_stretch_a_stream() public {
+        giveShares(alice, BRANCH);
+        giveShares(bob, BRANCH);
+        advanceDays(7);
+
+        vm.prank(alice);
+        bank.withdraw(BRANCH, alice);
+        uint64 end = bank.streamEndTime();
+        assertEq(end, vm.getBlockTimestamp() + 7 days, "a seven day stream");
+
+        // Bob retires one wei of his branch every day for three days
+        for (uint256 i; i < 3; ++i) {
+            advanceDays(1);
+            vm.prank(bob);
+            bank.withdraw(1, bob);
+        }
+
+        // The weighted end has moved by the dust's weight, which is nothing
+        assertLe(bank.streamEndTime(), end + 1 minutes, "the stream still ends on time");
     }
 
     function test_half_of_every_fee_is_burned_and_half_pays_those_who_stayed() public {
@@ -199,14 +235,15 @@ contract WithdrawalsTest is ExchequerBase {
         giveShares(alice, 2 * BRANCH);
         advanceDays(4);
 
-        uint256 rateAtCall = bank.resolutionFeeRate();
+        // Half of alice's ledger is about to leave, and that size is part of its own price
+        uint256 rateAtCall = bank.resolutionFeeRateFor(bank.balanceAtBank(alice) / 2);
+        assertGt(rateAtCall, bank.resolutionFeeRate(), "an exit of this size is dearer than a marginal one");
 
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
 
-        // The rate rises because of this very withdrawal, but this exit paid the earlier rate
-        assertGt(bank.resolutionFeeRate(), rateAtCall, "pressure rose afterwards");
         assertApproxEqRel(released - minted, (released * rateAtCall) / 1e18, 1e12, "priced at the locked rate");
+        assertEq(bank.resolutionFeeRate(), rateAtCall, "and the next marginal exit starts where this one ended");
     }
 
     function test_exit_pressure_decays_out_of_the_window() public {

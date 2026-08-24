@@ -13,6 +13,7 @@ import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
 import {IRevenueBuybacks} from "../interfaces/IRevenueBuybacks.sol";
+import {IExchequerAuctions} from "./ExchequerAuctions.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {maxLiquidity} from "../math/liquidity.sol";
@@ -241,8 +242,12 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     error OnlyGenesisMayInitializeThePool();
     error IncorrectPoolKey();
     error GenesisAlreadyRan();
+    error GenesisDidNotAbsorbSupply();
     error NotInitialized();
     error AlreadySet();
+    error VaultNotOwnedByBank();
+    error VaultBuysWrongAsset();
+    error AuctionsNotForThisBank();
     error AuctionsOnly();
     error BankTokenOnly();
     error OnlyCoreMaySendEth();
@@ -283,7 +288,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     event ReservesBurned(uint256 amount);
 
     /// @param core The Ekubo Core singleton
-    /// @param owner Holder of the four policy knobs, able to renounce irreversibly
+    /// @param owner Holder of the policy knobs, able to renounce irreversibly
     /// @param reserveAsset The tokenized gold (or comparable) asset the expansion vault accumulates
     /// @param params Every monetary parameter the whitepaper leaves blank
     constructor(ICore core, address owner, address reserveAsset, ExchequerParameters memory params)
@@ -297,7 +302,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
                 || params.resolutionFeeFloor > params.resolutionFeeCeiling || params.resolutionFeeCeiling > WAD
                 || params.exitPressureSaturation == 0 || params.exitPressureSaturation > WAD
                 || params.baseIssuancePerDay == 0 || params.tickSpacing == 0 || params.polReferenceWindow == 0
-                || params.redistributionStreamLength == 0
+                || params.redistributionStreamLength == 0 || reserveAsset == NATIVE_TOKEN_ADDRESS
         ) revert InvalidParameters();
 
         _initializeOwner(owner);
@@ -743,7 +748,9 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         // Pro rata rule: retiring one branch of ten liquidates one tenth of the balance
         released = FixedPointMathLib.fullMulDiv(accrued, bankAmount, balance);
 
-        uint256 feeRate = resolutionFeeRate();
+        // Priced at the margin, with this exit's own size in the window: lumping an exit into one
+        // call must never be cheaper than splitting it
+        uint256 feeRate = resolutionFeeRateFor(released);
         uint256 fee = FixedPointMathLib.fullMulDiv(released, feeRate, WAD);
         uint256 burned = fee / 2;
         uint256 redistributed = fee - burned;
@@ -769,12 +776,20 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
 
         if (remainingSupply != 0) {
             if (redistributed != 0) {
-                // Paid to every banker who stays, streamed so that staying is measured in time
-                streamRemaining += SafeCastLib.toUint128(redistributed);
-                uint64 end = uint64(block.timestamp + REDISTRIBUTION_STREAM_LENGTH);
-                streamEndTime = end;
+                // Paid to every banker who stays, streamed so that staying is measured in time.
+                // The end time is weighted by amount, so a dust exit cannot stretch a stream already
+                // in flight, and no stream is ever brought forward.
+                uint256 remaining = streamRemaining;
+                uint256 end = block.timestamp + REDISTRIBUTION_STREAM_LENGTH;
+                if (remaining != 0) {
+                    uint256 current = streamEndTime;
+                    if (current < block.timestamp) current = block.timestamp;
+                    end = (remaining * current + redistributed * end) / (remaining + redistributed);
+                }
+                streamRemaining = SafeCastLib.toUint128(remaining + redistributed);
+                streamEndTime = uint64(end);
                 totalLedgerBalance += redistributed;
-                emit RedistributionStreamed(redistributed, end);
+                emit RedistributionStreamed(redistributed, uint64(end));
             }
         } else {
             // Nobody stayed, so there is nobody to pay, now or from an earlier stream
@@ -794,14 +809,21 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         emit Withdrawn(msg.sender, bankAmount, released, feeRate, burned, redistributed);
     }
 
-    /// @notice The resolution fee in force right now, in 1e18 fixed point (eq 9.1)
+    /// @notice The resolution fee a marginal exit would pay right now, in 1e18 fixed point (eq 9.1)
+    function resolutionFeeRate() external view returns (uint256) {
+        return resolutionFeeRateFor(0);
+    }
+
+    /// @notice The resolution fee an exit of `exiting` would pay right now, in 1e18 fixed point
     /// @dev Quadratic between the floor and the ceiling, saturating once `EXIT_PRESSURE_SATURATION`
-    ///      of the bank has tried to leave inside the trailing window
-    function resolutionFeeRate() public view returns (uint256 rate) {
-        uint256 w = trailingWithdrawals();
+    ///      of the bank has tried to leave inside the trailing window. The exit being priced counts
+    ///      toward the window, so an exit large enough to be a run on its own is priced as one.
+    function resolutionFeeRateFor(uint256 exiting) public view returns (uint256 rate) {
+        uint256 w = trailingWithdrawals() + exiting;
         if (w == 0) return RESOLUTION_FEE_FLOOR;
 
-        uint256 denominator = currentTotalLedgerBalance() + w;
+        // `D` after this exit plus `W` including it is the same sum as before it
+        uint256 denominator = currentTotalLedgerBalance() + trailingWithdrawals();
         if (denominator < EXIT_PRESSURE_DENOMINATOR_FLOOR) denominator = EXIT_PRESSURE_DENOMINATOR_FLOOR;
 
         uint256 pressure = FixedPointMathLib.fullMulDiv(w, WAD, denominator);
@@ -915,14 +937,17 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
 
         _observe(stateAfter.tick());
 
-        int128 ethDelta = SafeCastLib.toInt128(int256(balanceUpdate.delta0()) + int256(uint256(feeAmount)));
-        balanceUpdate = createPoolBalanceUpdate(ethDelta, balanceUpdate.delta1());
-
-        // Net flow is read on the trader-facing delta, because that is the capital that moved
+        // Net flow is read on the pool-facing delta, before the fee. Booking the fee as inflow would
+        // let a round trip register its own two fees as capital entering, which is the cheapest
+        // possible way to buy an expansion epoch.
+        int128 poolDelta = balanceUpdate.delta0();
         unchecked {
-            if (ethDelta > 0) _epochEthIn += uint128(ethDelta);
-            else if (ethDelta < 0) _epochEthOut += uint128(uint256(-int256(ethDelta)));
+            if (poolDelta > 0) _epochEthIn += uint128(poolDelta);
+            else if (poolDelta < 0) _epochEthOut += uint128(uint256(-int256(poolDelta)));
         }
+
+        int128 ethDelta = SafeCastLib.toInt128(int256(poolDelta) + int256(uint256(feeAmount)));
+        balanceUpdate = createPoolBalanceUpdate(ethDelta, balanceUpdate.delta1());
 
         if (feeAmount != 0) {
             CORE.updateSavedBalances(key.token0, key.token1, FEE_SALT, int256(uint256(feeAmount)), 0);
@@ -1050,15 +1075,19 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         lock(abi.encode(CALL_TYPE_GENESIS, tick, msg.value));
     }
 
-    /// @notice Wires in the expansion vault. One shot.
+    /// @notice Wires in the expansion vault. One shot, and only a vault this bank owns that buys
+    ///         the reserve asset, since a mis-wired vault would strand every expansion epoch.
     function setExpansionVault(address vault) external onlyOwner {
         if (expansionVault != address(0)) revert AlreadySet();
+        if (Ownable(vault).owner() != address(this)) revert VaultNotOwnedByBank();
+        if (IRevenueBuybacks(vault).BUY_TOKEN() != RESERVE_ASSET) revert VaultBuysWrongAsset();
         expansionVault = vault;
     }
 
     /// @notice Wires in the auction contract, the only address that may open new branches. One shot.
     function setAuctions(address _auctions) external onlyOwner {
         if (auctions != address(0)) revert AlreadySet();
+        if (IExchequerAuctions(_auctions).BANK() != address(this)) revert AuctionsNotForThisBank();
         auctions = _auctions;
     }
 
@@ -1102,7 +1131,13 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     function dailyYieldPerShare() external view returns (uint256) {
         uint256 supply = BANK_TOKEN.totalSupply();
         if (supply == 0) return 0;
-        return FixedPointMathLib.fullMulDiv(uint256(BASE_ISSUANCE_PER_DAY) * currentMultiplier() / WAD, 1e18, supply);
+
+        uint256 perDay = uint256(BASE_ISSUANCE_PER_DAY) * currentMultiplier() / WAD;
+        // Once the budget is spent there is no yield to price, whatever the rate says
+        uint256 headroom = ISSUANCE_BUDGET - cumulativeIssuance - pendingIssuance();
+        if (perDay > headroom) perDay = headroom;
+
+        return FixedPointMathLib.fullMulDiv(perDay, 1e18, supply);
     }
 
     /// @notice The multiplier as of the current block, including boundaries not yet settled
@@ -1199,14 +1234,18 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         _lastObservedTick = tick;
         _lastObservationTime = uint32(block.timestamp);
 
-        (, uint128 amount0, uint128 amount1) =
+        (uint128 liquidity, uint128 amount0, uint128 amount1) =
             _addGenesisLiquidity(key, ethAmount, SafeCastLib.toUint128(GENESIS_LIQUIDITY));
+
+        // Genesis is one shot and the supply is minted once, so a seed the chosen tick cannot pair
+        // with the whole 100,000,000 is refused rather than silently burned
+        uint256 leftoverIssue = GENESIS_LIQUIDITY - amount1;
+        if (liquidity == 0 || leftoverIssue > GENESIS_LIQUIDITY / 1_000_000) revert GenesisDidNotAbsorbSupply();
 
         if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
         if (amount1 != 0) ACCOUNTANT.pay(address(ISSUE_TOKEN), amount1);
 
-        // Whatever the chosen tick could not absorb is destroyed rather than left mintable
-        uint256 leftoverIssue = GENESIS_LIQUIDITY - amount1;
+        // Rounding dust is destroyed rather than left mintable
         if (leftoverIssue != 0) ISSUE_TOKEN.burn(leftoverIssue);
 
         unchecked {

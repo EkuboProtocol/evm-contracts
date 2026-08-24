@@ -4,6 +4,7 @@ pragma solidity =0.8.33;
 import {ExchequerBase} from "./ExchequerBase.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {Exchequer, exchequerCallPoints} from "../../src/exchequer/Exchequer.sol";
+import {ExchequerVault} from "../../src/exchequer/ExchequerVault.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -60,14 +61,60 @@ contract GenesisTest is ExchequerBase {
         core.initializePool(key, 0);
     }
 
+    /// @dev A second bank whose genesis has not run yet
+    function _freshBank(uint160 tag) internal returns (Exchequer fresh) {
+        address at = address((uint160(exchequerCallPoints().toUint8()) << 152) + tag);
+        deployCodeTo("Exchequer.sol:Exchequer", abi.encode(core, owner, address(gold), defaultParameters()), at);
+        fresh = Exchequer(payable(at));
+    }
+
     function test_nobody_can_open_the_canonical_pool_ahead_of_genesis() public {
-        // A fresh bank whose genesis has not run yet
-        address fresh = address((uint160(exchequerCallPoints().toUint8()) << 152) + 0xf00d);
-        deployCodeTo("Exchequer.sol:Exchequer", abi.encode(core, owner, address(gold), defaultParameters()), fresh);
-        PoolKey memory key = Exchequer(payable(fresh)).poolKey();
+        PoolKey memory key = _freshBank(0xf00d).poolKey();
 
         vm.expectRevert(Exchequer.OnlyGenesisMayInitializeThePool.selector);
         core.initializePool(key, GENESIS_TICK);
+    }
+
+    function test_genesis_refuses_a_seed_the_tick_cannot_pair() public {
+        Exchequer fresh = _freshBank(0xf00e);
+        ExchequerVault vault = new ExchequerVault(address(fresh), orders, address(gold));
+        vm.prank(owner);
+        fresh.setExpansionVault(address(vault));
+
+        // One wei of ETH cannot pair with 100,000,000 $ISSUE at any sensible tick, and a one-shot
+        // genesis that silently burned the supply would be unrecoverable
+        vm.deal(owner, 1);
+        vm.prank(owner);
+        vm.expectRevert(Exchequer.GenesisDidNotAbsorbSupply.selector);
+        fresh.initialize{value: 1}(GENESIS_TICK);
+
+        assertFalse(fresh.initialized(), "genesis can still be run properly");
+        assertEq(fresh.ISSUE_TOKEN().totalMinted(), 0, "and nothing was minted");
+    }
+
+    function test_the_vault_must_be_the_banks_own_and_buy_the_reserve_asset() public {
+        Exchequer fresh = _freshBank(0xf00f);
+
+        // Owned by someone else: its owner could collect the gold
+        ExchequerVault foreign = new ExchequerVault(alice, orders, address(gold));
+        vm.prank(owner);
+        vm.expectRevert(Exchequer.VaultNotOwnedByBank.selector);
+        fresh.setExpansionVault(address(foreign));
+
+        // Buying the wrong asset: every flush would strand
+        ExchequerVault wrongAsset = new ExchequerVault(address(fresh), orders, address(issue));
+        vm.prank(owner);
+        vm.expectRevert(Exchequer.VaultBuysWrongAsset.selector);
+        fresh.setExpansionVault(address(wrongAsset));
+    }
+
+    function test_the_auctions_must_be_for_this_bank() public {
+        Exchequer fresh = _freshBank(0xf010);
+
+        // The main fixture's auctions mint for the main bank, not this one
+        vm.prank(owner);
+        vm.expectRevert(Exchequer.AuctionsNotForThisBank.selector);
+        fresh.setAuctions(address(auctions));
     }
 
     function test_owner_can_renounce_irreversibly() public {

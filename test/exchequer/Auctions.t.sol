@@ -178,8 +178,41 @@ contract AuctionsTest is ExchequerBase {
     }
 
     function test_only_the_owner_sets_charter_policy() public {
-        vm.expectRevert();
+        vm.expectRevert(ExchequerAuctions.Unauthorized.selector);
         auctions.setCharterPolicy(5, 0.01 ether);
+    }
+
+    function test_charter_policy_belongs_to_the_banks_owner_and_dies_with_it() public {
+        // The auctions have no owner of their own: whoever owns the bank sets policy
+        vm.prank(owner);
+        auctions.setCharterPolicy(5, 0.01 ether);
+
+        vm.prank(owner);
+        bank.renounceOwnership();
+
+        // Renouncing the bank froze the auctions too; there is one authority in this economy
+        vm.prank(owner);
+        vm.expectRevert(ExchequerAuctions.Unauthorized.selector);
+        auctions.setCharterPolicy(50, 0.01 ether);
+    }
+
+    function test_an_open_charter_auction_needs_a_real_reserve() public {
+        // A zero reserve would mint shares for nothing
+        vm.prank(owner);
+        vm.expectRevert(ExchequerAuctions.InvalidCharterPolicy.selector);
+        auctions.setCharterPolicy(5, 0);
+
+        // Closing the auction needs no reserve
+        vm.prank(owner);
+        auctions.setCharterPolicy(0, 0);
+    }
+
+    function test_charter_supply_per_day_is_capped() public {
+        uint256 tooMany = auctions.MAX_CHARTERS_PER_DAY() + 1;
+
+        vm.prank(owner);
+        vm.expectRevert(ExchequerAuctions.InvalidCharterPolicy.selector);
+        auctions.setCharterPolicy(tooMany, 0.01 ether);
     }
 
     function test_a_charter_mints_a_bank_and_pays_the_fee_engine() public {

@@ -22,7 +22,7 @@ import {SwapParameters, createSwapParameters} from "../../src/types/swapParamete
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {TestToken} from "../TestToken.sol";
 
-/// @notice Shared fixture for the Exchequer economy: one market, one bank, two vaults, two auctions
+/// @notice Shared fixture for the Exchequer economy: one market, one bank, one vault, two auctions
 abstract contract ExchequerBase is Test {
     /// @dev 0.30% expressed as the 0.64 fixed point fraction Core uses
     uint64 internal constant TRADING_FEE = uint64((uint256(3) << 64) / 1000);
@@ -33,7 +33,7 @@ abstract contract ExchequerBase is Test {
     uint32 internal constant TICK_SPACING = 1000;
 
     /// @dev An epoch counts as expansion only with at least this much net inflow
-    uint128 internal constant MIN_NET_FLOW = 0.01 ether;
+    uint128 internal constant MIN_NET_FLOW = 0.005 ether;
 
     /// @dev Permissive slippage bound; the sentinel `type(int256).min` is reserved by the router
     int256 internal constant NO_SLIPPAGE_LIMIT = type(int256).min + 1;
@@ -87,7 +87,7 @@ abstract contract ExchequerBase is Test {
         expansionVault = new ExchequerVault(address(bank), orders, address(gold));
 
         auctions = new ExchequerAuctions({
-            owner: owner, bank: bank, licensesPerDay: 100, licenseFloorYieldDays: 2, licenseFloorMinimum: 1e18
+            bank: bank, licensesPerDay: 100, licenseFloorYieldDays: 2, licenseFloorMinimum: 1e18, maxChartersPerDay: 100
         });
 
         vm.startPrank(owner);

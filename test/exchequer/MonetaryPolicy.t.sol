@@ -2,6 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ExchequerBase} from "./ExchequerBase.sol";
+import {amountBeforeFee} from "../../src/math/fee.sol";
 
 contract MonetaryPolicyTest is ExchequerBase {
     uint256 internal constant BRANCH = 1e18;
@@ -47,21 +48,21 @@ contract MonetaryPolicyTest is ExchequerBase {
     }
 
     function test_dust_cannot_buy_the_policy_signal() public {
-        // A one-wei buy is booked as inflow but is below the dead band
-        buy(trader, 1);
+        // A dust buy is booked as inflow but is below the dead band
+        buy(trader, 1e12);
         (int256 flow,,) = bank.netFlows();
-        assertGt(flow, 0, "the wei registered");
+        assertGt(flow, 0, "the dust registered");
 
         _rollOneEpoch();
         assertEq(bank.multiplier(), 0.75e18, "and still counted as a contraction");
 
         // The trailing two-epoch sum just under the threshold is likewise nothing; at it, real
-        // capital, it counts
+        // capital into the pool, it counts
         buy(trader, uint128(MIN_NET_FLOW) - 2);
         _rollOneEpoch();
         assertEq(bank.multiplier(), 0.5e18, "below the band");
 
-        buy(trader, uint128(MIN_NET_FLOW));
+        buy(trader, amountBeforeFee(uint128(MIN_NET_FLOW), TRADING_FEE));
         _rollOneEpoch();
         assertEq(bank.multiplier(), 0.5625e18, "at the band");
     }
@@ -72,7 +73,7 @@ contract MonetaryPolicyTest is ExchequerBase {
         bank.accrue();
 
         // A dust buy in a quiet epoch: revenue is routed to defense, not to reserves
-        buy(trader, 1);
+        buy(trader, 1e12);
         uint128 fees = bank.epochRevenueEth();
         uint128 contractionBefore = bank.pendingContractionEth();
         _rollOneEpoch();

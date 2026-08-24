@@ -12,10 +12,15 @@ import {ExchequerVault} from "../src/exchequer/ExchequerVault.sol";
 import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 
 /// @title DeployExchequer
-/// @notice Deploys the Exchequer economy: the central bank extension, both vaults, and both auctions
+/// @notice Deploys the Exchequer economy: the central bank extension, the expansion vault, and the
+///         auctions, deterministically, and hands the bank to its owner once wired
 /// @dev The whitepaper redacts every monetary parameter and says final values arrive closer to
 ///      launch, so the values below are documented defaults rather than authoritative ones. See
 ///      docs/exchequer.md for the reasoning behind each.
+///
+///      The bank is constructed with the broadcaster as owner so the one-shot wiring can happen in
+///      the same run, then ownership is transferred to `OWNER_ADDRESS`. Every contract is deployed
+///      through CREATE2 at a salt derived from the deployment salt, so a re-run is a no-op.
 ///
 ///      After this script runs, genesis still requires four owner actions:
 ///        1. `bank.initialize{value: seedEth}(tick)`, which mints the 100,000,000 genesis supply and
@@ -70,9 +75,14 @@ contract DeployExchequer is Script {
 
         vm.startBroadcast();
 
-        // The extension address must encode its call points, so the salt is mined
+        address deployer = msg.sender;
+
+        // The extension address must encode its call points, so the salt is mined. The broadcaster
+        // owns the bank until it is wired.
         (address bankAddress,) = deployExtension(
-            abi.encodePacked(type(Exchequer).creationCode, abi.encode(core, owner, reserveAsset, launchParameters())),
+            abi.encodePacked(
+                type(Exchequer).creationCode, abi.encode(core, deployer, reserveAsset, launchParameters())
+            ),
             salt,
             exchequerCallPoints(),
             address(0),
@@ -81,21 +91,38 @@ contract DeployExchequer is Script {
         bank = Exchequer(payable(bankAddress));
 
         // The bank owns the vault, so nothing it buys can land anywhere else
-        expansion = new ExchequerVault(bankAddress, orders, reserveAsset);
+        (address vaultAddress,) = deployIfNeeded(
+            abi.encodePacked(type(ExchequerVault).creationCode, abi.encode(bankAddress, orders, reserveAsset)),
+            keccak256(abi.encode(salt, "ExchequerVault")),
+            address(0),
+            "ExchequerVault"
+        );
+        expansion = ExchequerVault(payable(vaultAddress));
 
-        auctions = new ExchequerAuctions({
-            owner: owner,
-            bank: bank,
-            // 100 expansion licenses a day
-            licensesPerDay: 100,
-            // The floor is worth about two days of one branch's yield
-            licenseFloorYieldDays: 2,
-            // and never falls below one whole token, so a day cannot open at zero
-            licenseFloorMinimum: 1e18
-        });
+        (address auctionsAddress,) = deployIfNeeded(
+            abi.encodePacked(
+                type(ExchequerAuctions).creationCode,
+                abi.encode(
+                    bank,
+                    // 100 expansion licenses a day
+                    uint256(100),
+                    // The floor is worth about two days of one branch's yield
+                    uint256(2),
+                    // and never falls below one whole token, so a day cannot open at zero
+                    uint256(1e18),
+                    // Policy may offer at most 100 charters a day
+                    uint256(100)
+                )
+            ),
+            keccak256(abi.encode(salt, "ExchequerAuctions")),
+            address(0),
+            "ExchequerAuctions"
+        );
+        auctions = ExchequerAuctions(auctionsAddress);
 
-        bank.setExpansionVault(address(expansion));
-        bank.setAuctions(address(auctions));
+        if (bank.expansionVault() == address(0)) bank.setExpansionVault(vaultAddress);
+        if (bank.auctions() == address(0)) bank.setAuctions(auctionsAddress);
+        if (owner != deployer && bank.owner() == deployer) bank.transferOwnership(owner);
 
         vm.stopBroadcast();
 

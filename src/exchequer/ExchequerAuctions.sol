@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {Ownable} from "solady/auth/Ownable.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {Exchequer} from "./Exchequer.sol";
 import {IssueToken} from "./IssueToken.sol";
+
+/// @notice What the bank needs to know about its auctions
+interface IExchequerAuctions {
+    /// @notice The bank these auctions mint shares for
+    function BANK() external view returns (address);
+}
 
 /// @title Exchequer Auctions
 /// @notice The two daily falling-price Dutch auctions of the Exchequer economy (whitepaper §8)
@@ -25,14 +30,17 @@ import {IssueToken} from "./IssueToken.sol";
 ///      §7's per-charter limit of three licenses per day is not enforced. Over a freely transferable
 ///      share a per-address cap is evaded with a second address, so the daily supply cap is what
 ///      actually rations expansion. See docs/exchequer.md.
-contract ExchequerAuctions is Ownable {
+///
+///      There is one authority in this economy. Charter policy is set by whoever owns the bank, so
+///      the bank renouncing its owner freezes the auctions as well.
+contract ExchequerAuctions {
     /// @dev One whole share, which is one branch
     uint256 private constant ONE_SHARE = 1e18;
 
     /// @dev Fixed point scale
     uint256 private constant WAD = 1e18;
 
-    /// @notice The issuing authority
+    /// @notice The issuing authority, whose owner sets charter policy (matches `IExchequerAuctions`)
     Exchequer public immutable BANK;
 
     /// @notice The currency licenses are paid in
@@ -52,6 +60,9 @@ contract ExchequerAuctions is Ownable {
 
     /// @notice Multiple of yesterday's close at which the charter day opens (§8: three times)
     uint256 public constant CHARTER_OPEN_MULTIPLE = 3;
+
+    /// @notice Hard ceiling on charters per day, so policy can ration seats but never flood them
+    uint256 public immutable MAX_CHARTERS_PER_DAY;
 
     /// @notice Licenses sold on each day, capped at `LICENSES_PER_DAY`
     mapping(uint256 day => uint256 sold) public licensesSoldOnDay;
@@ -90,6 +101,8 @@ contract ExchequerAuctions is Ownable {
     uint256 public charterReservePrice;
 
     error InvalidCount();
+    error InvalidCharterPolicy();
+    error Unauthorized();
     error SoldOutForToday();
     error PriceExceededLimit();
     error InsufficientPayment();
@@ -99,24 +112,31 @@ contract ExchequerAuctions is Ownable {
     event ChartersPurchased(address indexed buyer, uint256 count, uint256 unitPrice, uint256 paid);
     event CharterPolicyUpdated(uint256 chartersPerDay, uint256 reservePrice);
 
-    /// @param owner Administrator of the charter auction's supply and reserve price
-    /// @param bank The central bank, which mints the shares these auctions sell
+    /// @param bank The central bank, which mints the shares these auctions sell and whose owner
+    ///             sets charter policy
     /// @param licensesPerDay Licenses offered each day
     /// @param licenseFloorYieldDays Days of one branch's yield the license floor is worth
     /// @param licenseFloorMinimum Absolute lower bound on the license floor
+    /// @param maxChartersPerDay Most charters policy may ever offer in a day
     constructor(
-        address owner,
         Exchequer bank,
         uint256 licensesPerDay,
         uint256 licenseFloorYieldDays,
-        uint256 licenseFloorMinimum
+        uint256 licenseFloorMinimum,
+        uint256 maxChartersPerDay
     ) {
-        _initializeOwner(owner);
         BANK = bank;
         ISSUE_TOKEN = bank.ISSUE_TOKEN();
         LICENSES_PER_DAY = licensesPerDay;
         LICENSE_FLOOR_YIELD_DAYS = licenseFloorYieldDays;
         LICENSE_FLOOR_MINIMUM = licenseFloorMinimum;
+        MAX_CHARTERS_PER_DAY = maxChartersPerDay;
+    }
+
+    /// @dev Policy belongs to the bank's owner, and to nobody once that owner has renounced
+    modifier onlyBankOwner() {
+        if (msg.sender != BANK.owner()) revert Unauthorized();
+        _;
     }
 
     /// THE LICENSE AUCTION, PAID IN $ISSUE AND BURNED
@@ -248,8 +268,11 @@ contract ExchequerAuctions is Ownable {
     }
 
     /// @notice Sets the charter auction's daily supply and reserve price
-    /// @dev The only policy knobs the whitepaper leaves to an administrator
-    function setCharterPolicy(uint256 perDay, uint256 reservePrice) external onlyOwner {
+    /// @dev The only policy knobs the whitepaper leaves to an administrator. A day's supply is
+    ///      capped, and an open auction must carry a real reserve: a zero reserve would mint
+    ///      shares for nothing.
+    function setCharterPolicy(uint256 perDay, uint256 reservePrice) external onlyBankOwner {
+        if (perDay > MAX_CHARTERS_PER_DAY || (perDay != 0 && reservePrice == 0)) revert InvalidCharterPolicy();
         chartersPerDay = perDay;
         charterReservePrice = reservePrice;
         emit CharterPolicyUpdated(perDay, reservePrice);

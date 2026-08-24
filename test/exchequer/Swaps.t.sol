@@ -121,12 +121,13 @@ contract SwapsTest is ExchequerBase {
     function test_net_flow_is_measured_in_real_capital() public {
         buy(trader, 3 ether);
         (int256 current,,) = bank.netFlows();
-        assertEq(current, int256(3 ether), "gross ETH in from the buy");
+        // The pool received the buy less the fee; the fee is the bank's, not capital in the market
+        assertEq(current, int256(3 ether) - int256(uint256(computeFee(3 ether, TRADING_FEE))), "ETH into the pool");
 
-        (int128 delta0,) = sell(trader, uint128(issue.balanceOf(trader)));
+        sell(trader, uint128(issue.balanceOf(trader)));
         (current,,) = bank.netFlows();
-        assertEq(current, int256(3 ether) + int256(delta0), "less gross ETH out from the sell");
-        assertLt(current, int256(3 ether), "a round trip leaves less than it brought");
+        assertLt(current, int256(0.01 ether), "a round trip leaves only its price impact behind");
+        assertGt(current, 0, "which is not nothing, but is not two fees either");
     }
 
     function test_an_expansion_epoch_stacks_reserves() public {

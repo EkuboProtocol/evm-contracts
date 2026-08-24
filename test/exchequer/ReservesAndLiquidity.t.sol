@@ -210,13 +210,15 @@ contract ReservesAndLiquidityTest is ExchequerBase {
 
         uint256 burnedBefore = issue.totalBurned();
         uint256 ceilingBefore = issue.maxSupply();
+        PositionId oldBucket = bank.buybackPositionId();
+        assertGt(_liquidityOf(oldBucket), 0, "the bucket stood");
 
         (uint128 liquidity, int32 newLower, uint256 issueBurned) = bank.defend();
 
         assertGt(issueBurned, 0, "the bucket had bought currency");
         assertEq(issue.totalBurned() - burnedBefore, issueBurned, "all of it was destroyed");
         assertLt(issue.maxSupply(), ceilingBefore, "permanently");
-        assertEq(_liquidityOf(bank.polBidPositionId(lower)), 0, "the old bucket is gone");
+        assertEq(_liquidityOf(oldBucket), 0, "the old bucket is gone entirely");
         assertGt(newLower, _spotTick(), "and the remaining ETH bids again below the new market");
         if (liquidity != 0) assertEq(bank.buybackBidLowerTick(), newLower, "recorded");
         assertEq(issue.balanceOf(address(bank)), 0, "the bank holds no currency");

@@ -102,6 +102,16 @@ contract IssuanceTest is ExchequerBase {
         assertEq(bank.balanceAtBank(alice), before, "base issuance has stopped permanently");
     }
 
+    function test_daily_yield_reports_nothing_once_the_budget_is_spent() public {
+        giveShares(alice, BRANCH);
+        assertGt(bank.dailyYieldPerShare(), 0, "yield while the budget lasts");
+
+        vm.warp(vm.getBlockTimestamp() + 20_000 days);
+        assertEq(bank.dailyYieldPerShare(), 0, "and none once it is spent, before or after accrual");
+        bank.accrue();
+        assertEq(bank.dailyYieldPerShare(), 0, "so licenses cannot be priced off phantom yield");
+    }
+
     function test_the_budget_and_genesis_exactly_fill_the_hard_cap() public view {
         assertEq(bank.ISSUANCE_BUDGET() + bank.GENESIS_LIQUIDITY(), issue.HARD_CAP(), "900M + 100M = 1B");
     }

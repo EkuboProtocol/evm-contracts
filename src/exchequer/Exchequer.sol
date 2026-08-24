@@ -64,6 +64,8 @@ struct ExchequerParameters {
     uint32 polReferenceWindow;
     /// @notice Seconds over which the redistributed half of each resolution fee is streamed
     uint32 redistributionStreamLength;
+    /// @notice Least net ETH inflow, in wei, for an epoch to count as expansion
+    uint128 minNetFlow;
 }
 
 /// @title Exchequer
@@ -149,6 +151,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     uint128 public immutable EXIT_PRESSURE_DENOMINATOR_FLOOR;
     uint32 public immutable POL_REFERENCE_WINDOW;
     uint32 public immutable REDISTRIBUTION_STREAM_LENGTH;
+    uint128 public immutable MIN_NET_FLOW;
 
     /// @notice The policy multiplier in force, in 1e18 fixed point (§5)
     uint64 public multiplier;
@@ -235,6 +238,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     uint32 private _lastObservationTime;
 
     error SwapMustHappenThroughForward();
+    error OnlyGenesisMayInitializeThePool();
     error IncorrectPoolKey();
     error GenesisAlreadyRan();
     error NotInitialized();
@@ -255,6 +259,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
 
     event Accrued(uint256 issued, uint256 streamed, uint256 growthPerShareX128);
     event RedistributionStreamed(uint256 amount, uint64 endTime);
+    event LedgerMoved(address indexed from, address indexed to, uint256 amount);
     event EpochRolled(
         uint64 epochStart, int256 closedEpochNetFlow, uint256 boundariesCrossed, uint64 multiplier, bool expansion
     );
@@ -313,6 +318,7 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         EXIT_PRESSURE_DENOMINATOR_FLOOR = params.exitPressureDenominatorFloor;
         POL_REFERENCE_WINDOW = params.polReferenceWindow;
         REDISTRIBUTION_STREAM_LENGTH = params.redistributionStreamLength;
+        MIN_NET_FLOW = params.minNetFlow;
 
         multiplier = params.multiplierLaunch;
 
@@ -358,9 +364,11 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     /// EXTENSION CALL POINTS
 
     /// @inheritdoc BaseExtension
-    /// @dev There is exactly one market in this economy, so no other pool may adopt this extension
-    function beforeInitializePool(address, PoolKey calldata key, int32) external view override {
-        _checkPoolKey(key);
+    /// @dev There is exactly one market in this economy and only genesis may open it. Core does not
+    ///      call this hook when the initializer is the extension itself, so every call that arrives
+    ///      here is someone else, whether with the canonical key or another: refused either way.
+    function beforeInitializePool(address, PoolKey calldata, int32) external pure override {
+        revert OnlyGenesisMayInitializeThePool();
     }
 
     /// @inheritdoc BaseExtension
@@ -393,8 +401,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
             _walk(multiplier, epochStart_(), last, currentFlow, _prevNetFlow);
 
         if (rolls != 0) {
-            // Fee routing follows the sign of the epoch that just closed alone: the fast lever (§4)
-            bool expansion = currentFlow > 0;
+            // Fee routing follows the epoch that just closed alone: the fast lever (§4)
+            bool expansion = _isExpansion(currentFlow);
             _routeRevenue(expansion);
 
             _epochEthIn = 0;
@@ -492,11 +500,19 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         finalEpochStart = epochStart;
     }
 
+    /// @notice Whether a net flow is large enough to count as expansion
+    /// @dev §4 says the signal is "denominated in real capital", which a pure sign test is not: a
+    ///      one-wei buy would make an epoch expansionary. Anything below `MIN_NET_FLOW` is treated
+    ///      as zero, and zero is a contraction, per §5.
+    function _isExpansion(int256 flow) private view returns (bool) {
+        return flow > 0 && uint256(flow) >= MIN_NET_FLOW;
+    }
+
     /// @notice The multiplier for the next epoch given the trailing two-epoch signal
-    /// @dev A zero signal is a contraction, per §5
+    /// @dev A zero or sub-threshold signal is a contraction, per §5
     function _nextMultiplier(uint256 m, int256 signal) private view returns (uint256 next) {
         unchecked {
-            if (signal > 0) {
+            if (_isExpansion(signal)) {
                 uint256 raised = m + MULTIPLIER_RAISE_STEP;
                 next = raised > MULTIPLIER_MAX ? MULTIPLIER_MAX : raised;
             } else {
@@ -612,11 +628,29 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
     }
 
     /// @inheritdoc IBankShareHook
-    function settleShares(address a, address b) external {
+    /// @dev The settled ledger travels with the shares. Without this a holder could park all but
+    ///      one wei of their shares elsewhere, retire that wei against the whole ledger, and take
+    ///      the shares back: value extracted, vehicle kept. With it, the whitepaper's §12 holds
+    ///      literally: "the seat moves whole, branches and balance included."
+    function settleTransfer(address from, address to, uint256 amount) external {
         if (msg.sender != address(BANK_TOKEN)) revert BankTokenOnly();
         accrue();
-        _settle(a);
-        _settle(b);
+        _settle(from);
+        _settle(to);
+
+        if (from == address(0) || to == address(0) || from == to || amount == 0) return;
+
+        uint256 balance = BANK_TOKEN.balanceOf(from);
+        if (balance == 0) return;
+
+        uint256 moved = FixedPointMathLib.fullMulDiv(ledgerBalance[from], amount, balance);
+        if (moved == 0) return;
+
+        unchecked {
+            ledgerBalance[from] -= moved;
+            ledgerBalance[to] += moved;
+        }
+        emit LedgerMoved(from, to, moved);
     }
 
     /// @notice Moves `holder`'s share of issuance growth into their settled ledger balance
@@ -720,8 +754,8 @@ contract Exchequer is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBankSh
         }
         _recordWithdrawal(released);
 
-        // Retires the vehicle that produced the yield. Re-enters `settleShares`, which no-ops
-        // because this block already accrued and settled the caller.
+        // Retires the vehicle that produced the yield. Re-enters `settleTransfer`, which no-ops
+        // because this block already accrued and settled the caller, and a burn moves no ledger.
         BANK_TOKEN.burn(msg.sender, bankAmount);
 
         uint256 remainingSupply = BANK_TOKEN.totalSupply();

@@ -32,6 +32,9 @@ abstract contract ExchequerBase is Test {
 
     uint32 internal constant TICK_SPACING = 1000;
 
+    /// @dev An epoch counts as expansion only with at least this much net inflow
+    uint128 internal constant MIN_NET_FLOW = 0.01 ether;
+
     /// @dev Permissive slippage bound; the sentinel `type(int256).min` is reserved by the router
     int256 internal constant NO_SLIPPAGE_LIMIT = type(int256).min + 1;
 
@@ -119,7 +122,8 @@ abstract contract ExchequerBase is Test {
             exitPressureSaturation: 0.25e18,
             exitPressureDenominatorFloor: 1_000_000e18,
             polReferenceWindow: 1 hours,
-            redistributionStreamLength: 7 days
+            redistributionStreamLength: 7 days,
+            minNetFlow: MIN_NET_FLOW
         });
     }
 

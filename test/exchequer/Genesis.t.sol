@@ -3,7 +3,7 @@ pragma solidity =0.8.33;
 
 import {ExchequerBase} from "./ExchequerBase.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
-import {Exchequer} from "../../src/exchequer/Exchequer.sol";
+import {Exchequer, exchequerCallPoints} from "../../src/exchequer/Exchequer.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
@@ -56,8 +56,18 @@ contract GenesisTest is ExchequerBase {
         key.config = bank.POOL_CONFIG();
         key.token1 = address(gold);
 
-        vm.expectRevert(Exchequer.IncorrectPoolKey.selector);
+        vm.expectRevert(Exchequer.OnlyGenesisMayInitializeThePool.selector);
         core.initializePool(key, 0);
+    }
+
+    function test_nobody_can_open_the_canonical_pool_ahead_of_genesis() public {
+        // A fresh bank whose genesis has not run yet
+        address fresh = address((uint160(exchequerCallPoints().toUint8()) << 152) + 0xf00d);
+        deployCodeTo("Exchequer.sol:Exchequer", abi.encode(core, owner, address(gold), defaultParameters()), fresh);
+        PoolKey memory key = Exchequer(payable(fresh)).poolKey();
+
+        vm.expectRevert(Exchequer.OnlyGenesisMayInitializeThePool.selector);
+        core.initializePool(key, GENESIS_TICK);
     }
 
     function test_owner_can_renounce_irreversibly() public {

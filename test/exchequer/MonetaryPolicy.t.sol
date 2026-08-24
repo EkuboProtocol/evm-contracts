@@ -46,6 +46,40 @@ contract MonetaryPolicyTest is ExchequerBase {
         assertEq(bank.multiplier(), 0.875e18, "a zero signal is a contraction");
     }
 
+    function test_dust_cannot_buy_the_policy_signal() public {
+        // A one-wei buy is booked as inflow but is below the dead band
+        buy(trader, 1);
+        (int256 flow,,) = bank.netFlows();
+        assertGt(flow, 0, "the wei registered");
+
+        _rollOneEpoch();
+        assertEq(bank.multiplier(), 0.75e18, "and still counted as a contraction");
+
+        // The trailing two-epoch sum just under the threshold is likewise nothing; at it, real
+        // capital, it counts
+        buy(trader, uint128(MIN_NET_FLOW) - 2);
+        _rollOneEpoch();
+        assertEq(bank.multiplier(), 0.5e18, "below the band");
+
+        buy(trader, uint128(MIN_NET_FLOW));
+        _rollOneEpoch();
+        assertEq(bank.multiplier(), 0.5625e18, "at the band");
+    }
+
+    function test_dust_cannot_flip_fee_routing() public {
+        buy(trader, 1 ether);
+        vm.warp(bank.epochStartTime() + bank.EPOCH_LENGTH());
+        bank.accrue();
+
+        // A dust buy in a quiet epoch: revenue is routed to defense, not to reserves
+        buy(trader, 1);
+        uint128 fees = bank.epochRevenueEth();
+        uint128 contractionBefore = bank.pendingContractionEth();
+        _rollOneEpoch();
+
+        assertEq(bank.pendingContractionEth() - contractionBefore, (uint256(fees) * 70) / 100, "contraction");
+    }
+
     function test_silence_is_treated_as_contraction() public {
         _rollOneEpoch();
         assertEq(bank.multiplier(), 0.75e18, "cut by a full step");

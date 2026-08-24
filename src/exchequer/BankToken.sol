@@ -5,10 +5,11 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 
 /// @notice The subset of the central bank that the share token needs
 interface IBankShareHook {
-    /// @notice Advances global issuance and settles the accrued ledger balance of both parties
+    /// @notice Advances global issuance, settles the accrued ledger balance of both parties, and
+    ///         moves the pro rata share of the sender's settled balance along with the shares
     /// @dev Must be invoked before any balance changes, so each party's accrual is computed against
     ///      the balance they actually held while it was accruing
-    function settleShares(address a, address b) external;
+    function settleTransfer(address from, address to, uint256 amount) external;
 }
 
 /// @title Bank
@@ -18,8 +19,10 @@ interface IBankShareHook {
 ///      Selling shares is therefore §12's "seat sale": an exit with zero sell pressure on $ISSUE,
 ///      because the buyer replaces the seller one for one, ledger balance included.
 ///
-///      Every balance change settles the accrued issuance of both parties first, so a transfer moves
-///      the future yield of the share without moving anything already earned by the seller.
+///      Every balance change settles the accrued issuance of both parties first, and a transfer then
+///      carries the shares' pro rata portion of the sender's settled balance with them. A share is
+///      worth what it has earned wherever it goes, which is what makes retiring one share liquidate
+///      exactly one share's worth and nothing more.
 contract BankToken is ERC20 {
     /// @notice The central bank, the only address permitted to mint or burn
     address public immutable BANK;
@@ -60,7 +63,7 @@ contract BankToken is ERC20 {
     /// @inheritdoc ERC20
     /// @dev Fires for transfers, mints (`from == address(0)`) and burns (`to == address(0)`) alike.
     ///      The bank ignores the zero address.
-    function _beforeTokenTransfer(address from, address to, uint256) internal override {
-        IBankShareHook(BANK).settleShares(from, to);
+    function _beforeTokenTransfer(address from, address to, uint256 amount) internal override {
+        IBankShareHook(BANK).settleTransfer(from, to, amount);
     }
 }

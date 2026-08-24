@@ -115,6 +115,7 @@ Configurable, with launch defaults:
 | Resolution fee ceiling | 30% | §9 |
 | Exit pressure saturation | 25% of the bank in 7 days | §9 |
 | Exit pressure denominator floor | 1,000,000 `$ISSUE` | §9, eq 9.1 |
+| Minimum net flow | 1 ETH | an epoch counts as expansion only at or above this net inflow (§4: "denominated in real capital") |
 | Reference window | 1 hour | a price must prevail this long to fully replace the bank's reference |
 | Bid grid | 10 tick spacings (~1%) | bid buckets start on the first grid line above the market |
 | Redistribution stream | 7 days | the stayers' half of each exit fee streams over the exit window |
@@ -156,11 +157,13 @@ can be skipped. `accrue()` accrues in segments up to each boundary, rolls, and c
 
 At each rollover, with `F` the net flow of the epoch that just ended:
 
-- Fee routing uses `sign(F)` alone — the fast lever. `F > 0` sends the 70% share to the expansion
-  vault; `F <= 0` funds buyback bids instead. Zero counts as contraction, per §5.
+- Fee routing uses the closed epoch alone — the fast lever. `F >= minNetFlow` sends the 70% share
+  to the expansion vault; anything less funds buyback bids instead. Zero counts as contraction, per
+  §5, and so does anything below the dead band: a pure sign test would let a one-wei buy make an
+  epoch expansionary, and §4 says the signal is "denominated in real capital".
 - The multiplier uses `signal = F + F_previous`, the two most recently completed epochs — the slow
-  lever. `signal > 0` raises `m` by `raiseStep` up to the ceiling; otherwise it cuts by `cutStep`
-  down to the floor.
+  lever. `signal >= minNetFlow` raises `m` by `raiseStep` up to the ceiling; otherwise it cuts by
+  `cutStep` down to the floor.
 
 A long gap with no interaction means every intervening epoch had zero flow. The first two are rolled
 individually, because their signal can still carry real flow from before the gap; the remainder are
@@ -187,6 +190,11 @@ actually moved. Fee ETH accrues into a Core saved balance under the bank until i
 `withdraw(bankAmount, recipient)` retires `bankAmount` of `$BANK` and liquidates exactly that
 fraction of the caller's accrued ledger balance — §9's pro rata rule. Retiring all of it liquidates
 everything and leaves the caller with no share of future issuance.
+
+The rule only holds if the ledger cannot be separated from the shares, so it is not: a transfer
+carries the shares' pro rata portion of the sender's settled balance with them (§12: "the seat
+moves whole, branches and balance included"). Otherwise a holder could park all but one wei of
+their shares elsewhere, retire that wei against the whole ledger, and take the shares back.
 
 The resolution fee is congestion pricing on the exit door. With `W` the trailing 7 days of
 system-wide withdrawals (a 7-bucket ring, one per day) and `D` the total ledger balance still at the
@@ -300,7 +308,9 @@ whitepaper and the exposure is understood, not that it was overlooked.
 | JIT-capture the stayers' half of an exit fee | Streamed over the exit window; a share held for one block collects nothing | A holder must stay the window; that is the intent |
 | Divert vault proceeds via `collect()` to the owner, or the owner's `call` | The bank owns the vault; the bank has no passthrough for `call` | None |
 | Brick `flush()` with a reverting team recipient | Team share is a separate pull | A bricked recipient forfeits only its own share |
-| Wash-trade the net-flow signal to raise the rate | Flow is gross ETH, fee-inclusive; a raise needs net inflow *held* across two epochs, and unwinding it is a cut | Accepted: per §4, and the cost is two fees plus the carry |
+| Buy the policy signal with dust | Dead band: an epoch is expansion only at or above `minNetFlow` net inflow, for both levers | Moving the signal costs at least `minNetFlow` of real capital per epoch, held, and unwinding it is a cut: accepted per §4 |
+| Extract the ledger while keeping the shares (park shares, retire one wei against the whole balance) | The settled ledger travels with the shares on transfer, so a share is worth what it earned wherever it goes | None |
+| Open the canonical pool ahead of genesis and brick `initialize()` | `beforeInitializePool` refuses everyone; Core never calls it for the bank's own genesis | None |
 | Flip an epoch's regime with a last-second trade | Fee routing keys on the closed epoch's sign alone, as §4 specifies ("fast lever") | Accepted: the flipper pays a fee to redirect 70% of one epoch's revenue between two protocol-owned uses |
 | Run first on the exit door | Fee locks at commitment and rises with trailing volume; half goes to stayers | Accepted: the whitepaper's own design; early exits pay less than late ones by construction |
 | Grief the license open by timing the first sale | The day's open is pinned by its first sale to 2× yesterday's close or 2× floor | Floor moves with supply and rate inside the day; marginal |

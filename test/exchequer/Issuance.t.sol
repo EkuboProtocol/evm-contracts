@@ -67,22 +67,24 @@ contract IssuanceTest is ExchequerBase {
         assertGt(bank.balanceAtBank(alice), 0, "the first banker still earns");
     }
 
-    function test_transferring_shares_moves_future_yield_but_not_past_earnings() public {
-        giveShares(alice, BRANCH);
+    function test_a_seat_sale_moves_the_balance_with_the_seat() public {
+        giveShares(alice, 2 * BRANCH);
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
+        uint256 aliceBefore = bank.balanceAtBank(alice);
+        assertGt(aliceBefore, 0, "alice has earned a day");
+
+        // Alice sells one of her two branches: half the balance goes with it (§12)
         vm.prank(alice);
         bankToken.transfer(bob, BRANCH);
 
-        uint256 aliceAtTransfer = bank.balanceAtBank(alice);
-        assertGt(aliceAtTransfer, 0, "alice keeps what she already earned");
-        assertEq(bank.balanceAtBank(bob), 0, "bob starts from zero");
+        assertApproxEqAbs(bank.balanceAtBank(alice), aliceBefore / 2, 1, "alice keeps her branch's half");
+        assertApproxEqAbs(bank.balanceAtBank(bob), aliceBefore / 2, 1, "bob's branch brought its half");
 
         vm.warp(vm.getBlockTimestamp() + 1 days);
         bank.accrue();
 
-        assertEq(bank.balanceAtBank(alice), aliceAtTransfer, "alice earns nothing more");
-        assertGt(bank.balanceAtBank(bob), 0, "bob earns from here forward");
+        assertApproxEqAbs(bank.balanceAtBank(alice), bank.balanceAtBank(bob), 2, "and both earn alike from here");
     }
 
     function test_issuance_stops_at_the_budget() public {

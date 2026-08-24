@@ -53,7 +53,10 @@ contract DeployExchequer is Script {
             // A price must prevail for an hour to fully replace the bank's reference price
             polReferenceWindow: 1 hours,
             // The redistributed half of each resolution fee streams to stayers over the exit window
-            redistributionStreamLength: 7 days
+            redistributionStreamLength: 7 days,
+            // An epoch is expansionary only on at least one ETH of net inflow, so the signal costs
+            // real capital to move rather than one wei
+            minNetFlow: 1 ether
         });
     }
 

@@ -270,6 +270,28 @@ contract WithdrawalsTest is ExchequerBase {
         assertLe(bank.totalLedgerBalance(), 2, "the ledger is empty but for dust");
     }
 
+    function test_parking_shares_elsewhere_cannot_liquidate_more_than_their_share() public {
+        giveShares(alice, 10 * BRANCH);
+        advanceDays(1);
+
+        uint256 ledger = bank.balanceAtBank(alice);
+        address parking = makeAddr("parking");
+
+        // Park all but one wei of the shares, retire that wei, and take the shares back
+        vm.startPrank(alice);
+        bankToken.transfer(parking, 10 * BRANCH - 1);
+        (uint256 released,) = bank.withdraw(1, alice);
+        vm.stopPrank();
+        vm.prank(parking);
+        bankToken.transfer(alice, 10 * BRANCH - 1);
+
+        // One wei of ten whole branches is worth one wei's share of the ledger, and the rest of the
+        // ledger travelled with the parked shares and came back with them
+        assertLe(released, ledger / (10 * BRANCH) + 1, "one wei's worth, no more");
+        assertApproxEqAbs(bank.balanceAtBank(alice), ledger - released, 2, "the balance is intact");
+        assertEq(bankToken.balanceOf(alice), 10 * BRANCH - 1, "and so are the branches");
+    }
+
     function test_cannot_withdraw_more_than_held() public {
         giveShares(alice, BRANCH);
         advanceDays(1);

@@ -12,6 +12,7 @@ import {BaseLocker} from "../base/BaseLocker.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
 import {ICore} from "../interfaces/ICore.sol";
+import {IRevenueBuybacks} from "../interfaces/IRevenueBuybacks.sol";
 import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {maxLiquidity} from "../math/liquidity.sol";
@@ -24,15 +25,15 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PositionId, createPositionId} from "../types/positionId.sol";
-import {MIN_SQRT_RATIO, SqrtRatio} from "../types/sqrtRatio.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 
 import {BankToken, IBankShareHook} from "./BankToken.sol";
-import {StandardToken} from "./StandardToken.sol";
+import {IssueToken} from "./IssueToken.sol";
 
 /// @notice Every monetary parameter the whitepaper redacts, supplied at construction
 struct StandardParameters {
-    /// @notice $STANDARD issued per day at a multiplier of exactly 1 (whitepaper §5)
+    /// @notice $ISSUE issued per day at a multiplier of exactly 1 (whitepaper §5)
     uint128 baseIssuancePerDay;
     /// @notice Multiplier floor, in 1e18 fixed point
     uint64 multiplierMin;
@@ -58,11 +59,15 @@ struct StandardParameters {
     uint64 exitPressureSaturation;
     /// @notice Lower bound on the exit pressure denominator, per eq 9.1
     uint128 exitPressureDenominatorFloor;
+    /// @notice Seconds a price must prevail to fully replace the bank's reference price
+    uint32 polReferenceWindow;
+    /// @notice Most ticks above its reference the bank will pay when compounding liquidity
+    uint32 polMaxPremiumTicks;
 }
 
 /// @title Central Bank
 /// @notice The issuing authority of the Standard economy: it reads net flow through the one
-///         canonical ETH/$STANDARD market, sets the issuance rate, and routes fees.
+///         canonical ETH/$ISSUE market, sets the issuance rate, and routes fees.
 /// @dev See docs/standard-reserve.md for the mapping from the whitepaper to this implementation and
 ///      for the mechanisms deliberately dropped when charters and branches collapsed into one
 ///      fungible share.
@@ -106,7 +111,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     uint256 private constant CALL_TYPE_COMPOUND = 2;
 
     /// @notice The currency
-    StandardToken public immutable STANDARD_TOKEN;
+    IssueToken public immutable ISSUE_TOKEN;
 
     /// @notice The branch share. One whole token is one branch.
     BankToken public immutable BANK_TOKEN;
@@ -114,7 +119,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     /// @notice The hard reserve asset the expansion vault accumulates, fixed at construction (§11)
     address public immutable RESERVE_ASSET;
 
-    /// @notice Configuration of the one canonical ETH/$STANDARD pool
+    /// @notice Configuration of the one canonical ETH/$ISSUE pool
     PoolConfig public immutable POOL_CONFIG;
 
     /// @notice Lower bound of the protocol-owned liquidity position, the lowest aligned tick
@@ -134,6 +139,8 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     uint64 public immutable RESOLUTION_FEE_CEILING;
     uint64 public immutable EXIT_PRESSURE_SATURATION;
     uint128 public immutable EXIT_PRESSURE_DENOMINATOR_FLOOR;
+    uint32 public immutable POL_REFERENCE_WINDOW;
+    uint32 public immutable POL_MAX_PREMIUM_TICKS;
 
     /// @notice The policy multiplier in force, in 1e18 fixed point (§5)
     uint64 public multiplier;
@@ -144,7 +151,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     /// @notice Timestamp through which issuance has been accrued
     uint64 public lastAccrualTime;
 
-    /// @notice Cumulative $STANDARD per whole $BANK, in Q128
+    /// @notice Cumulative $ISSUE per whole $BANK, in Q128
     uint256 public issuanceGrowthPerShareX128;
 
     /// @notice Cumulative base issuance credited so far, capped at `ISSUANCE_BUDGET`
@@ -153,7 +160,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     /// @notice Everything still held at the bank as a ledger entry: `D` in eq 9.1
     uint256 public totalLedgerBalance;
 
-    /// @notice Settled ledger balance of each holder, in $STANDARD
+    /// @notice Settled ledger balance of each holder, in $ISSUE
     mapping(address holder => uint256 balance) public ledgerBalance;
 
     /// @notice Issuance growth already settled into `ledgerBalance` for each holder
@@ -203,6 +210,13 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     uint64 private _lastBucketDay;
     uint256[EXIT_BUCKETS] private _withdrawalBuckets;
 
+    // The bank's own price reference, packed into one slot. Every trade in this economy passes
+    // through the bank, so it can be its own oracle: a time-weighted tick that a single block
+    // cannot move, which `compound` refuses to buy above.
+    int64 private _referenceTickX24;
+    int32 private _lastObservedTick;
+    uint32 private _lastObservationTime;
+
     error SwapMustHappenThroughForward();
     error IncorrectPoolKey();
     error GenesisAlreadyRan();
@@ -214,6 +228,8 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     error InvalidWithdrawalAmount();
     error FoundingSupplyExceeded();
     error NothingToCompound();
+    error IssuePricedAboveReference();
+    error UnknownVault();
     error NothingToFlush();
     error CompoundExceededAvailableAmounts();
     error InvalidParameters();
@@ -233,8 +249,9 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
         uint256 redistributed
     );
     event Flushed(uint128 expansion, uint128 contraction, uint128 team);
-    event Compounded(uint128 ethSpent, uint128 liquidityAdded, uint256 standardBurned);
-    event Genesis(int32 tick, uint128 ethAdded, uint256 standardAdded, uint256 standardBurned);
+    event Compounded(uint128 ethSwapped, uint128 ethPaired, uint128 liquidityAdded, uint256 issueBurned);
+    event PriceObserved(int32 tick, int32 referenceTick);
+    event Genesis(int32 tick, uint128 ethAdded, uint256 issueAdded, uint256 issueBurned);
     event ReservesBurned(uint256 amount);
 
     /// @param core The Ekubo Core singleton
@@ -251,7 +268,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
                 || params.multiplierLaunch > params.multiplierMax || params.epochLength == 0
                 || params.resolutionFeeFloor > params.resolutionFeeCeiling || params.resolutionFeeCeiling > WAD
                 || params.exitPressureSaturation == 0 || params.exitPressureSaturation > WAD
-                || params.baseIssuancePerDay == 0 || params.tickSpacing == 0
+                || params.baseIssuancePerDay == 0 || params.tickSpacing == 0 || params.polReferenceWindow == 0
         ) revert InvalidParameters();
 
         _initializeOwner(owner);
@@ -270,10 +287,12 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
         RESOLUTION_FEE_CEILING = params.resolutionFeeCeiling;
         EXIT_PRESSURE_SATURATION = params.exitPressureSaturation;
         EXIT_PRESSURE_DENOMINATOR_FLOOR = params.exitPressureDenominatorFloor;
+        POL_REFERENCE_WINDOW = params.polReferenceWindow;
+        POL_MAX_PREMIUM_TICKS = params.polMaxPremiumTicks;
 
         multiplier = params.multiplierLaunch;
 
-        STANDARD_TOKEN = new StandardToken();
+        ISSUE_TOKEN = new IssueToken();
         BANK_TOKEN = new BankToken();
 
         // The pool charges no fee of its own; the bank takes the whole trading fee, in ETH.
@@ -289,10 +308,10 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
         return standardCallPoints();
     }
 
-    /// @notice The one canonical market: ETH against $STANDARD
+    /// @notice The one canonical market: ETH against $ISSUE
     function poolKey() public view returns (PoolKey memory key) {
         key.token0 = NATIVE_TOKEN_ADDRESS;
-        key.token1 = address(STANDARD_TOKEN);
+        key.token1 = address(ISSUE_TOKEN);
         key.config = POOL_CONFIG;
     }
 
@@ -603,11 +622,11 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     /// WITHDRAWING
 
     /// @notice Retires `bankAmount` of branches and liquidates exactly that fraction of the caller's
-    ///         ledger balance into $STANDARD, less the resolution fee (§9)
+    ///         ledger balance into $ISSUE, less the resolution fee (§9)
     /// @param bankAmount Quantity of $BANK to retire
     /// @param recipient Recipient of the released currency
     /// @return released Ledger balance liquidated, before the fee
-    /// @return minted $STANDARD actually minted to `recipient`
+    /// @return minted $ISSUE actually minted to `recipient`
     function withdraw(uint256 bankAmount, address recipient) external returns (uint256 released, uint256 minted) {
         accrue();
         _settle(msg.sender);
@@ -639,8 +658,8 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
 
         // Minted then destroyed, so the burn is real under eq 3.2 rather than mere un-issuance
         if (burned != 0) {
-            STANDARD_TOKEN.mint(address(this), burned);
-            STANDARD_TOKEN.burn(burned);
+            ISSUE_TOKEN.mint(address(this), burned);
+            ISSUE_TOKEN.burn(burned);
         }
 
         if (redistributed != 0) {
@@ -652,12 +671,12 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
                 }
             } else {
                 // Nobody stayed, so there is nobody to pay
-                STANDARD_TOKEN.mint(address(this), redistributed);
-                STANDARD_TOKEN.burn(redistributed);
+                ISSUE_TOKEN.mint(address(this), redistributed);
+                ISSUE_TOKEN.burn(redistributed);
             }
         }
 
-        if (minted != 0) STANDARD_TOKEN.mint(recipient, minted);
+        if (minted != 0) ISSUE_TOKEN.mint(recipient, minted);
 
         emit Withdrawn(msg.sender, bankAmount, released, feeRate, burned, redistributed);
     }
@@ -781,6 +800,8 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
             }
         }
 
+        _observe(stateAfter.tick());
+
         int128 ethDelta = SafeCastLib.toInt128(int256(balanceUpdate.delta0()) + int256(uint256(feeAmount)));
         balanceUpdate = createPoolBalanceUpdate(ethDelta, balanceUpdate.delta1());
 
@@ -832,21 +853,27 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
         emit Flushed(expansion, contraction, team);
     }
 
-    /// @notice Burns every $STANDARD the bank holds, which is whatever the contraction vault bought
+    /// @notice Burns every $ISSUE the bank holds, which is whatever the contraction vault bought
     /// @dev Permissionless. The contraction vault buys on the open market and burns everything it
     ///      buys; this is the burn half of that sentence.
     function burnReserves() external returns (uint256 amount) {
-        amount = STANDARD_TOKEN.balanceOf(address(this));
+        amount = ISSUE_TOKEN.balanceOf(address(this));
         if (amount != 0) {
-            STANDARD_TOKEN.burn(amount);
+            ISSUE_TOKEN.burn(amount);
             emit ReservesBurned(amount);
         }
     }
 
     /// @notice Converts accumulated POL ETH into permanent full-range liquidity. Permissionless.
-    /// @dev Half the ETH is swapped to $STANDARD and both sides are added to a position the bank
+    /// @dev Half the ETH is swapped to $ISSUE and both sides are added to a position the bank
     ///      owns and can never decrease. No fee is charged and no flow is recorded, because the bank
     ///      is the locker and Core skips a call point when the locker is the extension.
+    ///
+    ///      The bank never pays more than `POL_MAX_PREMIUM_TICKS` above its own reference price
+    ///      (see `referenceTick`). If the market is dearer than that, nothing is bought and the ETH
+    ///      waits; if the swap runs into the bound part way, whatever did not fit waits. This is
+    ///      what makes a permissionless compound safe to call in front of: a pump cannot move the
+    ///      reference inside a block, so the bank buys the dip or does not buy at all.
     /// @return liquidity Liquidity added to the protocol-owned position
     function compound() external returns (uint128 liquidity) {
         accrue();
@@ -880,7 +907,7 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
         lastAccrualTime = uint64(block.timestamp);
         _lastBucketDay = uint64(block.timestamp / 1 days);
 
-        STANDARD_TOKEN.mint(address(this), GENESIS_LIQUIDITY);
+        ISSUE_TOKEN.mint(address(this), GENESIS_LIQUIDITY);
 
         lock(abi.encode(CALL_TYPE_GENESIS, tick, msg.value));
     }
@@ -896,6 +923,18 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
     function setAuctions(address _auctions) external onlyOwner {
         if (auctions != address(0)) revert AlreadySet();
         auctions = _auctions;
+    }
+
+    /// @notice Configures one vault's TWAMM order duration and fee tier
+    /// @dev The vaults are owned by the bank, so this is the only way to configure them, and the
+    ///      only thing the bank can do to them. Nothing can pull what a vault has bought anywhere but
+    ///      here, and once the bank's owner renounces the configuration is frozen.
+    function configureVault(address vault, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
+        external
+        onlyOwner
+    {
+        if (vault != expansionVault && vault != contractionVault) revert UnknownVault();
+        IRevenueBuybacks(vault).configure(NATIVE_TOKEN_ADDRESS, targetOrderDuration, minOrderDuration, fee);
     }
 
     /// @notice Updates the recipient of the 15% team share
@@ -940,6 +979,41 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
         );
     }
 
+    /// @notice The bank's reference price as a tick, brought up to the current block
+    /// @dev A time-weighted average of the pool tick: every observed price pulls the reference toward
+    ///      itself in proportion to how long it prevailed, and a price that lasts a full
+    ///      `POL_REFERENCE_WINDOW` replaces it outright. A price that exists only inside one block
+    ///      has prevailed for zero seconds and moves nothing, which is the property `compound` needs.
+    function referenceTick() public view returns (int32) {
+        return int32(_foldedReferenceX24() >> 24);
+    }
+
+    /// @notice Folds the time the last observed tick has prevailed into the reference
+    function _foldedReferenceX24() private view returns (int256 refX24) {
+        refX24 = _referenceTickX24;
+        uint256 elapsed = block.timestamp - _lastObservationTime;
+        if (elapsed == 0) return refX24;
+
+        uint256 window = POL_REFERENCE_WINDOW;
+        if (elapsed > window) elapsed = window;
+
+        int256 target = int256(_lastObservedTick) << 24;
+        refX24 += ((target - refX24) * int256(elapsed)) / int256(window);
+    }
+
+    /// @notice Records the pool tick after a trade, folding in the price that prevailed until now
+    function _observe(int32 tickAfter) private {
+        if (block.timestamp != _lastObservationTime) {
+            int256 folded = _foldedReferenceX24();
+            _referenceTickX24 = int64(folded);
+            _lastObservationTime = uint32(block.timestamp);
+        }
+        if (tickAfter != _lastObservedTick) {
+            _lastObservedTick = tickAfter;
+            emit PriceObserved(tickAfter, int32(_referenceTickX24 >> 24));
+        }
+    }
+
     /// @notice Net flow of the epoch in progress, and of the two most recently completed epochs
     function netFlows() external view returns (int256 current, int128 previous, int128 beforePrevious) {
         current = int256(uint256(_epochEthIn)) - int256(uint256(_epochEthOut));
@@ -977,74 +1051,86 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
         PoolKey memory key = poolKey();
         CORE.initializePool(key, tick);
 
+        _referenceTickX24 = int64(tick) << 24;
+        _lastObservedTick = tick;
+        _lastObservationTime = uint32(block.timestamp);
+
         (, uint128 amount0, uint128 amount1) = _addLiquidity(key, ethAmount, SafeCastLib.toUint128(GENESIS_LIQUIDITY));
 
         if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
-        if (amount1 != 0) ACCOUNTANT.pay(address(STANDARD_TOKEN), amount1);
+        if (amount1 != 0) ACCOUNTANT.pay(address(ISSUE_TOKEN), amount1);
 
         // Whatever the chosen tick could not absorb is destroyed rather than left mintable
-        uint256 leftoverStandard = GENESIS_LIQUIDITY - amount1;
-        if (leftoverStandard != 0) STANDARD_TOKEN.burn(leftoverStandard);
+        uint256 leftoverIssue = GENESIS_LIQUIDITY - amount1;
+        if (leftoverIssue != 0) ISSUE_TOKEN.burn(leftoverIssue);
 
         unchecked {
             uint128 leftoverEth = ethAmount - amount0;
             if (leftoverEth != 0) pendingPolEth += leftoverEth;
         }
 
-        emit Genesis(tick, amount0, amount1, leftoverStandard);
+        emit Genesis(tick, amount0, amount1, leftoverIssue);
     }
 
-    /// @notice Swaps half the POL ETH to $STANDARD and adds both sides as permanent liquidity
+    /// @notice Swaps half the POL ETH to $ISSUE, never above the reference, and pairs what it bought
     function _compound(uint128 amount) private returns (uint128 liquidity) {
         PoolKey memory key = poolKey();
 
+        // Buying $ISSUE with ETH pushes the tick down, so the bound is a floor a fixed distance
+        // below the reference. Spot already under it means the market is too dear right now.
+        int256 limitTick = int256(referenceTick()) - int256(uint256(POL_MAX_PREMIUM_TICKS));
+        if (limitTick < MIN_TICK) limitTick = MIN_TICK;
+        SqrtRatio limit = tickToSqrtRatio(int32(limitTick));
+        if (CORE.poolState(key.toPoolId()).sqrtRatio() <= limit) revert IssuePricedAboveReference();
+
         uint128 half = amount / 2;
-        (PoolBalanceUpdate swapUpdate,) = CORE.swap(
-            0, key, createSwapParameters(MIN_SQRT_RATIO, SafeCastLib.toInt128(int256(uint256(half))), false, 0)
-        );
-        uint128 standardOut = uint128(uint256(-int256(swapUpdate.delta1())));
+        (PoolBalanceUpdate swapUpdate, PoolState stateAfter) =
+            CORE.swap(0, key, createSwapParameters(limit, SafeCastLib.toInt128(int256(uint256(half))), false, 0));
+        _observe(stateAfter.tick());
+
+        // The swap stops at the bound, so it may have consumed less than was offered
+        uint128 ethSwapped = uint128(swapUpdate.delta0());
+        uint128 issueOut = uint128(uint256(-int256(swapUpdate.delta1())));
+        if (ethSwapped == 0) revert IssuePricedAboveReference();
 
         uint128 ethLeft;
         unchecked {
-            ethLeft = amount - half;
+            ethLeft = amount - ethSwapped;
         }
 
         uint128 amount0;
         uint128 amount1;
-        (liquidity, amount0, amount1) = _addLiquidity(key, ethLeft, standardOut);
+        (liquidity, amount0, amount1) = _addLiquidity(key, ethLeft, issueOut);
         if (liquidity == 0) revert NothingToCompound();
 
-        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(half) + amount0);
+        SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint256(ethSwapped) + amount0);
 
-        uint256 standardBurned;
+        uint256 issueBurned;
         unchecked {
             // The side the position could not absorb is protocol-owned, so it is burned
-            standardBurned = standardOut - amount1;
-            if (standardBurned != 0) {
-                ACCOUNTANT.withdraw(address(STANDARD_TOKEN), address(this), uint128(standardBurned));
-                STANDARD_TOKEN.burn(standardBurned);
+            issueBurned = issueOut - amount1;
+            if (issueBurned != 0) {
+                ACCOUNTANT.withdraw(address(ISSUE_TOKEN), address(this), uint128(issueBurned));
+                ISSUE_TOKEN.burn(issueBurned);
             }
 
+            // Whatever the bound or the position left unspent waits for the next call
             uint128 leftoverEth = ethLeft - amount0;
             if (leftoverEth != 0) pendingPolEth += leftoverEth;
         }
 
-        emit Compounded(amount, liquidity, standardBurned);
+        emit Compounded(ethSwapped, amount0, liquidity, issueBurned);
     }
 
-    /// @notice Adds as much of `ethAmount` and `standardAmount` as the full-range position can take
-    function _addLiquidity(PoolKey memory key, uint128 ethAmount, uint128 standardAmount)
+    /// @notice Adds as much of `ethAmount` and `issueAmount` as the full-range position can take
+    function _addLiquidity(PoolKey memory key, uint128 ethAmount, uint128 issueAmount)
         private
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
         PoolState state = CORE.poolState(key.toPoolId());
 
         liquidity = maxLiquidity(
-            state.sqrtRatio(),
-            tickToSqrtRatio(POL_TICK_LOWER),
-            tickToSqrtRatio(POL_TICK_UPPER),
-            ethAmount,
-            standardAmount
+            state.sqrtRatio(), tickToSqrtRatio(POL_TICK_LOWER), tickToSqrtRatio(POL_TICK_UPPER), ethAmount, issueAmount
         );
         if (liquidity == 0) return (0, 0, 0);
 
@@ -1053,13 +1139,13 @@ contract CentralBank is BaseExtension, BaseForwardee, BaseLocker, Ownable, IBank
 
         amount0 = uint128(update.delta0());
         amount1 = uint128(update.delta1());
-        if (amount0 > ethAmount || amount1 > standardAmount) revert CompoundExceededAvailableAmounts();
+        if (amount0 > ethAmount || amount1 > issueAmount) revert CompoundExceededAvailableAmounts();
     }
 
-    /// @notice Rejects any pool but the single canonical ETH/$STANDARD market
+    /// @notice Rejects any pool but the single canonical ETH/$ISSUE market
     function _checkPoolKey(PoolKey memory key) private view {
         if (
-            key.token0 != NATIVE_TOKEN_ADDRESS || key.token1 != address(STANDARD_TOKEN)
+            key.token0 != NATIVE_TOKEN_ADDRESS || key.token1 != address(ISSUE_TOKEN)
                 || PoolConfig.unwrap(key.config) != PoolConfig.unwrap(POOL_CONFIG)
         ) revert IncorrectPoolKey();
     }

@@ -6,7 +6,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {CentralBank} from "./CentralBank.sol";
-import {StandardToken} from "./StandardToken.sol";
+import {IssueToken} from "./IssueToken.sol";
 
 /// @title Standard Auctions
 /// @notice The two daily falling-price Dutch auctions of the Standard economy (whitepaper §8)
@@ -16,7 +16,7 @@ import {StandardToken} from "./StandardToken.sol";
 ///
 ///      They differ only in what they are paid in and where the payment goes:
 ///
-///      - **expansion licenses** are paid in $STANDARD, which is burned on receipt;
+///      - **expansion licenses** are paid in $ISSUE, which is burned on receipt;
 ///      - **charters** are paid in ETH, which flows into the same fee engine as trading fees.
 ///
 ///      Both mint the same asset, because this implementation collapses the whitepaper's charter
@@ -36,7 +36,7 @@ contract StandardAuctions is Ownable {
     CentralBank public immutable BANK;
 
     /// @notice The currency licenses are paid in
-    StandardToken public immutable STANDARD_TOKEN;
+    IssueToken public immutable ISSUE_TOKEN;
 
     /// @notice Licenses offered per day (§7)
     uint256 public immutable LICENSES_PER_DAY;
@@ -71,6 +71,18 @@ contract StandardAuctions is Ownable {
     /// @notice Day on which the last charter sold
     uint256 public charterLastCloseDay;
 
+    /// @notice Price at which the license auction opened on `licenseOpenDay`
+    uint256 public licenseDayOpen;
+
+    /// @notice Day whose license open is recorded in `licenseDayOpen`
+    uint256 public licenseOpenDay;
+
+    /// @notice Price at which the charter auction opened on `charterOpenDay`
+    uint256 public charterDayOpen;
+
+    /// @notice Day whose charter open is recorded in `charterDayOpen`
+    uint256 public charterOpenDay;
+
     /// @notice Charters offered per day. Starts at zero and is policy-controlled (§8).
     uint256 public chartersPerDay;
 
@@ -101,13 +113,13 @@ contract StandardAuctions is Ownable {
     ) {
         _initializeOwner(owner);
         BANK = bank;
-        STANDARD_TOKEN = bank.STANDARD_TOKEN();
+        ISSUE_TOKEN = bank.ISSUE_TOKEN();
         LICENSES_PER_DAY = licensesPerDay;
         LICENSE_FLOOR_YIELD_DAYS = licenseFloorYieldDays;
         LICENSE_FLOOR_MINIMUM = licenseFloorMinimum;
     }
 
-    /// THE LICENSE AUCTION, PAID IN $STANDARD AND BURNED
+    /// THE LICENSE AUCTION, PAID IN $ISSUE AND BURNED
 
     /// @notice The license floor: about two days of one branch's yield (§8)
     /// @dev Scales with the issuance rate, so licenses cost more when the rate is high
@@ -117,10 +129,14 @@ contract StandardAuctions is Ownable {
     }
 
     /// @notice Price at which today's license auction opened
+    /// @dev Pinned by the day's first sale, so later sales in the same day decay from the same open
     function licenseStartPrice() public view returns (uint256) {
+        uint256 today = block.timestamp / 1 days;
+        if (licenseOpenDay == today) return licenseDayOpen;
+
         uint256 floorPrice = licenseFloor();
         // If yesterday sold nothing, the day opens at twice the floor
-        uint256 anchor = licenseLastCloseDay + 1 == block.timestamp / 1 days ? licenseLastClose : floorPrice;
+        uint256 anchor = licenseLastCloseDay + 1 == today ? licenseLastClose : floorPrice;
         uint256 start = anchor * LICENSE_OPEN_MULTIPLE;
         return start < floorPrice ? floorPrice : start;
     }
@@ -144,10 +160,15 @@ contract StandardAuctions is Ownable {
         if (count == 0) revert InvalidCount();
         if (count > licensesRemaining()) revert SoldOutForToday();
 
+        uint256 day = block.timestamp / 1 days;
+        if (licenseOpenDay != day) {
+            licenseDayOpen = licenseStartPrice();
+            licenseOpenDay = day;
+        }
+
         unitPrice = licensePrice();
         if (unitPrice > maxUnitPrice) revert PriceExceededLimit();
 
-        uint256 day = block.timestamp / 1 days;
         licensesSoldOnDay[day] += count;
         // The last, and therefore lowest, price that sold becomes tomorrow's reference
         licenseLastClose = unitPrice;
@@ -155,8 +176,8 @@ contract StandardAuctions is Ownable {
 
         uint256 total = unitPrice * count;
         if (total != 0) {
-            SafeTransferLib.safeTransferFrom(address(STANDARD_TOKEN), msg.sender, address(this), total);
-            STANDARD_TOKEN.burn(total);
+            SafeTransferLib.safeTransferFrom(address(ISSUE_TOKEN), msg.sender, address(this), total);
+            ISSUE_TOKEN.burn(total);
         }
 
         BANK.mintShares(msg.sender, count * ONE_SHARE);
@@ -167,9 +188,13 @@ contract StandardAuctions is Ownable {
     /// THE CHARTER AUCTION, PAID IN ETH AND ROUTED TO THE FEE ENGINE
 
     /// @notice Price at which today's charter auction opened
+    /// @dev Pinned by the day's first sale, as for licenses
     function charterStartPrice() public view returns (uint256) {
+        uint256 today = block.timestamp / 1 days;
+        if (charterOpenDay == today) return charterDayOpen;
+
         uint256 floorPrice = charterReservePrice;
-        uint256 anchor = charterLastCloseDay + 1 == block.timestamp / 1 days ? charterLastClose : floorPrice;
+        uint256 anchor = charterLastCloseDay + 1 == today ? charterLastClose : floorPrice;
         uint256 start = anchor * CHARTER_OPEN_MULTIPLE;
         return start < floorPrice ? floorPrice : start;
     }
@@ -196,13 +221,18 @@ contract StandardAuctions is Ownable {
         if (count == 0) revert InvalidCount();
         if (count > chartersRemaining()) revert SoldOutForToday();
 
+        uint256 day = block.timestamp / 1 days;
+        if (charterOpenDay != day) {
+            charterDayOpen = charterStartPrice();
+            charterOpenDay = day;
+        }
+
         unitPrice = charterPrice();
         if (unitPrice > maxUnitPrice) revert PriceExceededLimit();
 
         uint256 total = unitPrice * count;
         if (msg.value < total) revert InsufficientPayment();
 
-        uint256 day = block.timestamp / 1 days;
         chartersSoldOnDay[day] += count;
         charterLastClose = unitPrice;
         charterLastCloseDay = day;

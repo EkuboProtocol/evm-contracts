@@ -101,7 +101,7 @@ contract IssuanceTest is StandardBase {
     }
 
     function test_the_budget_and_genesis_exactly_fill_the_hard_cap() public view {
-        assertEq(bank.ISSUANCE_BUDGET() + bank.GENESIS_LIQUIDITY(), standard.HARD_CAP(), "900M + 100M = 1B");
+        assertEq(bank.ISSUANCE_BUDGET() + bank.GENESIS_LIQUIDITY(), issue.HARD_CAP(), "900M + 100M = 1B");
     }
 
     function test_accrue_is_idempotent_within_a_block() public {

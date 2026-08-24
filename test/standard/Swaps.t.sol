@@ -69,7 +69,7 @@ contract SwapsTest is StandardBase {
 
     function test_selling_pays_the_fee_out_of_the_eth_proceeds() public {
         buy(trader, 10 ether);
-        uint128 held = uint128(standard.balanceOf(trader));
+        uint128 held = uint128(issue.balanceOf(trader));
 
         uint128 feeBefore = bank.savedEth();
         uint256 ethBefore = trader.balance;
@@ -114,7 +114,7 @@ contract SwapsTest is StandardBase {
         uint128 afterBuy = bank.savedEth();
         assertGt(afterBuy, 0, "buys pay");
 
-        sell(trader, uint128(standard.balanceOf(trader)));
+        sell(trader, uint128(issue.balanceOf(trader)));
         assertGt(bank.savedEth(), afterBuy, "sells pay as well");
     }
 
@@ -123,7 +123,7 @@ contract SwapsTest is StandardBase {
         (int256 current,,) = bank.netFlows();
         assertEq(current, int256(3 ether), "gross ETH in from the buy");
 
-        (int128 delta0,) = sell(trader, uint128(standard.balanceOf(trader)));
+        (int128 delta0,) = sell(trader, uint128(issue.balanceOf(trader)));
         (current,,) = bank.netFlows();
         assertEq(current, int256(3 ether) + int256(delta0), "less gross ETH out from the sell");
         assertLt(current, int256(3 ether), "a round trip leaves less than it brought");
@@ -149,7 +149,7 @@ contract SwapsTest is StandardBase {
         bank.accrue();
 
         uint128 feesBefore = bank.savedEth();
-        sell(trader, uint128(standard.balanceOf(trader)));
+        sell(trader, uint128(issue.balanceOf(trader)));
         uint128 epochFees = bank.savedEth() - feesBefore;
 
         (int256 current,,) = bank.netFlows();

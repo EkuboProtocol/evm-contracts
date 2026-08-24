@@ -14,7 +14,7 @@ contract GenesisTest is StandardBase {
     function test_genesis_initializes_the_one_market() public view {
         PoolKey memory key = bank.poolKey();
         assertEq(key.token0, address(0), "eth is token0");
-        assertEq(key.token1, address(standard), "standard is token1");
+        assertEq(key.token1, address(issue), "standard is token1");
 
         PoolState state = core.poolState(key.toPoolId());
         assertTrue(state.isInitialized(), "pool initialized");
@@ -23,20 +23,20 @@ contract GenesisTest is StandardBase {
 
     function test_genesis_is_the_only_premint() public view {
         // The whole 100M was minted, and whatever the chosen tick could not absorb was burned
-        assertEq(standard.totalMinted(), bank.GENESIS_LIQUIDITY(), "only the genesis mint happened");
-        assertEq(standard.totalSupply() + standard.totalBurned(), bank.GENESIS_LIQUIDITY(), "supply identity");
+        assertEq(issue.totalMinted(), bank.GENESIS_LIQUIDITY(), "only the genesis mint happened");
+        assertEq(issue.totalSupply() + issue.totalBurned(), bank.GENESIS_LIQUIDITY(), "supply identity");
     }
 
     function test_genesis_currency_side_binds_so_only_dust_is_burned() public view {
-        // The fixture seeds enough ETH that $STANDARD is the binding side of the position, so all
+        // The fixture seeds enough ETH that $ISSUE is the binding side of the position, so all
         // that is destroyed is the rounding dust the liquidity math could not place
-        assertLt(standard.totalBurned(), 1e6, "only dust burned");
+        assertLt(issue.totalBurned(), 1e6, "only dust burned");
         assertGt(bank.pendingPolEth(), 90 ether, "the unabsorbed ETH is held for compounding");
     }
 
     function test_supply_ceiling_only_ever_falls() public view {
-        assertEq(standard.maxSupply(), standard.HARD_CAP() - standard.totalBurned(), "eq 3.2");
-        assertLe(standard.maxSupply(), standard.HARD_CAP(), "ceiling never rises");
+        assertEq(issue.maxSupply(), issue.HARD_CAP() - issue.totalBurned(), "eq 3.2");
+        assertLe(issue.maxSupply(), issue.HARD_CAP(), "ceiling never rises");
     }
 
     function test_genesis_cannot_run_twice() public {

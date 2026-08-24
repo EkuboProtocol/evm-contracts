@@ -21,7 +21,7 @@ contract AuctionsTest is StandardBase {
         bank.withdraw(100 * BRANCH, alice);
 
         vm.prank(alice);
-        standard.approve(address(auctions), type(uint256).max);
+        issue.approve(address(auctions), type(uint256).max);
     }
 
     /// THE LICENSE AUCTION
@@ -57,26 +57,26 @@ contract AuctionsTest is StandardBase {
 
     function test_buying_a_license_burns_the_payment_and_opens_a_branch() public {
         uint256 price = auctions.licensePrice();
-        uint256 burnedBefore = standard.totalBurned();
+        uint256 burnedBefore = issue.totalBurned();
         uint256 sharesBefore = bankToken.balanceOf(alice);
 
         vm.prank(alice);
         uint256 paid = auctions.buyLicenses(1, type(uint256).max);
 
         assertEq(paid, price, "paid the posted price");
-        assertEq(standard.totalBurned() - burnedBefore, price, "every token spent this way is burned");
+        assertEq(issue.totalBurned() - burnedBefore, price, "every token spent this way is burned");
         assertEq(bankToken.balanceOf(alice) - sharesBefore, BRANCH, "one new branch");
     }
 
     function test_expansion_shrinks_the_float() public {
-        uint256 supplyBefore = standard.totalSupply();
-        uint256 ceilingBefore = standard.maxSupply();
+        uint256 supplyBefore = issue.totalSupply();
+        uint256 ceilingBefore = issue.maxSupply();
 
         vm.prank(alice);
         auctions.buyLicenses(1, type(uint256).max);
 
-        assertLt(standard.totalSupply(), supplyBefore, "the float shrank");
-        assertLt(standard.maxSupply(), ceilingBefore, "permanently");
+        assertLt(issue.totalSupply(), supplyBefore, "the float shrank");
+        assertLt(issue.maxSupply(), ceilingBefore, "permanently");
     }
 
     function test_the_daily_supply_is_capped() public {
@@ -113,6 +113,30 @@ contract AuctionsTest is StandardBase {
         vm.warp(((vm.getBlockTimestamp() / 1 days) + 1) * 1 days);
 
         assertEq(auctions.licenseStartPrice(), close * 2, "twice yesterday's close");
+    }
+
+    function test_a_second_sale_in_the_same_day_decays_from_the_same_open() public {
+        // Earn a few more days of issuance so two licenses are affordable
+        vm.warp(((vm.getBlockTimestamp() / 1 days) + 3) * 1 days);
+        vm.prank(alice);
+        bank.withdraw(100 * BRANCH, alice);
+
+        uint256 open = auctions.licenseStartPrice();
+
+        vm.warp(vm.getBlockTimestamp() + 2 hours);
+        vm.prank(alice);
+        uint256 first = auctions.buyLicenses(1, type(uint256).max);
+
+        // The day's open is pinned by its first sale, so it does not collapse to twice the floor
+        assertEq(auctions.licenseStartPrice(), open, "the open holds for the day");
+
+        vm.warp(vm.getBlockTimestamp() + 2 hours);
+        vm.prank(alice);
+        uint256 second = auctions.buyLicenses(1, type(uint256).max);
+
+        assertLt(second, first, "later in the day is cheaper");
+        assertGt(second, auctions.licenseFloor(), "but still above the floor");
+        assertEq(auctions.licenseLastClose(), second, "the last sale sets tomorrow's anchor");
     }
 
     function test_a_day_with_no_sales_reopens_from_the_floor() public {

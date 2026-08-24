@@ -48,7 +48,7 @@ contract WithdrawalsTest is StandardBase {
 
         uint256 fee = released - minted;
         assertApproxEqRel(fee, released / 100, 1e12, "one percent");
-        assertEq(standard.balanceOf(alice), minted, "the rest is minted to the banker");
+        assertEq(issue.balanceOf(alice), minted, "the rest is minted to the banker");
     }
 
     function test_half_of_every_fee_is_burned_and_half_pays_those_who_stayed() public {
@@ -57,13 +57,13 @@ contract WithdrawalsTest is StandardBase {
         advanceDays(1);
 
         uint256 bobBefore = bank.balanceAtBank(bob);
-        uint256 burnedBefore = standard.totalBurned();
+        uint256 burnedBefore = issue.totalBurned();
 
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
 
         uint256 fee = released - minted;
-        uint256 burned = standard.totalBurned() - burnedBefore;
+        uint256 burned = issue.totalBurned() - burnedBefore;
 
         assertEq(burned, fee / 2, "half is destroyed");
         assertApproxEqAbs(bank.balanceAtBank(bob) - bobBefore, fee - burned, 2, "half pays the banker who stayed");
@@ -73,12 +73,12 @@ contract WithdrawalsTest is StandardBase {
         giveShares(alice, BRANCH);
         advanceDays(1);
 
-        uint256 ceilingBefore = standard.maxSupply();
+        uint256 ceilingBefore = issue.maxSupply();
 
         vm.prank(alice);
         bank.withdraw(BRANCH, alice);
 
-        assertLt(standard.maxSupply(), ceilingBefore, "eq 3.2: the ceiling only falls");
+        assertLt(issue.maxSupply(), ceilingBefore, "eq 3.2: the ceiling only falls");
     }
 
     function test_the_supply_identity_holds_after_a_withdrawal() public {
@@ -88,8 +88,8 @@ contract WithdrawalsTest is StandardBase {
         vm.prank(alice);
         bank.withdraw(BRANCH, alice);
 
-        assertEq(standard.totalSupply(), standard.totalMinted() - standard.totalBurned(), "eq 3.1");
-        assertLe(standard.totalMinted(), standard.HARD_CAP(), "the cumulative cap holds");
+        assertEq(issue.totalSupply(), issue.totalMinted() - issue.totalBurned(), "eq 3.1");
+        assertLe(issue.totalMinted(), issue.HARD_CAP(), "the cumulative cap holds");
     }
 
     function test_heavy_exit_pressure_raises_the_fee_on_the_exiters() public {
@@ -171,13 +171,13 @@ contract WithdrawalsTest is StandardBase {
         giveShares(alice, BRANCH);
         advanceDays(1);
 
-        uint256 burnedBefore = standard.totalBurned();
+        uint256 burnedBefore = issue.totalBurned();
 
         vm.prank(alice);
         (uint256 released, uint256 minted) = bank.withdraw(BRANCH, alice);
 
         assertEq(bankToken.totalSupply(), 0, "nobody stayed");
-        assertEq(standard.totalBurned() - burnedBefore, released - minted, "the whole fee burns");
+        assertEq(issue.totalBurned() - burnedBefore, released - minted, "the whole fee burns");
     }
 
     function test_cannot_withdraw_more_than_held() public {

@@ -15,7 +15,7 @@ interface IBankShareHook {
 /// @notice The branch share of the Standard economy. One whole token is one branch.
 /// @dev The whitepaper wraps branches in a soulbound charter NFT; this implementation collapses both
 ///      into a single fungible share, so a balance is a bank and every whole unit of it is a branch.
-///      Selling shares is therefore §12's "seat sale": an exit with zero sell pressure on $STANDARD,
+///      Selling shares is therefore §12's "seat sale": an exit with zero sell pressure on $ISSUE,
 ///      because the buyer replaces the seller one for one, ledger balance included.
 ///
 ///      Every balance change settles the accrued issuance of both parties first, so a transfer moves

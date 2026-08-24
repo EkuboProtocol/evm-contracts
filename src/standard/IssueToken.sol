@@ -3,7 +3,7 @@ pragma solidity =0.8.33;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 
-/// @title Standard
+/// @title Issue
 /// @notice The single currency of the Standard closed monetary economy
 /// @dev Minted only by the central bank, and only at a withdrawal or at genesis. Burned by expansion
 ///      licenses, open market buybacks, and half of every resolution fee.
@@ -12,7 +12,7 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 ///        totalSupply() == GENESIS_LIQUIDITY + withdrawalMints - cumulativeBurns
 ///      and because burns are permanent, eq 3.2 gives a strictly non-increasing ceiling:
 ///        maxSupply() == HARD_CAP - cumulativeBurns
-contract StandardToken is ERC20 {
+contract IssueToken is ERC20 {
     /// @notice The maximum quantity that may ever be minted, cumulatively, across all time
     uint256 public constant HARD_CAP = 1_000_000_000e18;
 
@@ -41,12 +41,12 @@ contract StandardToken is ERC20 {
 
     /// @inheritdoc ERC20
     function name() public pure override returns (string memory) {
-        return "Standard";
+        return "Issue";
     }
 
     /// @inheritdoc ERC20
     function symbol() public pure override returns (string memory) {
-        return "STANDARD";
+        return "ISSUE";
     }
 
     /// @notice Mints `amount` to `to`, subject to the cumulative hard cap

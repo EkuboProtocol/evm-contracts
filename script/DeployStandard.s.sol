@@ -17,12 +17,14 @@ import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 ///      launch, so the values below are documented defaults rather than authoritative ones. See
 ///      docs/standard-reserve.md for the reasoning behind each.
 ///
-///      After this script runs, genesis still requires three owner actions:
+///      After this script runs, genesis still requires four owner actions:
 ///        1. `bank.initialize{value: seedEth}(tick)`, which mints the 100,000,000 genesis supply and
 ///           locks it into the full-range protocol-owned position;
-///        2. `bank.mintFoundingBank(...)` for the free founding distribution, up to 1,000 $BANK,
+///        2. `bank.configureVault(vault, targetOrderDuration, minOrderDuration, fee)` for each vault,
+///           once the ETH/$ISSUE and ETH/reserve-asset TWAMM pools at that fee tier exist;
+///        3. `bank.mintFoundingBank(...)` for the free founding distribution, up to 1,000 $BANK,
 ///           normally pointed at `Incentives` for a one-per-wallet merkle claim;
-///        3. `bank.renounceOwnership()` once the auctions and vaults are configured.
+///        4. `bank.renounceOwnership()`.
 contract DeployStandard is Script {
     address internal constant DEFAULT_CORE_ADDRESS = 0x00000000000014aA86C5d3c41765bb24e11bd701;
     bytes32 internal constant DEFAULT_DEPLOYMENT_SALT =
@@ -31,7 +33,7 @@ contract DeployStandard is Script {
     /// @notice The launch parameters documented in docs/standard-reserve.md
     function launchParameters() public pure returns (StandardParameters memory) {
         return StandardParameters({
-            // 1,000,000 $STANDARD a day at a neutral multiplier
+            // 1,000,000 $ISSUE a day at a neutral multiplier
             baseIssuancePerDay: 1_000_000e18,
             multiplierMin: 0.25e18,
             multiplierMax: 4e18,
@@ -47,7 +49,11 @@ contract DeployStandard is Script {
             resolutionFeeCeiling: 0.3e18,
             // The fee saturates once a quarter of the bank tries to leave inside a week
             exitPressureSaturation: 0.25e18,
-            exitPressureDenominatorFloor: 1_000_000e18
+            exitPressureDenominatorFloor: 1_000_000e18,
+            // A price must prevail for an hour to fully replace the bank's reference price
+            polReferenceWindow: 1 hours,
+            // and the bank never compounds more than about half a percent above that reference
+            polMaxPremiumTicks: 5000
         });
     }
 
@@ -74,8 +80,9 @@ contract DeployStandard is Script {
         );
         bank = CentralBank(payable(bankAddress));
 
-        expansion = new StandardVault(owner, orders, reserveAsset, bankAddress);
-        contraction = new StandardVault(owner, orders, address(bank.STANDARD_TOKEN()), bankAddress);
+        // The bank owns both vaults, so nothing they buy can land anywhere else
+        expansion = new StandardVault(bankAddress, orders, reserveAsset);
+        contraction = new StandardVault(bankAddress, orders, address(bank.ISSUE_TOKEN()));
 
         auctions = new StandardAuctions({
             owner: owner,
@@ -94,7 +101,7 @@ contract DeployStandard is Script {
         vm.stopBroadcast();
 
         console2.log("CentralBank", bankAddress);
-        console2.log("STANDARD", address(bank.STANDARD_TOKEN()));
+        console2.log("ISSUE", address(bank.ISSUE_TOKEN()));
         console2.log("BANK", address(bank.BANK_TOKEN()));
         console2.log("ExpansionVault", address(expansion));
         console2.log("ContractionVault", address(contraction));

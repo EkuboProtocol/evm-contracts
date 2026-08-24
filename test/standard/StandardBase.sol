@@ -13,7 +13,7 @@ import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {BankToken} from "../../src/standard/BankToken.sol";
 import {CentralBank, StandardParameters, standardCallPoints} from "../../src/standard/CentralBank.sol";
 import {StandardAuctions} from "../../src/standard/StandardAuctions.sol";
-import {StandardToken} from "../../src/standard/StandardToken.sol";
+import {IssueToken} from "../../src/standard/IssueToken.sol";
 import {StandardVault} from "../../src/standard/StandardVault.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
@@ -27,10 +27,13 @@ abstract contract StandardBase is Test {
     /// @dev 0.30% expressed as the 0.64 fixed point fraction Core uses
     uint64 internal constant TRADING_FEE = uint64((uint256(3) << 64) / 1000);
 
-    /// @dev Tick at which one ETH buys roughly one million $STANDARD, aligned to the tick spacing
+    /// @dev Tick at which one ETH buys roughly one million $ISSUE, aligned to the tick spacing
     int32 internal constant GENESIS_TICK = 13815000;
 
     uint32 internal constant TICK_SPACING = 1000;
+
+    /// @dev About half a percent: the most the bank will pay above its reference when compounding
+    uint32 internal constant POL_MAX_PREMIUM_TICKS = 5000;
 
     /// @dev Permissive slippage bound; the sentinel `type(int256).min` is reserved by the router
     int256 internal constant NO_SLIPPAGE_LIMIT = type(int256).min + 1;
@@ -51,7 +54,7 @@ abstract contract StandardBase is Test {
     Router internal router;
 
     CentralBank internal bank;
-    StandardToken internal standard;
+    IssueToken internal issue;
     BankToken internal bankToken;
     StandardAuctions internal auctions;
     StandardVault internal expansionVault;
@@ -76,14 +79,14 @@ abstract contract StandardBase is Test {
             "CentralBank.sol:CentralBank", abi.encode(core, owner, address(gold), defaultParameters()), bankAddress
         );
         bank = CentralBank(payable(bankAddress));
-        standard = bank.STANDARD_TOKEN();
+        issue = bank.ISSUE_TOKEN();
         bankToken = bank.BANK_TOKEN();
 
         // The stock router drives this pool unmodified when the bank occupies the ve33 slot
         router = new Router(core, address(0), address(bank));
 
-        expansionVault = new StandardVault(owner, orders, address(gold), address(bank));
-        contractionVault = new StandardVault(owner, orders, address(standard), address(bank));
+        expansionVault = new StandardVault(address(bank), orders, address(gold));
+        contractionVault = new StandardVault(address(bank), orders, address(issue));
 
         auctions = new StandardAuctions({
             owner: owner, bank: bank, licensesPerDay: 100, licenseFloorYieldDays: 2, licenseFloorMinimum: 1e18
@@ -119,7 +122,9 @@ abstract contract StandardBase is Test {
             resolutionFeeFloor: 0.01e18,
             resolutionFeeCeiling: 0.3e18,
             exitPressureSaturation: 0.25e18,
-            exitPressureDenominatorFloor: 1_000_000e18
+            exitPressureDenominatorFloor: 1_000_000e18,
+            polReferenceWindow: 1 hours,
+            polMaxPremiumTicks: POL_MAX_PREMIUM_TICKS
         });
     }
 
@@ -129,7 +134,7 @@ abstract contract StandardBase is Test {
         bank.mintFoundingBank(to, amount);
     }
 
-    /// @notice Buys $STANDARD with an exact amount of ETH, delivered to `who`
+    /// @notice Buys $ISSUE with an exact amount of ETH, delivered to `who`
     /// @dev Exact-in token0 pushes the price down, so the bound is the minimum sqrt ratio. The test
     ///      contract is the swapper, because a pranked sender does not fund `msg.value`.
     function buy(address who, uint128 ethIn) internal returns (int128 delta0, int128 delta1) {
@@ -139,12 +144,12 @@ abstract contract StandardBase is Test {
         (delta0, delta1) = (update.delta0(), update.delta1());
     }
 
-    /// @notice Sells an exact amount of $STANDARD for ETH
-    function sell(address who, uint128 standardIn) internal returns (int128 delta0, int128 delta1) {
+    /// @notice Sells an exact amount of $ISSUE for ETH
+    function sell(address who, uint128 issueIn) internal returns (int128 delta0, int128 delta1) {
         vm.startPrank(who);
-        standard.approve(address(router), standardIn);
+        issue.approve(address(router), issueIn);
         PoolBalanceUpdate update = router.swap(
-            bank.poolKey(), createSwapParameters(MAX_SQRT_RATIO, int128(standardIn), true, 0), NO_SLIPPAGE_LIMIT, who
+            bank.poolKey(), createSwapParameters(MAX_SQRT_RATIO, int128(issueIn), true, 0), NO_SLIPPAGE_LIMIT, who
         );
         vm.stopPrank();
         (delta0, delta1) = (update.delta0(), update.delta1());

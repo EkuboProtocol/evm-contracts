@@ -3,7 +3,7 @@
 An implementation of the [Standard whitepaper](https://www.standardreserve.xyz/whitepaper/) (v0.1)
 built as an Ekubo Core extension rather than a Uniswap v4 hook.
 
-Standard is a closed monetary economy with one currency (`$STANDARD`), one market (an ETH/`$STANDARD`
+Standard is a closed monetary economy with one currency (`$ISSUE`), one market (an ETH/`$ISSUE`
 pool whose extension is the central bank), one policy signal (net ETH flow through that market), and
 one authority (the `CentralBank` contract). Capital flowing in loosens policy, raises issuance, and
 stacks hard reserves. Capital flowing out tightens policy, flips fee routing into buybacks, and
@@ -26,7 +26,7 @@ consequence:
 | Max 10 branches per charter | Removed | There is no charter to scope the cap to. The daily license supply cap is the real constraint on expansion. |
 | Max 3 licenses per charter per day | Removed | A per-address cap over a freely transferable token is evaded with a second address, so enforcing it would be security theatre. §8's daily supply cap does the actual rationing. |
 | §10 dormancy: report, bounty, revocation, shutdown | Removed | Dormancy exists because an idle charter siphons a fixed pro-rata share away from working bankers. With per-share accrual an idle holder earns exactly their share and dilutes no one differently from an active holder, so there is nothing to reclaim. |
-| §12 transferable charters (future one-way switch) | Always on | `$BANK` is transferable from genesis. Selling `$BANK` is already "an exit with zero sell pressure on `$STANDARD`" — the buyer replaces the seller one for one, balance included. |
+| §12 transferable charters (future one-way switch) | Always on | `$BANK` is transferable from genesis. Selling `$BANK` is already "an exit with zero sell pressure on `$ISSUE`" — the buyer replaces the seller one for one, balance included. |
 
 Everything else — the issuance stream, the net flow signal, the multiplier, both Dutch auctions, the
 resolution fee, the fee split, the two vaults, protocol-owned liquidity — is implemented as
@@ -42,6 +42,12 @@ The extension deliberately does *not* fire its own hooks when it is the locker (
 point when `locker == extension`). Protocol-owned-liquidity buys therefore pay no fee and are not
 counted as trader inflow, which is correct: POL compounding is not capital entering the economy.
 
+One integration consequence: the stock `Router` only forwards to the addresses in its `MEV_CAPTURE`
+and `VE33` slots and calls `Core.swap` directly for every other extension, which this pool rejects.
+The bank's forward payload is identical to `Ve33`'s, so a `Router` deployed with the bank in its
+`ve33` slot drives the pool unmodified; a production deployment wants either that dedicated router
+or a router that knows the bank's address.
+
 ### The hourly buyback tick is a TWAMM order
 
 §11 rate-limits contraction-vault buybacks with an hourly `spend_tick = min(0.10 * V, 0.002 * R)` so
@@ -55,9 +61,10 @@ hand-rolled tick.
 
 The whitepaper claims the bank "answers to no board" while also describing a "policy-controlled"
 charters-per-day count and an "admin-set reserve price". Both cannot be true at once. `CentralBank`
-resolves it with a solady `Ownable` holding exactly four knobs — charters per day, the charter
-auction reserve price, the team fee recipient, and the one-time genesis `$BANK` mint — and an
-irreversible `renounceOwnership()`. The immutability claim is reachable rather than false at launch.
+resolves it with a solady `Ownable` holding exactly five knobs — charters per day, the charter
+auction reserve price, the team fee recipient, the vaults' TWAMM order configuration, and the
+one-time genesis `$BANK` mint — and an irreversible `renounceOwnership()`. The immutability claim
+is reachable rather than false at launch.
 
 Everything else, including every monetary parameter below, is immutable from construction.
 
@@ -72,12 +79,12 @@ Values stated in the whitepaper's own prose, and fixed in code:
 
 | Parameter | Value | Source |
 | --- | --- | --- |
-| Hard cap | 1,000,000,000 `$STANDARD` | §3 |
-| Genesis liquidity | 100,000,000 `$STANDARD`, full range, unwithdrawable | §3 |
-| Issuance budget | 900,000,000 `$STANDARD` | §3 |
+| Hard cap | 1,000,000,000 `$ISSUE` | §3 |
+| Genesis liquidity | 100,000,000 `$ISSUE`, full range, unwithdrawable | §3 |
+| Issuance budget | 900,000,000 `$ISSUE` | §3 |
 | Fee split | 70% active vault / 15% POL / 15% team | §11 |
 | Resolution fee burn share | 50% burned, 50% to remaining holders | §9 |
-| License payment | `$STANDARD`, 100% burned | §7 |
+| License payment | `$ISSUE`, 100% burned | §7 |
 | License auction open | 2x previous close (2x floor if nothing sold) | §8 |
 | Charter auction open | 3x previous close (3x floor if nothing sold) | §8 |
 | Auction decay | exponential from open to floor over 24h | §7, eq 7.1 |
@@ -87,7 +94,7 @@ Configurable, with launch defaults:
 
 | Parameter | Default | Note |
 | --- | --- | --- |
-| Base issuance | 1,000,000 `$STANDARD`/day at `m = 1` | §5 |
+| Base issuance | 1,000,000 `$ISSUE`/day at `m = 1` | §5 |
 | Multiplier range | 0.25x to 4x | §5 |
 | Multiplier at launch | 1x | §5 |
 | Epoch length | 1 day | §4 |
@@ -101,7 +108,9 @@ Configurable, with launch defaults:
 | Resolution fee floor | 1% | §9 |
 | Resolution fee ceiling | 30% | §9 |
 | Exit pressure saturation | 25% of the bank in 7 days | §9 |
-| Exit pressure denominator floor | 1,000,000 `$STANDARD` | §9, eq 9.1 |
+| Exit pressure denominator floor | 1,000,000 `$ISSUE` | §9, eq 9.1 |
+| POL reference window | 1 hour | a price must prevail this long to fully replace the bank's reference |
+| POL max premium | 5,000 ticks (~0.5%) | the most `compound()` pays above the reference |
 | Vault order duration | 10 days | §11 |
 
 `m` is stored as a `uint64` in `1e18` fixed point. `cutStep` is four times `raiseStep` by default,
@@ -112,17 +121,17 @@ which is what makes "the bank turns defensive faster than it turns generous" tru
 
 | Contract | Role |
 | --- | --- |
-| `StandardToken` | `$STANDARD`. ERC-20, 1B cumulative-mint cap. Only the bank mints. Anyone burns their own. |
+| `IssueToken` | `$ISSUE`. ERC-20, 1B cumulative-mint cap. Only the bank mints. Anyone burns their own. |
 | `BankToken` | `$BANK`. ERC-20 branch share. Settles both sides' accrued issuance on every transfer. |
 | `CentralBank` | The extension. Issuance ledger, net flow, multiplier, fee routing, withdrawals, POL. |
-| `StandardAuctions` | Both daily falling-price Dutch auctions (licenses in `$STANDARD`, charters in ETH). |
-| `StandardVault` | A `RevenueBuybacks` whose proceeds are collected to a fixed recipient. Deployed twice. |
+| `StandardAuctions` | Both daily falling-price Dutch auctions (licenses in `$ISSUE`, charters in ETH). |
+| `StandardVault` | A `RevenueBuybacks` owned by the bank, so its proceeds can only land there. Deployed twice. |
 
 ## Mechanics
 
 ### Issuance
 
-`$STANDARD` is issued as a ledger entry, never as tokens, until a holder withdraws. `CentralBank`
+`$ISSUE` is issued as a ledger entry, never as tokens, until a holder withdraws. `CentralBank`
 keeps a `growthPerShareX128` accumulator in the style of `Ve33`'s `emissionGrowthGlobalX128`: each
 `accrue()` advances `issuanceGrowthPerShareX128` by `(amount << 128) / bankSupply` and each holder's
 claim is `balance * (growth - snapshot) >> 128` plus anything already settled.
@@ -160,8 +169,8 @@ The fee is always taken in ETH, on both buys and sells, and is always taken so t
 | --- | --- |
 | Exact-in ETH (a buy) | Fee deducted off the top; the pool swaps `amount - fee`. |
 | Exact-out ETH (a sell) | Requested output grossed up; the pool swaps for `amountBeforeFee`. |
-| Exact-in `$STANDARD` (a sell) | Fee taken from the ETH the pool pays out. |
-| Exact-out `$STANDARD` (a buy) | Fee added to the ETH the pool requires. |
+| Exact-in `$ISSUE` (a sell) | Fee taken from the ETH the pool pays out. |
+| Exact-out `$ISSUE` (a buy) | Fee added to the ETH the pool requires. |
 
 Net flow is measured on the trader-facing ETH delta, fee included, because that is the capital that
 actually moved. Fee ETH accrues into a Core saved balance under the bank until it is routed.
@@ -189,12 +198,53 @@ there is nobody to pay, and that half is burned too.
 ### Protocol-owned liquidity
 
 `compound()` is permissionless. Inside one Core lock it draws the accumulated POL share out of the
-bank's saved balance, swaps half of it to `$STANDARD` through the canonical pool (paying no fee and
+bank's saved balance, swaps half of it to `$ISSUE` through the canonical pool (paying no fee and
 registering no flow, because the bank is the locker), and adds both sides as full-range liquidity to
 a position owned by the bank.
 
 There is no code path anywhere in `CentralBank` that decreases that position's liquidity. POL only
 grows.
+
+#### The bank is its own oracle
+
+A permissionless function that buys at spot is an invitation: pump `$ISSUE`, call `compound()`, sell
+back into the bank's bids. The usual defences — a TWAMM order, or an external oracle — either delay
+the liquidity or import a dependency. This implementation uses something the bank already has:
+**every trade in this economy passes through it**, so it can keep its own price reference.
+
+`CentralBank` records the pool tick after every swap and folds it into a time-weighted reference:
+
+```
+reference += (lastObservedTick - reference) * min(elapsed, WINDOW) / WINDOW
+```
+
+A price pulls the reference toward itself in proportion to how long it prevailed. A price that
+lasts a full `polReferenceWindow` replaces the reference outright; a price that exists only inside
+one block has prevailed for zero seconds and moves nothing. That last property is the whole point.
+
+`compound()` then buys `$ISSUE` with a price bound `polMaxPremiumTicks` below the reference. Three
+things follow:
+
+- **A pump is refused.** If spot is already dearer than the bound, `compound()` reverts with
+  `IssuePricedAboveReference` and the ETH waits. The front-runner has paid two fees and price impact
+  to move a price the bank then declines to buy at, and has nothing to sell into.
+- **A dip is bought.** If spot is cheaper than the reference, the bank buys down to the bound. A
+  dump in front of `compound()` gives the bank a discount; the dumper cannot profit from it.
+- **The bank's own impact is bounded.** The swap stops at the bound, so a large tranche is placed
+  over several calls as the reference catches up — about `polMaxPremiumTicks` of impact per
+  `polReferenceWindow` at most. The spend cap §11 wanted for buybacks falls out of this for POL.
+
+The residual exposure is the standard one for any time-weighted reference: an attacker who holds
+the price elevated across the whole window can move the reference, and is exposed to arbitrage the
+entire time. The prize is bounded by the pending POL tranche times the premium; the cost is fees
+and impact on the volume needed to move a pool this deep for an hour. As the POL position grows,
+that trade gets worse for the attacker in both directions.
+
+Alternatives considered and not taken: routing the POL share through a TWAMM order (works, but
+liquidity then lands in steps and the pairing needs a second permissionless trigger); a reverse
+Dutch auction where the bank's bid rises from zero and sellers step in (elegant, market-set, but a
+third auction's worth of surface); and single-sided ETH bid liquidity with no swap at all (turns
+out to be the same sandwich, since the bids sit at the pumped tick).
 
 ### Vaults
 
@@ -202,25 +252,32 @@ Both vaults receive ETH and sell it through a TWAMM order.
 
 - The **expansion vault** buys the reserve asset — a tokenized gold token, fixed at construction —
   and collects it to the `CentralBank`, which holds the reserves.
-- The **contraction vault** buys `$STANDARD` and collects it to the `CentralBank`. Anyone may then
-  call `burnReserves()` to burn every `$STANDARD` the bank holds. The vault can never sell.
+- The **contraction vault** buys `$ISSUE` and collects it to the `CentralBank`. Anyone may then
+  call `burnReserves()` to burn every `$ISSUE` the bank holds. The vault can never sell.
+
+"Can never sell" is structural rather than promised. `RevenueBuybacks.collect` is permissionless
+and delivers to the vault's *owner*, and its owner also holds an arbitrary `call`. Both vaults are
+therefore owned by `CentralBank` itself: whatever anyone collects lands at the bank, and the
+arbitrary call is reachable by nobody, because the bank exposes no way to make it. The only thing
+the bank's owner can do to a vault is `configureVault` — order duration and fee tier — and once
+the owner renounces, even that is frozen.
 
 One consequence of using TWAMM is worth stating plainly: a TWAMM order executes against a pool whose
 extension is TWAMM, not against the canonical market, whose extension is the bank. Buybacks therefore
-run through a separate ETH/`$STANDARD` TWAMM pool on the same pair and reach the canonical price
+run through a separate ETH/`$ISSUE` TWAMM pool on the same pair and reach the canonical price
 through arbitrage rather than directly. This is how Ekubo's own revenue buybacks work, and it is why
 the buyback bid is structural rather than a mechanical push on the canonical pool. §11's claim that
-the vault "buys $STANDARD on the open market and burns everything it buys" holds. Its claim that the
+the vault "buys $ISSUE on the open market and burns everything it buys" holds. Its claim that the
 spend is bounded as a fraction of *canonical* pool depth does not translate, and is replaced by the
 order duration.
 
 ## Genesis
 
 1. Deploy `CentralBank` at an address whose leading byte encodes its call points, which also deploys
-   `$STANDARD` and `$BANK`.
+   `$ISSUE` and `$BANK`.
 2. Deploy both vaults and `StandardAuctions`; the owner wires them in once each.
 3. The owner calls `initialize{value: seedEth}(tick)`, which initializes the pool, mints the
-   100,000,000 `$STANDARD` genesis supply, and locks it with the seed ETH into the full-range POL
+   100,000,000 `$ISSUE` genesis supply, and locks it with the seed ETH into the full-range POL
    position. This is the only pre-mint.
 4. The owner mints up to 1,000 `$BANK` for the founding distribution, pointing it at `Incentives`
    for a one-per-wallet merkle claim.
